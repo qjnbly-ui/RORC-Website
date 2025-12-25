@@ -1,0 +1,510 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RORC</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Alfa+Slab+One&display=swap');
+
+    body.rorc-page {
+      background: #050505;
+      color: #f5f5f5;
+    }
+
+    /* Visually hidden heading for accessibility */
+    .rorc-visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      border: 0;
+    }
+
+    /* SECTION (no photo background, just cinematic gradient) */
+    .rorc-section {
+      position: relative;
+      padding: 56px 20px 42px;
+      background: #050505;
+      color: #f5f5f5;
+      font-family: var(--font-body);
+      overflow: hidden;
+    }
+
+    .rorc-section::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at top center, rgba(255,255,255,0.10), transparent 60%),
+        linear-gradient(to bottom, rgba(0,0,0,0.2), rgba(0,0,0,0.9));
+      opacity: 1;
+      z-index: 0;
+    }
+
+    .rorc-inner {
+      position: relative;
+      z-index: 1;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    /* HERO */
+    .rorc-hero {
+      text-align: center;
+      max-width: 760px;
+      margin: 0 auto 26px;
+    }
+
+    .rorc-welcome {
+      margin: 0 0 8px;
+      font-family: Georgia, serif;
+      font-size: 16px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: #ffffff;
+    }
+
+    /* LOGO TYPOGRAPHY */
+    .rorc-logo-block {
+      margin-bottom: 14px;
+      line-height: 1.05;
+    }
+
+    .rorc-logo-line {
+      font-family: 'Alfa Slab One', serif;
+      font-size: 32px;
+      letter-spacing: 0.9px;
+    }
+
+    .rorc-logo-red { color: #c44744; }
+    .rorc-logo-white { color: #ffffff; font-size: 30px; }
+
+    .rorc-logo-address {
+      font-family: Georgia, serif;
+      color: #ffffff;
+      font-size: 16px;
+      margin-top: 4px;
+    }
+
+    /* Larger on desktop */
+    @media (min-width: 900px) {
+      .rorc-logo-line {
+        font-size: 38px;
+      }
+      .rorc-logo-white {
+        font-size: 36px;
+      }
+      .rorc-logo-address {
+        font-size: 17px;
+      }
+    }
+
+    /* HERO SUBTITLE */
+    .rorc-subtitle {
+      margin: 12px 0 18px;
+      color: #e3e3e3;
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    /* GRID */
+    .rorc-grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0,1fr));
+      gap: 20px;
+    }
+
+    .rorc-card {
+      grid-column: span 12;
+      background: rgba(10,10,10,0.96);
+      border-radius: 16px;
+      border: 1px solid rgba(231,210,160,0.25);
+      box-shadow: 0 18px 55px rgba(0,0,0,0.9);
+      padding: 20px 18px;
+    }
+
+    .rorc-card-primary {
+      border-color: rgba(153,192,255,0.7);
+      box-shadow: 0 22px 60px rgba(22,70,170,0.6);
+    }
+
+    @media (min-width: 980px) {
+      .rorc-card-primary { grid-column: span 5; }
+      .rorc-card:nth-of-type(2) { grid-column: span 4; }
+      .rorc-card:nth-of-type(3) { grid-column: span 3; }
+    }
+
+    /* CARD CONTENT */
+    .rorc-card-title {
+      font-family: Georgia, serif;
+      font-size: 20px;
+      margin: 0 0 8px;
+    }
+    .rorc-card-text {
+      font-size: 14.5px;
+      line-height: 1.7;
+      color: #f0f0f0;
+      margin-bottom: 10px;
+    }
+    .rorc-list {
+      margin-left: 18px;
+      margin-bottom: 12px;
+      font-size: 14px;
+      color: #e4e4e4;
+      line-height: 1.6;
+    }
+    .rorc-note {
+      margin-top: 12px;
+      font-size: 13px;
+      color: #b6c9ff;
+    }
+    .rorc-hint {
+      margin-top: 8px;
+      font-size: 13px;
+      color: #c0c0c0;
+    }
+
+    /* Center actions in all cards */
+    .rorc-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+      justify-content: center;
+      align-items: center;
+    }
+
+    /* BUTTONS */
+    .rorc-btn {
+      display: inline-block;
+      padding: 9px 16px;
+      border-radius: 999px;
+      border: 1px solid rgba(231,210,160,0.5);
+      background: linear-gradient(180deg,#222,#111);
+      color: #fff;
+      font-family: Georgia, serif;
+      font-size: 12.5px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: 0.15s ease;
+    }
+    .rorc-btn:hover {
+      transform: translateY(-1px);
+      border-color: #e7d2a0;
+    }
+
+    /* Main hero button */
+    .rorc-btn-main {
+      padding-inline: 22px;
+      background: #ffffff;
+      color: #000;
+      border-color: #ffffff;
+      box-shadow: 0 20px 45px rgba(0,0,0,0.85);
+    }
+
+    /* Accent (Start Membership) */
+    .rorc-btn-accent {
+      background: linear-gradient(180deg,#1763ff,#0d3daa);
+      border-color: rgba(145,189,255,0.9);
+      box-shadow: 0 14px 35px rgba(23,99,255,0.7);
+    }
+
+    /* Neutral */
+    .rorc-btn-neutral {
+      background: linear-gradient(180deg,#262626,#181818);
+    }
+
+    /* Ghost */
+    .rorc-btn-ghost {
+      background: transparent;
+      border-color: rgba(255,255,255,0.24);
+      color: #f5f5f5;
+    }
+
+    /* Danger */
+    .rorc-btn-danger {
+      background: linear-gradient(180deg,#5a0f0f,#3a0b0b);
+      border-color: rgba(255,140,140,0.5);
+    }
+
+    /* MODAL */
+    .rorc-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.92);
+      display: none;
+      z-index: 1000;
+      flex-direction: column;
+    }
+    .rorc-modal-head {
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      padding:14px 18px;
+      border-bottom:1px solid rgba(231,210,160,0.25);
+    }
+    .rorc-modal-title {
+      margin:0;
+      font-family:Georgia,serif;
+      font-size:18px;
+      color:#f6f6f6;
+    }
+    .rorc-modal-body {
+      flex:1;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:16px;
+    }
+    .rorc-iframe {
+      width:90%;
+      height:85%;
+      border:none;
+      border-radius:12px;
+      box-shadow:0 18px 45px rgba(0,0,0,0.85);
+    }
+
+    /* Bly Bobcats Merch */
+    .qjn-fw-callout {
+      max-width: 1000px;
+      margin: 14px auto 30px;
+      padding: 0 20px;
+    }
+    .qjn-fw-box {
+      background: #141414;
+      border: 1px solid rgba(231,210,160,.28);
+      border-radius: 14px;
+      box-shadow: 0 8px 28px rgba(0,0,0,.4);
+      padding: 18px 20px;
+      text-align: center;
+      color: #eee;
+    }
+    .qjn-fw-head h3 {
+      margin: 0 0 6px;
+      font: 600 22px/1.2 Georgia, "Times New Roman", serif;
+      color: #f6f6f6;
+    }
+    .qjn-fw-head p {
+      margin: 0 0 10px;
+      color: #cfcfcf;
+      font: 400 14.5px/1.6 var(--font-body);
+    }
+    .qjn-fw-donate {
+      color: #e7d2a0;
+      font: 500 14px/1.5 var(--font-body);
+      margin-top: 6px;
+    }
+    .qjn-fw-actions {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .qjn-fw-btn {
+      display: inline-block;
+      padding: 10px 16px;
+      border-radius: 10px;
+      text-decoration: none;
+      color: #fff;
+      border: 1px solid rgba(231,210,160,.45);
+      background: linear-gradient(180deg, #1f1f1f, #141414);
+      font: 600 14.5px/1.2 Georgia, serif;
+      transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+    }
+    .qjn-fw-btn:hover {
+      transform: translateY(-1px);
+      border-color: #e7d2a0;
+      box-shadow: 0 6px 18px rgba(0,0,0,.4);
+    }
+
+    /* MOBILE TWEAKS */
+    @media (max-width: 600px) {
+      .rorc-card { padding: 16px 14px; }
+      .rorc-logo-line { font-size: 28px; }
+      .rorc-logo-white { font-size: 26px; }
+      .rorc-logo-address { font-size: 14px; }
+    }
+  </style>
+</head>
+
+<body class="rorc-page">
+  <!-- ===== RORC · Cinematic Community Section (No Photo Background) ===== -->
+  <section class="rorc-section" aria-labelledby="rorc-title">
+    <div class="rorc-inner">
+
+      <!-- HERO -->
+      <header class="rorc-hero">
+        <h1 id="rorc-title" class="rorc-visually-hidden">Ruth Obenchain Recreation Center</h1>
+
+        <h3 class="rorc-welcome">WELCOME TO THE</h3>
+
+        <!-- HTML logo -->
+        <div class="rorc-logo-block">
+          <div class="rorc-logo-line rorc-logo-red">Ruth Obenchain</div>
+          <div class="rorc-logo-line rorc-logo-white">Recreation Center</div>
+          <div class="rorc-logo-address">19140 Edler Street</div>
+        </div>
+
+        <p class="rorc-subtitle">
+          A volunteer-run community gym. From open gym night to event rentals, every membership helps keep this space open and alive for everyone to continue to enjoy.
+        </p>
+
+        <form action="about-rorc/" method="get">
+          <button type="submit" class="rorc-btn rorc-btn-main">
+            Learn About Our Story
+          </button>
+        </form>
+      </header>
+
+      <!-- GRID -->
+      <div class="rorc-grid">
+
+        <!-- CARD 1: JOIN -->
+        <article class="rorc-card rorc-card-primary">
+          <h2 class="rorc-card-title">Choose Your Membership</h2>
+          <p class="rorc-card-text">
+            Pick the option that fits how you use the gym. All billing goes through our secure Stripe portal.
+          </p>
+
+          <ul class="rorc-list">
+            <li>
+              <strong>Open Gym — $2 one-time sign-up fee</strong><br>
+              Open gym nights on <strong>Tuesday and Thursday</strong> from <strong>6–8</strong>.
+            </li>
+            <li>
+              <strong>Weight Room Only — $10/month</strong><br>
+              Access to the weight room only.
+            </li>
+            <li>
+              <strong>Full Facility — $20/month</strong><br>
+              Full access daily from <strong>7–9</strong>.
+            </li>
+            <li>
+              <strong>Full Facility + Wi-Fi — $25/month</strong><br>
+              Everything above plus Wi-Fi access.
+            </li>
+          </ul>
+
+          <div class="rorc-actions">
+            <button
+              class="rorc-btn rorc-btn-accent"
+              onclick="window.open('https://docs.google.com/forms/d/e/1FAIpQLScl0BSlzIa0CBzw75Exz19dTIAb0fAZvYHz9FVhg-UEBZU7ww/viewform?usp=sf_link', '_blank')">
+              Start Membership
+            </button>
+          </div>
+
+          <p class="rorc-note">
+            Thanks for joining the community and for using the gym responsibly.
+          </p>
+        </article>
+
+        <!-- CARD 2: MANAGE -->
+        <article class="rorc-card">
+          <h2 class="rorc-card-title">Manage Your Membership</h2>
+          <p class="rorc-card-text">
+            Update your information, pause or cancel your plan, or check your current status anytime.
+          </p>
+
+          <div class="rorc-actions">
+            <button
+              class="rorc-btn rorc-btn-neutral"
+              onclick="window.open('https://billing.stripe.com/p/login/eVaeWh2tN0vxgSs288', '_blank')">
+              Open Portal
+            </button>
+
+            <button
+              class="rorc-btn rorc-btn-ghost"
+              onclick="window.open('https://www.appsheet.com/start/148f600c-2af7-4191-a6bf-b88b04244cb0?platform=web#view=All%20Accounts%20Overview', '_blank')">
+              View Accounts
+            </button>
+          </div>
+
+          <p class="rorc-hint">
+            You'll need the email you signed up with.
+          </p>
+        </article>
+
+        <!-- CARD 3: APP -->
+        <article class="rorc-card">
+          <h2 class="rorc-card-title">RORC Application</h2>
+          <p class="rorc-card-text">
+            Mandatory sign-in, heater control, and account tools — all in one place.
+          </p>
+
+          <div class="rorc-actions">
+            <button class="rorc-btn rorc-btn-neutral" onclick="openAppSheetPopup()">
+              Open App
+            </button>
+
+            <button
+              class="rorc-btn rorc-btn-ghost"
+              onclick="window.open('https://www.appsheet.com/newshortcut/148f600c-2af7-4191-a6bf-b88b04244cb0', '_blank')">
+              Download
+            </button>
+          </div>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== MODAL ===== -->
+  <div id="appSheetModal" class="rorc-modal" role="dialog" aria-modal="true" aria-labelledby="rorcModalTitle" style="display:none;">
+    <div class="rorc-modal-head">
+      <h3 id="rorcModalTitle" class="rorc-modal-title">RORC Application</h3>
+      <button class="rorc-btn rorc-btn-danger rorc-close" onclick="closeAppSheetPopup()">Close</button>
+    </div>
+    <div class="rorc-modal-body">
+      <iframe id="appSheetIframe" title="AppSheet Application" class="rorc-iframe"></iframe>
+    </div>
+  </div>
+
+  <!-- ===== Bly Bobcats Merch (opens collection in new tab) ===== -->
+  <section class="qjn-fw-callout" aria-labelledby="fw-bly-title">
+    <div class="qjn-fw-box">
+      <header class="qjn-fw-head">
+        <h3 id="fw-bly-title">Bly Bobcats Merch</h3>
+        <p>Shirts, hats, and more — fulfilled via Fourthwall.</p>
+        <p class="qjn-fw-donate">
+          20% of all profits go to the Ruth Obenchain Recreation Center. The remainder helps support online maintenance.
+        </p>
+      </header>
+
+      <div class="qjn-fw-actions">
+        <a class="qjn-fw-btn" href="https://shop.quentinnichols.com/collections/bly-bobcats" target="_blank" rel="noopener">
+          View Collection
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <div style="width: 100%; max-width: 900px; margin: 0 auto 40px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+    <iframe
+      src="https://calendar.google.com/calendar/embed?src=c_76h3q12d2p9m1m49omkcarh2nc%40group.calendar.google.com&ctz=America%2FLos_Angeles&mode=MONTH&showTitle=0&showPrint=0&showTabs=0&showCalendars=0"
+      style="border: 0; width: 100%; height: 700px;"
+      frameborder="0">
+    </iframe>
+  </div>
+
+  <!-- ===== JS ===== -->
+  <script>
+    function openAppSheetPopup(){
+      const url = "https://www.appsheet.com/start/148f600c-2af7-4191-a6bf-b88b04244cb0?_=" + Date.now();
+      document.getElementById('appSheetIframe').src = url;
+      document.getElementById('appSheetModal').style.display = 'flex';
+      document.body.style.overflow = 'hidden';
+    }
+    function closeAppSheetPopup(){
+      document.getElementById('appSheetModal').style.display = 'none';
+      document.body.style.overflow = 'auto';
+    }
+  </script>
+</body>
+</html>
