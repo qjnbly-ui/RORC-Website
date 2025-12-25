@@ -324,18 +324,18 @@
       box-shadow: 0 6px 18px rgba(0,0,0,.4);
     }
 
-    /* ===== Home: RORC Album ===== */
-    .rorc-album {
+    /* ===== Home: RORC Carousel ===== */
+    .rorc-carousel {
       position: relative;
-      padding: 50px 20px 64px;
+      padding: 36px 20px 54px;
       background:
-        radial-gradient(600px 260px at 12% 0%, rgba(196, 71, 68, 0.18), transparent 60%),
-        radial-gradient(520px 280px at 92% 16%, rgba(255, 255, 255, 0.08), transparent 62%),
+        radial-gradient(620px 260px at 10% 0%, rgba(196, 71, 68, 0.22), transparent 60%),
+        radial-gradient(520px 280px at 90% 18%, rgba(255, 255, 255, 0.08), transparent 62%),
         #050505;
       overflow: hidden;
     }
 
-    .rorc-album::after {
+    .rorc-carousel::after {
       content: "";
       position: absolute;
       inset: 0;
@@ -346,127 +346,107 @@
       pointer-events: none;
     }
 
-    .rorc-album-inner {
+    .rorc-carousel-inner {
       position: relative;
       z-index: 1;
       max-width: 1100px;
       margin: 0 auto;
     }
 
-    .rorc-album-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-      gap: 16px;
-      margin-bottom: 22px;
-      flex-wrap: wrap;
-    }
-
-    .rorc-album-title {
-      margin: 0;
-      font-size: 20px;
-      letter-spacing: 0.22em;
-      text-transform: uppercase;
-      color: #ffffff;
-    }
-
-    .rorc-album-note {
-      margin: 0;
-      max-width: 520px;
-      color: #c9cbd1;
-      font-size: 14px;
-      line-height: 1.6;
-    }
-
-    .rorc-album-grid {
-      display: grid;
-      grid-template-columns: repeat(6, minmax(0, 1fr));
-      grid-auto-rows: 120px;
-      gap: 14px;
-    }
-
-    .rorc-album-item {
+    .rorc-carousel-frame {
       position: relative;
-      border-radius: 16px;
+      border-radius: 18px;
       overflow: hidden;
       background: #101318;
-      box-shadow: 0 14px 28px rgba(0,0,0,0.5);
-      opacity: 0;
-      transform: translateY(10px);
-      animation: rorcAlbumFade 0.6s ease forwards;
-      animation-delay: var(--delay, 0s);
+      box-shadow: 0 18px 42px rgba(0,0,0,0.6);
+      aspect-ratio: 16 / 9;
     }
 
-    .rorc-album-item::after {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(120deg, rgba(255,255,255,0.08), transparent 65%);
-      opacity: 0.35;
+    .rorc-carousel-slides {
+      display: flex;
+      width: 100%;
+      height: 100%;
+      transition: transform 0.5s ease;
     }
 
-    .rorc-album-item img {
+    .rorc-carousel-slide {
+      min-width: 100%;
+      height: 100%;
+      position: relative;
+    }
+
+    .rorc-carousel-slide img {
       width: 100%;
       height: 100%;
       object-fit: cover;
       display: block;
-      filter: saturate(1.05) contrast(1.04);
-      transition: transform 0.5s ease, filter 0.3s ease;
+      filter: saturate(1.08) contrast(1.03);
     }
 
-    .rorc-album-item:hover img {
-      transform: scale(1.04);
-      filter: saturate(1.2) brightness(1.04);
+    .rorc-carousel-controls {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      pointer-events: none;
     }
 
-    .rorc-album-item.size-large {
-      grid-column: span 3;
-      grid-row: span 2;
+    .rorc-carousel-btn {
+      pointer-events: auto;
+      width: 40px;
+      height: 40px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.4);
+      background: rgba(5,5,5,0.65);
+      color: #ffffff;
+      font-size: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
     }
 
-    .rorc-album-item.size-tall {
-      grid-column: span 2;
-      grid-row: span 3;
+    .rorc-carousel-btn:hover {
+      transform: translateY(-1px);
+      border-color: rgba(255,255,255,0.7);
+      background: rgba(5,5,5,0.8);
     }
 
-    .rorc-album-item.size-wide {
-      grid-column: span 3;
-      grid-row: span 1;
+    .rorc-carousel-dots {
+      position: absolute;
+      left: 50%;
+      bottom: 16px;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
     }
 
-    .rorc-album-item.size-base {
-      grid-column: span 2;
-      grid-row: span 2;
+    .rorc-carousel-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.6);
+      background: rgba(255,255,255,0.2);
+      cursor: pointer;
+      transition: transform 0.15s ease, background 0.15s ease;
     }
 
-    @keyframes rorcAlbumFade {
-      to {
-        opacity: 1;
-        transform: translateY(0);
+    .rorc-carousel-dot.is-active {
+      background: #ffffff;
+      transform: scale(1.2);
+    }
+
+    @media (max-width: 700px) {
+      .rorc-carousel-frame {
+        aspect-ratio: 4 / 3;
       }
-    }
-
-    @media (max-width: 900px) {
-      .rorc-album-grid {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        grid-auto-rows: 110px;
-      }
-      .rorc-album-item.size-large {
-        grid-column: span 4;
-      }
-      .rorc-album-item.size-wide {
-        grid-column: span 4;
-      }
-    }
-
-    @media (max-width: 600px) {
-      .rorc-album-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        grid-auto-rows: 120px;
-      }
-      .rorc-album-item {
-        grid-column: span 2 !important;
-        grid-row: span 2 !important;
+      .rorc-carousel-btn {
+        width: 34px;
+        height: 34px;
+        font-size: 16px;
       }
     }
 
@@ -610,17 +590,21 @@
     </div>
   </div>
 
-  <!-- ===== RORC Homepage Album ===== -->
-  <section class="rorc-album" aria-labelledby="rorc-album-title">
-    <div class="rorc-album-inner">
-      <div class="rorc-album-head">
-        <h2 id="rorc-album-title" class="rorc-album-title">RORC Homepage Album</h2>
-        <p class="rorc-album-note">
-          A rotating snapshot of the gym and the people who keep it going.
-        </p>
+  <!-- ===== RORC Homepage Carousel ===== -->
+  <section class="rorc-carousel" aria-label="RORC photo carousel">
+    <div class="rorc-carousel-inner">
+      <div class="rorc-carousel-frame">
+        <div class="rorc-carousel-slides" id="rorc-carousel-slides"></div>
+        <div class="rorc-carousel-controls" aria-hidden="true">
+          <button class="rorc-carousel-btn" id="rorc-carousel-prev" type="button" aria-label="Previous photo">
+            ‹
+          </button>
+          <button class="rorc-carousel-btn" id="rorc-carousel-next" type="button" aria-label="Next photo">
+            ›
+          </button>
+        </div>
+        <div class="rorc-carousel-dots" id="rorc-carousel-dots" aria-hidden="true"></div>
       </div>
-
-      <div class="rorc-album-grid" id="rorc-album-grid" aria-live="polite"></div>
     </div>
   </section>
 
@@ -664,7 +648,7 @@
       document.body.style.overflow = 'auto';
     }
 
-    const rorcAlbumImages = [
+    const rorcCarouselImages = [
       { src: "Images/RORC Homepage/RORC-HomepageGallery1.jpg", alt: "RORC gym interior" },
       { src: "Images/RORC Homepage/RORC-HomepageGallery2.jpg", alt: "RORC community moment" },
       { src: "Images/RORC Homepage/RORC-HomepageGallery3.jpg", alt: "RORC activity highlight" },
@@ -673,7 +657,7 @@
       { src: "Images/RORC Homepage/IMG_20190318_194411.jpg", alt: "RORC open gym" }
     ];
 
-    function shuffleRorcAlbum(items){
+    function shuffleRorcCarousel(items){
       const copy = items.slice();
       for (let i = copy.length - 1; i > 0; i -= 1) {
         const j = Math.floor(Math.random() * (i + 1));
@@ -682,29 +666,92 @@
       return copy;
     }
 
-    function renderRorcAlbum(){
-      const grid = document.getElementById('rorc-album-grid');
-      if (!grid) return;
+    function renderRorcCarousel(){
+      const slides = document.getElementById('rorc-carousel-slides');
+      const dots = document.getElementById('rorc-carousel-dots');
+      if (!slides || !dots) return;
 
-      const sizes = ["size-large", "size-base", "size-tall", "size-base", "size-wide", "size-base"];
-      const shuffled = shuffleRorcAlbum(rorcAlbumImages);
+      const shuffled = shuffleRorcCarousel(rorcCarouselImages);
+      slides.dataset.total = String(shuffled.length);
+      slides.dataset.index = "0";
 
       shuffled.forEach((image, index) => {
-        const figure = document.createElement('figure');
-        figure.className = `rorc-album-item ${sizes[index % sizes.length]}`;
-        figure.style.setProperty('--delay', `${index * 70}ms`);
+        const slide = document.createElement('div');
+        slide.className = 'rorc-carousel-slide';
 
         const img = document.createElement('img');
         img.src = encodeURI(image.src);
         img.alt = image.alt;
-        img.loading = "lazy";
+        img.loading = index === 0 ? "eager" : "lazy";
 
-        figure.appendChild(img);
-        grid.appendChild(figure);
+        slide.appendChild(img);
+        slides.appendChild(slide);
+
+        const dot = document.createElement('button');
+        dot.className = 'rorc-carousel-dot';
+        dot.type = 'button';
+        dot.setAttribute('aria-label', `Go to photo ${index + 1}`);
+        dot.addEventListener('click', () => setRorcSlide(index));
+        dots.appendChild(dot);
+      });
+
+      updateRorcCarousel();
+    }
+
+    function setRorcSlide(nextIndex){
+      const slides = document.getElementById('rorc-carousel-slides');
+      if (!slides) return;
+      const total = Number(slides.dataset.total || "0");
+      if (!total) return;
+      const newIndex = (nextIndex + total) % total;
+      slides.dataset.index = String(newIndex);
+      updateRorcCarousel();
+    }
+
+    function updateRorcCarousel(){
+      const slides = document.getElementById('rorc-carousel-slides');
+      const dots = document.getElementById('rorc-carousel-dots');
+      if (!slides || !dots) return;
+
+      const index = Number(slides.dataset.index || "0");
+      slides.style.transform = `translateX(-${index * 100}%)`;
+
+      Array.from(dots.children).forEach((dot, dotIndex) => {
+        dot.classList.toggle('is-active', dotIndex === index);
       });
     }
 
-    renderRorcAlbum();
+    function startRorcCarousel(){
+      const prevBtn = document.getElementById('rorc-carousel-prev');
+      const nextBtn = document.getElementById('rorc-carousel-next');
+      let timer = null;
+
+      function resetTimer(){
+        if (timer) {
+          clearInterval(timer);
+        }
+        timer = setInterval(() => setRorcSlide(Number(document.getElementById('rorc-carousel-slides').dataset.index || "0") + 1), 5000);
+      }
+
+      if (prevBtn) {
+        prevBtn.addEventListener('click', () => {
+          setRorcSlide(Number(document.getElementById('rorc-carousel-slides').dataset.index || "0") - 1);
+          resetTimer();
+        });
+      }
+
+      if (nextBtn) {
+        nextBtn.addEventListener('click', () => {
+          setRorcSlide(Number(document.getElementById('rorc-carousel-slides').dataset.index || "0") + 1);
+          resetTimer();
+        });
+      }
+
+      resetTimer();
+    }
+
+    renderRorcCarousel();
+    startRorcCarousel();
   </script>
 </body>
 </html>
