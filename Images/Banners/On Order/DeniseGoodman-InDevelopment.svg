@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600" role="img" aria-label="Denise Goodman banner in development">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f141c" />
+      <stop offset="100%" stop-color="#1a2430" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="600" fill="url(#bg)" />
+  <rect x="40" y="40" width="1120" height="520" rx="28" ry="28" fill="none" stroke="#ffffff" stroke-opacity="0.18" stroke-width="3" />
+  <text x="600" y="260" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="80" fill="#f5f5f5" letter-spacing="1">
+    Denise Goodman
+  </text>
+  <text x="600" y="360" text-anchor="middle" font-family="'Work Sans', 'Segoe UI', sans-serif" font-size="40" fill="#c2cad6" letter-spacing="2">
+    Banner In Development
+  </text>
+</svg>
