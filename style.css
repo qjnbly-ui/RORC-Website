@@ -138,9 +138,36 @@ a { color: inherit; }
   border-top: 0;
 }
 
+.sponsors-section-head {
+  margin-bottom: 12px;
+}
+
 .sponsors-note {
   font-size: 14px;
   color: rgba(194, 202, 214, 0.9);
+}
+
+.sponsors-split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.sponsors-card {
+  background: rgba(12, 14, 18, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.sponsors-card h3 {
+  margin-top: 0;
+  font-size: 16px;
+}
+
+.sponsors-card-highlight {
+  border-color: rgba(231, 210, 160, 0.35);
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.35);
 }
 
 
