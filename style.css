@@ -106,6 +106,68 @@ a { color: inherit; }
   }
 }
 
+/* ===== Sponsors Page ===== */
+.sponsors-content {
+  padding-top: 40px;
+}
+
+.sponsors-hero {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.sponsors-kicker {
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 11px;
+  color: rgba(245, 245, 245, 0.7);
+}
+
+.sponsors-lead {
+  font-size: 15px;
+  color: var(--muted);
+}
+
+.sponsors-section {
+  padding: 18px 0 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sponsors-section:first-of-type {
+  border-top: 0;
+}
+
+.sponsors-note {
+  font-size: 14px;
+  color: rgba(194, 202, 214, 0.9);
+}
+
+
+.sponsors-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+  margin: 16px 0 6px;
+}
+
+.sponsors-figure {
+  margin: 0;
+  background: rgba(12, 14, 18, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 10px;
+}
+
+.sponsors-figure img {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  border-radius: 10px;
+  display: block;
+}
+
+
 /* ===== Photography Page ===== */
 .photography-page {
   background:
