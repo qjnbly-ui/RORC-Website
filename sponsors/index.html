@@ -16,6 +16,26 @@
   <link rel="stylesheet" href="../style.css" />
 </head>
 <body>
+  <div class="site-menu">
+    <input type="checkbox" id="site-menu-toggle" class="site-menu-toggle" />
+    <div class="site-menu-bar">
+      <a class="site-menu-brand" href="/">RORC</a>
+      <label class="site-menu-button" for="site-menu-toggle">Menu</label>
+    </div>
+    <label class="site-menu-backdrop" for="site-menu-toggle" aria-hidden="true"></label>
+    <div class="site-menu-panel" role="dialog" aria-label="Site menu">
+      <label class="site-menu-close" for="site-menu-toggle">Close</label>
+      <nav class="site-menu-links" aria-label="Site">
+        <a href="/">Home</a>
+        <a href="/about-rorc/">About</a>
+        <a href="/memberships/basic-membership-contract/">Memberships</a>
+        <a href="/sponsors/">Sponsors</a>
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </nav>
+    </div>
+  </div>
   <main class="page-content sponsors-content">
     <div class="about-return">
       <a class="about-return-link" href="/">Return to RORC home</a>
