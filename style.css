@@ -109,6 +109,7 @@ a { color: inherit; }
 /* ===== Sponsors Page ===== */
 .sponsors-content {
   padding-top: 40px;
+  text-align: center;
 }
 
 .sponsors-hero {
@@ -147,6 +148,50 @@ a { color: inherit; }
   color: rgba(194, 202, 214, 0.9);
 }
 
+.sponsors-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: linear-gradient(120deg, rgba(231, 210, 160, 0.16), rgba(12, 14, 18, 0.82));
+  border: 1px solid rgba(231, 210, 160, 0.25);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.35);
+}
+
+.sponsors-cta-lead {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.sponsors-cta-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.sponsors-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-weight: 600;
+  text-decoration: none;
+  color: #0b0f14;
+  background: rgba(231, 210, 160, 0.95);
+  border: 1px solid rgba(231, 210, 160, 0.9);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sponsors-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.35);
+}
+
 .sponsors-split {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -166,7 +211,7 @@ a { color: inherit; }
 }
 
 .sponsors-card-highlight {
-  border-color: rgba(231, 210, 160, 0.35);
+  border-color: rgba(255, 255, 255, 0.08);
   box-shadow: 0 18px 34px rgba(0, 0, 0, 0.35);
 }
 
