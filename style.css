@@ -111,38 +111,20 @@ a { color: inherit; }
   text-align: center;
 }
 
-.membership-hero {
-  text-align: center;
-  margin-bottom: 28px;
-}
-
-.membership-kicker {
-  margin: 0 0 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.2em;
-  font-size: 11px;
-  color: rgba(245, 245, 245, 0.7);
-}
-
-.membership-lead {
-  font-size: 15px;
-  color: var(--muted);
-}
-
 .membership-form {
   margin: 0 auto;
-  max-width: 900px;
-  background: rgba(12, 14, 18, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
-  padding: 12px;
-  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.35);
+  width: 100%;
+  display: flex;
+  justify-content: center;
 }
 
-.membership-form iframe {
+.membership-form-frame {
+  display: block;
+  width: 640px;
+  height: 8837px;
+  margin: 0 auto;
   border: 0;
-  border-radius: 12px;
-  min-height: 900px;
+  border-radius: 8px;
 }
 
 /* ===== Sponsors Page ===== */
@@ -154,6 +136,10 @@ a { color: inherit; }
 .sponsors-hero {
   text-align: center;
   margin-bottom: 28px;
+}
+
+.sponsors-hero h1 {
+  color: rgba(231, 210, 160, 0.95);
 }
 
 .sponsors-kicker {
