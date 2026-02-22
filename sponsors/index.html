@@ -113,5 +113,70 @@
       </div>
     </section>
   </main>
+  <div class="banner-lightbox" aria-hidden="true">
+    <button class="banner-lightbox-close" type="button" aria-label="Close banner view">×</button>
+    <button class="banner-lightbox-nav banner-lightbox-prev" type="button" aria-label="Previous banner">‹</button>
+    <img class="banner-lightbox-image" alt="" />
+    <button class="banner-lightbox-nav banner-lightbox-next" type="button" aria-label="Next banner">›</button>
+  </div>
+  <script>
+    (() => {
+      const lightbox = document.querySelector(".banner-lightbox");
+      const lightboxImage = lightbox.querySelector(".banner-lightbox-image");
+      const closeButton = lightbox.querySelector(".banner-lightbox-close");
+      const prevButton = lightbox.querySelector(".banner-lightbox-prev");
+      const nextButton = lightbox.querySelector(".banner-lightbox-next");
+      const banners = Array.from(document.querySelectorAll(".sponsors-grid img"));
+      let currentIndex = 0;
+
+      const openLightbox = (index) => {
+        if (!banners.length) return;
+        currentIndex = (index + banners.length) % banners.length;
+        const banner = banners[currentIndex];
+        lightboxImage.src = banner.src;
+        lightboxImage.alt = banner.alt || "Banner image";
+        lightbox.classList.add("is-open");
+        lightbox.setAttribute("aria-hidden", "false");
+        document.body.classList.add("banner-lightbox-open");
+      };
+
+      const closeLightbox = () => {
+        lightbox.classList.remove("is-open");
+        lightbox.setAttribute("aria-hidden", "true");
+        document.body.classList.remove("banner-lightbox-open");
+      };
+
+      const showNext = () => openLightbox(currentIndex + 1);
+      const showPrev = () => openLightbox(currentIndex - 1);
+
+      banners.forEach((img, index) => {
+        img.addEventListener("click", () => openLightbox(index));
+        img.setAttribute("tabindex", "0");
+        img.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openLightbox(index);
+          }
+        });
+      });
+
+      closeButton.addEventListener("click", closeLightbox);
+      nextButton.addEventListener("click", showNext);
+      prevButton.addEventListener("click", showPrev);
+
+      lightbox.addEventListener("click", (event) => {
+        if (event.target === lightbox) {
+          closeLightbox();
+        }
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (!lightbox.classList.contains("is-open")) return;
+        if (event.key === "Escape") closeLightbox();
+        if (event.key === "ArrowRight") showNext();
+        if (event.key === "ArrowLeft") showPrev();
+      });
+    })();
+  </script>
 </body>
 </html>
