@@ -165,8 +165,10 @@
 
   <script>
     function rorcStatsLoaded(data) {
+      console.log("RORC stats loaded:", data);
+
       document.getElementById("ci-today").textContent = data.checkinsToday ?? "–";
-      document.getElementById("ci-week").textContent = data.checkinsThisWeek ?? "–";
+      document.getElementById("ci-week").textContent  = data.checkinsThisWeek ?? "–";
       document.getElementById("ci-month").textContent = data.checkinsThisMonth ?? "–";
       document.getElementById("ci-avgday").textContent = data.avgPerDayThisMonth ?? "–";
       document.getElementById("ci-updated").textContent = data.lastUpdated ?? "–";
