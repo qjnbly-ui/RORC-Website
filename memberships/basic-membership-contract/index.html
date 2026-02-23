@@ -16,19 +16,97 @@
     <label class="site-menu-backdrop" for="site-menu-toggle" aria-hidden="true"></label>
     <div class="site-menu-panel" role="dialog" aria-label="Site menu">
       <label class="site-menu-close" for="site-menu-toggle">Close</label>
-      <nav class="site-menu-links" aria-label="Site">
-        <a href="/">Home</a>
-        <a href="/about-rorc/">About</a>
-        <a href="/memberships/basic-membership-contract/">Memberships</a>
-        <a href="/sponsors/">Sponsors</a>
+      <div>
+        <nav class="site-menu-links" aria-label="Site">
+          <a href="/">Home</a>
+          <a href="/about-rorc/">About</a>
+          <a href="/memberships/basic-membership-contract/">Memberships</a>
+          <a href="/sponsors/">Sponsors</a>
+          <a href="/support/">Support</a>
+          <a href="/application/">Application</a>
+        </nav>
+      </div>
+      <div class="site-menu-legal" aria-label="Legal">
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </div>
+    </div>
+  </div>
+  <main class="page-content membership-page">
+    <section class="rorc-card rorc-card-primary">
+      <h1 class="rorc-card-title">Choose Your Membership</h1>
+      <p class="rorc-card-text">
+        Pick the option that fits how you use the gym. All billing goes through our secure Stripe portal.
+      </p>
+
+      <ul class="rorc-list">
+        <li>
+          <strong>Open Gym — $2 one-time sign-up fee</strong><br>
+          Open gym nights on <strong>Tuesday and Thursday</strong> from <strong>6–8</strong>.
+        </li>
+        <li>
+          <strong>Weight Room Only — $10/month</strong><br>
+          Access to the weight room only.
+        </li>
+        <li>
+          <strong>Full Facility — $20/month</strong><br>
+          Full access daily from <strong>7–9</strong>.
+        </li>
+        <li>
+          <strong>Full Facility + Wi-Fi — $25/month</strong><br>
+          Everything above plus Wi-Fi access.
+        </li>
+      </ul>
+
+      <div class="rorc-actions">
+        <button
+          class="rorc-btn rorc-btn-accent"
+          onclick="window.open('https://docs.google.com/forms/d/e/1FAIpQLScl0BSlzIa0CBzw75Exz19dTIAb0fAZvYHz9FVhg-UEBZU7ww/viewform?usp=sf_link', '_blank')">
+          Start Membership
+        </button>
+      </div>
+
+      <p class="rorc-note">
+        Thanks for joining the community and for using the gym responsibly.
+      </p>
+    </section>
+
+    <section class="rorc-card" style="margin-top: 20px;">
+      <h2 class="rorc-card-title">Manage Your Membership</h2>
+      <p class="rorc-card-text">
+        Update your information, pause or cancel your plan, or check your current status anytime.
+      </p>
+
+      <div class="rorc-actions">
+        <button
+          class="rorc-btn rorc-btn-neutral"
+          onclick="window.open('https://billing.stripe.com/p/login/eVaeWh2tN0vxgSs288', '_blank')">
+          Open Portal
+        </button>
+
+        <button
+          class="rorc-btn rorc-btn-ghost"
+          onclick="window.open('https://www.appsheet.com/start/148f600c-2af7-4191-a6bf-b88b04244cb0?platform=web#view=All%20Accounts%20Overview', '_blank')">
+          View Accounts
+        </button>
+      </div>
+
+      <p class="rorc-hint">
+        You'll need the email you signed up with.
+      </p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <div>© 2026 Ruth Obenchain Recreation Center</div>
+      <div class="site-footer-links">
         <a href="/support/">Support</a>
         <a href="/privacy-policy/">Privacy Policy</a>
         <a href="/terms-of-service/">Terms of Service</a>
-      </nav>
+      </div>
+      <div>Operated by Bly Community Action Team</div>
     </div>
-  </div>
-  <main class="coming-soon-center">
-    <h1>Page underdevelopment</h1>
-  </main>
+  </footer>
 </body>
 </html>

@@ -148,6 +148,7 @@ a { color: inherit; }
   flex-direction: column;
   padding: 24px;
   gap: 18px;
+  justify-content: space-between;
 }
 
 .site-menu-links {
@@ -169,6 +170,60 @@ a { color: inherit; }
   opacity: 1;
 }
 
+.site-menu-legal {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 16px;
+}
+
+.site-menu-legal a {
+  text-decoration: none;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.site-menu-legal a:hover {
+  color: var(--text);
+}
+
+.site-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 48px;
+  padding: 28px 20px 40px;
+  background: rgba(10, 12, 16, 0.65);
+}
+
+.site-footer-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 28px;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.site-footer a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.site-footer a:hover {
+  opacity: 0.9;
+}
+
+.site-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
 .site-menu-toggle:checked ~ .site-menu-backdrop {
   opacity: 1;
   pointer-events: auto;
@@ -176,6 +231,113 @@ a { color: inherit; }
 
 .site-menu-toggle:checked ~ .site-menu-panel {
   transform: translateX(0);
+}
+
+/* ===== RORC App Card + Modal ===== */
+.rorc-card {
+  background: rgba(10,10,10,0.96);
+  border-radius: 16px;
+  border: 1px solid rgba(231,210,160,0.25);
+  box-shadow: 0 18px 55px rgba(0,0,0,0.9);
+  padding: 20px 18px;
+}
+
+.rorc-card-title {
+  font-family: Georgia, serif;
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+
+.rorc-card-text {
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: #f0f0f0;
+  margin-bottom: 10px;
+}
+
+.rorc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  justify-content: center;
+  align-items: center;
+}
+
+.rorc-btn {
+  display: inline-block;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(231,210,160,0.5);
+  background: linear-gradient(180deg,#222,#111);
+  color: #fff;
+  font-family: Georgia, serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: 0.15s ease;
+}
+
+.rorc-btn:hover {
+  transform: translateY(-1px);
+  border-color: #e7d2a0;
+}
+
+.rorc-btn-neutral {
+  background: linear-gradient(180deg,#262626,#181818);
+}
+
+.rorc-btn-ghost {
+  background: transparent;
+  border-color: rgba(255,255,255,0.24);
+  color: #f5f5f5;
+}
+
+.rorc-btn-danger {
+  background: linear-gradient(180deg,#5a0f0f,#3a0b0b);
+  border-color: rgba(255,140,140,0.5);
+}
+
+.rorc-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.92);
+  display: none;
+  z-index: 1000;
+  flex-direction: column;
+}
+
+.rorc-modal-head {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  padding:14px 18px;
+  border-bottom:1px solid rgba(231,210,160,0.25);
+}
+
+.rorc-modal-title {
+  margin:0;
+  font-family:Georgia,serif;
+  font-size:18px;
+  color:#f6f6f6;
+}
+
+.rorc-modal-body {
+  flex:1;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:16px;
+}
+
+.rorc-iframe {
+  width:90%;
+  height:85%;
+  border:none;
+  border-radius:12px;
+  box-shadow:0 18px 45px rgba(0,0,0,0.85);
 }
 
 .page-content {
