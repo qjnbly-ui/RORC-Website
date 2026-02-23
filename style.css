@@ -17,6 +17,8 @@ body {
   color: var(--text);
   background: #0b0f14;
   min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .coming-soon-page {
@@ -192,7 +194,7 @@ a { color: inherit; }
 
 .site-footer {
   border-top: 1px solid rgba(255, 255, 255, 0.08);
-  margin-top: 48px;
+  margin-top: auto;
   padding: 28px 20px 40px;
   background: rgba(10, 12, 16, 0.65);
 }
@@ -222,6 +224,16 @@ a { color: inherit; }
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
+}
+
+@media (max-width: 640px) {
+  .site-footer-inner {
+    text-align: center;
+    justify-content: center;
+  }
+  .site-footer-links {
+    justify-content: center;
+  }
 }
 
 .site-menu-toggle:checked ~ .site-menu-backdrop {
