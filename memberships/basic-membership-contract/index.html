@@ -77,6 +77,15 @@
 
     <p class="membership-note">Thanks for joining the community and for using the gym responsibly.</p>
 
+    <section class="rorc-stats">
+      <h3>Gym Activity</h3>
+      <div>Check-ins today: <strong id="ci-today">–</strong></div>
+      <div>Check-ins this week: <strong id="ci-week">–</strong></div>
+      <div>Check-ins this month: <strong id="ci-month">–</strong></div>
+      <div>Avg per day (this month): <strong id="ci-avgday">–</strong></div>
+      <small>Last updated: <span id="ci-updated">–</span></small>
+    </section>
+
     <section class="rorc-card" style="margin-top: 22px;">
       <h2 class="rorc-card-title">Manage Your Membership</h2>
       <p class="rorc-card-text">
@@ -153,6 +162,18 @@
       </details>
     </section>
   </main>
+
+  <script>
+    function rorcStatsLoaded(data) {
+      document.getElementById("ci-today").textContent = data.checkinsToday ?? "–";
+      document.getElementById("ci-week").textContent = data.checkinsThisWeek ?? "–";
+      document.getElementById("ci-month").textContent = data.checkinsThisMonth ?? "–";
+      document.getElementById("ci-avgday").textContent = data.avgPerDayThisMonth ?? "–";
+      document.getElementById("ci-updated").textContent = data.lastUpdated ?? "–";
+    }
+  </script>
+
+  <script src="https://script.google.com/macros/s/AKfycbzaObDgkBen2S8yQPZzNKEyj4t-4p2Itge37e-ot8tVT7nqDH6NO5-jEIY9SnwWpHhlJA/exec?callback=rorcStatsLoaded"></script>
 
   <footer class="site-footer">
     <div class="site-footer-inner">

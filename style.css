@@ -480,6 +480,30 @@ a { color: inherit; }
   text-align: left;
 }
 
+.rorc-stats {
+  margin: 18px auto 8px;
+  max-width: 820px;
+  text-align: center;
+}
+
+.rorc-stats h3 {
+  margin: 0 0 12px;
+  font-family: var(--font-display);
+  font-size: 18px;
+}
+
+.rorc-stats div {
+  margin: 4px 0;
+  font-size: 13.5px;
+  color: #e6e6e6;
+}
+
+.rorc-stats small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+}
+
 .faq-section h2 {
   text-align: center;
 }
