@@ -6,7 +6,7 @@
   <title>Basic Membership Contract</title>
   <link rel="stylesheet" href="../../style.css" />
 </head>
-<body class="coming-soon-page">
+<body>
   <div class="site-menu">
     <input type="checkbox" id="site-menu-toggle" class="site-menu-toggle" />
     <div class="site-menu-bar">
@@ -33,45 +33,51 @@
     </div>
   </div>
   <main class="page-content membership-page">
-    <section class="rorc-card rorc-card-primary">
-      <h1 class="rorc-card-title">Choose Your Membership</h1>
-      <p class="rorc-card-text">
-        Pick the option that fits how you use the gym. All billing goes through our secure Stripe portal.
+    <header class="membership-hero">
+      <h1>Memberships</h1>
+      <p>
+        Find the membership that matches how you use the gym. All billing goes through our secure Stripe portal, and
+        you can manage your plan anytime.
       </p>
+    </header>
 
-      <ul class="rorc-list">
-        <li>
-          <strong>Open Gym — $2 one-time sign-up fee</strong><br>
-          Open gym nights on <strong>Tuesday and Thursday</strong> from <strong>6–8</strong>.
-        </li>
-        <li>
-          <strong>Weight Room Only — $10/month</strong><br>
-          Access to the weight room only.
-        </li>
-        <li>
-          <strong>Full Facility — $20/month</strong><br>
-          Full access daily from <strong>7–9</strong>.
-        </li>
-        <li>
-          <strong>Full Facility + Wi-Fi — $25/month</strong><br>
-          Everything above plus Wi-Fi access.
-        </li>
-      </ul>
+    <section class="membership-grid">
+      <article class="membership-card">
+        <h3>Open Gym</h3>
+        <div class="membership-price">$2 one-time sign-up fee</div>
+        <p>Open gym nights on Tuesday and Thursday from 6–8 PM.</p>
+      </article>
 
-      <div class="rorc-actions">
-        <button
-          class="rorc-btn rorc-btn-accent"
-          onclick="window.open('https://docs.google.com/forms/d/e/1FAIpQLScl0BSlzIa0CBzw75Exz19dTIAb0fAZvYHz9FVhg-UEBZU7ww/viewform?usp=sf_link', '_blank')">
-          Start Membership
-        </button>
-      </div>
+      <article class="membership-card">
+        <h3>Weight Room Only</h3>
+        <div class="membership-price">$10 / month</div>
+        <p>Access to the weight room only.</p>
+      </article>
 
-      <p class="rorc-note">
-        Thanks for joining the community and for using the gym responsibly.
-      </p>
+      <article class="membership-card">
+        <h3>Full Facility</h3>
+        <div class="membership-price">$20 / month</div>
+        <p>Full access daily from 7–9.</p>
+      </article>
+
+      <article class="membership-card">
+        <h3>Full Facility + Wi-Fi</h3>
+        <div class="membership-price">$25 / month</div>
+        <p>Everything above plus Wi-Fi access.</p>
+      </article>
     </section>
 
-    <section class="rorc-card" style="margin-top: 20px;">
+    <div class="membership-cta">
+      <button
+        class="rorc-btn rorc-btn-accent"
+        onclick="window.open('https://docs.google.com/forms/d/e/1FAIpQLScl0BSlzIa0CBzw75Exz19dTIAb0fAZvYHz9FVhg-UEBZU7ww/viewform?usp=sf_link', '_blank')">
+        Start Membership
+      </button>
+    </div>
+
+    <p class="membership-note">Thanks for joining the community and for using the gym responsibly.</p>
+
+    <section class="rorc-card" style="margin-top: 22px;">
       <h2 class="rorc-card-title">Manage Your Membership</h2>
       <p class="rorc-card-text">
         Update your information, pause or cancel your plan, or check your current status anytime.
@@ -94,6 +100,57 @@
       <p class="rorc-hint">
         You'll need the email you signed up with.
       </p>
+    </section>
+
+    <section class="faq-section">
+      <h2>Frequently Asked Questions</h2>
+
+      <details class="faq-item">
+        <summary>When are open gym nights?</summary>
+        <div class="faq-answer">
+          Open gym nights are Tuesday and Thursday from 6–8 PM.
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>How does billing work?</summary>
+        <div class="faq-answer">
+          Memberships renew monthly. You can manage billing in the member portal at any time.
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>Is there a key card fee?</summary>
+        <div class="faq-answer">
+          Yes. A $2 key card fee applies at sign-up.
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>Can I bring guests?</summary>
+        <div class="faq-answer">
+          Guests must be signed in under a member’s account. Guest fees apply.
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>Do you offer financial assistance or work exchange options?</summary>
+        <div class="faq-answer">
+          Yes. RORC offers a limited Work Exchange Membership Program for eligible individuals or families. Approved
+          participants complete assigned facility duties in exchange for membership access. Space is limited.
+          <p>
+            Learn more and apply through the
+            <a href="/work-exchange/">Work Exchange Membership Program</a>.
+          </p>
+        </div>
+      </details>
+
+      <details class="faq-item">
+        <summary>Where can I read the full policies?</summary>
+        <div class="faq-answer">
+          See the <a href="/terms-of-service/">Terms of Service</a> and <a href="/privacy-policy/">Privacy Policy</a>.
+        </div>
+      </details>
     </section>
   </main>
 

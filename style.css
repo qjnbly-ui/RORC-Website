@@ -226,6 +226,16 @@ a { color: inherit; }
   gap: 14px;
 }
 
+.policy-hero {
+  text-align: center;
+  margin-bottom: 26px;
+}
+
+.policy-hero p {
+  margin-left: auto;
+  margin-right: auto;
+}
+
 @media (max-width: 640px) {
   .site-footer-inner {
     text-align: center;
@@ -406,6 +416,113 @@ a { color: inherit; }
 /* ===== Membership Page ===== */
 .membership-page {
   text-align: center;
+}
+
+.membership-hero {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.membership-hero p {
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 680px;
+}
+
+.membership-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 26px;
+}
+
+.membership-card {
+  grid-column: span 12;
+  background: rgba(10,10,10,0.96);
+  border-radius: 16px;
+  border: 1px solid rgba(231,210,160,0.25);
+  box-shadow: 0 18px 55px rgba(0,0,0,0.75);
+  padding: 18px 16px;
+  text-align: left;
+}
+
+.membership-card h3 {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-size: 18px;
+}
+
+.membership-price {
+  font-size: 20px;
+  font-weight: 600;
+  color: #e7d2a0;
+  margin-bottom: 8px;
+}
+
+.membership-card p {
+  margin-bottom: 8px;
+}
+
+.membership-cta {
+  margin: 14px 0 10px;
+  text-align: center;
+}
+
+.membership-note {
+  font-size: 13px;
+  color: #b6c9ff;
+  margin-top: 8px;
+  text-align: center;
+}
+
+.faq-section {
+  margin-top: 36px;
+  text-align: left;
+}
+
+.faq-section h2 {
+  text-align: center;
+}
+
+.faq-item {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.faq-item:first-of-type {
+  border-top: 0;
+}
+
+.faq-item summary {
+  cursor: pointer;
+  padding: 14px 0;
+  list-style: none;
+  font-family: var(--font-display);
+  font-size: 16px;
+}
+
+.faq-item summary::-webkit-details-marker {
+  display: none;
+}
+
+.faq-item summary::after {
+  content: "＋";
+  float: right;
+  color: var(--muted);
+}
+
+.faq-item[open] summary::after {
+  content: "–";
+}
+
+.faq-item .faq-answer {
+  padding-bottom: 14px;
+  color: var(--muted);
+}
+
+@media (min-width: 900px) {
+  .membership-card {
+    grid-column: span 6;
+  }
 }
 
 .membership-form {
