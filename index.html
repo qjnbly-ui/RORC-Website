@@ -272,56 +272,156 @@
     }
 
     /* Bly Bobcats Merch */
-    .qjn-fw-callout {
-      max-width: 1000px;
-      margin: 14px auto 30px;
-      padding: 0 20px;
+    .merch-band {
+      position: relative;
+      margin: 18px auto 36px;
+      padding: 28px 20px;
+      background:
+        radial-gradient(500px 220px at 10% -10%, rgba(231,210,160,0.18), transparent 60%),
+        radial-gradient(420px 240px at 95% 10%, rgba(196, 71, 68, 0.18), transparent 62%),
+        #0a0b0d;
     }
-    .qjn-fw-box {
-      background: #141414;
-      border: 1px solid rgba(231,210,160,.28);
-      border-radius: 14px;
-      box-shadow: 0 8px 28px rgba(0,0,0,.4);
-      padding: 18px 20px;
-      text-align: center;
-      color: #eee;
+    .merch-band::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: linear-gradient(90deg, rgba(10,11,13,0.95), transparent 18%, transparent 82%, rgba(10,11,13,0.95));
     }
-    .qjn-fw-head h3 {
+    .merch-inner {
+      max-width: 980px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 18px;
+    }
+    .merch-inner {
+      position: relative;
+      z-index: 1;
+    }
+    .merch-text {
+      grid-column: span 12;
+      max-width: 680px;
+    }
+    .merch-kicker {
+      text-transform: uppercase;
+      letter-spacing: 0.22em;
+      font-size: 11px;
+      color: rgba(231, 210, 160, 0.7);
+      margin-bottom: 6px;
+    }
+    .merch-title {
       margin: 0 0 6px;
-      font: 600 22px/1.2 Georgia, "Times New Roman", serif;
+      font: 600 24px/1.2 Georgia, "Times New Roman", serif;
       color: #f6f6f6;
+      letter-spacing: 0.02em;
     }
-    .qjn-fw-head p {
-      margin: 0 0 10px;
-      color: #cfcfcf;
+    .merch-sub {
+      margin: 0;
+      color: #d7d7d7;
       font: 400 14.5px/1.6 var(--font-body);
     }
-    .qjn-fw-donate {
-      color: #e7d2a0;
-      font: 500 14px/1.5 var(--font-body);
-      margin-top: 6px;
-    }
-    .qjn-fw-actions {
-      display: flex;
-      justify-content: center;
-      gap: 12px;
-      flex-wrap: wrap;
-    }
-    .qjn-fw-btn {
-      display: inline-block;
-      padding: 10px 16px;
-      border-radius: 10px;
+    .merch-cta {
+      grid-column: span 12;
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
       text-decoration: none;
-      color: #fff;
+      padding: 6px 12px;
+      border-radius: 999px;
       border: 1px solid rgba(231,210,160,.45);
-      background: linear-gradient(180deg, #1f1f1f, #141414);
-      font: 600 14.5px/1.2 Georgia, serif;
+      background: linear-gradient(180deg, #1b1b1b, #101010);
+      color: #fff;
+      font: 600 11px/1 var(--font-display);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
       transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
     }
-    .qjn-fw-btn:hover {
+    .merch-cta:hover {
       transform: translateY(-1px);
       border-color: #e7d2a0;
-      box-shadow: 0 6px 18px rgba(0,0,0,.4);
+      box-shadow: 0 10px 24px rgba(0,0,0,.4);
+    }
+
+    /* Membership Summary */
+    .membership-summary {
+      max-width: 980px;
+      margin: 26px auto 8px;
+      padding: 0 20px;
+      text-align: center;
+    }
+    .membership-summary h3 {
+      margin: 0 0 6px;
+      font: 600 20px/1.2 Georgia, "Times New Roman", serif;
+      color: #f6f6f6;
+    }
+    .membership-summary p {
+      margin: 0 0 10px;
+      color: #d7d7d7;
+      font: 400 14px/1.6 var(--font-body);
+    }
+    .membership-summary a {
+      color: #e7d2a0;
+      text-decoration: none;
+      font: 600 12px/1 var(--font-display);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .membership-summary a:hover {
+      opacity: 0.85;
+    }
+
+    .merch-gallery {
+      grid-column: span 12;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-top: 6px;
+    }
+
+    .merch-item {
+      text-decoration: none;
+      background: rgba(8,8,8,0.7);
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 10px;
+      text-align: center;
+    }
+
+    .merch-item img {
+      width: 100%;
+      height: 170px;
+      object-fit: contain;
+      border-radius: 10px;
+      display: block;
+    }
+
+    .merch-item span {
+      display: block;
+      margin-top: 8px;
+      font-size: 12px;
+      color: #d8d8d8;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .merch-item:hover {
+      border-color: rgba(231,210,160,0.4);
+      transform: translateY(-2px);
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+
+    @media (min-width: 900px) {
+      .merch-text {
+        grid-column: span 7;
+      }
+      .merch-cta {
+        grid-column: span 5;
+        justify-self: end;
+      }
+      .merch-gallery {
+        grid-column: span 12;
+      }
     }
 
     /* ===== Home: RORC Carousel ===== */
@@ -542,20 +642,41 @@
     </div>
   </section>
 
-  <!-- ===== Bly Bobcats Merch (opens collection in new tab) ===== -->
-  <section class="qjn-fw-callout" aria-labelledby="fw-bly-title">
-    <div class="qjn-fw-box">
-      <header class="qjn-fw-head">
-        <h3 id="fw-bly-title">Bly Bobcats Merch</h3>
-        <p>Shirts, hats, and more — fulfilled via Fourthwall.</p>
-        <p class="qjn-fw-donate">
-          20% of all profits go to the Ruth Obenchain Recreation Center. The remainder helps support online maintenance.
-        </p>
-      </header>
+  <!-- ===== Membership Summary ===== -->
+  <section class="membership-summary" aria-label="Memberships">
+    <h3>Memberships</h3>
+    <p>
+      Find the membership that matches how you use the gym. Memberships unlock daily access, open gym nights, and
+      full use of the facility.
+    </p>
+    <a href="/memberships/basic-membership-contract/">View Memberships</a>
+  </section>
 
-      <div class="qjn-fw-actions">
-        <a class="qjn-fw-btn" href="https://shop.quentinnichols.com/collections/bly-bobcats" target="_blank" rel="noopener">
-          View Collection
+  <!-- ===== Bly Bobcats Merch (opens collection in new tab) ===== -->
+  <section class="merch-band" aria-labelledby="fw-bly-title">
+    <div class="merch-inner">
+      <div class="merch-text">
+        <div class="merch-kicker">Support RORC</div>
+        <h3 id="fw-bly-title" class="merch-title">Bly Bobcats Merch</h3>
+        <p class="merch-sub">
+          Shirts, hats, and more — fulfilled via Fourthwall. 20% of profits go to the Ruth Obenchain Recreation Center.
+        </p>
+      </div>
+      <a class="merch-cta" href="https://shop.quentinnichols.com/collections/bly-bobcats" target="_blank" rel="noopener">
+        View Collection
+      </a>
+      <div class="merch-gallery" aria-label="Merchandise preview">
+        <a class="merch-item" href="https://shop.quentinnichols.com/en-usd/products/bly-bobcats-coffee-cup-white" target="_blank" rel="noopener">
+          <img src="Images/Merch/BlyBobcatsCoffeeCup.avif" alt="Bly Bobcats coffee cup" loading="lazy" />
+          <span>Bly Bobcats Coffee Cup</span>
+        </a>
+        <a class="merch-item" href="https://shop.quentinnichols.com/en-usd/products/rorc-bobcats-insulated-tumbler" target="_blank" rel="noopener">
+          <img src="Images/Merch/BlyBobcatsTumbler.avif" alt="Bly Bobcats tumbler" loading="lazy" />
+          <span>Bly Bobcats Tumbler</span>
+        </a>
+        <a class="merch-item" href="https://shop.quentinnichols.com/en-usd/products/rorc-hat" target="_blank" rel="noopener">
+          <img src="Images/Merch/RORChat.avif" alt="RORC hat" loading="lazy" />
+          <span>RORC Hat</span>
         </a>
       </div>
     </div>
