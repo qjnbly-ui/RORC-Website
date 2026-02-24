@@ -86,6 +86,8 @@
         <span>This week: <strong id="ci-week">–</strong></span>
         <span>This month: <strong id="ci-month">–</strong></span>
         <span>Avg/day: <strong id="ci-avgday">–</strong></span>
+        <span>Status: <strong id="gym-status">–</strong></span>
+        <span>Signed in: <strong id="gym-occupancy">–</strong></span>
       </div>
       <small>Last updated: <span id="ci-updated">–</span></small>
     </section>
@@ -176,6 +178,10 @@
       document.getElementById("ci-month").textContent = data.checkinsThisMonth ?? "–";
       document.getElementById("ci-avgday").textContent = data.avgPerDayThisMonth ?? "–";
       document.getElementById("ci-updated").textContent = data.lastUpdated ?? "–";
+
+      document.getElementById("gym-occupancy").textContent = data.occupancyCount ?? "–";
+      document.getElementById("gym-status").textContent =
+        (data.gymOccupied === "Yes") ? "Open & In Use" : "Open & Empty";
     }
   </script>
 
