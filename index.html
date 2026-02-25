@@ -375,7 +375,7 @@
     /* Live Status */
     .rorc-live {
       max-width: 980px;
-      margin: 10px auto 18px;
+      margin: 4px auto 10px;
       padding: 0 20px;
       text-align: center;
     }
@@ -769,7 +769,18 @@
 
     function rorcGetPacificNow() {
       const now = new Date();
-      const parts = new Intl.DateTimeFormat("en-US", {
+      const parts12 = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/Los_Angeles",
+        weekday: "short",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true
+      }).formatToParts(now);
+
+      const parts24 = new Intl.DateTimeFormat("en-US", {
         timeZone: "America/Los_Angeles",
         weekday: "short",
         year: "numeric",
@@ -780,13 +791,22 @@
         hour12: false
       }).formatToParts(now);
 
-      const lookup = Object.fromEntries(parts.map(p => [p.type, p.value]));
-      const weekday = lookup.weekday;
-      const year = Number(lookup.year);
-      const month = Number(lookup.month);
-      const day = Number(lookup.day);
-      const hour = Number(lookup.hour);
-      const minute = Number(lookup.minute);
+      const lookup12 = Object.fromEntries(parts12.map(p => [p.type, p.value]));
+      const lookup24 = Object.fromEntries(parts24.map(p => [p.type, p.value]));
+
+      const weekday = lookup12.weekday || lookup24.weekday;
+      const year = Number(lookup12.year || lookup24.year);
+      const month = Number(lookup12.month || lookup24.month);
+      const day = Number(lookup12.day || lookup24.day);
+      const minute = Number(lookup12.minute || lookup24.minute);
+
+      const hour24 = Number(lookup24.hour);
+      const rawHour = Number(lookup12.hour);
+      const period = (lookup12.dayPeriod || "").toLowerCase();
+      const hour12 = (period === "pm" && rawHour < 12)
+        ? rawHour + 12
+        : (period === "am" && rawHour === 12 ? 0 : rawHour);
+      const hour = Number.isFinite(hour24) ? hour24 : hour12;
 
       return { weekday, year, month, day, hour, minute };
     }
@@ -891,7 +911,7 @@
       return { text: "Facility is currently closed. Membership hours are 7:00 AM–9:00 PM.", nextEvent, showCount: true };
     }
 
-    function rorcLiveLoaded(data) {
+    function rorcRenderLiveStatus(data) {
       const rawOccupancy = data.occupancyCount ?? "–";
       const occupancy = (rawOccupancy === 1 || rawOccupancy === "1") ? "1" : rawOccupancy;
       const liveText = document.getElementById("rorc-live-text");
@@ -910,6 +930,10 @@
         lines.push(countLine);
       }
       liveText.innerHTML = lines.join("<br>");
+    }
+
+    function rorcLiveLoaded(data) {
+      rorcRenderLiveStatus(data);
     }
 
     const rorcCarouselImages = [
