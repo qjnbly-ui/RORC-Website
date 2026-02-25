@@ -371,6 +371,22 @@
     .membership-summary a:hover {
       opacity: 0.85;
     }
+    .membership-overview {
+      max-width: 980px;
+      margin: 10px auto 14px;
+      padding: 0 20px;
+      text-align: center;
+    }
+    .membership-overview h4 {
+      margin: 0 0 8px;
+      font: 600 16px/1.2 Georgia, "Times New Roman", serif;
+      color: #f6f6f6;
+    }
+    .membership-overview-text {
+      margin: 0;
+      color: #d7d7d7;
+      font: 400 14px/1.6 var(--font-body);
+    }
 
     /* Live Status */
     .rorc-live {
@@ -684,6 +700,16 @@
     <a href="/memberships/">View Memberships</a>
   </section>
 
+  <section class="membership-overview" aria-label="Membership overview">
+    <h4>Membership Overview</h4>
+    <p class="membership-overview-text">
+      We currently have <strong id="m-active">–</strong> active members across
+      <strong id="m-active-accounts">–</strong> active accounts, with
+      <strong id="m-open-gym">–</strong> open gym participants and
+      <strong id="m-total-members">–</strong> total account holders on file.
+    </p>
+  </section>
+
   <!-- ===== Bly Bobcats Merch (opens collection in new tab) ===== -->
   <section class="merch-band" aria-labelledby="fw-bly-title">
     <div class="merch-inner">
@@ -930,6 +956,23 @@
         lines.push(countLine);
       }
       liveText.innerHTML = lines.join("<br>");
+
+      const mActive = document.getElementById("m-active");
+      if (mActive) {
+        mActive.textContent = data.activeMembers ?? "–";
+      }
+      const mActiveAccounts = document.getElementById("m-active-accounts");
+      if (mActiveAccounts) {
+        mActiveAccounts.textContent = data.activeMemberAccounts ?? "–";
+      }
+      const mOpenGym = document.getElementById("m-open-gym");
+      if (mOpenGym) {
+        mOpenGym.textContent = data.openGymUsers ?? "–";
+      }
+      const mTotalMembers = document.getElementById("m-total-members");
+      if (mTotalMembers) {
+        mTotalMembers.textContent = data.totalAccountHolders ?? "–";
+      }
     }
 
     function rorcLiveLoaded(data) {
