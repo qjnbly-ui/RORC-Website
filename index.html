@@ -405,6 +405,15 @@
       color: #d7d7d7;
       font: 400 14px/1.6 var(--font-body);
     }
+    .rorc-live-badge {
+      display: block;
+      width: 120px;
+      max-width: 60vw;
+      height: auto;
+      margin: 0 auto 4px;
+      border: 0;
+      padding: 0;
+    }
     .rorc-live strong {
       color: #ffffff;
     }
@@ -669,6 +678,7 @@
   <!-- ===== Live Status ===== -->
   <section class="rorc-live" aria-label="Current activity">
     <h3>What’s happening at RORC now</h3>
+    <img id="rorc-open-badge" class="rorc-live-badge" src="Images/RORC Homepage/OPEN.png" alt="Open" loading="lazy" />
     <p id="rorc-live-text">Loading current status…</p>
   </section>
 
@@ -941,8 +951,14 @@
       const rawOccupancy = data.occupancyCount ?? "–";
       const occupancy = (rawOccupancy === 1 || rawOccupancy === "1") ? "1" : rawOccupancy;
       const liveText = document.getElementById("rorc-live-text");
+      const openBadge = document.getElementById("rorc-open-badge");
       if (!liveText) return;
       const status = rorcGetStatusMessage();
+      if (openBadge) {
+        openBadge.style.display = (status.text === "Membership use is open 7:00 AM–9:00 PM.")
+          ? "block"
+          : "none";
+      }
       const noun = (occupancy === "1") ? "member" : "members";
       const countLine = (occupancy === "0" || occupancy === 0 || occupancy === "–")
         ? "No members are signed in right now."
