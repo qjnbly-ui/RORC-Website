@@ -28,7 +28,7 @@
     /* SECTION (no photo background, just cinematic gradient) */
     .rorc-section {
       position: relative;
-      padding: 56px 20px 42px;
+      padding: 56px 20px 14px;
       background: #050505;
       color: #f5f5f5;
       font-family: var(--font-body);
@@ -347,7 +347,7 @@
     /* Membership Summary */
     .membership-summary {
       max-width: 980px;
-      margin: 26px auto 8px;
+      margin: 26px auto 12px;
       padding: 0 20px;
       text-align: center;
     }
@@ -375,7 +375,7 @@
     /* Live Status */
     .rorc-live {
       max-width: 980px;
-      margin: 4px auto 10px;
+      margin: 12px auto 12px;
       padding: 0 20px;
       text-align: center;
     }
@@ -894,6 +894,10 @@
         return { text: "Open gym night in progress (6:00–8:00 PM).", nextEvent, showCount: true };
       }
 
+      if (!inGeneralOpen) {
+        return { text: "Facility is currently closed. Membership hours are 7:00 AM–9:00 PM.", nextEvent, showCount: true };
+      }
+
       if (isTueThu && nowMinutes < afterSchoolStart) {
         return { text: "Membership use is open 7:00 AM–9:00 PM.", nextEvent, showCount: true };
       }
@@ -904,11 +908,7 @@
         return { text: "Membership use is open 7:00 AM–9:00 PM.", nextEvent, showCount: true };
       }
 
-      if (inGeneralOpen) {
-        return { text: "Membership use is open 7:00 AM–9:00 PM.", nextEvent, showCount: true };
-      }
-
-      return { text: "Facility is currently closed. Membership hours are 7:00 AM–9:00 PM.", nextEvent, showCount: true };
+      return { text: "Membership use is open 7:00 AM–9:00 PM.", nextEvent, showCount: true };
     }
 
     function rorcRenderLiveStatus(data) {
