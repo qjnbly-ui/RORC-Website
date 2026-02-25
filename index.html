@@ -413,6 +413,23 @@
       margin: 0 auto 4px;
       border: 0;
       padding: 0;
+      filter: blur(0.3px) drop-shadow(0 0 6px rgba(68, 120, 255, 0.45)) drop-shadow(0 0 12px rgba(68, 120, 255, 0.3));
+      animation: rorc-neon-flicker 3.8s infinite;
+      animation-delay: 0.6s;
+    }
+    @keyframes rorc-neon-flicker {
+      0%, 7%, 11%, 20%, 29%, 100% {
+        opacity: 1;
+        filter: blur(0.3px) drop-shadow(0 0 6px rgba(68, 120, 255, 0.45)) drop-shadow(0 0 12px rgba(68, 120, 255, 0.3));
+      }
+      8%, 10%, 21%, 23%, 30% {
+        opacity: 0.5;
+        filter: blur(0.2px) drop-shadow(0 0 3px rgba(68, 120, 255, 0.2));
+      }
+      24%, 26% {
+        opacity: 0.8;
+        filter: blur(0.25px) drop-shadow(0 0 4px rgba(68, 120, 255, 0.35)) drop-shadow(0 0 8px rgba(68, 120, 255, 0.2));
+      }
     }
     .rorc-live strong {
       color: #ffffff;
