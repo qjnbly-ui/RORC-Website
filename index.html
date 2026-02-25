@@ -372,6 +372,31 @@
       opacity: 0.85;
     }
 
+    /* Live Status */
+    .rorc-live {
+      max-width: 980px;
+      margin: 10px auto 18px;
+      padding: 0 20px;
+      text-align: center;
+    }
+    .rorc-live h3 {
+      margin: 0 0 6px;
+      font: 600 20px/1.2 Georgia, "Times New Roman", serif;
+      color: #f6f6f6;
+    }
+    .rorc-live p {
+      margin: 0;
+      color: #d7d7d7;
+      font: 400 14px/1.6 var(--font-body);
+    }
+    .rorc-live strong {
+      color: #ffffff;
+    }
+    .rorc-live-count {
+      color: #e7d2a0;
+      font-weight: 600;
+    }
+
     .merch-gallery {
       grid-column: span 12;
       display: grid;
@@ -625,6 +650,12 @@
     </div>
   </section>
 
+  <!-- ===== Live Status ===== -->
+  <section class="rorc-live" aria-label="Current activity">
+    <h3>What’s happening at RORC now</h3>
+    <p id="rorc-live-text">Loading current status…</p>
+  </section>
+
   <!-- ===== RORC Homepage Carousel ===== -->
   <section class="rorc-carousel" aria-label="RORC photo carousel">
     <div class="rorc-carousel-inner">
@@ -706,6 +737,181 @@
 
   <!-- ===== JS ===== -->
   <script>
+    /*
+      NOTE: Long-term event automation idea
+
+      The best long-term approach is to have the homepage read from a Google Calendar feed
+      and compute “now” + “next event” from that.
+
+      Two workable paths:
+
+      1) Google Calendar JSON feed (public) + client JS
+         - Make a calendar public.
+         - Use the public JSON feed to pull upcoming events.
+         - Compute “current event” + “next event” in JS.
+         - Pros: simple, no server; Cons: public calendar, rate limits.
+
+      2) Google Apps Script proxy
+         - Calendar can stay private.
+         - Apps Script returns just the events you need (today + next).
+         - Your page calls the script (similar to your stats script).
+         - Pros: private; Cons: requires script setup.
+    */
+    function rorcFormatTimeLabel(hour, minute) {
+      const h = hour % 12 || 12;
+      const mm = minute.toString().padStart(2, "0");
+      return `${h}:${mm}`;
+    }
+
+    function rorcTimeInMinutes(hour, minute) {
+      return (hour * 60) + minute;
+    }
+
+    function rorcGetPacificNow() {
+      const now = new Date();
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/Los_Angeles",
+        weekday: "short",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      }).formatToParts(now);
+
+      const lookup = Object.fromEntries(parts.map(p => [p.type, p.value]));
+      const weekday = lookup.weekday;
+      const year = Number(lookup.year);
+      const month = Number(lookup.month);
+      const day = Number(lookup.day);
+      const hour = Number(lookup.hour);
+      const minute = Number(lookup.minute);
+
+      return { weekday, year, month, day, hour, minute };
+    }
+
+    function rorcGetNextEventLabel() {
+      const { weekday, year, month, day, hour, minute } = rorcGetPacificNow();
+      const weekdays = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+      const dayIndex = weekdays.indexOf(weekday.toLowerCase());
+      const nowMinutes = rorcTimeInMinutes(hour, minute);
+      const todayOrdinal = Math.floor(Date.UTC(year, month - 1, day) / 86400000);
+
+      const events = [
+        { day: 2, start: rorcTimeInMinutes(15, 0), label: "Afterschool program hosted by Klamath Basin Youth Development", range: "3:00–5:30 PM" },
+        { day: 2, start: rorcTimeInMinutes(18, 0), label: "Open gym", range: "6:00–8:00 PM" },
+        { day: 4, start: rorcTimeInMinutes(15, 0), label: "Afterschool program hosted by Klamath Basin Youth Development", range: "3:00–5:30 PM" },
+        { day: 4, start: rorcTimeInMinutes(18, 0), label: "Open gym", range: "6:00–8:00 PM" }
+      ];
+
+      const specialEvent = {
+        dateOrdinal: Math.floor(Date.UTC(2026, 2, 14) / 86400000),
+        label: "Facility closed for Madison Melsness baby shower",
+        range: "All day"
+      };
+
+      let best = null;
+      events.forEach((event) => {
+        let deltaDays = (event.day - dayIndex + 7) % 7;
+        let minutesUntil = (deltaDays * 1440) + (event.start - nowMinutes);
+        if (deltaDays === 0 && event.start <= nowMinutes) {
+          minutesUntil = (7 * 1440) + (event.start - nowMinutes);
+          deltaDays = 7;
+        }
+        if (minutesUntil < 0) {
+          minutesUntil += 7 * 1440;
+        }
+        if (!best || minutesUntil < best.minutesUntil) {
+          best = {
+            minutesUntil,
+            day: event.day,
+            label: event.label,
+            range: event.range
+          };
+        }
+      });
+
+      const specialMinutesUntil = (specialEvent.dateOrdinal - todayOrdinal) * 1440;
+      if (specialMinutesUntil >= 0 && (!best || specialMinutesUntil < best.minutesUntil)) {
+        const dayName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][new Date(Date.UTC(2026, 2, 14)).getUTCDay()];
+        return `Next event: ${specialEvent.label} on ${dayName}, March 14, 2026 (${specialEvent.range}).`;
+      }
+
+      if (!best) return "Next event: schedule coming soon.";
+      const dayName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][best.day];
+      return `Next event: ${best.label} ${dayName} ${best.range}.`;
+    }
+
+    function rorcGetStatusMessage() {
+      const { weekday, year, month, day, hour, minute } = rorcGetPacificNow();
+      const dayName = weekday.toLowerCase();
+      const nowMinutes = rorcTimeInMinutes(hour, minute);
+
+      const isTueThu = dayName === "tue" || dayName === "thu";
+
+      const generalOpenStart = rorcTimeInMinutes(7, 0);
+      const generalOpenEnd = rorcTimeInMinutes(21, 0);
+      const afterSchoolStart = rorcTimeInMinutes(15, 0);
+      const afterSchoolEnd = rorcTimeInMinutes(17, 30);
+      const openGymStart = rorcTimeInMinutes(18, 0);
+      const openGymEnd = rorcTimeInMinutes(20, 0);
+
+      const inAfterSchool = isTueThu && nowMinutes >= afterSchoolStart && nowMinutes < afterSchoolEnd;
+      const inOpenGym = isTueThu && nowMinutes >= openGymStart && nowMinutes < openGymEnd;
+      const inGeneralOpen = nowMinutes >= generalOpenStart && nowMinutes < generalOpenEnd;
+      const nextEvent = rorcGetNextEventLabel();
+      const isClosureDate = (year === 2026 && month === 3 && day === 14);
+
+      if (isClosureDate) {
+        return { text: "Facility closed today for Madison Melsness baby shower (all day).", nextEvent: "", showCount: false };
+      }
+
+      if (inAfterSchool) {
+        return { text: `Afterschool program in progress (3:00–5:30 PM), hosted by Klamath Basin Youth Development. Membership use is closed during this time.`, nextEvent, showCount: false };
+      }
+      if (inOpenGym) {
+        return { text: "Open gym night in progress (6:00–8:00 PM).", nextEvent, showCount: true };
+      }
+
+      if (isTueThu && nowMinutes < afterSchoolStart) {
+        return { text: "Membership use is open 7:00 AM–9:00 PM.", nextEvent, showCount: true };
+      }
+      if (isTueThu && nowMinutes >= afterSchoolEnd && nowMinutes < openGymStart) {
+        return { text: "Membership use is open 7:00 AM–9:00 PM.", nextEvent, showCount: true };
+      }
+      if (isTueThu && nowMinutes >= openGymEnd) {
+        return { text: "Membership use is open 7:00 AM–9:00 PM.", nextEvent, showCount: true };
+      }
+
+      if (inGeneralOpen) {
+        return { text: "Membership use is open 7:00 AM–9:00 PM.", nextEvent, showCount: true };
+      }
+
+      return { text: "Facility is currently closed. Membership hours are 7:00 AM–9:00 PM.", nextEvent, showCount: true };
+    }
+
+    function rorcLiveLoaded(data) {
+      const rawOccupancy = data.occupancyCount ?? "–";
+      const occupancy = (rawOccupancy === 1 || rawOccupancy === "1") ? "1" : rawOccupancy;
+      const liveText = document.getElementById("rorc-live-text");
+      if (!liveText) return;
+      const status = rorcGetStatusMessage();
+      const noun = (occupancy === "1") ? "member" : "members";
+      const countLine = (occupancy === "0" || occupancy === 0 || occupancy === "–")
+        ? "No members are signed in right now."
+        : `Currently <span class=\"rorc-live-count\">${occupancy}</span> ${noun} signed in.`;
+
+      const lines = [status.text];
+      if (status.nextEvent) {
+        lines.push(status.nextEvent);
+      }
+      if (status.showCount) {
+        lines.push(countLine);
+      }
+      liveText.innerHTML = lines.join("<br>");
+    }
+
     const rorcCarouselImages = [
       { src: "Images/RORC Homepage/RORC-HomepageGallery1.jpg", alt: "RORC gym interior" },
       { src: "Images/RORC Homepage/RORC-HomepageGallery2.jpg", alt: "RORC community moment" },
@@ -811,5 +1017,6 @@
     renderRorcCarousel();
     startRorcCarousel();
   </script>
+  <script src="https://script.google.com/macros/s/AKfycbzaObDgkBen2S8yQPZzNKEyj4t-4p2Itge37e-ot8tVT7nqDH6NO5-jEIY9SnwWpHhlJA/exec?callback=rorcLiveLoaded"></script>
 </body>
 </html>
