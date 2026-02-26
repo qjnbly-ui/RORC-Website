@@ -620,6 +620,14 @@ a { color: inherit; }
   margin-bottom: 10px;
 }
 
+.rentals-price-center {
+  text-align: center;
+}
+
+.rentals-title-center {
+  text-align: center;
+}
+
 .rentals-section {
   margin-top: 26px;
   text-align: left;
