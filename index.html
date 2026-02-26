@@ -969,9 +969,32 @@
       if (!liveText) return;
       const status = rorcGetStatusMessage();
       if (openBadge) {
-        openBadge.style.display = (status.text === "Membership use is open 7:00 AM–9:00 PM.")
-          ? "block"
-          : "none";
+        const showOpenBadge = (
+          status.text === "Membership use is open 7:00 AM–9:00 PM."
+          || status.text === "Open gym night in progress (6:00–8:00 PM)."
+        );
+        const showClosedBadge = (status.text === "Facility is currently closed. Membership hours are 7:00 AM–9:00 PM.");
+        const showPrivateEventBadge = (status.text === "Facility closed today for Madison Melsness baby shower (all day).");
+        const showKbydBadge = (status.text === "Afterschool program in progress (3:00–5:30 PM), hosted by Klamath Basin Youth Development. Membership use is closed during this time.");
+        if (showOpenBadge) {
+          openBadge.src = "Images/RORC Homepage/OPEN.png";
+          openBadge.alt = "Open";
+          openBadge.style.display = "block";
+        } else if (showKbydBadge) {
+          openBadge.src = "Images/RORC Homepage/KBYDinsession.png";
+          openBadge.alt = "KBYD in session";
+          openBadge.style.display = "block";
+        } else if (showPrivateEventBadge) {
+          openBadge.src = "Images/RORC Homepage/closedforprivateevent.png";
+          openBadge.alt = "Closed for private event";
+          openBadge.style.display = "block";
+        } else if (showClosedBadge) {
+          openBadge.src = "Images/RORC Homepage/CLOSED.png";
+          openBadge.alt = "Closed";
+          openBadge.style.display = "block";
+        } else {
+          openBadge.style.display = "none";
+        }
       }
       const noun = (occupancy === "1") ? "member" : "members";
       const countLine = (occupancy === "0" || occupancy === 0 || occupancy === "–")
