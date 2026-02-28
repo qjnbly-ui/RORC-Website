@@ -57,7 +57,7 @@
         </div>
         <div class="windows-stat">
           <span class="windows-stat-label">Available</span>
-          <span class="windows-stat-value">32</span>
+          <span class="windows-stat-value" id="windowAvailableHero">32</span>
         </div>
         <div class="windows-stat">
           <span class="windows-stat-label">Pickup</span>
@@ -95,11 +95,92 @@
       </button>
 
       <p id="buyWindowMsg" style="margin-top:10px; font-size:14px;"></p>
+      <div id="windowStockWrap" style="margin-top:12px;">
+        <div id="windowRemaining" style="font-size:14px;"></div>
+        <div id="windowUrgency" style="margin-top:6px; font-size:13px;"></div>
+      </div>
 
       <script>
         const WINDOWS_SCRIPT_URL =
           "https://script.google.com/macros/s/AKfycby7j1VbmMkmZI8gp4AFHSAhuuGbLRVma-2ftKn6XlM62j_zy_VVhQ8qqprykO805s8W/exec";
 
+        function formatCountdown(ms) {
+          const s = Math.max(0, Math.floor(ms / 1000));
+          const m = Math.floor(s / 60);
+          const r = s % 60;
+          return `${m}:${String(r).padStart(2, "0")}`;
+        }
+
+        function setUrgency(remaining) {
+          const el = document.getElementById("windowUrgency");
+          if (!el) return;
+
+          // simple, calm “urgency” tiers
+          if (remaining <= 0) {
+            el.textContent = "Sold out.";
+            return;
+          }
+          if (remaining <= 3) {
+            el.textContent = "Almost gone.";
+            return;
+          }
+          if (remaining <= 10) {
+            el.textContent = "Limited quantity remaining.";
+            return;
+          }
+          el.textContent = "Available while supplies last.";
+        }
+
+        function updateRemainingUI(remaining) {
+          const remainingEl = document.getElementById("windowRemaining");
+          const btn = document.getElementById("buyWindowBtn");
+          const heroCount = document.getElementById("windowAvailableHero");
+
+          if (remainingEl) {
+            remainingEl.innerHTML = `<strong>${remaining}</strong> window${remaining === 1 ? "" : "s"} remaining.`;
+          }
+          if (heroCount) {
+            heroCount.textContent = Number.isFinite(remaining) ? String(remaining) : "–";
+          }
+
+          setUrgency(remaining);
+
+          // Auto-disable at 0
+          if (btn) {
+            const soldOut = !Number.isFinite(remaining) || remaining <= 0;
+            btn.disabled = soldOut;
+            if (soldOut) btn.textContent = "Sold Out";
+          }
+        }
+
+        function fetchRemainingJsonp() {
+          const cb = "windowsStatusCb_" + Date.now();
+
+          window[cb] = function (data) {
+            try {
+              if (data && data.ok) {
+                const remaining = Number(data.remaining ?? 0);
+                updateRemainingUI(remaining);
+              }
+            } finally {
+              delete window[cb];
+              script.remove();
+            }
+          };
+
+          const script = document.createElement("script");
+          script.src = `${WINDOWS_SCRIPT_URL}?action=status&callback=${cb}`;
+          script.onerror = () => {
+            // If status fails, don’t break checkout — just hide the counter.
+            const wrap = document.getElementById("windowStockWrap");
+            if (wrap) wrap.style.display = "none";
+            delete window[cb];
+            script.remove();
+          };
+          document.body.appendChild(script);
+        }
+
+        // Checkout button (JSONP)
         document.getElementById("buyWindowBtn").addEventListener("click", () => {
           const msg = document.getElementById("buyWindowMsg");
           msg.textContent = "Starting checkout...";
@@ -135,7 +216,7 @@
           document.body.appendChild(script);
         });
 
-        // Optional: show success/canceled messages on same page
+        // Optional: success/canceled messages
         (function () {
           const params = new URLSearchParams(window.location.search);
           const msg = document.getElementById("buyWindowMsg");
@@ -146,6 +227,35 @@
           } else if (params.get("canceled") === "1") {
             msg.textContent = "Checkout canceled. No payment was taken.";
           }
+        })();
+
+        // Countdown “urgency” styling: refresh count every 60 seconds,
+        // and show a small countdown until the next refresh.
+        (function startStockRefresh() {
+          const urgencyEl = document.getElementById("windowUrgency");
+          const refreshEveryMs = 60000;
+          let nextRefreshAt = Date.now() + refreshEveryMs;
+
+          fetchRemainingJsonp();
+
+          setInterval(() => {
+            const now = Date.now();
+            const msLeft = nextRefreshAt - now;
+
+            // show countdown only if quantity is getting low (<= 10)
+            const remainingText = document.getElementById("windowRemaining")?.textContent || "";
+            const match = remainingText.match(/\\d+/);
+            const remaining = match ? Number(match[0]) : 999;
+
+            if (urgencyEl && remaining <= 10 && remaining > 0) {
+              urgencyEl.textContent = `Limited quantity. Refreshing stock in ${formatCountdown(msLeft)}.`;
+            }
+
+            if (msLeft <= 0) {
+              nextRefreshAt = Date.now() + refreshEveryMs;
+              fetchRemainingJsonp();
+            }
+          }, 1000);
         })();
       </script>
     </section>
