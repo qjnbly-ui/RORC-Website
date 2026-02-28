@@ -100,30 +100,39 @@
         const WINDOWS_SCRIPT_URL =
           "https://script.google.com/macros/s/AKfycby7j1VbmMkmZI8gp4AFHSAhuuGbLRVma-2ftKn6XlM62j_zy_VVhQ8qqprykO805s8W/exec";
 
-        document.getElementById("buyWindowBtn").addEventListener("click", async () => {
+        document.getElementById("buyWindowBtn").addEventListener("click", () => {
           const msg = document.getElementById("buyWindowMsg");
           msg.textContent = "Starting checkout...";
 
-          try {
-            const res = await fetch(`${WINDOWS_SCRIPT_URL}?action=startCheckout`);
-            const data = await res.json();
+          const cb = "windowsCheckoutCb_" + Date.now();
 
-            if (data.ok && data.checkoutUrl) {
-              window.location.href = data.checkoutUrl;
-              return;
+          window[cb] = function (data) {
+            try {
+              if (data && data.ok && data.checkoutUrl) {
+                window.location.href = data.checkoutUrl;
+                return;
+              }
+              if (data && data.code === "SOLD_OUT") {
+                msg.textContent = "Sold out.";
+                document.getElementById("buyWindowBtn").disabled = true;
+                return;
+              }
+              msg.textContent = "Could not start checkout. Please try again.";
+            } finally {
+              delete window[cb];
+              script.remove();
             }
+          };
 
-            if (data.code === "SOLD_OUT") {
-              msg.textContent = "Sold out.";
-              document.getElementById("buyWindowBtn").disabled = true;
-              return;
-            }
+          const script = document.createElement("script");
+          script.src = `${WINDOWS_SCRIPT_URL}?action=startCheckout&callback=${cb}`;
+          script.onerror = () => {
+            msg.textContent = "Could not start checkout. Please try again.";
+            delete window[cb];
+            script.remove();
+          };
 
-            msg.textContent = "Could not start checkout. Please try again.";
-          } catch (err) {
-            console.error(err);
-            msg.textContent = "Could not start checkout. Please try again.";
-          }
+          document.body.appendChild(script);
         });
 
         // Optional: show success/canceled messages on same page
