@@ -98,6 +98,13 @@
         >
         </stripe-buy-button>
       </div>
+      <div id="windowNotice" style="margin-top:12px;"></div>
+      <script>
+        const p = new URLSearchParams(location.search);
+        const n = document.getElementById("windowNotice");
+        if (p.get("success") === "1") n.textContent = "Payment received. Thank you. We will contact you to coordinate pickup.";
+        if (p.get("canceled") === "1") n.textContent = "Checkout canceled. No payment was taken.";
+      </script>
     </section>
   </main>
 
