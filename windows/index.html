@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Historic Gym Windows | RORC</title>
+  <link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+  <div class="site-menu">
+    <input type="checkbox" id="site-menu-toggle" class="site-menu-toggle" />
+    <div class="site-menu-bar">
+      <a class="site-menu-brand" href="/">RORC</a>
+      <label class="site-menu-button" for="site-menu-toggle">Menu</label>
+    </div>
+    <label class="site-menu-backdrop" for="site-menu-toggle" aria-hidden="true"></label>
+    <div class="site-menu-panel" role="dialog" aria-label="Site menu">
+      <label class="site-menu-close" for="site-menu-toggle">Close</label>
+      <div>
+        <nav class="site-menu-links" aria-label="Site">
+          <a href="/">Home</a>
+          <a href="/about-rorc/">About</a>
+          <a href="/memberships/">Memberships</a>
+          <a href="/rentals/">Rentals</a>
+          <a href="/sponsors/">Sponsors</a>
+          <a href="/application/">Application</a>
+        </nav>
+      </div>
+      <div class="site-menu-legal" aria-label="Legal">
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </div>
+    </div>
+  </div>
+
+  <main class="page-content">
+    <div class="about-return">
+      <a class="about-return-link" href="/">Return to RORC home</a>
+    </div>
+
+    <section class="windows-hero">
+      <div class="windows-kicker">Historic Gym Windows Fundraiser</div>
+      <h1>Historic Gym Windows</h1>
+      <p class="windows-lead">
+        When the original windows were removed during recent upgrades, we chose not to discard them. These were the
+        first windows installed in the Ruth Obenchain Recreation Center, looking out over decades of open gym nights,
+        community gatherings, school events, and everyday life in Bly.
+      </p>
+      <p class="windows-lead">
+        We’re making them available to the community before anything else.
+      </p>
+      <div class="windows-stats">
+        <div class="windows-stat">
+          <span class="windows-stat-label">Per window</span>
+          <span class="windows-stat-value">$25</span>
+        </div>
+        <div class="windows-stat">
+          <span class="windows-stat-label">Available</span>
+          <span class="windows-stat-value">32</span>
+        </div>
+        <div class="windows-stat">
+          <span class="windows-stat-label">Pickup</span>
+          <span class="windows-stat-value">Local only</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="windows-details">
+      <h2>The Details</h2>
+      <div class="windows-details-grid">
+        <div class="windows-detail">Sold individually</div>
+        <div class="windows-detail">Windows vary in condition</div>
+        <div class="windows-detail">Some original panes are available for restoration</div>
+        <div class="windows-detail">Local pickup only</div>
+      </div>
+      <p class="windows-note">Windows are reserved only after online payment is completed.</p>
+    </section>
+
+    <section class="windows-why windows-why-center">
+      <h2>Why We’re Doing This</h2>
+      <p>Every dollar raised goes directly back into maintaining and improving the facility.</p>
+      <p>This building has lasted because the community continues to invest in it.</p>
+      <p>
+        If you’ve ever used this gym, brought your kids here, attended an event, or simply want to own a physical piece
+        of its story — this is an opportunity to do that.
+      </p>
+    </section>
+
+    <section class="windows-purchase">
+      <h2>Purchase</h2>
+      <p>After purchase, we will contact you to coordinate pickup.</p>
+      <div style="display: flex; justify-content: center;">
+        <script async src="https://js.stripe.com/v3/buy-button.js"></script>
+        <stripe-buy-button
+          buy-button-id="buy_btn_1T5qEXJJB0jNI7ZOM8OigvvE"
+          publishable-key="pk_live_51QU8Y0JJB0jNI7ZOszUIWP6gqXiO3yUUzDuYHnhDCfHaeCoaIzHptpL5H5aRozLYcAPNjpE5K3Eisco5lGYzSTpQ00CyZjXxY4"
+        >
+        </stripe-buy-button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <div>© 2026 Ruth Obenchain Recreation Center</div>
+      <div class="site-footer-links">
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </div>
+      <div>Operated by Bly Community Action Team</div>
+    </div>
+  </footer>
+</body>
+</html>
