@@ -90,20 +90,54 @@
     <section class="windows-purchase">
       <h2>Purchase</h2>
       <p>After purchase, we will contact you to coordinate pickup.</p>
-      <div style="display: flex; justify-content: center;">
-        <script async src="https://js.stripe.com/v3/buy-button.js"></script>
-        <stripe-buy-button
-          buy-button-id="buy_btn_1T5qEXJJB0jNI7ZOM8OigvvE"
-          publishable-key="pk_live_51QU8Y0JJB0jNI7ZOszUIWP6gqXiO3yUUzDuYHnhDCfHaeCoaIzHptpL5H5aRozLYcAPNjpE5K3Eisco5lGYzSTpQ00CyZjXxY4"
-        >
-        </stripe-buy-button>
-      </div>
-      <div id="windowNotice" style="margin-top:12px;"></div>
+      <button id="buyWindowBtn" class="rorc-btn rorc-btn-accent" type="button">
+        Purchase a Window
+      </button>
+
+      <p id="buyWindowMsg" style="margin-top:10px; font-size:14px;"></p>
+
       <script>
-        const p = new URLSearchParams(location.search);
-        const n = document.getElementById("windowNotice");
-        if (p.get("success") === "1") n.textContent = "Payment received. Thank you. We will contact you to coordinate pickup.";
-        if (p.get("canceled") === "1") n.textContent = "Checkout canceled. No payment was taken.";
+        const WINDOWS_SCRIPT_URL =
+          "https://script.google.com/macros/s/AKfycby7j1VbmMkmZI8gp4AFHSAhuuGbLRVma-2ftKn6XlM62j_zy_VVhQ8qqprykO805s8W/exec";
+
+        document.getElementById("buyWindowBtn").addEventListener("click", async () => {
+          const msg = document.getElementById("buyWindowMsg");
+          msg.textContent = "Starting checkout...";
+
+          try {
+            const res = await fetch(`${WINDOWS_SCRIPT_URL}?action=startCheckout`);
+            const data = await res.json();
+
+            if (data.ok && data.checkoutUrl) {
+              window.location.href = data.checkoutUrl;
+              return;
+            }
+
+            if (data.code === "SOLD_OUT") {
+              msg.textContent = "Sold out.";
+              document.getElementById("buyWindowBtn").disabled = true;
+              return;
+            }
+
+            msg.textContent = "Could not start checkout. Please try again.";
+          } catch (err) {
+            console.error(err);
+            msg.textContent = "Could not start checkout. Please try again.";
+          }
+        });
+
+        // Optional: show success/canceled messages on same page
+        (function () {
+          const params = new URLSearchParams(window.location.search);
+          const msg = document.getElementById("buyWindowMsg");
+          if (!msg) return;
+
+          if (params.get("success") === "1") {
+            msg.textContent = "Payment received. Thank you. We will contact you to coordinate pickup.";
+          } else if (params.get("canceled") === "1") {
+            msg.textContent = "Checkout canceled. No payment was taken.";
+          }
+        })();
       </script>
     </section>
   </main>
