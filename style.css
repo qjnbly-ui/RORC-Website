@@ -745,6 +745,42 @@ a { color: inherit; }
   text-align: center;
 }
 
+.windows-purchase-card {
+  margin: 14px auto 0;
+  max-width: 520px;
+  padding: 18px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(231,210,160,0.2);
+  background: rgba(10,10,10,0.88);
+  box-shadow: 0 16px 40px rgba(0,0,0,0.6);
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+}
+
+.windows-purchase-msg {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+  min-height: 1.2em;
+}
+
+.windows-purchase-stock {
+  margin-top: 6px;
+  display: grid;
+  gap: 4px;
+}
+
+.windows-purchase-remaining {
+  font-size: 14.5px;
+  color: #e7d2a0;
+}
+
+.windows-purchase-urgency {
+  font-size: 13px;
+  color: var(--muted);
+}
+
 @media (max-width: 700px) {
   .windows-stats {
     grid-template-columns: 1fr;
