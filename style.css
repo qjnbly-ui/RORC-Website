@@ -660,6 +660,18 @@ a { color: inherit; }
   margin-bottom: 26px;
 }
 
+.windows-hero-image {
+  margin: 16px auto 10px;
+  max-width: 440px;
+}
+
+.windows-hero-image img {
+  width: 100%;
+  height: auto;
+  border-radius: 16px;
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.55);
+}
+
 .windows-kicker {
   text-transform: uppercase;
   letter-spacing: 0.28em;
