@@ -363,7 +363,7 @@
     .membership-overview-title {
       margin: 0 0 8px;
       font: 600 16px/1.2 var(--font-display);
-      color: rgba(231, 210, 160, 0.8);
+      color: #f6f6f6;
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
@@ -372,7 +372,7 @@
       margin: 0 0 6px;
     }
     .membership-overview-text {
-      margin: 0 0 12px;
+      margin: 0 0 6px;
       color: #d7d7d7;
       font: 400 14px/1.6 var(--font-body);
     }
@@ -380,7 +380,11 @@
       font-size: 20px;
       letter-spacing: 0.1em;
     }
+    .membership-title-gold {
+      color: rgba(231, 210, 160, 0.8);
+    }
     .membership-cta {
+      margin-top: 4px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -457,6 +461,12 @@
     .window-feature-overlay a {
       align-self: center;
       margin-top: 4px;
+    }
+
+    @media (max-width: 700px) {
+      .window-feature-hero {
+        width: min(780px, 98%);
+      }
     }
 
     /* Live Status */
@@ -790,7 +800,7 @@
 
   <!-- ===== Membership Summary ===== -->
   <section class="membership-summary" aria-label="Memberships">
-    <h3 class="membership-overview-title membership-title-large">Memberships</h3>
+    <h3 class="membership-overview-title membership-title-large membership-title-gold">Memberships</h3>
     <p class="membership-lead">
       Find the membership that matches how you use the gym. Memberships unlock daily access, open gym nights, and
       full use of the facility.
