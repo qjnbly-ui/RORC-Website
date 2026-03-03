@@ -354,39 +354,105 @@
     }
     .membership-summary h3 {
       margin: 0 0 6px;
-      font: 600 20px/1.2 Georgia, "Times New Roman", serif;
-      color: #f6f6f6;
     }
-    .membership-summary p {
-      margin: 0 0 10px;
+    .membership-lead {
+      margin: 0 0 14px;
       color: #d7d7d7;
       font: 400 14px/1.6 var(--font-body);
     }
-    .membership-summary a {
-      color: #e7d2a0;
-      text-decoration: none;
-      font: 600 12px/1 var(--font-display);
-      letter-spacing: 0.14em;
+    .membership-overview-title {
+      margin: 0 0 8px;
+      font: 600 16px/1.2 var(--font-display);
+      color: rgba(231, 210, 160, 0.8);
+      letter-spacing: 0.08em;
       text-transform: uppercase;
     }
-    .membership-summary a:hover {
-      opacity: 0.85;
-    }
-    .membership-overview {
-      max-width: 980px;
-      margin: 10px auto 14px;
-      padding: 0 20px;
-      text-align: center;
-    }
-    .membership-overview h4 {
-      margin: 0 0 8px;
-      font: 600 16px/1.2 Georgia, "Times New Roman", serif;
-      color: #f6f6f6;
+
+    .membership-summary .membership-overview-title {
+      margin: 0 0 6px;
     }
     .membership-overview-text {
-      margin: 0;
+      margin: 0 0 12px;
       color: #d7d7d7;
       font: 400 14px/1.6 var(--font-body);
+    }
+    .membership-cta {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 18px;
+      border-radius: 999px;
+      border: 1px solid rgba(231,210,160,.45);
+      background: rgba(10,10,10,.9);
+      color: #fff;
+      text-decoration: none;
+      font: 600 11px/1 var(--font-display);
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+    .membership-cta:hover {
+      opacity: 0.85;
+    }
+
+    .window-feature-card {
+      margin: 26px auto 0;
+      text-align: center;
+    }
+
+    .window-feature-hero {
+      position: relative;
+      width: min(680px, 94%);
+      margin: 0 auto 14px;
+    }
+
+    .window-feature-image {
+      width: 100%;
+      height: auto;
+      border-radius: 14px;
+      box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+      display: block;
+    }
+
+    .window-feature-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 8px;
+      padding: 12px;
+      color: #f6f6f6;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.55);
+    }
+
+    .window-feature-overlay h3 {
+      margin: 0;
+      font-family: var(--font-display);
+      font-size: 18px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .window-feature-overlay p {
+      margin: 0;
+      font-size: 12px;
+      color: #e7d2a0;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .window-feature-body {
+      font-size: 12.5px;
+      text-transform: none;
+      letter-spacing: 0.02em;
+      color: #f0f0f0;
+      line-height: 1.5;
+      margin-top: 2px;
+    }
+
+    .window-feature-overlay a {
+      align-self: center;
+      margin-top: 4px;
     }
 
     /* Live Status */
@@ -720,31 +786,35 @@
 
   <!-- ===== Membership Summary ===== -->
   <section class="membership-summary" aria-label="Memberships">
-    <h3>Memberships</h3>
-    <p>
+    <h3 class="membership-overview-title">Memberships</h3>
+    <p class="membership-lead">
       Find the membership that matches how you use the gym. Memberships unlock daily access, open gym nights, and
       full use of the facility.
     </p>
-    <a href="/memberships/">View Memberships</a>
-  </section>
-
-  <section class="membership-overview" aria-label="Membership overview">
-    <h4>Membership Overview</h4>
+    <h4 class="membership-overview-title">Membership Overview</h4>
     <p class="membership-overview-text">
       We currently have <strong id="m-active">–</strong> active members across
       <strong id="m-active-accounts">–</strong> active accounts, with
       <strong id="m-open-gym">–</strong> open gym participants and
       <strong id="m-total-members">–</strong> total account holders on file.
     </p>
+    <a class="membership-cta" href="/memberships/">View Memberships</a>
   </section>
 
-  <section class="rorc-card" style="margin: 26px auto 0; text-align: center;">
-    <h3 class="rorc-card-title">Historic Gym Windows Fundraiser</h3>
-    <p class="rorc-card-text">
-      Own a piece of RORC history. Original windows are available for purchase while supplies last.
-    </p>
-    <div class="rorc-actions">
-      <a class="rorc-btn rorc-btn-accent" href="/windows/">View Windows</a>
+  <section class="window-feature-card">
+    <div class="window-feature-hero">
+      <img
+        class="window-feature-image"
+        src="Images/RORC Homepage/window.png"
+        alt="Historic gym window"
+        loading="lazy"
+      />
+      <div class="window-feature-overlay">
+        <h3>Historic Gym Windows</h3>
+        <p>Own a piece of RORC history.</p>
+        <p class="window-feature-body">Original windows are available for purchase while supplies last.</p>
+        <a class="rorc-btn rorc-btn-neutral" href="/windows/">View Windows</a>
+      </div>
     </div>
   </section>
 
