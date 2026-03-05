@@ -143,7 +143,9 @@
     </p>
     <p>
       To learn more about Ruth Obenchain’s life and legacy, read the
-      <a href="https://www.blyoregon.org/history/people/ruthobenchain/">full article</a>.
+      <a href="https://www.blyoregon.org/history/people/ruthobenchain/" onclick="event.preventDefault(); openRuthBioModal();">
+        full article
+      </a>.
     </p>
 
     <h2>A Legacy for Future Generations</h2>
@@ -174,5 +176,36 @@
       <div>Operated by Bly Community Action Team</div>
     </div>
   </footer>
+
+  <div class="rorc-modal" id="ruth-bio-modal" role="dialog" aria-modal="true" aria-labelledby="ruth-bio-title">
+    <div class="rorc-modal-head">
+      <h3 class="rorc-modal-title" id="ruth-bio-title">Ruth Obenchain — Full Article</h3>
+      <div class="rorc-actions" style="justify-content:flex-end; margin:0;">
+        <a class="rorc-btn rorc-btn-ghost" href="https://www.blyoregon.org/history/people/ruthobenchain/" target="_blank" rel="noreferrer">
+          Open in New Tab
+        </a>
+        <button class="rorc-btn rorc-btn-ghost" type="button" onclick="closeRuthBioModal()">X</button>
+      </div>
+    </div>
+    <div class="rorc-modal-body">
+      <iframe class="rorc-iframe" title="Ruth Obenchain biography" src="https://www.blyoregon.org/history/people/ruthobenchain/"></iframe>
+    </div>
+  </div>
+
+  <script>
+    function openRuthBioModal() {
+      const modal = document.getElementById('ruth-bio-modal');
+      if (!modal) return;
+      modal.style.display = 'flex';
+      document.body.classList.add('banner-lightbox-open');
+    }
+
+    function closeRuthBioModal() {
+      const modal = document.getElementById('ruth-bio-modal');
+      if (!modal) return;
+      modal.style.display = 'none';
+      document.body.classList.remove('banner-lightbox-open');
+    }
+  </script>
 </body>
 </html>
