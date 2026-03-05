@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>News & Updates | RORC</title>
+  <meta property="og:title" content="RORC News & Updates" />
+  <meta property="og:description" content="Recreation Center news, project updates, and community highlights from RORC." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://www.ruthobenchainrc.com/news-updates/" />
+  <meta property="og:image" content="https://www.ruthobenchainrc.com/Images/SecondRORCpost.jpg" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="RORC News & Updates" />
+  <meta name="twitter:description" content="Recreation Center news, project updates, and community highlights from RORC." />
+  <meta name="twitter:image" content="https://www.ruthobenchainrc.com/Images/SecondRORCpost.jpg" />
+  <link rel="stylesheet" href="../style.css" />
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-EGC30XZVXV"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-EGC30XZVXV');
+  </script>
+  <style>
+    body.news-page {
+      background:
+        radial-gradient(900px 520px at 12% -12%, rgba(96, 165, 250, 0.15), transparent 60%),
+        radial-gradient(900px 520px at 92% 8%, rgba(231, 210, 160, 0.12), transparent 62%),
+        #0b0f14;
+    }
+
+    .news-hero {
+      display: grid;
+      gap: 18px;
+      padding: 28px 0 16px;
+      text-align: center;
+    }
+
+    .news-kicker {
+      text-transform: uppercase;
+      letter-spacing: 0.3em;
+      font-size: 10px;
+      color: rgba(231, 210, 160, 0.85);
+      margin: 0 0 10px;
+    }
+
+    .news-hero h1 {
+      font-size: clamp(28px, 4vw, 44px);
+      margin-bottom: 10px;
+    }
+
+    .news-updated {
+      margin: 8px 0 0;
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(194, 202, 214, 0.85);
+    }
+
+    .news-lead {
+      max-width: 720px;
+      color: var(--muted);
+      font-size: 15px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .news-page .site-menu-panel,
+    .news-page .site-menu-links,
+    .news-page .site-menu-legal {
+      text-align: center;
+      align-items: center;
+    }
+
+    .news-page .site-menu-links a,
+    .news-page .site-menu-legal a {
+      width: 100%;
+    }
+
+    .news-page .site-menu-close,
+    .news-page .site-menu-button {
+      margin: 0 auto;
+    }
+
+    .news-chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .news-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 10.5px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: rgba(245, 245, 245, 0.85);
+      text-decoration: none;
+      transition: transform 0.18s ease, border-color 0.18s ease, opacity 0.18s ease;
+    }
+
+    .news-chip:hover {
+      transform: translateY(-1px);
+      border-color: rgba(255, 255, 255, 0.4);
+      opacity: 1;
+    }
+
+    .news-feature {
+      border-radius: 18px;
+      overflow: hidden;
+      background: rgba(12, 14, 18, 0.78);
+      border: 1px solid rgba(231, 210, 160, 0.25);
+      display: grid;
+      box-shadow: 0 22px 55px rgba(0, 0, 0, 0.5);
+    }
+
+    .news-feature-media {
+      background-image:
+        linear-gradient(135deg, rgba(0, 0, 0, 0.15), rgba(0, 0, 0, 0.55)),
+        url("../Images/Window%20Sales/image.png");
+      background-size: cover;
+      background-position: center;
+      min-height: 220px;
+    }
+
+    .news-feature-body {
+      padding: 18px 18px 20px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .news-feature h2 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .news-grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 24px;
+    }
+
+    .news-card {
+      grid-column: span 12;
+      background: rgba(12, 14, 18, 0.82);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 16px;
+      display: grid;
+      gap: 8px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+      transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .news-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(231, 210, 160, 0.35);
+      box-shadow: 0 24px 50px rgba(0, 0, 0, 0.5);
+    }
+
+    .news-card-link {
+      cursor: pointer;
+    }
+
+    .news-card-link:focus-visible {
+      outline: 2px solid rgba(231, 210, 160, 0.8);
+      outline-offset: 3px;
+    }
+
+    .news-tag {
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: rgba(231, 210, 160, 0.85);
+    }
+
+    .news-title {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .news-meta {
+      font-size: 12px;
+      color: rgba(194, 202, 214, 0.85);
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    .news-details {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding-top: 10px;
+    }
+
+    .news-details summary {
+      cursor: pointer;
+      list-style: none;
+      font-family: var(--font-display);
+      font-size: 14.5px;
+    }
+
+    .news-details summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .news-details summary::after {
+      content: "+";
+      float: right;
+      color: var(--muted);
+    }
+
+    .news-details[open] summary::after {
+      content: "–";
+    }
+
+    .news-details p {
+      margin: 10px 0 0;
+    }
+
+    .news-section {
+      margin-top: 40px;
+    }
+
+    .news-section h2 {
+      margin-bottom: 12px;
+    }
+
+    .news-divider {
+      height: 1px;
+      background: rgba(255, 255, 255, 0.08);
+      margin: 26px 0;
+    }
+
+    .news-timeline {
+      display: grid;
+      gap: 12px;
+    }
+
+    .news-timeline-item {
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(12, 14, 18, 0.7);
+    }
+
+    .news-timeline-item span {
+      display: block;
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(194, 202, 214, 0.9);
+      margin-bottom: 6px;
+    }
+
+    .news-cta {
+      margin-top: 32px;
+      padding: 18px;
+      border-radius: 18px;
+      border: 1px solid rgba(231, 210, 160, 0.25);
+      background: linear-gradient(120deg, rgba(231, 210, 160, 0.16), rgba(12, 14, 18, 0.82));
+      display: grid;
+      gap: 12px;
+    }
+
+    .news-cta strong {
+      color: #e7d2a0;
+    }
+
+    .news-cta-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    @media (min-width: 900px) {
+      .news-grid .news-card {
+        grid-column: span 4;
+      }
+      .news-feature {
+        grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+      }
+      .news-feature-media {
+        min-height: 260px;
+      }
+    }
+  </style>
+</head>
+<body class="news-page">
+  <div class="site-menu">
+    <input type="checkbox" id="site-menu-toggle" class="site-menu-toggle" />
+    <div class="site-menu-bar">
+      <a class="site-menu-brand" href="/">RORC</a>
+      <label class="site-menu-button" for="site-menu-toggle">Menu</label>
+    </div>
+    <label class="site-menu-backdrop" for="site-menu-toggle" aria-hidden="true"></label>
+    <div class="site-menu-panel" role="dialog" aria-label="Site menu">
+      <label class="site-menu-close" for="site-menu-toggle">Close</label>
+      <div>
+        <nav class="site-menu-links" aria-label="Site">
+          <a href="/">Home</a>
+          <a href="/about-rorc/">About</a>
+          <a href="/memberships/">Memberships</a>
+          <a href="/rentals/">Rentals</a>
+          <a href="/sponsors/">Sponsors</a>
+          <a href="/projects/">Projects</a>
+          <a href="/news-updates/">News & Updates</a>
+          <a href="/application/">RORC App</a>
+        </nav>
+      </div>
+      <div class="site-menu-legal" aria-label="Legal">
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </div>
+    </div>
+  </div>
+
+  <main class="page-content">
+    <section class="news-hero">
+      <div>
+        <p class="news-kicker">News & Updates</p>
+        <h1>Facility updates, project progress, and community notes.</h1>
+        <p class="news-lead">
+          This page is the running log for the recreation center. As new posts are added, they will appear here with a
+          short summary and a detailed update.
+        </p>
+        <p class="news-updated">Last updated: March 2026</p>
+      </div>
+
+      <article class="news-feature news-card-link" data-href="/windows/" aria-labelledby="featured-update">
+        <div class="news-feature-media" role="img" aria-label="RORC facility interior"></div>
+        <div class="news-feature-body">
+          <span class="news-tag">Featured Update</span>
+          <h2 id="featured-update">Latest Update</h2>
+          <p>
+            Historic Window Fundraiser progress is the current focus. Tap to read the full update.
+          </p>
+          <p class="news-meta">March 2026 · Historic Window Fundraiser</p>
+        </div>
+      </article>
+    </section>
+
+    <section class="news-section" aria-labelledby="latest-updates">
+      <h2 id="latest-updates">Latest Updates</h2>
+      <div class="news-grid">
+        <article class="news-card news-card-link" data-href="/sponsors/" aria-labelledby="update-banners">
+          <span class="news-tag">Sponsors</span>
+          <h3 class="news-title" id="update-banners">Banner Sponsorship Program</h3>
+          <p>New sponsor additions and banner installations will be posted here.</p>
+          <p class="news-meta">Awaiting next update</p>
+        </article>
+
+      </div>
+    </section>
+
+    <section class="news-cta" aria-labelledby="next-up">
+      <div>
+        <h2 id="next-up">What’s Next</h2>
+        <p>
+          News posts connect directly to the work happening on site. When a new update drops, it will be listed here
+          and linked to the matching project.
+          <strong>Ready to follow along?</strong>
+        </p>
+      </div>
+      <div class="news-cta-actions">
+        <a class="news-chip" href="/projects/">View Projects</a>
+        <a class="news-chip" href="/sponsors/">Banner Sponsors</a>
+        <a class="news-chip" href="/support/">Support Info</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <div>© 2026 Ruth Obenchain Recreation Center</div>
+      <div class="site-footer-links">
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </div>
+      <div>Operated by Bly Community Action Team</div>
+    </div>
+  </footer>
+
+  <script>
+    document.querySelectorAll('.news-card-link').forEach((card) => {
+      const href = card.getAttribute('data-href');
+      if (!href) return;
+      card.setAttribute('tabindex', '0');
+      card.setAttribute('role', 'link');
+
+      card.addEventListener('click', (event) => {
+        if (event.target.closest('a, button, summary, details')) return;
+        window.location.href = href;
+      });
+
+      card.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          window.location.href = href;
+        }
+      });
+    });
+  </script>
+</body>
+</html>

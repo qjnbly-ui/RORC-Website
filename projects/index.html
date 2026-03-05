@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Projects | RORC</title>
+  <meta property="og:title" content="Projects | RORC" />
+  <meta property="og:description" content="Active and completed projects at the Ruth Obenchain Recreation Center." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://www.ruthobenchainrc.com/projects/" />
+  <meta property="og:image" content="https://www.ruthobenchainrc.com/Images/Window%20Sales/Windows1.jpg" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Projects | RORC" />
+  <meta name="twitter:description" content="Active and completed projects at the Ruth Obenchain Recreation Center." />
+  <meta name="twitter:image" content="https://www.ruthobenchainrc.com/Images/Window%20Sales/Windows1.jpg" />
+  <link rel="stylesheet" href="../style.css" />
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-EGC30XZVXV"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-EGC30XZVXV');
+  </script>
+  <style>
+    body.projects-page {
+      background:
+        radial-gradient(900px 520px at 10% -12%, rgba(231, 210, 160, 0.14), transparent 60%),
+        radial-gradient(900px 520px at 92% 8%, rgba(96, 165, 250, 0.12), transparent 62%),
+        #0b0f14;
+    }
+
+    .projects-hero {
+      text-align: center;
+      padding: 28px 0 12px;
+    }
+
+    .projects-kicker {
+      text-transform: uppercase;
+      letter-spacing: 0.3em;
+      font-size: 10px;
+      color: rgba(231, 210, 160, 0.85);
+      margin: 0 0 10px;
+    }
+
+    .projects-hero h1 {
+      font-size: clamp(28px, 4vw, 44px);
+      margin-bottom: 10px;
+    }
+
+    .projects-updated {
+      margin: 8px 0 0;
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(194, 202, 214, 0.85);
+    }
+
+    .projects-lead {
+      max-width: 720px;
+      color: var(--muted);
+      font-size: 15px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .projects-hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .projects-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 10.5px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: rgba(245, 245, 245, 0.85);
+      text-decoration: none;
+      transition: transform 0.18s ease, border-color 0.18s ease, opacity 0.18s ease;
+    }
+
+    .projects-chip:hover {
+      transform: translateY(-1px);
+      border-color: rgba(255, 255, 255, 0.4);
+      opacity: 1;
+    }
+
+    .projects-grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 16px;
+      margin-top: 28px;
+    }
+
+    .project-card {
+      grid-column: span 12;
+      background: rgba(12, 14, 18, 0.82);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 16px;
+      display: grid;
+      gap: 10px;
+      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+      transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .project-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(231, 210, 160, 0.35);
+      box-shadow: 0 24px 50px rgba(0, 0, 0, 0.5);
+    }
+
+    .project-tag {
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: rgba(231, 210, 160, 0.85);
+    }
+
+    .project-title {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .project-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .project-links a {
+      text-decoration: none;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      font-size: 10.5px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: rgba(245, 245, 245, 0.9);
+      transition: transform 0.18s ease, border-color 0.18s ease;
+    }
+
+    .project-links a:hover {
+      transform: translateY(-1px);
+      border-color: rgba(255, 255, 255, 0.5);
+    }
+
+    .project-details {
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+      padding-top: 10px;
+    }
+
+    .project-details summary {
+      cursor: pointer;
+      list-style: none;
+      font-family: var(--font-display);
+      font-size: 14.5px;
+    }
+
+    .project-details summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .project-details summary::after {
+      content: "+";
+      float: right;
+      color: var(--muted);
+    }
+
+    .project-details[open] summary::after {
+      content: "–";
+    }
+
+    .project-details p {
+      margin: 10px 0 0;
+    }
+
+    .projects-section {
+      margin-top: 40px;
+    }
+
+    .projects-section h2 {
+      text-align: left;
+      margin-bottom: 12px;
+    }
+
+    .projects-divider {
+      height: 1px;
+      background: rgba(255, 255, 255, 0.08);
+      margin: 26px 0;
+    }
+
+    .projects-timeline {
+      display: grid;
+      gap: 12px;
+    }
+
+    .projects-timeline-item {
+      padding: 14px 16px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(12, 14, 18, 0.7);
+    }
+
+    .projects-timeline-item span {
+      display: block;
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: rgba(194, 202, 214, 0.9);
+      margin-bottom: 6px;
+    }
+
+    .projects-cta {
+      margin-top: 32px;
+      padding: 18px;
+      border-radius: 18px;
+      border: 1px solid rgba(231, 210, 160, 0.25);
+      background: linear-gradient(120deg, rgba(231, 210, 160, 0.16), rgba(12, 14, 18, 0.82));
+      display: grid;
+      gap: 12px;
+    }
+
+    .projects-cta strong {
+      color: #e7d2a0;
+    }
+
+    .projects-cta-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .projects-latest {
+      margin-top: 26px;
+      padding: 16px;
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(12, 14, 18, 0.75);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .projects-latest a {
+      text-decoration: none;
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: rgba(245, 245, 245, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 8px 12px;
+      border-radius: 999px;
+      transition: transform 0.18s ease, border-color 0.18s ease;
+    }
+
+    .projects-latest a:hover {
+      transform: translateY(-1px);
+      border-color: rgba(255, 255, 255, 0.5);
+    }
+
+    .projects-image-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      margin-top: 12px;
+    }
+
+    .projects-image-card {
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(10, 10, 10, 0.9);
+      display: grid;
+      gap: 0;
+    }
+
+    .projects-image-card img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .projects-image-card div {
+      padding: 12px 14px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    @media (min-width: 900px) {
+      .projects-grid .project-card {
+        grid-column: span 4;
+      }
+    }
+  </style>
+</head>
+<body class="projects-page">
+  <div class="site-menu">
+    <input type="checkbox" id="site-menu-toggle" class="site-menu-toggle" />
+    <div class="site-menu-bar">
+      <a class="site-menu-brand" href="/">RORC</a>
+      <label class="site-menu-button" for="site-menu-toggle">Menu</label>
+    </div>
+    <label class="site-menu-backdrop" for="site-menu-toggle" aria-hidden="true"></label>
+    <div class="site-menu-panel" role="dialog" aria-label="Site menu">
+      <label class="site-menu-close" for="site-menu-toggle">Close</label>
+      <div>
+        <nav class="site-menu-links" aria-label="Site">
+          <a href="/">Home</a>
+          <a href="/about-rorc/">About</a>
+          <a href="/memberships/">Memberships</a>
+          <a href="/rentals/">Rentals</a>
+          <a href="/sponsors/">Sponsors</a>
+          <a href="/projects/">Projects</a>
+          <a href="/news-updates/">News & Updates</a>
+          <a href="/application/">RORC App</a>
+        </nav>
+      </div>
+      <div class="site-menu-legal" aria-label="Legal">
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </div>
+    </div>
+  </div>
+
+  <main class="page-content">
+    <section class="projects-hero">
+      <p class="projects-kicker">Projects</p>
+      <h1>Projects That Keep The Recreation Center Moving Forward</h1>
+      <p class="projects-lead">
+        This is the home base for facility improvements, fundraising efforts, and community-backed upgrades.
+        Each project links to updates so members can follow along and help where it counts.
+      </p>
+      <p class="projects-updated">Last updated: March 2026</p>
+    </section>
+
+    <section class="projects-section" aria-labelledby="active-projects">
+      <h2 id="active-projects">Active Projects</h2>
+      <div class="projects-grid">
+        <article class="project-card" aria-labelledby="project-windows-list">
+          <span class="project-tag">Fundraiser</span>
+          <h3 class="project-title" id="project-windows-list">Historic Window Fundraiser</h3>
+          <p>Fundraising to preserve the historic exterior and improve efficiency.</p>
+          <div class="project-links">
+            <a href="/windows/">Project Page</a>
+          </div>
+        </article>
+
+        <article class="project-card" aria-labelledby="project-banners-list">
+          <span class="project-tag">Sponsorship</span>
+          <h3 class="project-title" id="project-banners-list">Banner Sponsorship Program</h3>
+          <p>Community partners keep the facility improving year-round.</p>
+          <div class="project-links">
+            <a href="/sponsors/">Sponsor Gallery</a>
+          </div>
+        </article>
+
+      </div>
+    </section>
+
+    <div class="projects-divider" aria-hidden="true"></div>
+
+    <section class="projects-section" aria-labelledby="completed-projects">
+      <h2 id="completed-projects">Completed Projects</h2>
+      <div class="projects-grid">
+        <article class="project-card" aria-labelledby="project-led">
+          <span class="project-tag">Completed</span>
+          <h3 class="project-title" id="project-led">LED Lighting Upgrade</h3>
+          <p>Story coming soon.</p>
+        </article>
+
+        <article class="project-card" aria-labelledby="project-roof">
+          <span class="project-tag">Completed</span>
+          <h3 class="project-title" id="project-roof">Metal Roof Installation</h3>
+          <p>Story coming soon.</p>
+        </article>
+
+      </div>
+    </section>
+
+    <section class="projects-cta" aria-labelledby="project-support">
+      <div>
+        <h2 id="project-support">Want to Help?</h2>
+        <p>
+          Support keeps projects moving. Sponsorships, donations, and volunteer hours are the engine behind every upgrade.
+          <strong>Join the next phase.</strong>
+        </p>
+      </div>
+      <div class="projects-cta-actions">
+        <a class="projects-chip" href="/support/">Support Info</a>
+        <a class="projects-chip" href="/sponsors/">Sponsor a Banner</a>
+        <a class="projects-chip" href="/news-updates/">Follow Updates</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <div>© 2026 Ruth Obenchain Recreation Center</div>
+      <div class="site-footer-links">
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </div>
+      <div>Operated by Bly Community Action Team</div>
+    </div>
+  </footer>
+</body>
+</html>
