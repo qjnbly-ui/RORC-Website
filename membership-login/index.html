@@ -131,11 +131,12 @@
 
         const data = await res.json();
 
-        if (data.success) {
-          result.innerHTML = `Welcome, <strong>${data.name}</strong>`;
-        } else {
-          result.textContent = data.error || "Invalid login.";
-        }
+      if (data.success) {
+      result.innerHTML = `Welcome, <strong>${data.name}</strong>`;
+      } else {
+      result.textContent = JSON.stringify(data);
+      }
+
       } catch (err) {
         result.textContent = "Login failed. Please try again.";
       }
