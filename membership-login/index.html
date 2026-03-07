@@ -138,9 +138,18 @@
         const data = await res.json();
 
         if (data.success) {
-          result.innerHTML = `Welcome, <strong>${data.name}</strong>`;
+          const m = data.member;
+
+          result.innerHTML = `
+            <strong>Welcome, ${m["Member Name"] || ""}</strong><br>
+            ${m["Account Type"] ? `Account Type: ${m["Account Type"]}<br>` : ""}
+            ${m["Expiration Date"] ? `Expiration Date: ${m["Expiration Date"]}<br>` : ""}
+            ${m["StripeStatus"] ? `Stripe Status: ${m["StripeStatus"]}<br>` : ""}
+            ${m["CurrentPeriodEnd"] ? `Current Period End: ${m["CurrentPeriodEnd"]}<br>` : ""}
+            ${m["Account Number"] ? `Account Number: ${m["Account Number"]}<br>` : ""}
+          `;
         } else {
-          result.textContent = JSON.stringify(data);
+          result.textContent = data.error || "Invalid login.";
         }
       } catch (err) {
         result.textContent = "Login failed. Please try again.";
