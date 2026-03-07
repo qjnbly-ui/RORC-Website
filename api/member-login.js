@@ -1,5 +1,4 @@
 const { google } = require("googleapis");
-const path = require("path");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -20,10 +19,10 @@ module.exports = async (req, res) => {
     const normalizedPhone = normalizedLogin.replace(/\D/g, "");
     const normalizedPin = String(pin).trim();
 
-    const keyFile = path.join(process.cwd(), "lib", "google-service-account.json");
+    const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
 
     const auth = new google.auth.GoogleAuth({
-      keyFile,
+      credentials,
       scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"]
     });
 
