@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Membership Login | RORC</title>
+  <link rel="stylesheet" href="../style.css" />
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-EGC30XZVXV"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-EGC30XZVXV');
+  </script>
+</head>
+<body>
+  <div class="site-menu">
+    <input type="checkbox" id="site-menu-toggle" class="site-menu-toggle" />
+    <div class="site-menu-bar">
+      <a class="site-menu-brand" href="/">RORC</a>
+      <label class="site-menu-button" for="site-menu-toggle">Menu</label>
+    </div>
+    <label class="site-menu-backdrop" for="site-menu-toggle" aria-hidden="true"></label>
+    <div class="site-menu-panel" role="dialog" aria-label="Site menu">
+      <label class="site-menu-close" for="site-menu-toggle">Close</label>
+      <div>
+        <nav class="site-menu-links" aria-label="Site">
+          <a href="/">Home</a>
+          <a href="/about-rorc/">About</a>
+          <a href="/memberships/">Memberships</a>
+          <a href="/rentals/">Rentals</a>
+          <a href="/sponsors/">Sponsors</a>
+          <a href="/projects/">Projects</a>
+          <a href="/news-updates/">News & Updates</a>
+          <a href="/application/">RORC App</a>
+        </nav>
+      </div>
+      <div class="site-menu-legal" aria-label="Legal">
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </div>
+    </div>
+  </div>
+
+  <main class="page-content membership-page">
+    <section class="membership-hero">
+      <h1>Membership Login</h1>
+      <p>Sign in with your email or phone number and 4-digit PIN.</p>
+    </section>
+
+    <section class="rorc-card" style="max-width: 520px; margin: 0 auto;">
+      <h2 class="rorc-card-title">Website Login</h2>
+      <p class="rorc-card-text">
+        Enter the email or phone number tied to your membership, plus your 4-digit PIN.
+      </p>
+
+      <div style="display:grid; gap:12px;">
+        <label>
+          <span style="display:block; font-size:12px; letter-spacing:0.18em; text-transform:uppercase; color:#c2cad6; margin-bottom:6px;">
+            Email or Phone
+          </span>
+          <input
+            id="login"
+            type="text"
+            inputmode="email"
+            autocomplete="username"
+            required
+            style="width:100%; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,0.2); background:#0b0f14; color:#f5f5f5;"
+            placeholder="name@email.com or 541-555-1234"
+          />
+        </label>
+
+        <label>
+          <span style="display:block; font-size:12px; letter-spacing:0.18em; text-transform:uppercase; color:#c2cad6; margin-bottom:6px;">
+            4-Digit PIN
+          </span>
+          <input
+            id="pin"
+            type="password"
+            inputmode="numeric"
+            autocomplete="current-password"
+            pattern="\\d{4}"
+            maxlength="4"
+            required
+            style="width:100%; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,0.2); background:#0b0f14; color:#f5f5f5;"
+            placeholder="1234"
+          />
+        </label>
+
+        <div class="rorc-actions" style="justify-content:flex-start;">
+          <button id="loginBtn" class="rorc-btn rorc-btn-neutral" type="button">Log In</button>
+        </div>
+
+        <p id="result" class="rorc-card-text" style="min-height:1.5em;"></p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <div>© 2026 Ruth Obenchain Recreation Center</div>
+      <div class="site-footer-links">
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </div>
+      <div>Operated by Bly Community Action Team</div>
+    </div>
+  </footer>
+
+  <script>
+    const MEMBER_LOGIN_URL = "https://script.google.com/macros/s/AKfycbz4tC63w3BLLZPWqAEldVNdgDMkNx_xmzfdjkEApJQ7Uy2OorczZfgODqqiWwvy2DlO/exec";
+
+    document.getElementById("loginBtn").addEventListener("click", async () => {
+      const login = document.getElementById("login").value.trim();
+      const pin = document.getElementById("pin").value.trim();
+      const result = document.getElementById("result");
+
+      result.textContent = "Checking...";
+
+      try {
+        const res = await fetch(MEMBER_LOGIN_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ login, pin })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          result.innerHTML = `Welcome, <strong>${data.name}</strong>`;
+        } else {
+          result.textContent = data.error || "Invalid login.";
+        }
+      } catch (err) {
+        result.textContent = "Login failed. Please try again.";
+      }
+    });
+  </script>
+</body>
+</html>
