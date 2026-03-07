@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Member Dashboard | RORC</title>
+  <link rel="stylesheet" href="../style.css" />
+</head>
+<body>
+  <main class="page-content membership-page">
+    <section class="membership-hero">
+      <h1>Member Dashboard</h1>
+      <p>Your account information will appear here.</p>
+    </section>
+
+    <section class="rorc-card" style="max-width: 720px; margin: 0 auto;">
+      <h2 class="rorc-card-title">Dashboard</h2>
+      <div id="memberDashboard" class="rorc-card-text">
+        Loading member information...
+      </div>
+    </section>
+  </main>
+  <script>
+  const memberData = JSON.parse(sessionStorage.getItem("memberData"));
+
+  const container = document.getElementById("memberDashboard");
+
+  if (!memberData) {
+    container.innerHTML = "Not logged in.";
+  } else {
+
+    container.innerHTML = `
+      <h3>Welcome, ${memberData["Member Name"]}</h3>
+
+      <p><strong>Account Type:</strong> ${memberData["Account Type"] || ""}</p>
+      <p><strong>Account Number:</strong> ${memberData["Account Number"] || ""}</p>
+      <p><strong>Expiration Date:</strong> ${memberData["Expiration Date"] || ""}</p>
+      <p><strong>Stripe Status:</strong> ${memberData["StripeStatus"] || ""}</p>
+    `;
+  }
+  </script>
+</body>
+</html>

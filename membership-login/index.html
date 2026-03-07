@@ -138,16 +138,16 @@
         const data = await res.json();
 
         if (data.success) {
-          const m = data.member;
+          // store member data
+          sessionStorage.setItem("memberData", JSON.stringify(data.member));
 
-          result.innerHTML = `
-            <strong>Welcome, ${m["Member Name"] || ""}</strong><br>
-            ${m["Account Type"] ? `Account Type: ${m["Account Type"]}<br>` : ""}
-            ${m["Expiration Date"] ? `Expiration Date: ${m["Expiration Date"]}<br>` : ""}
-            ${m["StripeStatus"] ? `Stripe Status: ${m["StripeStatus"]}<br>` : ""}
-            ${m["CurrentPeriodEnd"] ? `Current Period End: ${m["CurrentPeriodEnd"]}<br>` : ""}
-            ${m["Account Number"] ? `Account Number: ${m["Account Number"]}<br>` : ""}
-          `;
+          // optional quick success message
+          result.textContent = "Login successful...";
+
+          // redirect to dashboard
+          setTimeout(() => {
+            window.location.href = "/member-dashboard/";
+          }, 600);
         } else {
           result.textContent = data.error || "Invalid login.";
         }
