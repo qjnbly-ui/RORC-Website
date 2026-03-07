@@ -61,7 +61,6 @@ module.exports = async (req, res) => {
     }
 
     for (const row of dataRows) {
-      const name = String(row[nameCol] || "").trim();
       const password = String(row[passCol] || "").trim();
       const phone = String(row[phoneCol] || "").replace(/\D/g, "");
       const email = String(row[emailCol] || "").trim().toLowerCase();
@@ -71,9 +70,15 @@ module.exports = async (req, res) => {
         (normalizedPhone && normalizedPhone === phone);
 
       if (loginMatches && normalizedPin === password) {
+        const memberData = {};
+
+        headers.forEach((header, index) => {
+          memberData[header] = row[index] || "";
+        });
+
         return res.json({
           success: true,
-          name
+          member: memberData
         });
       }
     }
