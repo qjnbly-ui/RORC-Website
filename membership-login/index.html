@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Membership Login | RORC</title>
   <link rel="stylesheet" href="../style.css" />
-  <!-- Google tag (gtag.js) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-EGC30XZVXV"></script>
   <script>
     window.dataLayer = window.dataLayer || [];
@@ -111,21 +110,24 @@
   </footer>
 
   <script>
-    const MEMBER_LOGIN_URL = "https://script.google.com/macros/s/AKfycbzbUz5CB0ogtApEeSZ1xono_XhLVHmFspp5zvc--VhR1WDr56-IAKwiC6t4rkFZA3rq/exec";
+    const MEMBER_LOGIN_URL = "https://script.google.com/macros/s/AKfycbylOPMZ5_G3x6GvsC9lu0Z74c8gxGkX40MwZHFsdADxFdaviYqfogud6HoLPi19Mv0QYQ/exec";
 
     document.getElementById("loginBtn").addEventListener("click", async () => {
       const login = document.getElementById("login").value.trim();
       const pin = document.getElementById("pin").value.trim();
       const result = document.getElementById("result");
 
+      if (!login || !pin) {
+        result.textContent = "Enter email/phone and PIN.";
+        return;
+      }
+
       result.textContent = "Checking...";
 
       try {
-        const res = await fetch(MEMBER_LOGIN_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ login, pin })
-        });
+        const res = await fetch(
+          `${MEMBER_LOGIN_URL}?login=${encodeURIComponent(login)}&pin=${encodeURIComponent(pin)}`
+        );
 
         const data = await res.json();
 
@@ -136,6 +138,12 @@
         }
       } catch (err) {
         result.textContent = "Login failed. Please try again.";
+      }
+    });
+
+    document.getElementById("pin").addEventListener("keypress", function(e) {
+      if (e.key === "Enter") {
+        document.getElementById("loginBtn").click();
       }
     });
   </script>
