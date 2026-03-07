@@ -116,29 +116,36 @@
       const login = document.getElementById("login").value.trim();
       const pin = document.getElementById("pin").value.trim();
       const result = document.getElementById("result");
+      const button = document.getElementById("loginBtn");
 
       if (!login || !pin) {
         result.textContent = "Enter email/phone and PIN.";
         return;
       }
 
+      button.disabled = true;
       result.textContent = "Checking...";
 
       try {
-        const res = await fetch(
-          `${MEMBER_LOGIN_URL}?login=${encodeURIComponent(login)}&pin=${encodeURIComponent(pin)}`
-        );
+        const res = await fetch(MEMBER_LOGIN_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ login, pin })
+        });
 
         const data = await res.json();
 
-      if (data.success) {
-      result.innerHTML = `Welcome, <strong>${data.name}</strong>`;
-      } else {
-      result.textContent = JSON.stringify(data);
-      }
-
+        if (data.success) {
+          result.innerHTML = `Welcome, <strong>${data.name}</strong>`;
+        } else {
+          result.textContent = JSON.stringify(data);
+        }
       } catch (err) {
         result.textContent = "Login failed. Please try again.";
+      } finally {
+        button.disabled = false;
       }
     });
 
