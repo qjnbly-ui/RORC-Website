@@ -28,9 +28,19 @@
   const container = document.getElementById("memberDashboard");
   const billingBtn = document.getElementById("billingBtn");
 
+  const stripeCustomerId = memberData ? memberData["StripeCustomerID"] : "";
+
   if (!memberData) {
     container.innerHTML = `
       <p>Not logged in.</p>
+      <p><a href="https://payments.ruthobenchainrc.com/p/login/eVaeWh2tN0vxgSs288" target="_blank" rel="noopener">Open Membership Portal</a></p>
+    `;
+    if (billingBtn) {
+      billingBtn.style.display = "none";
+    }
+  } else if (!stripeCustomerId) {
+    container.innerHTML = `
+      <h3>Welcome, ${memberData["Member Name"]}</h3>
       <p><a href="https://payments.ruthobenchainrc.com/p/login/eVaeWh2tN0vxgSs288" target="_blank" rel="noopener">Open Membership Portal</a></p>
     `;
     if (billingBtn) {
