@@ -80,7 +80,7 @@ module.exports = async (req, res) => {
 
     await resend.emails.send({
 
-      from: "RORC Membership <members@ruthobenchainrc.com>",
+      from: "RORC Support <support@ruthobenchainrc.com>",
       to: email,
       subject: "RORC Password Reset",
 
