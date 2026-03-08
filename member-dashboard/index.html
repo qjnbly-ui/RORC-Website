@@ -7,6 +7,35 @@
   <link rel="stylesheet" href="../style.css" />
 </head>
 <body>
+  <div class="site-menu">
+    <input type="checkbox" id="site-menu-toggle" class="site-menu-toggle" />
+    <div class="site-menu-bar">
+      <a class="site-menu-brand" href="/">RORC</a>
+      <label class="site-menu-button" for="site-menu-toggle">Menu</label>
+    </div>
+    <label class="site-menu-backdrop" for="site-menu-toggle" aria-hidden="true"></label>
+    <div class="site-menu-panel" role="dialog" aria-label="Site menu">
+      <label class="site-menu-close" for="site-menu-toggle">Close</label>
+      <div>
+        <nav class="site-menu-links" aria-label="Site">
+          <a href="/">Home</a>
+          <a href="/about-rorc/">About</a>
+          <a href="/memberships/">Memberships</a>
+          <a href="/rentals/">Rentals</a>
+          <a href="/sponsors/">Sponsors</a>
+          <a href="/projects/">Projects</a>
+          <a href="/news-updates/">News & Updates</a>
+          <a href="/application/">RORC App</a>
+        </nav>
+      </div>
+      <div class="site-menu-legal" aria-label="Legal">
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </div>
+    </div>
+  </div>
+
   <main class="page-content membership-page">
     <section class="membership-hero">
       <h1>Member Dashboard</h1>
@@ -28,19 +57,9 @@
   const container = document.getElementById("memberDashboard");
   const billingBtn = document.getElementById("billingBtn");
 
-  const stripeCustomerId = memberData ? memberData["StripeCustomerID"] : "";
-
   if (!memberData) {
     container.innerHTML = `
       <p>Not logged in.</p>
-      <p><a href="https://payments.ruthobenchainrc.com/p/login/eVaeWh2tN0vxgSs288" target="_blank" rel="noopener">Open Membership Portal</a></p>
-    `;
-    if (billingBtn) {
-      billingBtn.style.display = "none";
-    }
-  } else if (!stripeCustomerId) {
-    container.innerHTML = `
-      <h3>Welcome, ${memberData["Member Name"]}</h3>
       <p><a href="https://payments.ruthobenchainrc.com/p/login/eVaeWh2tN0vxgSs288" target="_blank" rel="noopener">Open Membership Portal</a></p>
     `;
     if (billingBtn) {
@@ -56,8 +75,16 @@
     `;
   }
 
+  const stripeCustomerId = memberData ? memberData["StripeCustomerID"] : "";
+
   if (billingBtn) {
-    billingBtn.addEventListener("click", async () => {
+    if (memberData && !stripeCustomerId) {
+      billingBtn.textContent = "Open Membership Portal";
+      billingBtn.addEventListener("click", () => {
+        window.open("https://payments.ruthobenchainrc.com/p/login/eVaeWh2tN0vxgSs288", "_blank");
+      });
+    } else {
+      billingBtn.addEventListener("click", async () => {
       try {
         const res = await fetch("/api/member-portal", {
           method: "POST",
@@ -80,6 +107,7 @@
         alert("Could not open billing portal.");
       }
     });
+    }
   }
   </script>
 </body>
