@@ -76,6 +76,8 @@ module.exports = async (req, res) => {
           memberData[header] = row[index] || "";
         });
 
+        delete memberData["Password"];
+
         return res.json({
           success: true,
           member: memberData

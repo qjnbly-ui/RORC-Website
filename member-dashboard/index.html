@@ -54,6 +54,35 @@
         </button>
       </div>
     </section>
+
+    <section id="updatePasswordSection" class="rorc-card" style="max-width:720px; margin:24px auto 0;">
+      <h2 class="rorc-card-title">Update Password</h2>
+
+      <div style="display:grid; gap:12px;">
+        <label>
+          <span>Current PIN</span>
+          <input id="currentPin" type="password" maxlength="4" inputmode="numeric" />
+        </label>
+
+        <label>
+          <span>New PIN</span>
+          <input id="newPin" type="password" maxlength="4" inputmode="numeric" />
+        </label>
+
+        <label>
+          <span>Confirm New PIN</span>
+          <input id="confirmPin" type="password" maxlength="4" inputmode="numeric" />
+        </label>
+
+        <div class="rorc-actions">
+          <button id="updatePasswordBtn" class="rorc-btn rorc-btn-neutral">
+            Update Password
+          </button>
+        </div>
+
+        <p id="passwordResult"></p>
+      </div>
+    </section>
   </main>
   <script>
   const memberData = JSON.parse(localStorage.getItem("memberData"));
@@ -121,6 +150,71 @@
       event.preventDefault();
       localStorage.removeItem("memberData");
       window.location.href = "/membership-login/";
+    });
+  }
+
+  const updatePasswordSection = document.getElementById("updatePasswordSection");
+  const updatePasswordBtn = document.getElementById("updatePasswordBtn");
+  const passwordResult = document.getElementById("passwordResult");
+
+  if (!memberData && updatePasswordSection) {
+    updatePasswordSection.style.display = "none";
+  }
+
+  if (updatePasswordBtn) {
+    updatePasswordBtn.addEventListener("click", async () => {
+      const currentPin = document.getElementById("currentPin").value.trim();
+      const newPin = document.getElementById("newPin").value.trim();
+      const confirmPin = document.getElementById("confirmPin").value.trim();
+
+      if (!currentPin || !newPin || !confirmPin) {
+        passwordResult.textContent = "Please fill out all password fields.";
+        return;
+      }
+
+      if (!/^\d{4}$/.test(newPin)) {
+        passwordResult.textContent = "New password must be exactly 4 digits.";
+        return;
+      }
+
+      if (newPin !== confirmPin) {
+        passwordResult.textContent = "New passwords do not match.";
+        return;
+      }
+
+      const originalLabel = updatePasswordBtn.textContent;
+      updatePasswordBtn.disabled = true;
+      updatePasswordBtn.textContent = "Updating...";
+
+      try {
+        const res = await fetch("/api/update-password", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            member: memberData,
+            currentPin,
+            newPin
+          })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          passwordResult.textContent = data.message || "Password updated.";
+          document.getElementById("currentPin").value = "";
+          document.getElementById("newPin").value = "";
+          document.getElementById("confirmPin").value = "";
+        } else {
+          passwordResult.textContent = data.error || "Could not update password.";
+        }
+      } catch (err) {
+        passwordResult.textContent = "Could not update password.";
+      } finally {
+        updatePasswordBtn.disabled = false;
+        updatePasswordBtn.textContent = originalLabel;
+      }
     });
   }
   </script>
