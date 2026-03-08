@@ -102,6 +102,27 @@ a { color: inherit; }
   font-size: 12px;
 }
 
+.site-menu-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.site-menu-login {
+  text-decoration: none;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text);
+  opacity: 0.9;
+  transition: opacity 0.15s ease;
+}
+
+.site-menu-login:hover {
+  opacity: 1;
+}
+
 .site-menu-button,
 .site-menu-close {
   display: inline-flex;
