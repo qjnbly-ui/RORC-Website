@@ -120,6 +120,11 @@
   </footer>
 
   <script>
+    const existingMember = localStorage.getItem("memberData");
+    if (existingMember) {
+      window.location.href = "/member-dashboard/";
+    }
+
     const MEMBER_LOGIN_URL = "/api/member-login";
 
     document.getElementById("loginBtn").addEventListener("click", async () => {
