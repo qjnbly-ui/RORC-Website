@@ -28,7 +28,6 @@
           <a href="/sponsors/">Sponsors</a>
           <a href="/projects/">Projects</a>
           <a href="/news-updates/">News & Updates</a>
-          <a href="/application/">RORC App</a>
         </nav>
       </div>
       <div class="site-menu-legal" aria-label="Legal">
@@ -57,6 +56,23 @@
         </button>
         <button id="openUpdatePasswordBtn" class="rorc-btn rorc-btn-neutral">
           Update Password
+        </button>
+      </div>
+    </section>
+
+    <section id="rorcAppCard" class="rorc-card" style="max-width: 720px; margin: 24px auto 0;">
+      <h2 class="rorc-card-title">RORC Application</h2>
+      <p class="rorc-card-text">
+        Mandatory sign-in, heater control, and account tools — all in one place.
+      </p>
+      <div class="rorc-actions">
+        <button class="rorc-btn rorc-btn-neutral" onclick="openAppSheetPopup()">
+          Open App
+        </button>
+        <button
+          class="rorc-btn rorc-btn-ghost"
+          onclick="window.open('https://www.appsheet.com/newshortcut/148f600c-2af7-4191-a6bf-b88b04244cb0', '_blank')">
+          Download
         </button>
       </div>
     </section>
@@ -122,10 +138,22 @@
       </div>
     </div>
   </div>
+
+  <div id="appSheetModal" class="rorc-modal" role="dialog" aria-modal="true" aria-labelledby="rorcModalTitle">
+    <div class="rorc-modal-head">
+      <h3 id="rorcModalTitle" class="rorc-modal-title">RORC Application</h3>
+      <button class="rorc-btn rorc-btn-danger rorc-close" onclick="closeAppSheetPopup()">Close</button>
+    </div>
+    <div class="rorc-modal-body">
+      <iframe id="appSheetIframe" title="AppSheet Application" class="rorc-iframe"></iframe>
+    </div>
+  </div>
+
   <script>
   const memberData = JSON.parse(localStorage.getItem("memberData"));
   const container = document.getElementById("memberDashboard");
   const billingBtn = document.getElementById("billingBtn");
+  const appCard = document.getElementById("rorcAppCard");
 
   if (!memberData) {
     container.innerHTML = `
@@ -135,6 +163,9 @@
     if (billingBtn) {
       billingBtn.style.display = "none";
     }
+    if (appCard) {
+      appCard.style.display = "none";
+    }
   } else {
     container.innerHTML = `
       <h3>Welcome, ${memberData["Member Name"]}</h3>
@@ -143,6 +174,9 @@
       <p><strong>Account Number:</strong> ${memberData["Account Number"] || ""}</p>
       <p><strong>Status:</strong> ${memberData["StripeStatus"] || ""}</p>
     `;
+    if (appCard) {
+      appCard.style.display = "block";
+    }
   }
 
   const accountPhone = document.getElementById("accountPhone");
@@ -408,6 +442,17 @@
       }
     });
   }
+  </script>
+  <script>
+    function openAppSheetPopup() {
+      const url = "https://www.appsheet.com/start/148f600c-2af7-4191-a6bf-b88b04244cb0?_=" + Date.now();
+      document.getElementById('appSheetIframe').src = url;
+      document.getElementById('appSheetModal').style.display = 'flex';
+    }
+
+    function closeAppSheetPopup() {
+      document.getElementById('appSheetModal').style.display = 'none';
+    }
   </script>
   <script>
     (function() {
