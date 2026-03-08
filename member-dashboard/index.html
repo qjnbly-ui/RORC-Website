@@ -16,12 +16,18 @@
       <div id="memberDashboard" class="rorc-card-text">
         Loading member information...
       </div>
+      <div class="rorc-actions">
+        <button id="billingBtn" class="rorc-btn rorc-btn-neutral">
+          Manage Billing
+        </button>
+      </div>
     </section>
   </main>
   <script>
   const memberData = JSON.parse(sessionStorage.getItem("memberData"));
 
   const container = document.getElementById("memberDashboard");
+  const billingBtn = document.getElementById("billingBtn");
 
   if (!memberData) {
     container.innerHTML = "Not logged in.";
@@ -36,6 +42,28 @@
       <p><a href="https://payments.ruthobenchainrc.com/p/login/eVaeWh2tN0vxgSs288" target="_blank" rel="noopener">Open Membership Portal</a></p>
     `;
   }
+
+  billingBtn.addEventListener("click", async () => {
+
+    const res = await fetch("/api/member-portal", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        member: memberData
+      })
+    });
+
+    const data = await res.json();
+
+    if (data.success) {
+      window.location.href = data.url;
+    } else {
+      alert(data.error || "Could not open billing portal.");
+    }
+
+  });
   </script>
 </body>
 </html>
