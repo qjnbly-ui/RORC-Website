@@ -2,7 +2,10 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
+    return res.status(405).json({
+      success: false,
+      error: "Method not allowed"
+    });
   }
 
   try {
@@ -15,7 +18,7 @@ module.exports = async (req, res) => {
       });
     }
 
-    const customerId = member["StripeCustomerID"];
+    const customerId = String(member["StripeCustomerID"] || "").trim();
 
     if (!customerId) {
       return res.status(400).json({
@@ -29,11 +32,10 @@ module.exports = async (req, res) => {
       return_url: "https://www.ruthobenchainrc.com/member-dashboard/"
     });
 
-    return res.json({
+    return res.status(200).json({
       success: true,
       url: session.url
     });
-
   } catch (error) {
     return res.status(500).json({
       success: false,
