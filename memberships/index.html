@@ -50,10 +50,29 @@
     <header class="membership-hero">
       <h1>Memberships</h1>
       <p>
-        Find the membership that matches how you use the gym. All billing goes through our secure Stripe portal, and
-        you can manage your plan anytime.
+        Find the membership that matches how you use the facility. Start a new membership in minutes, or sign in to manage
+        your plan anytime.
       </p>
+      <div class="rorc-actions" style="justify-content:center; margin-top: 18px;">
+        <button
+          class="rorc-btn rorc-btn-accent"
+          onclick="window.open('https://docs.google.com/forms/d/e/1FAIpQLScl0BSlzIa0CBzw75Exz19dTIAb0fAZvYHz9FVhg-UEBZU7ww/viewform?usp=sf_link', '_blank')">
+          Start Membership
+        </button>
+        <button
+          class="rorc-btn rorc-btn-ghost"
+          onclick="window.location.href = '/membership-login/';">
+          Member Login
+        </button>
+      </div>
     </header>
+
+    <section class="rorc-card" style="margin-top: 18px;">
+      <h2 class="rorc-card-title">Membership Options</h2>
+      <p class="rorc-card-text">
+        Choose the plan that fits your routine. All plans are billed monthly unless noted.
+      </p>
+    </section>
 
     <section class="membership-grid">
       <article class="membership-card">
@@ -81,45 +100,34 @@
       </article>
     </section>
 
-    <div class="membership-cta">
-      <button
-        class="rorc-btn rorc-btn-accent"
-        onclick="window.open('https://docs.google.com/forms/d/e/1FAIpQLScl0BSlzIa0CBzw75Exz19dTIAb0fAZvYHz9FVhg-UEBZU7ww/viewform?usp=sf_link', '_blank')">
-        Start Membership
-      </button>
-    </div>
-
-    <p class="membership-note">
-      New members start here. Already a member? Manage your plan below.
-    </p>
-
-    <section class="rorc-stats">
-      <h3>Gym Activity</h3>
-      <div class="rorc-stats-row">
-        <span>Today: <strong id="ci-today">–</strong></span>
-        <span>This week: <strong id="ci-week">–</strong></span>
-        <span>This month: <strong id="ci-month">–</strong></span>
-        <span>Avg/day: <strong id="ci-avgday">–</strong></span>
-        <span>Status: <strong id="gym-status">–</strong></span>
-        <span>Signed in: <strong id="gym-occupancy">–</strong></span>
+    <section class="rorc-card" style="margin-top: 26px;">
+      <h2 class="rorc-card-title">Facility Activity</h2>
+      <div class="rorc-stats">
+        <div class="rorc-stats-row">
+          <span>Today: <strong id="ci-today">–</strong></span>
+          <span>This week: <strong id="ci-week">–</strong></span>
+          <span>This month: <strong id="ci-month">–</strong></span>
+          <span>Avg/day: <strong id="ci-avgday">–</strong></span>
+          <span>Status: <strong id="gym-status">–</strong></span>
+          <span>Signed in: <strong id="gym-occupancy">–</strong></span>
+        </div>
+        <small>Last updated: <span id="ci-updated">–</span></small>
       </div>
-      <small>Last updated: <span id="ci-updated">–</span></small>
     </section>
 
     <section class="rorc-card" style="margin-top: 22px;">
-      <h2 class="rorc-card-title">Manage Your Membership</h2>
+      <h2 class="rorc-card-title">Already a Member?</h2>
       <p class="rorc-card-text">
-        Update your information, pause or cancel your plan, or check your current status anytime.
+        Sign in to update your information, switch to the $0 Open Gym plan, or check your current status anytime.
+        For complete cancellation, email a request to support@ruthobenchainrc.com.
       </p>
-
-      <div class="rorc-actions">
+      <div class="rorc-actions" style="justify-content:center;">
         <button
           class="rorc-btn rorc-btn-neutral"
           onclick="window.location.href = '/membership-login/';">
           Member Login
         </button>
       </div>
-
       <p class="rorc-hint">
         You'll need the email you signed up with.
       </p>
