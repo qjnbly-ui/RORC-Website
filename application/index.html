@@ -103,6 +103,7 @@
   </script>
   <script>
     (function() {
+      if (window.location.pathname.startsWith("/member-dashboard")) return;
       const memberData = localStorage.getItem("memberData");
       if (!memberData) return;
       const loginLink = document.querySelector(".site-menu-login");
