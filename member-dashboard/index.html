@@ -52,6 +52,9 @@
         <button id="billingBtn" class="rorc-btn rorc-btn-neutral">
           Manage Billing
         </button>
+        <button id="openAccountInfoBtn" class="rorc-btn rorc-btn-neutral">
+          Account Info
+        </button>
       </div>
     </section>
 
@@ -84,6 +87,34 @@
       </div>
     </section>
   </main>
+
+  <div id="accountInfoModal" class="rorc-password-modal" hidden>
+    <div class="rorc-password-backdrop" data-close></div>
+    <div class="rorc-password-dialog" role="dialog" aria-modal="true" aria-labelledby="accountInfoTitle">
+      <button type="button" class="rorc-password-close" data-close>Close</button>
+      <h2 id="accountInfoTitle" class="rorc-card-title">Account Information</h2>
+
+      <div class="rorc-password-form">
+        <label class="rorc-auth-label">
+          <span>Phone Number</span>
+          <input id="accountPhone" class="rorc-auth-input" type="text" inputmode="tel" />
+        </label>
+
+        <label class="rorc-auth-label">
+          <span>Email Address</span>
+          <input id="accountEmail" class="rorc-auth-input" type="email" inputmode="email" />
+        </label>
+
+        <div class="rorc-actions" style="justify-content:flex-start;">
+          <button id="updateAccountBtn" class="rorc-btn rorc-btn-neutral">
+            Update Account Info
+          </button>
+        </div>
+
+        <p id="accountResult" class="rorc-card-text" style="min-height:1.5em;"></p>
+      </div>
+    </div>
+  </div>
   <script>
   const memberData = JSON.parse(localStorage.getItem("memberData"));
   const container = document.getElementById("memberDashboard");
@@ -105,6 +136,14 @@
       <p><strong>Account Number:</strong> ${memberData["Account Number"] || ""}</p>
       <p><strong>Status:</strong> ${memberData["StripeStatus"] || ""}</p>
     `;
+  }
+
+  const accountPhone = document.getElementById("accountPhone");
+  const accountEmail = document.getElementById("accountEmail");
+
+  if (memberData && accountPhone && accountEmail) {
+    accountPhone.value = memberData["Phone Number"] || "";
+    accountEmail.value = (memberData["Email Address"] || "").trim();
   }
 
   const stripeCustomerId = memberData ? memberData["StripeCustomerID"] : "";
@@ -154,11 +193,107 @@
   }
 
   const updatePasswordSection = document.getElementById("updatePasswordSection");
+  const openAccountInfoBtn = document.getElementById("openAccountInfoBtn");
+  const accountInfoModal = document.getElementById("accountInfoModal");
+  const updateAccountBtn = document.getElementById("updateAccountBtn");
+  const accountResult = document.getElementById("accountResult");
   const updatePasswordBtn = document.getElementById("updatePasswordBtn");
   const passwordResult = document.getElementById("passwordResult");
 
+  const closeAccountInfoModal = () => {
+    if (!accountInfoModal) return;
+    accountInfoModal.hidden = true;
+  };
+
+  const openAccountInfoModal = () => {
+    if (!accountInfoModal) return;
+    accountInfoModal.hidden = false;
+    if (accountResult) {
+      accountResult.textContent = "";
+    }
+    const phoneInput = document.getElementById("accountPhone");
+    const emailInput = document.getElementById("accountEmail");
+    if (phoneInput) {
+      phoneInput.value = memberData ? String(memberData["Phone Number"] || "") : "";
+    }
+    if (emailInput) {
+      emailInput.value = memberData ? String(memberData["Email Address"] || "") : "";
+    }
+    if (phoneInput) {
+      phoneInput.focus();
+    }
+  };
+
+  if (!memberData && openAccountInfoBtn) {
+    openAccountInfoBtn.style.display = "none";
+  }
+
   if (!memberData && updatePasswordSection) {
     updatePasswordSection.style.display = "none";
+  }
+
+  if (openAccountInfoBtn) {
+    openAccountInfoBtn.addEventListener("click", () => {
+      if (!memberData) {
+        return;
+      }
+      openAccountInfoModal();
+    });
+  }
+
+  if (accountInfoModal) {
+    accountInfoModal.addEventListener("click", (event) => {
+      if (event.target && event.target.hasAttribute("data-close")) {
+        closeAccountInfoModal();
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !accountInfoModal.hidden) {
+        closeAccountInfoModal();
+      }
+    });
+  }
+
+  if (updateAccountBtn) {
+    updateAccountBtn.addEventListener("click", async () => {
+      const phone = document.getElementById("accountPhone").value.trim();
+      const email = document.getElementById("accountEmail").value.trim();
+
+      if (!email) {
+        accountResult.textContent = "Email address is required.";
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/update-account-info", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            member: memberData,
+            phone,
+            email
+          })
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          accountResult.textContent = data.message || "Account information updated.";
+
+          // keep localStorage in sync
+          memberData["Phone Number"] = phone;
+          memberData["Email Address"] = email;
+          localStorage.setItem("memberData", JSON.stringify(memberData));
+        } else {
+          accountResult.textContent = data.error || "Could not update account information.";
+        }
+      } catch (err) {
+        accountResult.textContent = "Could not update account information.";
+      }
+    });
   }
 
   if (updatePasswordBtn) {

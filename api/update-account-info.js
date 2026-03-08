@@ -9,19 +9,12 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { member, currentPin, newPin } = req.body || {};
+    const { member, phone, email } = req.body || {};
 
-    if (!member || !currentPin || !newPin) {
+    if (!member || !email) {
       return res.status(400).json({
         success: false,
         error: "Missing required fields"
-      });
-    }
-
-    if (!/^\d{4}$/.test(String(newPin))) {
-      return res.status(400).json({
-        success: false,
-        error: "New password must be exactly 4 digits"
       });
     }
 
@@ -54,18 +47,16 @@ module.exports = async (req, res) => {
 
     const emailCol = headers.indexOf("Email Address");
     const phoneCol = headers.indexOf("Phone Number");
-    const passCol = headers.indexOf("Password");
 
-    if ([emailCol, phoneCol, passCol].includes(-1)) {
+    if ([emailCol, phoneCol].includes(-1)) {
       return res.status(400).json({
         success: false,
         error: "Required columns not found"
       });
     }
 
-    const targetEmail = String(member["Email Address"] || "").trim().toLowerCase();
-    const targetPhone = String(member["Phone Number"] || "").replace(/\D/g, "");
-    const current = String(currentPin).trim();
+    const currentEmail = String(member["Email Address"] || "").trim().toLowerCase();
+    const currentPhone = String(member["Phone Number"] || "").replace(/\D/g, "");
 
     let matchedRowIndex = -1;
 
@@ -73,14 +64,13 @@ module.exports = async (req, res) => {
       const row = dataRows[i];
       const rowEmail = String(row[emailCol] || "").trim().toLowerCase();
       const rowPhone = String(row[phoneCol] || "").replace(/\D/g, "");
-      const rowPassword = String(row[passCol] || "").trim();
 
       const sameMember =
-        (targetEmail && rowEmail === targetEmail) ||
-        (targetPhone && rowPhone === targetPhone);
+        (currentEmail && rowEmail === currentEmail) ||
+        (currentPhone && rowPhone === currentPhone);
 
-      if (sameMember && rowPassword === current) {
-        matchedRowIndex = i + 2; // sheet row number
+      if (sameMember) {
+        matchedRowIndex = i + 2;
         break;
       }
     }
@@ -88,30 +78,39 @@ module.exports = async (req, res) => {
     if (matchedRowIndex === -1) {
       return res.status(400).json({
         success: false,
-        error: "Current password is incorrect"
+        error: "Could not find matching member row"
       });
     }
 
-    const passwordColLetter = columnToLetter(passCol + 1);
+    const emailColLetter = columnToLetter(emailCol + 1);
+    const phoneColLetter = columnToLetter(phoneCol + 1);
 
-    await sheets.spreadsheets.values.update({
+    await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId,
-      range: `Sheet1!${passwordColLetter}${matchedRowIndex}`,
-      valueInputOption: "USER_ENTERED",
       requestBody: {
-        values: [[String(newPin)]]
+        valueInputOption: "USER_ENTERED",
+        data: [
+          {
+            range: `Sheet1!${emailColLetter}${matchedRowIndex}`,
+            values: [[email]]
+          },
+          {
+            range: `Sheet1!${phoneColLetter}${matchedRowIndex}`,
+            values: [[phone]]
+          }
+        ]
       }
     });
 
     return res.status(200).json({
       success: true,
-      message: "Password updated successfully"
+      message: "Account information updated successfully."
     });
-
   } catch (error) {
     return res.status(500).json({
       success: false,
-      error: "Server error"
+      error: "Server error",
+      details: error.message
     });
   }
 };
