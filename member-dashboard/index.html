@@ -52,9 +52,6 @@
         <button id="billingBtn" class="rorc-btn rorc-btn-neutral">
           Manage Billing
         </button>
-        <button id="logoutBtn" class="rorc-btn rorc-btn-ghost" type="button">
-          Log Out
-        </button>
       </div>
     </section>
   </main>
@@ -62,7 +59,6 @@
   const memberData = JSON.parse(localStorage.getItem("memberData"));
   const container = document.getElementById("memberDashboard");
   const billingBtn = document.getElementById("billingBtn");
-  const logoutBtn = document.getElementById("logoutBtn");
 
   if (!memberData) {
     container.innerHTML = `
@@ -117,8 +113,12 @@
     }
   }
 
-  if (logoutBtn) {
-    logoutBtn.addEventListener("click", () => {
+  const loginLink = document.querySelector(".site-menu-login");
+  if (loginLink) {
+    loginLink.textContent = "Logout";
+    loginLink.setAttribute("href", "#");
+    loginLink.addEventListener("click", (event) => {
+      event.preventDefault();
       localStorage.removeItem("memberData");
       window.location.href = "/membership-login/";
     });
