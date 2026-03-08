@@ -52,38 +52,45 @@
         <button id="billingBtn" class="rorc-btn rorc-btn-neutral">
           Manage Billing
         </button>
+        <button id="openUpdatePasswordBtn" class="rorc-btn rorc-btn-neutral">
+          Update Password
+        </button>
       </div>
     </section>
+  </main>
 
-    <section id="updatePasswordSection" class="rorc-card" style="max-width:720px; margin:24px auto 0;">
-      <h2 class="rorc-card-title">Update Password</h2>
+  <div id="updatePasswordModal" class="rorc-password-modal" hidden>
+    <div class="rorc-password-backdrop" data-close></div>
+    <div class="rorc-password-dialog" role="dialog" aria-modal="true" aria-labelledby="updatePasswordTitle">
+      <button type="button" class="rorc-password-close" data-close>Close</button>
+      <h2 id="updatePasswordTitle" class="rorc-card-title">Update Password</h2>
 
-      <div style="display:grid; gap:12px;">
-        <label>
+      <div class="rorc-password-form">
+        <label class="rorc-auth-label">
           <span>Current PIN</span>
-          <input id="currentPin" type="password" maxlength="4" inputmode="numeric" />
+          <input id="currentPin" class="rorc-auth-input" type="password" maxlength="4" inputmode="numeric" />
         </label>
 
-        <label>
+        <label class="rorc-auth-label">
           <span>New PIN</span>
-          <input id="newPin" type="password" maxlength="4" inputmode="numeric" />
+          <input id="newPin" class="rorc-auth-input" type="password" maxlength="4" inputmode="numeric" />
         </label>
 
-        <label>
+        <label class="rorc-auth-label">
           <span>Confirm New PIN</span>
-          <input id="confirmPin" type="password" maxlength="4" inputmode="numeric" />
+          <input id="confirmPin" class="rorc-auth-input" type="password" maxlength="4" inputmode="numeric" />
         </label>
 
-        <div class="rorc-actions">
+        <div class="rorc-actions" style="justify-content:flex-start;">
           <button id="updatePasswordBtn" class="rorc-btn rorc-btn-neutral">
             Update Password
           </button>
         </div>
 
-        <p id="passwordResult"></p>
+        <p id="passwordResult" class="rorc-card-text" style="min-height:1.5em;"></p>
       </div>
-    </section>
-  </main>
+    </div>
+  </div>
   <script>
   const memberData = JSON.parse(localStorage.getItem("memberData"));
   const container = document.getElementById("memberDashboard");
@@ -153,12 +160,53 @@
     });
   }
 
-  const updatePasswordSection = document.getElementById("updatePasswordSection");
+  const updatePasswordModal = document.getElementById("updatePasswordModal");
+  const openUpdatePasswordBtn = document.getElementById("openUpdatePasswordBtn");
   const updatePasswordBtn = document.getElementById("updatePasswordBtn");
   const passwordResult = document.getElementById("passwordResult");
 
-  if (!memberData && updatePasswordSection) {
-    updatePasswordSection.style.display = "none";
+  const closeUpdatePasswordModal = () => {
+    if (!updatePasswordModal) return;
+    updatePasswordModal.hidden = true;
+  };
+
+  const openUpdatePasswordModal = () => {
+    if (!updatePasswordModal) return;
+    updatePasswordModal.hidden = false;
+    if (passwordResult) {
+      passwordResult.textContent = "";
+    }
+    const currentPinInput = document.getElementById("currentPin");
+    if (currentPinInput) {
+      currentPinInput.focus();
+    }
+  };
+
+  if (!memberData && openUpdatePasswordBtn) {
+    openUpdatePasswordBtn.style.display = "none";
+  }
+
+  if (openUpdatePasswordBtn) {
+    openUpdatePasswordBtn.addEventListener("click", () => {
+      if (!memberData) {
+        return;
+      }
+      openUpdatePasswordModal();
+    });
+  }
+
+  if (updatePasswordModal) {
+    updatePasswordModal.addEventListener("click", (event) => {
+      if (event.target && event.target.hasAttribute("data-close")) {
+        closeUpdatePasswordModal();
+      }
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !updatePasswordModal.hidden) {
+        closeUpdatePasswordModal();
+      }
+    });
   }
 
   if (updatePasswordBtn) {
@@ -166,6 +214,11 @@
       const currentPin = document.getElementById("currentPin").value.trim();
       const newPin = document.getElementById("newPin").value.trim();
       const confirmPin = document.getElementById("confirmPin").value.trim();
+
+      if (!memberData) {
+        passwordResult.textContent = "Please log in again.";
+        return;
+      }
 
       if (!currentPin || !newPin || !confirmPin) {
         passwordResult.textContent = "Please fill out all password fields.";
@@ -206,6 +259,9 @@
           document.getElementById("currentPin").value = "";
           document.getElementById("newPin").value = "";
           document.getElementById("confirmPin").value = "";
+          setTimeout(() => {
+            closeUpdatePasswordModal();
+          }, 700);
         } else {
           passwordResult.textContent = data.error || "Could not update password.";
         }
