@@ -149,7 +149,7 @@
 
         if (data.success) {
           // store member data
-          sessionStorage.setItem("memberData", JSON.stringify(data.member));
+          localStorage.setItem("memberData", JSON.stringify(data.member));
 
           // optional quick success message
           result.textContent = "Login successful...";
