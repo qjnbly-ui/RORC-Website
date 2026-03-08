@@ -19,7 +19,7 @@
     <div class="site-menu-bar">
       <a class="site-menu-brand" href="/">RORC</a>
       <div class="site-menu-actions">
-        <a class="site-menu-login" href="/membership-login/">Login</a>
+        <a class="site-menu-login" href="https://docs.google.com/forms/d/e/1FAIpQLScl0BSlzIa0CBzw75Exz19dTIAb0fAZvYHz9FVhg-UEBZU7ww/viewform?usp=sf_link" target="_blank" rel="noopener">Register</a>
         <label class="site-menu-button" for="site-menu-toggle">Menu</label>
       </div>
     </div>
@@ -52,9 +52,17 @@
     </section>
 
     <section class="rorc-card" style="max-width: 520px; margin: 0 auto;">
-      <p class="rorc-card-text">
-        Enter the email or phone number tied to your membership, plus your 4-digit PIN.
+      <p class="rorc-card-text" style="margin-bottom: 0;">
+        Enter the email or phone number tied to your membership, plus your 4-digit PIN. If you're new, please register for an account!
       </p>
+      <div class="rorc-actions" style="justify-content:center; margin-top: 0; margin-bottom: 16px;">
+        <button
+          class="rorc-btn rorc-btn-text rorc-btn-gold"
+          type="button"
+          onclick="window.open('https://docs.google.com/forms/d/e/1FAIpQLScl0BSlzIa0CBzw75Exz19dTIAb0fAZvYHz9FVhg-UEBZU7ww/viewform?usp=sf_link', '_blank')">
+          Register
+        </button>
+      </div>
 
       <div style="display:grid; gap:12px;">
         <label>
@@ -91,6 +99,7 @@
 
         <div class="rorc-actions" style="justify-content:flex-start;">
           <button id="loginBtn" class="rorc-btn rorc-btn-neutral" type="button">Log In</button>
+          <button id="resetPasswordBtn" class="rorc-btn rorc-btn-text" type="button">Reset Password</button>
         </div>
 
         <p id="result" class="rorc-card-text" style="min-height:1.5em;"></p>
@@ -163,6 +172,10 @@
       if (e.key === "Enter") {
         document.getElementById("loginBtn").click();
       }
+    });
+
+    document.getElementById("resetPasswordBtn").addEventListener("click", function() {
+      alert("Reset password: email support@ruthobenchainrc.com or call 541-904-0428.");
     });
   </script>
 </body>
