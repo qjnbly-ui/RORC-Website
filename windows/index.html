@@ -302,5 +302,15 @@
       <div>Operated by Bly Community Action Team</div>
     </div>
   </footer>
+  <script>
+    (function() {
+      const memberData = localStorage.getItem("memberData");
+      if (!memberData) return;
+      const loginLink = document.querySelector(".site-menu-login");
+      if (!loginLink) return;
+      loginLink.textContent = "Dashboard";
+      loginLink.setAttribute("href", "/member-dashboard/");
+    })();
+  </script>
 </body>
 </html>
