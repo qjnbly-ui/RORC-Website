@@ -79,7 +79,9 @@ module.exports = async (req, res) => {
       });
     }
 
-    const rows = data.Rows || data.rows || [];
+    const rows = Array.isArray(data)
+      ? data
+      : (data.Rows || data.rows || []);
 
     if (!rows.length) {
       return res.json({

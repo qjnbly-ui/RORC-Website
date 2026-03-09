@@ -77,7 +77,9 @@ module.exports = async (req, res) => {
       });
     }
 
-    const rows = findData.Rows || findData.rows || [];
+    const rows = Array.isArray(findData)
+      ? findData
+      : (findData.Rows || findData.rows || []);
 
     if (!rows.length) {
       return res.status(400).json({
