@@ -61,29 +61,20 @@ module.exports = async (req, res) => {
       body: JSON.stringify(payload)
     });
 
-    const text = await response.text();
-
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = { raw: text };
-    }
+    const data = await response.json();
 
     if (!response.ok) {
       return res.status(400).json({
         success: false,
         error: "AppSheet sign-in failed",
-        status: response.status,
-        details: data,
-        payload
+        details: data
       });
     }
 
     return res.status(200).json({
       success: true,
-      message: "Signed in successfully",
-      data
+      logId: logId,
+      message: "Signed in successfully"
     });
 
   } catch (err) {

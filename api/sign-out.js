@@ -7,7 +7,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { member } = req.body || {};
+    const { member, logId } = req.body || {};
 
     if (!member) {
       return res.status(400).json({
@@ -27,24 +27,67 @@ module.exports = async (req, res) => {
 
     const appId = process.env.APPSHEET_APP_ID;
     const accessKey = process.env.APPSHEET_ACCESS_KEY;
-    const region = process.env.APPSHEET_REGION || "www.appsheet.com";
 
     const tableName = encodeURIComponent("Sign In Record");
-    const url =
-      `https://${region}/api/v2/apps/${appId}/tables/${tableName}/Action`;
+    const url = `https://api.appsheet.com/api/v2/apps/${appId}/tables/${tableName}/Action`;
 
-    // 1. Find active sign-in
+    const now = new Date().toLocaleString("en-US", {
+      timeZone: "America/Los_Angeles"
+    });
+
+    // If we already know the active Log ID, edit that exact row
+    if (logId) {
+      const editPayload = {
+        Action: "Edit",
+        Properties: {
+          Locale: "en-US",
+          Timezone: "America/Los_Angeles"
+        },
+        Rows: [
+          {
+            "Log ID": logId,
+            "Date/Time Out": now
+          }
+        ]
+      };
+
+      const editResponse = await fetch(url, {
+        method: "POST",
+        headers: {
+          "ApplicationAccessKey": accessKey,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(editPayload)
+      });
+
+      const editData = await editResponse.json();
+
+      if (!editResponse.ok) {
+        return res.status(400).json({
+          success: false,
+          error: "AppSheet sign-out failed",
+          details: editData
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: "Signed out successfully"
+      });
+    }
+
+    // Fallback: look up the active row by member name
     const findPayload = {
       Action: "Find",
       Properties: {},
-      Selector: `FILTER("TimeSheet", AND(([Name] = "${memberName}"), ISBLANK([Date/Time Out])))`
+      Selector: `FILTER("Sign In Record", AND(([Name] = "${memberName}"), ISBLANK([Date/Time Out])))`
     };
 
     const findResponse = await fetch(url, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "ApplicationAccessKey": accessKey
+        "ApplicationAccessKey": accessKey,
+        "Content-Type": "application/json"
       },
       body: JSON.stringify(findPayload)
     });
@@ -54,7 +97,7 @@ module.exports = async (req, res) => {
     if (!findResponse.ok) {
       return res.status(400).json({
         success: false,
-        error: findData?.message || "AppSheet sign-out lookup failed",
+        error: "AppSheet sign-out lookup failed",
         details: findData
       });
     }
@@ -68,14 +111,9 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Use the most recent matching row
     const targetRow = rows[rows.length - 1];
+    const targetLogId = targetRow["Log ID"];
 
-    const now = new Date().toLocaleString("en-US", {
-      timeZone: "America/Los_Angeles"
-    });
-
-    // 2. Edit that row
     const editPayload = {
       Action: "Edit",
       Properties: {
@@ -84,7 +122,7 @@ module.exports = async (req, res) => {
       },
       Rows: [
         {
-          "Log ID": targetRow["Log ID"],
+          "Log ID": targetLogId,
           "Date/Time Out": now
         }
       ]
@@ -93,8 +131,8 @@ module.exports = async (req, res) => {
     const editResponse = await fetch(url, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "ApplicationAccessKey": accessKey
+        "ApplicationAccessKey": accessKey,
+        "Content-Type": "application/json"
       },
       body: JSON.stringify(editPayload)
     });
@@ -104,20 +142,22 @@ module.exports = async (req, res) => {
     if (!editResponse.ok) {
       return res.status(400).json({
         success: false,
-        error: editData?.message || "AppSheet sign-out update failed",
+        error: "AppSheet sign-out failed",
         details: editData
       });
     }
 
     return res.status(200).json({
       success: true,
+      logId: targetLogId,
       message: "Signed out successfully"
     });
-  } catch (error) {
+
+  } catch (err) {
     return res.status(500).json({
       success: false,
       error: "Server error",
-      details: error.message
+      details: err.message
     });
   }
 };
