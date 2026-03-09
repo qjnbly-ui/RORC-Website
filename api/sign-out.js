@@ -50,7 +50,7 @@ module.exports = async (req, res) => {
           "Member Account": memberName
         }
       },
-      Selector: `FILTER("TimeSheet", AND((TRIM([Name]) = TRIM("${memberName}")), ISBLANK([Date/Time Out])))`
+      Selector: `FILTER("TimeSheet", (TRIM([Name]) = TRIM("${memberName}")))`
     };
 
     const findResponse = await fetch(url, {
@@ -81,11 +81,23 @@ module.exports = async (req, res) => {
       });
     }
 
-    const targetRow = rows.reduce((latest, row) => {
+    const openRows = rows.filter((row) => {
+      const outValue = row["Date/Time Out"];
+      return outValue === null || outValue === undefined || String(outValue).trim() === "";
+    });
+
+    if (!openRows.length) {
+      return res.status(400).json({
+        success: false,
+        error: "No active sign-in found"
+      });
+    }
+
+    const targetRow = openRows.reduce((latest, row) => {
       const latestTime = Date.parse(latest["Date/Time In"] || "") || 0;
       const rowTime = Date.parse(row["Date/Time In"] || "") || 0;
       return rowTime >= latestTime ? row : latest;
-    }, rows[0]);
+    }, openRows[0]);
     const targetLogId = targetRow["Log ID"];
 
     const editPayload = {
