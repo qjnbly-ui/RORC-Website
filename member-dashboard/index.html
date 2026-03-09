@@ -87,10 +87,10 @@
       <p id="checkinStatus" class="rorc-card-text">Checking sign-in status...</p>
 
       <div class="rorc-actions" style="gap:12px;">
-        <button id="signInBtn" class="rorc-btn rorc-btn-neutral" style="display:none;">
+        <button id="signInBtn" type="button" class="rorc-btn rorc-btn-neutral" style="display:none;">
           Sign In
         </button>
-        <button id="signOutBtn" class="rorc-btn rorc-btn-neutral" style="display:none;">
+        <button id="signOutBtn" type="button" class="rorc-btn rorc-btn-neutral" style="display:none;">
           Sign Out
         </button>
       </div>
@@ -508,6 +508,8 @@
 
   if (signInBtn) {
     signInBtn.addEventListener("click", async () => {
+      checkinStatus.textContent = "Signing in...";
+
       try {
         const res = await fetch("/api/sign-in", {
           method: "POST",
@@ -526,11 +528,8 @@
           return;
         }
 
-        if (data.logId) {
-          localStorage.setItem("activeLogId", data.logId);
-        }
-
-        await loadSigninStatus();
+        localStorage.setItem("activeLogId", data.logId);
+        setTimeout(loadSigninStatus, 1200);
       } catch (err) {
         checkinStatus.textContent = "Could not sign in.";
       }
