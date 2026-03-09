@@ -505,6 +505,64 @@
   }
 
   loadSigninStatus();
+
+  if (signInBtn) {
+    signInBtn.addEventListener("click", async () => {
+      checkinStatus.textContent = "Signing in...";
+
+      try {
+        const res = await fetch("/api/sign-in", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            member: memberData
+          })
+        });
+
+        const data = await res.json();
+
+        if (!data.success) {
+          checkinStatus.textContent = data.error || "Could not sign in.";
+          return;
+        }
+
+        await loadSigninStatus();
+      } catch (err) {
+        checkinStatus.textContent = "Could not sign in.";
+      }
+    });
+  }
+
+  if (signOutBtn) {
+    signOutBtn.addEventListener("click", async () => {
+      checkinStatus.textContent = "Signing out...";
+
+      try {
+        const res = await fetch("/api/sign-out", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            member: memberData
+          })
+        });
+
+        const data = await res.json();
+
+        if (!data.success) {
+          checkinStatus.textContent = data.error || "Could not sign out.";
+          return;
+        }
+
+        await loadSigninStatus();
+      } catch (err) {
+        checkinStatus.textContent = "Could not sign out.";
+      }
+    });
+  }
   </script>
   <script>
     function openAppSheetPopup() {
