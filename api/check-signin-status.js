@@ -76,8 +76,7 @@ module.exports = async (req, res) => {
       return res.json({
         success: true,
         signedIn: false,
-        signedInAt: null,
-        logId: null
+        signedInAt: null
       });
     }
 
@@ -87,7 +86,7 @@ module.exports = async (req, res) => {
       success: true,
       signedIn: true,
       signedInAt: latestRow["Date/Time In"] || null,
-      logId: latestRow["Log ID"] || null
+      logId: null
     });
 
   } catch (err) {

@@ -7,7 +7,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { member, logId } = req.body || {};
+    const { member } = req.body || {};
 
     if (!member) {
       return res.status(400).json({
@@ -35,48 +35,7 @@ module.exports = async (req, res) => {
       timeZone: "America/Los_Angeles"
     });
 
-    // If we already know the active Log ID, edit that exact row
-    if (logId) {
-      const editPayload = {
-        Action: "Edit",
-        Properties: {
-          Locale: "en-US",
-          Timezone: "America/Los_Angeles"
-        },
-        Rows: [
-          {
-            "Log ID": logId,
-            "Date/Time Out": now
-          }
-        ]
-      };
-
-      const editResponse = await fetch(url, {
-        method: "POST",
-        headers: {
-          "ApplicationAccessKey": accessKey,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(editPayload)
-      });
-
-      const editData = await editResponse.json();
-
-      if (!editResponse.ok) {
-        return res.status(400).json({
-          success: false,
-          error: "AppSheet sign-out failed",
-          details: editData
-        });
-      }
-
-      return res.status(200).json({
-        success: true,
-        message: "Signed out successfully"
-      });
-    }
-
-    // Fallback: look up the active row by member name
+    // Look up the active row by member name
     const findPayload = {
       Action: "Find",
       Properties: {},

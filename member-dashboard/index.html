@@ -491,14 +491,10 @@
       }
 
       if (data.signedIn) {
-        if (data.logId) {
-          localStorage.setItem("activeLogId", data.logId);
-        }
         checkinStatus.textContent = `Currently signed in${data.signedInAt ? ` since ${data.signedInAt}` : ""}.`;
         if (signInBtn) signInBtn.style.display = "none";
         if (signOutBtn) signOutBtn.style.display = "inline-block";
       } else {
-        localStorage.removeItem("activeLogId");
         checkinStatus.textContent = "Not currently signed in.";
         if (signInBtn) signInBtn.style.display = "inline-block";
         if (signOutBtn) signOutBtn.style.display = "none";
@@ -546,15 +542,13 @@
       checkinStatus.textContent = "Signing out...";
 
       try {
-        const activeLogId = localStorage.getItem("activeLogId");
         const res = await fetch("/api/sign-out", {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            member: memberData,
-            logId: activeLogId
+            member: memberData
           })
         });
 
@@ -565,7 +559,6 @@
           return;
         }
 
-        localStorage.removeItem("activeLogId");
         await loadSigninStatus();
       } catch (err) {
         checkinStatus.textContent = "Could not sign out.";

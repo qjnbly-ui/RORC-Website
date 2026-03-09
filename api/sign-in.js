@@ -48,7 +48,10 @@ module.exports = async (req, res) => {
       Action: "Add",
       Properties: {
         Locale: "en-US",
-        Timezone: "America/Los_Angeles"
+        Timezone: "America/Los_Angeles",
+        UserSettings: {
+          "Member Account": memberName
+        }
       },
       Rows: [
         {
