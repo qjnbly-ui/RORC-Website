@@ -89,7 +89,7 @@ module.exports = async (req, res) => {
     return res.status(200).json({
       success: true,
       logId,
-      message: "Signed in successfully"
+      message: "Sign-in request sent successfully"
     });
 
   } catch (err) {

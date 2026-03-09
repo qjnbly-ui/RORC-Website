@@ -28,13 +28,20 @@ module.exports = async (req, res) => {
     const appId = process.env.APPSHEET_APP_ID;
     const accessKey = process.env.APPSHEET_ACCESS_KEY;
 
+    if (!appId || !accessKey) {
+      return res.status(500).json({
+        success: false,
+        error: "Missing AppSheet configuration"
+      });
+    }
+
     const tableName = encodeURIComponent("Sign In Record");
     const url = `https://api.appsheet.com/api/v2/apps/${appId}/tables/${tableName}/Action`;
 
     const payload = {
       Action: "Find",
       Properties: {},
-      Selector: `FILTER("Sign In Record", AND(([Name] = "${memberName}"), ISBLANK([Date/Time Out])))`
+      Selector: `FILTER("Sign In Record", AND(([Name] = "${memberName}"), ([Member  or Guest] = "Member"), ISBLANK([Date/Time Out])))`
     };
 
     const response = await fetch(url, {
@@ -69,7 +76,8 @@ module.exports = async (req, res) => {
       return res.json({
         success: true,
         signedIn: false,
-        signedInAt: null
+        signedInAt: null,
+        logId: null
       });
     }
 
