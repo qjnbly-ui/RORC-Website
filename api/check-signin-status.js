@@ -1,5 +1,3 @@
-const { google } = require("googleapis");
-
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
     return res.status(405).json({
@@ -27,72 +25,68 @@ module.exports = async (req, res) => {
       });
     }
 
-    const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    const appId = process.env.APPSHEET_APP_ID;
+    const accessKey = process.env.APPSHEET_ACCESS_KEY;
 
-    const auth = new google.auth.GoogleAuth({
-      credentials,
-      scopes: ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+    const tableName = encodeURIComponent("Sign In Record");
+    const url = `https://api.appsheet.com/api/v2/apps/${appId}/tables/${tableName}/Action`;
+
+    const payload = {
+      Action: "Find",
+      Properties: {},
+      Selector: `FILTER("Sign In Record", AND(([Name] = "${memberName}"), ISBLANK([Date/Time Out])))`
+    };
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "ApplicationAccessKey": accessKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
     });
 
-    const sheets = google.sheets({ version: "v4", auth });
+    const text = await response.text();
 
-    const spreadsheetId = "1yXt9rZEcEosqAgI0xg-xY4qhjx19ovlb4InyLtKKc0E";
+    let data = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = { raw: text };
+    }
 
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "TimeSheet!A1:J"
-    });
+    if (!response.ok) {
+      return res.status(400).json({
+        success: false,
+        error: "AppSheet status check failed",
+        details: data
+      });
+    }
 
-    const rows = response.data.values || [];
+    const rows = data.Rows || data.rows || [];
 
     if (!rows.length) {
       return res.json({
         success: true,
-        signedIn: false
+        signedIn: false,
+        signedInAt: null
       });
     }
 
-    const headers = rows[0];
-    const dataRows = rows.slice(1);
-
-    const nameCol = headers.indexOf("Name");
-    const inCol = headers.indexOf("Date/Time In");
-    const outCol = headers.indexOf("Date/Time Out");
-
-    if ([nameCol, inCol, outCol].includes(-1)) {
-      return res.status(400).json({
-        success: false,
-        error: "Required columns not found"
-      });
-    }
-
-    let activeRecord = null;
-
-    for (let i = dataRows.length - 1; i >= 0; i--) {
-      const row = dataRows[i];
-      const rowName = String(row[nameCol] || "").trim();
-      const timeIn = String(row[inCol] || "").trim();
-      const timeOut = String(row[outCol] || "").trim();
-
-      if (rowName === memberName && timeIn && !timeOut) {
-        activeRecord = {
-          signedInAt: timeIn
-        };
-        break;
-      }
-    }
+    const latestRow = rows[rows.length - 1];
 
     return res.json({
       success: true,
-      signedIn: !!activeRecord,
-      signedInAt: activeRecord ? activeRecord.signedInAt : null
+      signedIn: true,
+      signedInAt: latestRow["Date/Time In"] || null,
+      logId: latestRow["Log ID"] || null
     });
 
-  } catch (error) {
+  } catch (err) {
     return res.status(500).json({
       success: false,
       error: "Server error",
-      details: error.message
+      details: err.message
     });
   }
 };
