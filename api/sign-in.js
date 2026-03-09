@@ -46,15 +46,8 @@ module.exports = async (req, res) => {
       Rows: [
         {
           "Log ID": logId,
-          "Member  or Guest": "Member",
           "Name": memberName,
-          "Guest Name": "",
-          "Day Pass Or Open Gym": "",
-          "Member Entered With": "",
-          "Liability Accepted": "",
-          "Date/Time In": now,
-          "Date/Time Out": "",
-          "Total Hours": ""
+          "Date/Time In": now
         }
       ]
     };
