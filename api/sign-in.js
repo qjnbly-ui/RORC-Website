@@ -1,5 +1,3 @@
-const { google } = require("googleapis");
-
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
     return res.status(405).json({
@@ -27,49 +25,15 @@ module.exports = async (req, res) => {
       });
     }
 
-    const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    const appId = process.env.APPSHEET_APP_ID;
+    const accessKey = process.env.APPSHEET_ACCESS_KEY;
+    const region = process.env.APPSHEET_REGION || "www.appsheet.com";
 
-    const auth = new google.auth.GoogleAuth({
-      credentials,
-      scopes: ["https://www.googleapis.com/auth/spreadsheets"]
-    });
-
-    const sheets = google.sheets({ version: "v4", auth });
-    const spreadsheetId = "1yXt9rZEcEosqAgI0xg-xY4qhjx19ovlb4InyLtKKc0E";
-
-    const readResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "TimeSheet!A1:J"
-    });
-
-    const rows = readResponse.data.values || [];
-    const headers = rows[0] || [];
-
-    const nameCol = headers.indexOf("Name");
-    const inCol = headers.indexOf("Date/Time In");
-    const outCol = headers.indexOf("Date/Time Out");
-
-    if ([nameCol, inCol, outCol].includes(-1)) {
-      return res.status(400).json({
+    if (!appId || !accessKey) {
+      return res.status(500).json({
         success: false,
-        error: "Required columns not found"
+        error: "Missing AppSheet configuration"
       });
-    }
-
-    const dataRows = rows.slice(1);
-
-    for (let i = dataRows.length - 1; i >= 0; i--) {
-      const row = dataRows[i];
-      const rowName = String(row[nameCol] || "").trim();
-      const rowIn = String(row[inCol] || "").trim();
-      const rowOut = String(row[outCol] || "").trim();
-
-      if (rowName === memberName && rowIn && !rowOut) {
-        return res.status(400).json({
-          success: false,
-          error: "You are already signed in"
-        });
-      }
     }
 
     const now = new Date().toLocaleString("en-US", {
@@ -78,31 +42,54 @@ module.exports = async (req, res) => {
 
     const logId = `signin_${Date.now()}`;
 
-    await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: "TimeSheet!A:J",
-      valueInputOption: "USER_ENTERED",
-      requestBody: {
-        values: [[
-          logId,        // Log ID
-          "Member",     // Member or Guest
-          memberName,   // Name
-          "",           // Guest Name
-          "",           // Day Pass Or Open Gym
-          "",           // Member Entered With
-          "",           // Liability Accepted
-          now,          // Date/Time In
-          "",           // Date/Time Out
-          ""            // Total Hours
-        ]]
-      }
+    const url =
+      `https://${region}/api/v2/apps/${appId}/tables/TimeSheet/Action`;
+
+    const payload = {
+      Action: "Add",
+      Properties: {
+        Locale: "en-US",
+        Timezone: "America/Los_Angeles"
+      },
+      Rows: [
+        {
+          "Log ID": logId,
+          "Member  or Guest": "Member",
+          "Name": memberName,
+          "Guest Name": "",
+          "Day Pass Or Open Gym": "",
+          "Member Entered With": "",
+          "Liability Accepted": "",
+          "Date/Time In": now,
+          "Date/Time Out": "",
+          "Total Hours": ""
+        }
+      ]
+    };
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "ApplicationAccessKey": accessKey
+      },
+      body: JSON.stringify(payload)
     });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return res.status(400).json({
+        success: false,
+        error: data?.message || "AppSheet sign-in failed",
+        details: data
+      });
+    }
 
     return res.status(200).json({
       success: true,
       message: "Signed in successfully"
     });
-
   } catch (error) {
     return res.status(500).json({
       success: false,

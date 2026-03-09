@@ -1,5 +1,3 @@
-const { google } = require("googleapis");
-
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
     return res.status(405).json({
@@ -27,75 +25,93 @@ module.exports = async (req, res) => {
       });
     }
 
-    const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    const appId = process.env.APPSHEET_APP_ID;
+    const accessKey = process.env.APPSHEET_ACCESS_KEY;
+    const region = process.env.APPSHEET_REGION || "www.appsheet.com";
 
-    const auth = new google.auth.GoogleAuth({
-      credentials,
-      scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+    const url =
+      `https://${region}/api/v2/apps/${appId}/tables/TimeSheet/Action`;
+
+    // 1. Find active sign-in
+    const findPayload = {
+      Action: "Find",
+      Properties: {},
+      Selector: `FILTER("TimeSheet", AND(([Name] = "${memberName}"), ISBLANK([Date/Time Out])))`
+    };
+
+    const findResponse = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "ApplicationAccessKey": accessKey
+      },
+      body: JSON.stringify(findPayload)
     });
 
-    const sheets = google.sheets({ version: "v4", auth });
-    const spreadsheetId = "1yXt9rZEcEosqAgI0xg-xY4qhjx19ovlb4InyLtKKc0E";
+    const findData = await findResponse.json();
 
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: "TimeSheet!A1:J"
-    });
-
-    const rows = response.data.values || [];
-    const headers = rows[0] || [];
-    const dataRows = rows.slice(1);
-
-    const nameCol = headers.indexOf("Name");
-    const outCol = headers.indexOf("Date/Time Out");
-
-    if ([nameCol, outCol].includes(-1)) {
+    if (!findResponse.ok) {
       return res.status(400).json({
         success: false,
-        error: "Required columns not found"
+        error: findData?.message || "AppSheet sign-out lookup failed",
+        details: findData
       });
     }
 
-    let matchedRowIndex = -1;
+    const rows = findData.Rows || findData.rows || [];
 
-    for (let i = dataRows.length - 1; i >= 0; i--) {
-      const row = dataRows[i];
-      const rowName = String(row[nameCol] || "").trim();
-      const rowOut = String(row[outCol] || "").trim();
-
-      if (rowName === memberName && !rowOut) {
-        matchedRowIndex = i + 2;
-        break;
-      }
-    }
-
-    if (matchedRowIndex === -1) {
+    if (!rows.length) {
       return res.status(400).json({
         success: false,
         error: "No active sign-in found"
       });
     }
 
+    // Use the most recent matching row
+    const targetRow = rows[rows.length - 1];
+
     const now = new Date().toLocaleString("en-US", {
       timeZone: "America/Los_Angeles"
     });
 
-    const outColLetter = columnToLetter(outCol + 1);
+    // 2. Edit that row
+    const editPayload = {
+      Action: "Edit",
+      Properties: {
+        Locale: "en-US",
+        Timezone: "America/Los_Angeles"
+      },
+      Rows: [
+        {
+          "Log ID": targetRow["Log ID"],
+          "Date/Time Out": now
+        }
+      ]
+    };
 
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `TimeSheet!${outColLetter}${matchedRowIndex}`,
-      valueInputOption: "USER_ENTERED",
-      requestBody: {
-        values: [[now]]
-      }
+    const editResponse = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "ApplicationAccessKey": accessKey
+      },
+      body: JSON.stringify(editPayload)
     });
+
+    const editData = await editResponse.json();
+
+    if (!editResponse.ok) {
+      return res.status(400).json({
+        success: false,
+        error: editData?.message || "AppSheet sign-out update failed",
+        details: editData
+      });
+    }
 
     return res.status(200).json({
       success: true,
       message: "Signed out successfully"
     });
-
   } catch (error) {
     return res.status(500).json({
       success: false,
@@ -104,14 +120,3 @@ module.exports = async (req, res) => {
     });
   }
 };
-
-function columnToLetter(column) {
-  let temp = "";
-  let letter = "";
-  while (column > 0) {
-    temp = (column - 1) % 26;
-    letter = String.fromCharCode(temp + 65) + letter;
-    column = (column - temp - 1) / 26;
-  }
-  return letter;
-}

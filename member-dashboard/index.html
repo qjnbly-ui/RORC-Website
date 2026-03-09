@@ -508,9 +508,6 @@
 
   if (signInBtn) {
     signInBtn.addEventListener("click", async () => {
-      checkinStatus.textContent = "Feature coming soon.";
-      return;
-
       try {
         const res = await fetch("/api/sign-in", {
           method: "POST",
@@ -538,9 +535,6 @@
 
   if (signOutBtn) {
     signOutBtn.addEventListener("click", async () => {
-      checkinStatus.textContent = "Feature coming soon.";
-      return;
-
       try {
         const res = await fetch("/api/sign-out", {
           method: "POST",
