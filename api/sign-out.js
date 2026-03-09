@@ -38,7 +38,11 @@ module.exports = async (req, res) => {
     // Look up the active row by member name
     const findPayload = {
       Action: "Find",
-      Properties: {},
+      Properties: {
+        UserSettings: {
+          "Member Account": memberName
+        }
+      },
       Selector: `FILTER("TimeSheet", AND(([Name] = "${memberName}"), ISBLANK([Date/Time Out])))`
     };
 

@@ -40,7 +40,11 @@ module.exports = async (req, res) => {
 
     const payload = {
       Action: "Find",
-      Properties: {},
+      Properties: {
+        UserSettings: {
+          "Member Account": memberName
+        }
+      },
       Selector: `FILTER("TimeSheet", AND(([Name] = "${memberName}"), ISBLANK([Date/Time Out])))`
     };
 
