@@ -80,7 +80,14 @@ module.exports = async (req, res) => {
       return res.json({
         success: true,
         signedIn: false,
-        signedInAt: null
+        signedInAt: null,
+        ...(req.body && req.body.debug ? {
+          debug: {
+            memberName,
+            selector: payload.Selector,
+            rowCount: 0
+          }
+        } : {})
       });
     }
 
@@ -94,7 +101,21 @@ module.exports = async (req, res) => {
       success: true,
       signedIn: true,
       signedInAt: latestRow["Date/Time In"] || null,
-      logId: null
+      logId: null,
+      ...(req.body && req.body.debug ? {
+        debug: {
+          memberName,
+          selector: payload.Selector,
+          rowCount: rows.length,
+          latestRow: {
+            "Log ID": latestRow["Log ID"],
+            "Name": latestRow["Name"],
+            "Member  or Guest": latestRow["Member  or Guest"],
+            "Date/Time In": latestRow["Date/Time In"],
+            "Date/Time Out": latestRow["Date/Time Out"]
+          }
+        }
+      } : {})
     });
 
   } catch (err) {
