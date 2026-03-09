@@ -41,7 +41,7 @@ module.exports = async (req, res) => {
     const payload = {
       Action: "Find",
       Properties: {},
-      Selector: `FILTER("TimeSheet", AND(([Name] = "${memberName}"), ([Member  or Guest] = "Member"), ISBLANK([Date/Time Out])))`
+      Selector: `FILTER("TimeSheet", AND(([Name] = "${memberName}"), ISBLANK([Date/Time Out])))`
     };
 
     const response = await fetch(url, {
