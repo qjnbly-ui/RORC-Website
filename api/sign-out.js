@@ -29,8 +29,9 @@ module.exports = async (req, res) => {
     const accessKey = process.env.APPSHEET_ACCESS_KEY;
     const region = process.env.APPSHEET_REGION || "www.appsheet.com";
 
+    const tableName = encodeURIComponent("Sign In Record");
     const url =
-      `https://${region}/api/v2/apps/${appId}/tables/TimeSheet/Action`;
+      `https://${region}/api/v2/apps/${appId}/tables/${tableName}/Action`;
 
     // 1. Find active sign-in
     const findPayload = {

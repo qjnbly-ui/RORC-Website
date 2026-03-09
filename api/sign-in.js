@@ -42,8 +42,9 @@ module.exports = async (req, res) => {
 
     const logId = `signin_${Date.now()}`;
 
+    const tableName = encodeURIComponent("Sign In Record");
     const url =
-      `https://${region}/api/v2/apps/${appId}/tables/TimeSheet/Action`;
+      `https://${region}/api/v2/apps/${appId}/tables/${tableName}/Action`;
 
     const payload = {
       Action: "Add",
