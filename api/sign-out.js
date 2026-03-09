@@ -28,6 +28,13 @@ module.exports = async (req, res) => {
     const appId = process.env.APPSHEET_APP_ID;
     const accessKey = process.env.APPSHEET_ACCESS_KEY;
 
+    if (!appId || !accessKey) {
+      return res.status(500).json({
+        success: false,
+        error: "Missing AppSheet configuration"
+      });
+    }
+
     const tableName = encodeURIComponent("TimeSheet");
     const url = `https://api.appsheet.com/api/v2/apps/${appId}/tables/${tableName}/Action`;
 
@@ -74,7 +81,11 @@ module.exports = async (req, res) => {
       });
     }
 
-    const targetRow = rows[rows.length - 1];
+    const targetRow = rows.reduce((latest, row) => {
+      const latestTime = Date.parse(latest["Date/Time In"] || "") || 0;
+      const rowTime = Date.parse(row["Date/Time In"] || "") || 0;
+      return rowTime >= latestTime ? row : latest;
+    }, rows[0]);
     const targetLogId = targetRow["Log ID"];
 
     const editPayload = {

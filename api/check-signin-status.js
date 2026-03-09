@@ -84,7 +84,11 @@ module.exports = async (req, res) => {
       });
     }
 
-    const latestRow = rows[rows.length - 1];
+    const latestRow = rows.reduce((latest, row) => {
+      const latestTime = Date.parse(latest["Date/Time In"] || "") || 0;
+      const rowTime = Date.parse(row["Date/Time In"] || "") || 0;
+      return rowTime >= latestTime ? row : latest;
+    }, rows[0]);
 
     return res.json({
       success: true,
