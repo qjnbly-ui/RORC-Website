@@ -508,7 +508,8 @@
 
   if (signInBtn) {
     signInBtn.addEventListener("click", async () => {
-      checkinStatus.textContent = "Signing in...";
+      checkinStatus.textContent = "Feature coming soon.";
+      return;
 
       try {
         const res = await fetch("/api/sign-in", {
@@ -537,7 +538,8 @@
 
   if (signOutBtn) {
     signOutBtn.addEventListener("click", async () => {
-      checkinStatus.textContent = "Signing out...";
+      checkinStatus.textContent = "Feature coming soon.";
+      return;
 
       try {
         const res = await fetch("/api/sign-out", {
