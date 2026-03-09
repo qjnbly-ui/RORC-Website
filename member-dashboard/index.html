@@ -526,6 +526,10 @@
           return;
         }
 
+        if (data.logId) {
+          localStorage.setItem("activeLogId", data.logId);
+        }
+
         await loadSigninStatus();
       } catch (err) {
         checkinStatus.textContent = "Could not sign in.";
@@ -535,14 +539,18 @@
 
   if (signOutBtn) {
     signOutBtn.addEventListener("click", async () => {
+      checkinStatus.textContent = "Signing out...";
+
       try {
+        const activeLogId = localStorage.getItem("activeLogId");
         const res = await fetch("/api/sign-out", {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            member: memberData
+            member: memberData,
+            logId: activeLogId
           })
         });
 
@@ -553,6 +561,7 @@
           return;
         }
 
+        localStorage.removeItem("activeLogId");
         await loadSigninStatus();
       } catch (err) {
         checkinStatus.textContent = "Could not sign out.";
