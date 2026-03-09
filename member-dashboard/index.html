@@ -528,8 +528,12 @@
           return;
         }
 
+        checkinStatus.textContent = "Signed in.";
+        if (signInBtn) signInBtn.style.display = "none";
+        if (signOutBtn) signOutBtn.style.display = "inline-block";
+
         localStorage.setItem("activeLogId", data.logId);
-        setTimeout(loadSigninStatus, 1200);
+        setTimeout(loadSigninStatus, 2500);
       } catch (err) {
         checkinStatus.textContent = "Could not sign in.";
       }
