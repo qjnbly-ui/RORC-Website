@@ -45,7 +45,7 @@ module.exports = async (req, res) => {
           "Member Account": memberName
         }
       },
-      Selector: `FILTER("TimeSheet", (TRIM([Name]) = TRIM("${memberName}")))`
+      Selector: `FILTER("TimeSheet", AND((TRIM([Name]) = TRIM("${memberName}")), ISBLANK([Date/Time Out])))`
     };
 
     const response = await fetch(url, {
@@ -91,31 +91,11 @@ module.exports = async (req, res) => {
       });
     }
 
-    const openRows = rows.filter((row) => {
-      const outValue = row["Date/Time Out"];
-      return outValue === null || outValue === undefined || String(outValue).trim() === "";
-    });
-
-    if (!openRows.length) {
-      return res.json({
-        success: true,
-        signedIn: false,
-        signedInAt: null,
-        ...(req.body && req.body.debug ? {
-          debug: {
-            memberName,
-            selector: payload.Selector,
-            rowCount: rows.length
-          }
-        } : {})
-      });
-    }
-
-    const latestRow = openRows.reduce((latest, row) => {
+    const latestRow = rows.reduce((latest, row) => {
       const latestTime = Date.parse(latest["Date/Time In"] || "") || 0;
       const rowTime = Date.parse(row["Date/Time In"] || "") || 0;
       return rowTime >= latestTime ? row : latest;
-    }, openRows[0]);
+    }, rows[0]);
 
     return res.json({
       success: true,
