@@ -28,7 +28,7 @@ module.exports = async (req, res) => {
     const appId = process.env.APPSHEET_APP_ID;
     const accessKey = process.env.APPSHEET_ACCESS_KEY;
 
-    const tableName = encodeURIComponent("Sign In Record");
+    const tableName = encodeURIComponent("TimeSheet");
     const url = `https://api.appsheet.com/api/v2/apps/${appId}/tables/${tableName}/Action`;
 
     const now = new Date().toLocaleString("en-US", {
@@ -80,7 +80,7 @@ module.exports = async (req, res) => {
     const findPayload = {
       Action: "Find",
       Properties: {},
-      Selector: `FILTER("Sign In Record", AND(([Name] = "${memberName}"), ISBLANK([Date/Time Out])))`
+      Selector: `FILTER("TimeSheet", AND(([Name] = "${memberName}"), ISBLANK([Date/Time Out])))`
     };
 
     const findResponse = await fetch(url, {

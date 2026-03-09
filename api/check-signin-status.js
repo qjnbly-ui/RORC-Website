@@ -35,13 +35,13 @@ module.exports = async (req, res) => {
       });
     }
 
-    const tableName = encodeURIComponent("Sign In Record");
+    const tableName = encodeURIComponent("TimeSheet");
     const url = `https://api.appsheet.com/api/v2/apps/${appId}/tables/${tableName}/Action`;
 
     const payload = {
       Action: "Find",
       Properties: {},
-      Selector: `FILTER("Sign In Record", AND(([Name] = "${memberName}"), ([Member  or Guest] = "Member"), ISBLANK([Date/Time Out])))`
+      Selector: `FILTER("TimeSheet", AND(([Name] = "${memberName}"), ([Member  or Guest] = "Member"), ISBLANK([Date/Time Out])))`
     };
 
     const response = await fetch(url, {
