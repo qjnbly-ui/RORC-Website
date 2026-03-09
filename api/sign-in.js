@@ -44,7 +44,7 @@ module.exports = async (req, res) => {
 
     const logId = `signin_${Date.now()}`;
 
-    const addPayload = {
+    const payload = {
       Action: "Add",
       Properties: {
         Locale: "en-US",
@@ -60,66 +60,29 @@ module.exports = async (req, res) => {
       ]
     };
 
-    const addResponse = await fetch(url, {
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         "ApplicationAccessKey": accessKey,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(addPayload)
+      body: JSON.stringify(payload)
     });
 
-    const addText = await addResponse.text();
+    const text = await response.text();
 
-    let addData = {};
+    let data = {};
     try {
-      addData = addText ? JSON.parse(addText) : {};
+      data = text ? JSON.parse(text) : {};
     } catch {
-      addData = { raw: addText };
+      data = { raw: text };
     }
 
-    if (!addResponse.ok) {
+    if (!response.ok) {
       return res.status(400).json({
         success: false,
         error: "AppSheet sign-in failed",
-        details: addData
-      });
-    }
-
-    // Verify the row actually exists
-    const findPayload = {
-      Action: "Find",
-      Properties: {},
-      Selector: `FILTER("Sign In Record", [Log ID] = "${logId}")`
-    };
-
-    const findResponse = await fetch(url, {
-      method: "POST",
-      headers: {
-        "ApplicationAccessKey": accessKey,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(findPayload)
-    });
-
-    const findText = await findResponse.text();
-
-    let findData = {};
-    try {
-      findData = findText ? JSON.parse(findText) : {};
-    } catch {
-      findData = { raw: findText };
-    }
-
-    const rows = findData.Rows || findData.rows || [];
-
-    if (!findResponse.ok || !rows.length) {
-      return res.status(400).json({
-        success: false,
-        error: "AppSheet did not confirm the sign-in row was created",
-        addResponse: addData,
-        verifyResponse: findData,
-        logId
+        details: data
       });
     }
 
