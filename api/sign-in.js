@@ -28,6 +28,13 @@ module.exports = async (req, res) => {
     const appId = process.env.APPSHEET_APP_ID;
     const accessKey = process.env.APPSHEET_ACCESS_KEY;
 
+    if (!appId || !accessKey) {
+      return res.status(500).json({
+        success: false,
+        error: "Missing AppSheet configuration"
+      });
+    }
+
     const tableName = encodeURIComponent("Sign In Record");
     const url = `https://api.appsheet.com/api/v2/apps/${appId}/tables/${tableName}/Action`;
 
@@ -37,7 +44,7 @@ module.exports = async (req, res) => {
 
     const logId = `signin_${Date.now()}`;
 
-    const payload = {
+    const addPayload = {
       Action: "Add",
       Properties: {
         Locale: "en-US",
@@ -46,44 +53,80 @@ module.exports = async (req, res) => {
       Rows: [
         {
           "Log ID": logId,
+          "Member  or Guest": "Member",
           "Name": memberName,
           "Date/Time In": now
         }
       ]
     };
 
-    const response = await fetch(url, {
+    const addResponse = await fetch(url, {
       method: "POST",
       headers: {
         "ApplicationAccessKey": accessKey,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(addPayload)
     });
 
-    const text = await response.text();
+    const addText = await addResponse.text();
 
-    let data = {};
+    let addData = {};
     try {
-      data = text ? JSON.parse(text) : {};
+      addData = addText ? JSON.parse(addText) : {};
     } catch {
-      data = { raw: text };
+      addData = { raw: addText };
     }
 
-    if (!response.ok) {
+    if (!addResponse.ok) {
       return res.status(400).json({
         success: false,
         error: "AppSheet sign-in failed",
-        status: response.status,
-        details: data
+        details: addData
+      });
+    }
+
+    // Verify the row actually exists
+    const findPayload = {
+      Action: "Find",
+      Properties: {},
+      Selector: `FILTER("Sign In Record", [Log ID] = "${logId}")`
+    };
+
+    const findResponse = await fetch(url, {
+      method: "POST",
+      headers: {
+        "ApplicationAccessKey": accessKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(findPayload)
+    });
+
+    const findText = await findResponse.text();
+
+    let findData = {};
+    try {
+      findData = findText ? JSON.parse(findText) : {};
+    } catch {
+      findData = { raw: findText };
+    }
+
+    const rows = findData.Rows || findData.rows || [];
+
+    if (!findResponse.ok || !rows.length) {
+      return res.status(400).json({
+        success: false,
+        error: "AppSheet did not confirm the sign-in row was created",
+        addResponse: addData,
+        verifyResponse: findData,
+        logId
       });
     }
 
     return res.status(200).json({
       success: true,
       logId,
-      message: "Signed in successfully",
-      data
+      message: "Signed in successfully"
     });
 
   } catch (err) {
