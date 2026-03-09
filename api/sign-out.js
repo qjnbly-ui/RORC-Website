@@ -43,7 +43,7 @@ module.exports = async (req, res) => {
           "Member Account": memberName
         }
       },
-      Selector: `FILTER("TimeSheet", AND(([Name] = "${memberName}"), ISBLANK([Date/Time Out])))`
+      Selector: `FILTER("TimeSheet", AND((TRIM([Name]) = TRIM("${memberName}")), ISBLANK([Date/Time Out])))`
     };
 
     const findResponse = await fetch(url, {
