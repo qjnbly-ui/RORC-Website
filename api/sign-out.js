@@ -42,15 +42,20 @@ module.exports = async (req, res) => {
       timeZone: "America/Los_Angeles"
     });
 
-    // Look up the active row by member name
+    const escapedMemberName = memberName.replace(/"/g, '\\"');
+    const selector = `FILTER("TimeSheet", [Name] = "${escapedMemberName}")`;
+
+    // Look up rows by member name
     const findPayload = {
       Action: "Find",
       Properties: {
+        Locale: "en-US",
+        Timezone: "America/Los_Angeles",
+        Selector: selector,
         UserSettings: {
           "Member Account": memberName
         }
-      },
-      Selector: `FILTER("TimeSheet", AND((TRIM([Name]) = TRIM("${memberName}")), ISBLANK([Date/Time Out])))`
+      }
     };
 
     const findResponse = await fetch(url, {
@@ -81,11 +86,23 @@ module.exports = async (req, res) => {
       });
     }
 
-    const targetRow = rows.reduce((latest, row) => {
+    const openRows = rows.filter((row) => {
+      const outValue = row["Date/Time Out"];
+      return outValue === null || outValue === undefined || String(outValue).trim() === "";
+    });
+
+    if (!openRows.length) {
+      return res.status(400).json({
+        success: false,
+        error: "No active sign-in found"
+      });
+    }
+
+    const targetRow = openRows.reduce((latest, row) => {
       const latestTime = Date.parse(latest["Date/Time In"] || "") || 0;
       const rowTime = Date.parse(row["Date/Time In"] || "") || 0;
       return rowTime >= latestTime ? row : latest;
-    }, rows[0]);
+    }, openRows[0]);
     const targetLogId = targetRow["Log ID"];
 
     const editPayload = {
