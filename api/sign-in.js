@@ -27,24 +27,15 @@ module.exports = async (req, res) => {
 
     const appId = process.env.APPSHEET_APP_ID;
     const accessKey = process.env.APPSHEET_ACCESS_KEY;
-    const region = process.env.APPSHEET_REGION || "www.appsheet.com";
 
-    if (!appId || !accessKey) {
-      return res.status(500).json({
-        success: false,
-        error: "Missing AppSheet configuration"
-      });
-    }
+    const tableName = encodeURIComponent("Sign In Record");
+    const url = `https://api.appsheet.com/api/v2/apps/${appId}/tables/${tableName}/Action`;
 
     const now = new Date().toLocaleString("en-US", {
       timeZone: "America/Los_Angeles"
     });
 
     const logId = `signin_${Date.now()}`;
-
-    const tableName = encodeURIComponent("Sign In Record");
-    const url =
-      `https://${region}/api/v2/apps/${appId}/tables/${tableName}/Action`;
 
     const payload = {
       Action: "Add",
@@ -71,31 +62,42 @@ module.exports = async (req, res) => {
     const response = await fetch(url, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
-        "ApplicationAccessKey": accessKey
+        "ApplicationAccessKey": accessKey,
+        "Content-Type": "application/json"
       },
       body: JSON.stringify(payload)
     });
 
-    const data = await response.json();
+    const text = await response.text();
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { raw: text };
+    }
 
     if (!response.ok) {
       return res.status(400).json({
         success: false,
-        error: data?.message || "AppSheet sign-in failed",
-        details: data
+        error: "AppSheet sign-in failed",
+        status: response.status,
+        details: data,
+        payload
       });
     }
 
     return res.status(200).json({
       success: true,
-      message: "Signed in successfully"
+      message: "Signed in successfully",
+      data
     });
-  } catch (error) {
+
+  } catch (err) {
     return res.status(500).json({
       success: false,
       error: "Server error",
-      details: error.message
+      details: err.message
     });
   }
 };
