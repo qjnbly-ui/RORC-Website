@@ -5,6 +5,72 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>RORC</title>
   <link rel="stylesheet" href="style.css" />
+<script>
+  (function() {
+    const STORAGE_KEY = "memberData";
+    const DASHBOARD_PATH = "/member-dashboard/";
+    const LOGIN_PATH = "/membership-login/";
+    const html = document.documentElement;
+    const pageType = window.location.pathname.startsWith(DASHBOARD_PATH) ? "dashboard" : "default";
+    html.dataset.rorcAuthPage = pageType;
+
+    let member = null;
+
+    try {
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && String(parsed["Member Name"] || "").trim()) {
+          member = parsed;
+        }
+      }
+    } catch (error) {
+      try {
+        window.localStorage.removeItem(STORAGE_KEY);
+      } catch (storageError) {
+        // Ignore storage failures during bootstrap.
+      }
+    }
+
+    window.__RORC_AUTH_HINT__ = {
+      signedIn: !!member,
+      member: member
+    };
+    html.dataset.rorcAuthHint = member ? "signed-in" : "signed-out";
+
+    if (!member) {
+      return;
+    }
+
+    document.addEventListener("click", function(event) {
+      if (html.dataset.rorcAuthHint !== "signed-in") {
+        return;
+      }
+
+      const link = event.target.closest(".site-menu-login");
+      if (!link) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (pageType === "dashboard") {
+        try {
+          window.localStorage.removeItem(STORAGE_KEY);
+        } catch (error) {
+          // Ignore storage failures during logout.
+        }
+
+        html.dataset.rorcAuthHint = "signed-out";
+        window.location.href = LOGIN_PATH;
+        return;
+      }
+
+      window.location.href = DASHBOARD_PATH;
+    }, true);
+  })();
+</script>
+<script src="/scripts/rorc-auth-nav.js" defer></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Alfa+Slab+One&display=swap');
 
@@ -1255,16 +1321,5 @@
     startRorcCarousel();
   </script>
   <script src="https://script.google.com/macros/s/AKfycbzaObDgkBen2S8yQPZzNKEyj4t-4p2Itge37e-ot8tVT7nqDH6NO5-jEIY9SnwWpHhlJA/exec?callback=rorcLiveLoaded"></script>
-  <script>
-    (function() {
-      if (window.location.pathname.startsWith("/member-dashboard")) return;
-      const memberData = localStorage.getItem("memberData");
-      if (!memberData) return;
-      const loginLink = document.querySelector(".site-menu-login");
-      if (!loginLink) return;
-      loginLink.textContent = "Dashboard";
-      loginLink.setAttribute("href", "/member-dashboard/");
-    })();
-  </script>
 </body>
 </html>
