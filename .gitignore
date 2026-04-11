@@ -1,2 +1,6 @@
 .DS_Store
 node_modules/
+features/off/*
+!features/off/.gitkeep
+features/build/*
+!features/build/.gitkeep

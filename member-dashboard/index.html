@@ -147,20 +147,6 @@
       </div>
     </section>
 
-    <section class="rorc-card" style="max-width: 720px; margin: 24px auto 0;">
-      <h2 class="rorc-card-title">Membership Sign In</h2>
-      <p class="rorc-card-text">This is the same as signing in at the kiosk by the front door.</p>
-      <p id="checkinStatus" class="rorc-card-text">Checking sign-in status...</p>
-
-      <div class="rorc-actions" style="gap:12px;">
-        <button id="signInBtn" type="button" class="rorc-btn rorc-btn-neutral" style="display:none;">
-          Sign In
-        </button>
-        <button id="signOutBtn" type="button" class="rorc-btn rorc-btn-neutral" style="display:none;">
-          Sign Out
-        </button>
-      </div>
-    </section>
   </main>
 
   <div id="updatePasswordModal" class="rorc-password-modal" hidden>
@@ -515,110 +501,6 @@
       } finally {
         updatePasswordBtn.disabled = false;
         updatePasswordBtn.textContent = originalLabel;
-      }
-    });
-  }
-  </script>
-  <script>
-  const checkinStatus = document.getElementById("checkinStatus");
-  const signInBtn = document.getElementById("signInBtn");
-  const signOutBtn = document.getElementById("signOutBtn");
-
-  async function loadSigninStatus() {
-    if (!memberData || !checkinStatus) return;
-
-    checkinStatus.textContent = "Checking sign-in status...";
-
-    try {
-      const res = await fetch("/api/check-signin-status", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          member: memberData
-        })
-      });
-
-      const data = await res.json();
-
-      if (!data.success) {
-        checkinStatus.textContent = data.error || "Could not determine sign-in status.";
-        return;
-      }
-
-      if (data.signedIn) {
-        checkinStatus.textContent = `Currently signed in${data.signedInAt ? ` since ${data.signedInAt}` : ""}.`;
-        if (signInBtn) signInBtn.style.display = "none";
-        if (signOutBtn) signOutBtn.style.display = "inline-block";
-      } else {
-        checkinStatus.textContent = "Not currently signed in.";
-        if (signInBtn) signInBtn.style.display = "inline-block";
-        if (signOutBtn) signOutBtn.style.display = "none";
-      }
-    } catch (err) {
-      checkinStatus.textContent = "Could not determine sign-in status.";
-    }
-  }
-
-  loadSigninStatus();
-
-  if (signInBtn) {
-    signInBtn.addEventListener("click", async () => {
-      checkinStatus.textContent = "Signing in...";
-
-      try {
-        const res = await fetch("/api/sign-in", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            member: memberData
-          })
-        });
-
-        const data = await res.json();
-
-        if (!data.success) {
-          checkinStatus.textContent = data.error || "Could not sign in.";
-          return;
-        }
-
-        setTimeout(async () => {
-          await loadSigninStatus();
-        }, 2000);
-      } catch (err) {
-        checkinStatus.textContent = "Could not sign in.";
-      }
-    });
-  }
-
-  if (signOutBtn) {
-    signOutBtn.addEventListener("click", async () => {
-      checkinStatus.textContent = "Signing out...";
-
-      try {
-        const res = await fetch("/api/sign-out", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            member: memberData
-          })
-        });
-
-        const data = await res.json();
-
-        if (!data.success) {
-          checkinStatus.textContent = data.error || "Could not sign out.";
-          return;
-        }
-
-        await loadSigninStatus();
-      } catch (err) {
-        checkinStatus.textContent = "Could not sign out.";
       }
     });
   }
