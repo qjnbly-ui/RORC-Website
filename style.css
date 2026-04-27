@@ -265,6 +265,12 @@ html[data-rorc-auth-hint="signed-in"][data-rorc-auth-page="dashboard"] .site-men
   gap: 14px;
 }
 
+.site-footer-inner > div:nth-last-child(-n + 2) {
+  flex-basis: 100%;
+  width: 100%;
+  text-align: center;
+}
+
 .policy-hero {
   text-align: center;
   margin-bottom: 26px;
