@@ -1,54 +1,16 @@
 (function() {
-  const STORAGE_KEY = "memberData";
   const DASHBOARD_PATH = "/member-dashboard/";
   const LOGIN_PATH = "/membership-login/";
-  const VERIFY_URL = "/api/verify-member-session";
+  const SUPABASE_HELPER_SRC = "/scripts/rorc-supabase-client.js";
+  const LEGACY_STORAGE_KEY = "memberData";
 
-  function getAuthHint() {
-    const hint = window.__RORC_AUTH_HINT__;
-    if (hint && typeof hint === "object") {
-      return hint;
-    }
+  let helperPromise = null;
 
+  function clearLegacyMemberData() {
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        return { signedIn: false, member: null };
-      }
-
-      const member = JSON.parse(raw);
-      if (!member || typeof member !== "object") {
-        return { signedIn: false, member: null };
-      }
-
-      const memberName = String(member["Member Name"] || "").trim();
-      return {
-        signedIn: !!memberName,
-        member: memberName ? member : null
-      };
+      window.localStorage.removeItem(LEGACY_STORAGE_KEY);
     } catch (error) {
-      return { signedIn: false, member: null };
-    }
-  }
-
-  function setHintState(signedIn, member) {
-    const html = document.documentElement;
-    html.dataset.rorcAuthHint = signedIn ? "signed-in" : "signed-out";
-    window.__RORC_AUTH_HINT__ = {
-      signedIn,
-      member: signedIn ? member : null
-    };
-  }
-
-  function persistMember(member) {
-    try {
-      if (member) {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(member));
-      } else {
-        window.localStorage.removeItem(STORAGE_KEY);
-      }
-    } catch (error) {
-      // Ignore storage failures and keep the UI usable.
+      // Ignore storage failures and keep navigation usable.
     }
   }
 
@@ -123,93 +85,109 @@
     }
   }
 
+  function setHintState(signedIn, member) {
+    const html = document.documentElement;
+    html.dataset.rorcAuthHint = signedIn ? "signed-in" : "signed-out";
+    window.__RORC_AUTH_HINT__ = {
+      signedIn,
+      member: signedIn ? member : null
+    };
+  }
+
+  function loadHelper() {
+    if (window.RORC_SUPABASE) {
+      return Promise.resolve(window.RORC_SUPABASE);
+    }
+
+    if (helperPromise) {
+      return helperPromise;
+    }
+
+    helperPromise = new Promise((resolve, reject) => {
+      const existing = document.querySelector(`script[src="${SUPABASE_HELPER_SRC}"]`);
+
+      if (existing) {
+        existing.addEventListener("load", () => resolve(window.RORC_SUPABASE), { once: true });
+        existing.addEventListener("error", () => reject(new Error("Could not load RORC Supabase helper.")), { once: true });
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.src = SUPABASE_HELPER_SRC;
+      script.onload = () => resolve(window.RORC_SUPABASE);
+      script.onerror = () => reject(new Error("Could not load RORC Supabase helper."));
+      document.head.appendChild(script);
+    });
+
+    return helperPromise;
+  }
+
+  async function getAuthState() {
+    const helper = await loadHelper();
+    const result = await helper.getCurrentMemberProfile();
+
+    return {
+      signedIn: !!result.session,
+      member: result.profile,
+      session: result.session
+    };
+  }
+
+  async function signOut() {
+    const helper = await loadHelper();
+    const client = await helper.getClient();
+    await client.auth.signOut({ scope: "local" });
+    clearLegacyMemberData();
+    setHintState(false, null);
+  }
+
   function bindLogout(link) {
     if (!link || link.dataset.authNavLogoutBound === "true") {
       return;
     }
 
     link.dataset.authNavLogoutBound = "true";
-    link.addEventListener("click", function(event) {
-      if (!window.__RORC_AUTH_HINT__ || !window.__RORC_AUTH_HINT__.signedIn) {
-        return;
-      }
-
+    link.addEventListener("click", async (event) => {
       if (!window.location.pathname.startsWith(DASHBOARD_PATH)) {
         return;
       }
 
       event.preventDefault();
-      persistMember(null);
-      setHintState(false, null);
-      restoreSignedOutNav(link);
+      await signOut();
       window.location.href = LOGIN_PATH;
     });
   }
 
-  function hydrateNav() {
+  async function hydrateNav() {
     const link = document.querySelector(".site-menu-login");
     if (!link) {
-      return null;
+      return;
     }
 
-    const hint = getAuthHint();
+    let authState;
+
+    try {
+      authState = await getAuthState();
+    } catch (error) {
+      authState = { signedIn: false, member: null };
+    }
+
     const onDashboard = window.location.pathname.startsWith(DASHBOARD_PATH);
 
-    if (hint.signedIn) {
+    if (authState.signedIn) {
+      setHintState(true, authState.member);
+
       if (onDashboard) {
         applyLogoutNav(link);
         bindLogout(link);
       } else {
         applyPortalNav(link);
       }
-    } else if (!onDashboard) {
-      restoreSignedOutNav(link);
-    }
-
-    return link;
-  }
-
-  async function verifySession() {
-    const hint = getAuthHint();
-    if (!hint.signedIn || !hint.member) {
       return;
     }
 
-    let response;
-    let data;
-
-    try {
-      response = await fetch(VERIFY_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          member: hint.member
-        })
-      });
-
-      data = await response.json();
-    } catch (error) {
-      return;
-    }
-
-    if (response.ok && data.success && data.authenticated && data.member) {
-      persistMember(data.member);
-      setHintState(true, data.member);
-      hydrateNav();
-      return;
-    }
-
-    if (!(response.ok && data.success && data.authenticated === false)) {
-      return;
-    }
-
-    persistMember(null);
+    clearLegacyMemberData();
     setHintState(false, null);
-
-    const link = document.querySelector(".site-menu-login");
-    const onDashboard = window.location.pathname.startsWith(DASHBOARD_PATH);
 
     if (onDashboard) {
       window.location.href = LOGIN_PATH;
@@ -225,5 +203,8 @@
     hydrateNav();
   }
 
-  window.setTimeout(verifySession, 0);
+  window.RORC_AUTH_NAV = {
+    hydrate: hydrateNav,
+    signOut
+  };
 })();

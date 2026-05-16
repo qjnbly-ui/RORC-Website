@@ -1,0 +1,2886 @@
+const appShell = document.querySelector(".app-shell");
+const view = document.getElementById("view");
+const screenTitle = document.getElementById("screenTitle");
+const navControl = document.getElementById("navControl");
+const navItems = [...document.querySelectorAll(".nav-item")];
+const appDrawer = document.getElementById("appDrawer");
+const drawerOverlay = document.getElementById("drawerOverlay");
+const drawerItems = [...document.querySelectorAll(".drawer-item")];
+const authGate = document.getElementById("authGate");
+const appLoginEmail = document.getElementById("appLoginEmail");
+const appLoginPassword = document.getElementById("appLoginPassword");
+const appLoginButton = document.getElementById("appLoginButton");
+const appMagicLinkButton = document.getElementById("appMagicLinkButton");
+const appResetPasswordButton = document.getElementById("appResetPasswordButton");
+const appAuthMessage = document.getElementById("appAuthMessage");
+const appLogoutButton = document.getElementById("appLogoutButton");
+const drawerAvatar = document.getElementById("drawerAvatar");
+const drawerUserEmail = document.getElementById("drawerUserEmail");
+const supabaseSettings = window.RORC_SUPABASE_CONFIG || {};
+let supabaseClient = null;
+let currentAuthSession = null;
+let deferredInstallPrompt = null;
+let installFallbackTimer = null;
+
+let accounts = [
+  {
+    id: "a-1",
+    accountNumber: "#1",
+    membershipDetails: "RORC administration and front-door access account.",
+    notesOnAccount: "Account Manager access. Used for front-door sign-in and account administration.",
+    billingStatus: "active",
+    stripeStatus: "Active",
+    currentPeriodEnd: "2026-06-01T08:00:00-07:00",
+    billingIdHeater: "RORC-ADMIN"
+  },
+  {
+    id: "a-8",
+    accountNumber: "#8",
+    membershipDetails: "Basic Membership Access From 7am - 9pm. Follow calendar events for times closed.",
+    notesOnAccount: "Shared household account. Damien is billing owner.",
+    billingStatus: "active",
+    stripeStatus: "Active",
+    currentPeriodEnd: "2026-06-01T08:00:00-07:00",
+    billingIdHeater: "HTR-8"
+  },
+  {
+    id: "a-17",
+    accountNumber: "#017",
+    membershipDetails: "Basic Membership Access From 7am - 9pm. Follow calendar events for times closed.",
+    notesOnAccount: "",
+    billingStatus: "active",
+    stripeStatus: "Active",
+    currentPeriodEnd: "2026-06-01T08:00:00-07:00",
+    billingIdHeater: "HTR-017"
+  },
+  {
+    id: "a-28",
+    accountNumber: "#28",
+    membershipDetails: "Basic Membership Access From 7am - 9pm. Follow calendar events for times closed.",
+    notesOnAccount: "Family account.",
+    billingStatus: "active",
+    stripeStatus: "Active",
+    currentPeriodEnd: "2026-06-01T08:00:00-07:00",
+    billingIdHeater: "HTR-28"
+  },
+  {
+    id: "a-96",
+    accountNumber: "#96",
+    membershipDetails: "Basic Membership Access From 7am - 9pm. Follow calendar events for times closed.",
+    notesOnAccount: "",
+    billingStatus: "active",
+    stripeStatus: "Active",
+    currentPeriodEnd: "2026-06-01T08:00:00-07:00",
+    billingIdHeater: "HTR-96"
+  },
+  {
+    id: "a-130",
+    accountNumber: "#130",
+    membershipDetails: "Basic Membership Access From 7am - 9pm. Follow calendar events for times closed.",
+    notesOnAccount: "",
+    billingStatus: "active",
+    stripeStatus: "Active",
+    currentPeriodEnd: "2026-06-01T08:00:00-07:00",
+    billingIdHeater: "HTR-130"
+  },
+  {
+    id: "a-11",
+    accountNumber: "#11",
+    membershipDetails: "Open Gym access Tuesday and Thursday nights from 6pm - 8pm.",
+    notesOnAccount: "Shared open gym account.",
+    billingStatus: "none",
+    stripeStatus: "None",
+    currentPeriodEnd: null,
+    billingIdHeater: null
+  },
+  {
+    id: "a-15",
+    accountNumber: "#15",
+    membershipDetails: "Open Gym access Tuesday and Thursday nights from 6pm - 8pm.",
+    notesOnAccount: "",
+    billingStatus: "none",
+    stripeStatus: "None",
+    currentPeriodEnd: null,
+    billingIdHeater: null
+  },
+  {
+    id: "a-6",
+    accountNumber: "#6",
+    membershipDetails: "Open Gym access Tuesday and Thursday nights from 6pm - 8pm.",
+    notesOnAccount: "",
+    billingStatus: "none",
+    stripeStatus: "None",
+    currentPeriodEnd: null,
+    billingIdHeater: null
+  }
+];
+
+let accountMembers = [
+  {
+    id: "m-rorc",
+    accountId: "a-1",
+    memberName: "RORC",
+    accountType: "Account Manager",
+    phoneNumber: "",
+    emailAddress: "qjnbly@gmail.com",
+    allowGuestEntry: true,
+    allowHeaterUse: true,
+    isBillingOwner: false,
+    pinConfigured: true
+  },
+  {
+    id: "m-quentin",
+    accountId: "a-1",
+    memberName: "Quentin Nichols",
+    accountType: "Account Manager",
+    phoneNumber: "5415550198",
+    emailAddress: "qjnbly@gmail.com",
+    allowGuestEntry: true,
+    allowHeaterUse: true,
+    isBillingOwner: true,
+    pinConfigured: true
+  },
+  {
+    id: "m-kbyd",
+    accountId: "a-1",
+    memberName: "KBYD",
+    accountType: "Account Manager",
+    phoneNumber: "",
+    emailAddress: "",
+    allowGuestEntry: true,
+    allowHeaterUse: true,
+    isBillingOwner: false,
+    pinConfigured: true
+  },
+  {
+    id: "m-apca",
+    accountId: "a-1",
+    memberName: "APCA",
+    accountType: "Account Manager",
+    phoneNumber: "",
+    emailAddress: "",
+    allowGuestEntry: true,
+    allowHeaterUse: true,
+    isBillingOwner: false,
+    pinConfigured: true
+  },
+  {
+    id: "m-damien",
+    accountId: "a-8",
+    memberName: "Damien",
+    accountType: "Active Membership",
+    phoneNumber: "5418924711",
+    emailAddress: "crossdamien989@gmail.com",
+    allowGuestEntry: true,
+    allowHeaterUse: true,
+    isBillingOwner: true,
+    pinConfigured: true
+  },
+  {
+    id: "m-roman",
+    accountId: "a-8",
+    memberName: "Roman",
+    accountType: "Active Membership",
+    phoneNumber: "",
+    emailAddress: "",
+    allowGuestEntry: false,
+    allowHeaterUse: true,
+    isBillingOwner: false,
+    pinConfigured: true
+  },
+  {
+    id: "m-skylar",
+    accountId: "a-17",
+    memberName: "Skylar Jacobs",
+    accountType: "Active Membership",
+    phoneNumber: "5415550117",
+    emailAddress: "skylar@example.com",
+    allowGuestEntry: true,
+    allowHeaterUse: true,
+    isBillingOwner: true,
+    pinConfigured: true
+  },
+  {
+    id: "m-bill",
+    accountId: "a-28",
+    memberName: "Bill Johnson",
+    accountType: "Active Membership",
+    phoneNumber: "5415550128",
+    emailAddress: "bill@example.com",
+    allowGuestEntry: true,
+    allowHeaterUse: true,
+    isBillingOwner: true,
+    pinConfigured: true
+  },
+  {
+    id: "m-josiah",
+    accountId: "a-28",
+    memberName: "Josiah Johnson",
+    accountType: "Active Membership",
+    phoneNumber: "",
+    emailAddress: "",
+    allowGuestEntry: false,
+    allowHeaterUse: true,
+    isBillingOwner: false,
+    pinConfigured: true
+  },
+  {
+    id: "m-nathan",
+    accountId: "a-96",
+    memberName: "Nathan Taber",
+    accountType: "Active Membership",
+    phoneNumber: "5415550196",
+    emailAddress: "nathan@example.com",
+    allowGuestEntry: true,
+    allowHeaterUse: true,
+    isBillingOwner: true,
+    pinConfigured: true
+  },
+  {
+    id: "m-jennifer",
+    accountId: "a-130",
+    memberName: "Jennifer Newman",
+    accountType: "Active Membership",
+    phoneNumber: "5415550130",
+    emailAddress: "jennifer@example.com",
+    allowGuestEntry: true,
+    allowHeaterUse: true,
+    isBillingOwner: true,
+    pinConfigured: true
+  },
+  {
+    id: "m-eldon",
+    accountId: "a-6",
+    memberName: "Eldon Louis",
+    accountType: "Open Gym Only",
+    phoneNumber: "",
+    emailAddress: "",
+    allowGuestEntry: false,
+    allowHeaterUse: false,
+    isBillingOwner: true,
+    pinConfigured: true
+  },
+  {
+    id: "m-angela",
+    accountId: "a-11",
+    memberName: "Angela Lee",
+    accountType: "Open Gym Only",
+    phoneNumber: "5415550011",
+    emailAddress: "angela@example.com",
+    allowGuestEntry: false,
+    allowHeaterUse: false,
+    isBillingOwner: true,
+    pinConfigured: true
+  },
+  {
+    id: "m-logan",
+    accountId: "a-11",
+    memberName: "Logan Lee",
+    accountType: "Open Gym Only",
+    phoneNumber: "",
+    emailAddress: "",
+    allowGuestEntry: false,
+    allowHeaterUse: false,
+    isBillingOwner: false,
+    pinConfigured: true
+  },
+  {
+    id: "m-harmony",
+    accountId: "a-15",
+    memberName: "Harmony Lee",
+    accountType: "Open Gym Only",
+    phoneNumber: "",
+    emailAddress: "",
+    allowGuestEntry: false,
+    allowHeaterUse: false,
+    isBillingOwner: false,
+    pinConfigured: true
+  },
+  {
+    id: "m-rick",
+    accountId: "a-15",
+    memberName: "Rick Lee",
+    accountType: "Open Gym Only",
+    phoneNumber: "5415550015",
+    emailAddress: "rick@example.com",
+    allowGuestEntry: false,
+    allowHeaterUse: false,
+    isBillingOwner: true,
+    pinConfigured: true
+  }
+];
+
+let timesheetEntries = [
+  { id: "ts-1", memberOrGuest: "Member", memberId: "m-damien", signedInAt: "2026-05-15T08:30:00-07:00", signedOutAt: "2026-05-15T10:05:00-07:00" },
+  { id: "ts-2", memberOrGuest: "Member", memberId: "m-roman", signedInAt: "2026-05-15T08:32:00-07:00", signedOutAt: "2026-05-15T09:48:00-07:00" },
+  { id: "ts-3", memberOrGuest: "Guest", guestName: "Guest of Damien", dayPassOrOpenGym: "Day Pass", memberEnteredWithId: "m-damien", liabilityAccepted: true, signedInAt: "2026-05-12T18:14:00-07:00", signedOutAt: "2026-05-12T19:15:00-07:00" },
+  { id: "ts-4", memberOrGuest: "Member", memberId: "m-skylar", signedInAt: "2026-05-14T16:40:00-07:00", signedOutAt: "2026-05-14T18:10:00-07:00" },
+  { id: "ts-5", memberOrGuest: "Member", memberId: "m-angela", signedInAt: "2026-05-14T18:02:00-07:00", signedOutAt: "2026-05-14T19:42:00-07:00" },
+  { id: "ts-6", memberOrGuest: "Member", memberId: "m-logan", signedInAt: "2026-05-14T18:04:00-07:00", signedOutAt: "2026-05-14T19:30:00-07:00" },
+  { id: "ts-7", memberOrGuest: "Guest", guestName: "Open Gym Guest", dayPassOrOpenGym: "Open Gym", memberEnteredWithId: "m-angela", liabilityAccepted: true, signedInAt: "2026-05-14T18:16:00-07:00", signedOutAt: "2026-05-14T19:25:00-07:00" },
+  { id: "ts-8", memberOrGuest: "Member", memberId: "m-bill", signedInAt: "2026-05-13T09:00:00-07:00", signedOutAt: "2026-05-13T10:30:00-07:00" },
+  { id: "ts-9", memberOrGuest: "Member", memberId: "m-josiah", signedInAt: "2026-05-13T09:02:00-07:00", signedOutAt: "2026-05-13T10:18:00-07:00" },
+  { id: "ts-10", memberOrGuest: "Member", memberId: "m-quentin", signedInAt: "2026-05-15T14:10:00-07:00", signedOutAt: null }
+];
+
+let heaterUseEntries = [
+  { id: "hu-1", usedOn: "2026-05-11", event: "MEMBER USE", responsibleMemberId: "m-damien", groupMemberIds: ["m-roman"], groupPay: true, turnHeaterOn: "Off", startAt: "2026-05-11T18:00:00-07:00", endAt: "2026-05-11T19:30:00-07:00", paid: false },
+  { id: "hu-2", usedOn: "2026-05-09", event: "RORC", responsibleMemberId: "m-quentin", groupMemberIds: [], groupPay: false, turnHeaterOn: "Off", startAt: "2026-05-09T09:00:00-07:00", endAt: "2026-05-09T10:00:00-07:00", paid: true },
+  { id: "hu-3", usedOn: "2026-05-08", event: "MEMBER USE", responsibleMemberId: "m-skylar", groupMemberIds: [], groupPay: false, turnHeaterOn: "Off", startAt: "2026-05-08T17:20:00-07:00", endAt: "2026-05-08T18:10:00-07:00", paid: false }
+];
+
+let billingLineItems = [
+  { id: "bli-1", accountMemberId: "m-damien", timesheetEntryId: "ts-3", heaterUseEntryId: null, createdAt: "2026-05-12T19:16:00-07:00", amountCents: 25, reason: "Guest entry fee for 1 guest", postedToStripeAt: null },
+  { id: "bli-2", accountMemberId: "m-damien", timesheetEntryId: null, heaterUseEntryId: "hu-1", createdAt: "2026-05-11T19:31:00-07:00", amountCents: 975, reason: "Heater use split charge", postedToStripeAt: null },
+  { id: "bli-3", accountMemberId: "m-roman", timesheetEntryId: null, heaterUseEntryId: "hu-1", createdAt: "2026-05-11T19:31:00-07:00", amountCents: 975, reason: "Heater use split charge", postedToStripeAt: null },
+  { id: "bli-4", accountMemberId: "m-skylar", timesheetEntryId: null, heaterUseEntryId: "hu-3", createdAt: "2026-05-08T18:11:00-07:00", amountCents: 1083, reason: "Heater use charge", postedToStripeAt: null }
+];
+
+const statusOrder = [
+  "Account Manager",
+  "Active Membership",
+  "Open Gym Only",
+  "Billed Monthly",
+  "Account Past Due NO ACCESS ALLOWED"
+];
+
+const appState = {
+  selectedMemberId: "m-damien",
+  detailReturnRoute: "accountInfo",
+  currentRoute: "currentlySignedIn",
+  dataStatus: "loading",
+  dataError: "",
+  authMemberId: "",
+  currentUserEmail: ""
+};
+
+const accountManagerOnlyRoutes = new Set([
+  "accountInfo",
+  "gymProjects",
+  "advertisementBanners",
+  "message",
+  "contracts"
+]);
+
+let frontDoorSession = buildSession("m-rorc");
+let appUserSession = buildSession("m-quentin");
+
+const routes = {
+  memberSignIn: {
+    title: "Member Sign In",
+    template: "memberSignInTemplate",
+    formRoute: true,
+    returnRoute: "currentlySignedIn"
+  },
+  guestSignIn: {
+    title: "Guest Sign In",
+    template: "guestSignInTemplate",
+    formRoute: true,
+    returnRoute: "currentlySignedIn"
+  },
+  currentlySignedIn: {
+    title: "Currently Signed In",
+    template: "currentlySignedInTemplate",
+    afterRender: renderCurrentlySignedIn
+  },
+  heaterRecords: {
+    title: "Heater Records",
+    template: "heaterRecordsTemplate",
+    afterRender: renderHeaterRecords
+  },
+  heaterForm: {
+    title: "Heater Use",
+    template: "heaterFormTemplate",
+    formRoute: true,
+    returnRoute: "heaterRecords",
+    afterRender: populateHeaterForm
+  },
+  accountInfo: {
+    title: "Account & Info",
+    template: "accountInfoTemplate",
+    afterRender: renderAccountInfo
+  },
+  accountDetails: {
+    title: "Details",
+    template: "accountDetailTemplate",
+    detailRoute: true,
+    afterRender: () => renderAccountDetail(appState.selectedMemberId)
+  },
+  myAccount: {
+    title: "My Account",
+    template: "accountDetailTemplate",
+    afterRender: () => renderAccountDetail(appUserSession.memberId)
+  },
+  otherUsers: {
+    title: "Other Users On My Account",
+    template: "otherUsersTemplate",
+    afterRender: renderOtherUsers
+  },
+  feedback: {
+    title: "Feedback",
+    template: "placeholderTemplate"
+  },
+  calendar: {
+    title: "Calendar",
+    template: "calendarTemplate"
+  },
+  gymProjects: {
+    title: "Gym Projects",
+    template: "placeholderTemplate"
+  },
+  advertisementBanners: {
+    title: "Advertisement Banners",
+    template: "placeholderTemplate"
+  },
+  message: {
+    title: "Message",
+    template: "placeholderTemplate"
+  },
+  contracts: {
+    title: "Contracts",
+    template: "placeholderTemplate"
+  },
+  about: {
+    title: "About",
+    template: "placeholderTemplate"
+  },
+  share: {
+    title: "Share",
+    template: "shareTemplate",
+    afterRender: renderSharePage
+  }
+};
+
+function buildSession(memberId) {
+  const member = findMember(memberId);
+  const account = member ? accountForMember(member) : null;
+
+  return {
+    memberId,
+    memberName: member?.memberName || "",
+    accountId: member?.accountId || "",
+    accountNumber: account?.accountNumber || "",
+    accountType: member?.accountType || ""
+  };
+}
+
+function findMember(memberId) {
+  return accountMembers.find((member) => member.id === memberId);
+}
+
+function accountForMember(member) {
+  return accounts.find((account) => account.id === member?.accountId) || null;
+}
+
+function isAccountManager(memberOrSession) {
+  return memberOrSession?.accountType === "Account Manager";
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replaceAll("`", "&#096;");
+}
+
+function phoneHref(phoneNumber, scheme) {
+  const digits = String(phoneNumber || "").replace(/[^\d+]/g, "");
+  return digits ? `${scheme}:${digits}` : "";
+}
+
+function emailHref(emailAddress, subject = "RORC") {
+  const email = String(emailAddress || "").trim();
+  return email ? `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}` : "";
+}
+
+function appUrl() {
+  const url = new URL("/RORC%20App/", window.location.origin);
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+function dashboardUrl() {
+  return new URL("/member-dashboard/", window.location.origin).toString();
+}
+
+function installRequestedFromUrl() {
+  return new URLSearchParams(window.location.search).get("install") === "1";
+}
+
+function cleanInstallUrl() {
+  if (!installRequestedFromUrl()) return;
+
+  const url = new URL(window.location.href);
+  url.searchParams.delete("install");
+  window.history.replaceState({}, "", url.toString());
+}
+
+function isAppleTouchDevice() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function showInstallInstructions() {
+  cleanInstallUrl();
+
+  if (isAppleTouchDevice()) {
+    showInstallSheet({
+      title: "Install RORC App",
+      message: "On iPhone, tap the Safari Share button, then choose Add to Home Screen.",
+      primaryLabel: "Share App",
+      primaryAction: shareRorcApp
+    });
+    return;
+  }
+
+  showInstallSheet({
+    title: "Install RORC App",
+    message: "If your browser does not show an install prompt, use the browser menu and choose Install app or Add to Home screen.",
+    primaryLabel: "Share App",
+    primaryAction: shareRorcApp
+  });
+}
+
+function closeInstallSheet() {
+  document.querySelector(".app-install-overlay")?.remove();
+}
+
+function showInstallSheet({ title, message, primaryLabel, primaryAction }) {
+  closeInstallSheet();
+
+  const overlay = document.createElement("div");
+  overlay.className = "app-install-overlay";
+  overlay.innerHTML = `
+    <div class="app-install-card" role="dialog" aria-modal="true" aria-labelledby="appInstallTitle">
+      <img src="../Images/LOGOS/LOGO.png" alt="RORC" />
+      <p class="eyebrow">Web App</p>
+      <h2 id="appInstallTitle">${escapeHtml(title)}</h2>
+      <p>${escapeHtml(message)}</p>
+      <div class="app-install-actions">
+        <button class="app-install-secondary" type="button" data-install-close>Not Now</button>
+        <button class="app-install-primary" type="button" data-install-primary>${escapeHtml(primaryLabel)}</button>
+      </div>
+    </div>
+  `;
+
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay || event.target.closest("[data-install-close]")) {
+      cleanInstallUrl();
+      closeInstallSheet();
+      return;
+    }
+
+    if (event.target.closest("[data-install-primary]")) {
+      primaryAction?.();
+      closeInstallSheet();
+    }
+  });
+
+  document.body.appendChild(overlay);
+}
+
+async function requestAppInstall() {
+  if (installFallbackTimer) {
+    window.clearTimeout(installFallbackTimer);
+    installFallbackTimer = null;
+  }
+
+  if (!deferredInstallPrompt) {
+    showInstallInstructions();
+    return;
+  }
+
+  const promptEvent = deferredInstallPrompt;
+  deferredInstallPrompt = null;
+  cleanInstallUrl();
+
+  promptEvent.prompt();
+  await promptEvent.userChoice.catch(() => null);
+}
+
+function scheduleInstallRequestIfNeeded() {
+  if (!installRequestedFromUrl()) return;
+
+  if (deferredInstallPrompt) {
+    showInstallSheet({
+      title: "Download RORC App",
+      message: "Install the RORC App to your home screen for faster member sign-in, guest sign-in, and heater records.",
+      primaryLabel: "Install App",
+      primaryAction: requestAppInstall
+    });
+    return;
+  }
+
+  installFallbackTimer = window.setTimeout(() => {
+    showInstallInstructions();
+  }, 1400);
+}
+
+function appShareData() {
+  return {
+    title: "RORC App",
+    text: "Open the Ruth Obenchain Recreation Center member app.",
+    url: appUrl()
+  };
+}
+
+async function shareRorcApp() {
+  closeDrawer();
+
+  const shareData = appShareData();
+
+  try {
+    if (navigator.share) {
+      await navigator.share(shareData);
+      return;
+    }
+
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(shareData.url);
+      window.alert("RORC App link copied.");
+      return;
+    }
+
+    window.prompt("Copy the RORC App link:", shareData.url);
+  } catch (error) {
+    if (error?.name === "AbortError") return;
+    window.alert("Could not open sharing. App link: " + shareData.url);
+  }
+}
+
+async function copyAppLink() {
+  const url = appUrl();
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url);
+      setShareStatus("App link copied.");
+      return;
+    }
+
+    window.prompt("Copy the RORC App link:", url);
+    setShareStatus("Copy the app link from the box.");
+  } catch (error) {
+    window.prompt("Copy the RORC App link:", url);
+    setShareStatus("Copy the app link from the box.");
+  }
+}
+
+function emailAppLink() {
+  const subject = "RORC App";
+  const body = [
+    "Here is the Ruth Obenchain Recreation Center member app:",
+    "",
+    appUrl(),
+    "",
+    "Use the same account as your RORC website dashboard."
+  ].join("\n");
+
+  window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  setShareStatus("Opening your email app.");
+}
+
+function setShareStatus(message) {
+  const status = document.getElementById("shareStatus");
+
+  if (status) {
+    status.textContent = message;
+  }
+}
+
+function canInviteAccountUsers() {
+  const currentMember = findMember(appUserSession.memberId);
+  return Boolean(isAccountManager(appUserSession) || currentMember?.isBillingOwner);
+}
+
+function renderSharePage() {
+  const content = document.getElementById("shareContent");
+  if (!content) return;
+
+  const inviteAllowed = canInviteAccountUsers();
+  const inviteCopy = inviteAllowed
+    ? "Account invites will connect the new user to your shared account number. This needs backend account-linking before it is enabled."
+    : "Only account managers or billing owners will be able to invite users to a shared account.";
+
+  content.innerHTML = `
+    <div class="share-shell">
+      <section class="share-hero">
+        <img src="../Images/LOGOS/LOGO.png" alt="RORC" />
+        <p class="eyebrow">Web App</p>
+        <h2>Share RORC App</h2>
+        <p>Send members directly to the installable RORC web app for sign-in, guest entries, heater records, calendar, and account access.</p>
+        <div class="share-url-card">
+          <code>${escapeHtml(appUrl())}</code>
+          <button data-share-action="copy" type="button">Copy</button>
+        </div>
+      </section>
+
+      <section class="share-action-grid" aria-label="Share app actions">
+        <button class="share-action-card" data-share-action="native" type="button">
+          <span>Share</span>
+          <strong>Share App</strong>
+          <small>Open the phone or browser share sheet.</small>
+        </button>
+        <button class="share-action-card" data-share-action="copy" type="button">
+          <span>Copy</span>
+          <strong>Copy App Link</strong>
+          <small>Copy the app URL to paste anywhere.</small>
+        </button>
+        <button class="share-action-card" data-share-action="email" type="button">
+          <span>Email</span>
+          <strong>Email App Link</strong>
+          <small>Open a prewritten email with the app link.</small>
+        </button>
+        <button class="share-action-card" data-share-action="install" type="button">
+          <span>Install</span>
+          <strong>Download App</strong>
+          <small>Show the install prompt or phone instructions.</small>
+        </button>
+      </section>
+
+      <section class="share-invite-card">
+        <div>
+          <p class="eyebrow">Coming Soon</p>
+          <h3>Invite User To My Account</h3>
+          <p>${escapeHtml(inviteCopy)}</p>
+        </div>
+        <div class="share-invite-form" aria-disabled="true">
+          <input type="email" placeholder="Email address" disabled />
+          <button type="button" disabled>${inviteAllowed ? "Invite by Email" : "Locked"}</button>
+        </div>
+      </section>
+
+      <p id="shareStatus" class="share-status" aria-live="polite"></p>
+    </div>
+  `;
+
+  bindSharePageActions();
+}
+
+function bindSharePageActions() {
+  document.querySelectorAll("[data-share-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = button.dataset.shareAction;
+
+      if (action === "native") {
+        shareRorcApp();
+        return;
+      }
+
+      if (action === "copy") {
+        copyAppLink();
+        return;
+      }
+
+      if (action === "email") {
+        emailAppLink();
+        return;
+      }
+
+      if (action === "install") {
+        requestAppInstall();
+      }
+    });
+  });
+}
+
+function setAuthMessage(message, tone = "default") {
+  if (!appAuthMessage) return;
+
+  appAuthMessage.textContent = message;
+  appAuthMessage.classList.toggle("is-error", tone === "error");
+  appAuthMessage.classList.toggle("is-success", tone === "success");
+}
+
+function setAuthButtonBusy(button, busy, busyText) {
+  if (!button) return;
+
+  if (!button.dataset.defaultText) {
+    button.dataset.defaultText = button.textContent;
+  }
+
+  button.disabled = busy;
+  button.textContent = busy ? busyText : button.dataset.defaultText;
+}
+
+function showAuthGate(message = "Log in to open the RORC app.", tone = "default") {
+  if (authGate) {
+    authGate.hidden = false;
+  }
+
+  if (appShell) {
+    appShell.hidden = true;
+  }
+
+  closeDrawer();
+  setAuthMessage(message, tone);
+}
+
+function showAppShell() {
+  if (authGate) {
+    authGate.hidden = true;
+  }
+
+  if (appShell) {
+    appShell.hidden = false;
+  }
+}
+
+function hasSupabaseConfig() {
+  return Boolean(
+    (supabaseSettings.supabaseUrl || supabaseSettings.url)
+    && (supabaseSettings.supabaseAnonKey || supabaseSettings.anonKey)
+  );
+}
+
+async function createSupabaseClient() {
+  if (supabaseClient) {
+    return supabaseClient;
+  }
+
+  if (window.RORC_SUPABASE?.getClient) {
+    supabaseClient = await window.RORC_SUPABASE.getClient();
+    return supabaseClient;
+  }
+
+  if (!hasSupabaseConfig() || !window.supabase?.createClient) {
+    return null;
+  }
+
+  supabaseClient = window.supabase.createClient(
+    supabaseSettings.supabaseUrl || supabaseSettings.url,
+    supabaseSettings.supabaseAnonKey || supabaseSettings.anonKey,
+    {
+      auth: {
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+        persistSession: true
+      }
+    }
+  );
+
+  return supabaseClient;
+}
+
+function findProfileForSession(session, profiles) {
+  if (!session?.user || !Array.isArray(profiles)) {
+    return null;
+  }
+
+  const metadata = session.user.user_metadata || {};
+  const appMetadata = session.user.app_metadata || {};
+  const accountMemberId = String(metadata.rorc_account_member_id || appMetadata.rorc_account_member_id || "");
+  const email = String(session.user.email || "").trim().toLowerCase();
+
+  return profiles.find((profile) => String(profile.account_member_id || "") === accountMemberId)
+    || profiles.find((profile) => String(profile.email_address || "").trim().toLowerCase() === email)
+    || (profiles.length === 1 ? profiles[0] : null);
+}
+
+function clearLiveData() {
+  accounts = [];
+  accountMembers = [];
+  timesheetEntries = [];
+  heaterUseEntries = [];
+  billingLineItems = [];
+}
+
+function initialForSession(session) {
+  const profile = findMember(session?.memberId);
+  const source = profile?.memberName || appState.currentUserEmail || "?";
+  return source.trim().charAt(0).toUpperCase() || "?";
+}
+
+function otherUsersOnCurrentAccount() {
+  if (!appUserSession.accountId || !appUserSession.memberId) {
+    return [];
+  }
+
+  return accountMembers
+    .filter((member) => member.accountId === appUserSession.accountId && member.id !== appUserSession.memberId)
+    .sort(sortMembers);
+}
+
+function hasOtherUsersOnCurrentAccount() {
+  return otherUsersOnCurrentAccount().length > 0;
+}
+
+function updateNavigationVisibility() {
+  const showOtherUsers = hasOtherUsersOnCurrentAccount();
+  const showAccountManagerPages = isAccountManager(appUserSession);
+
+  drawerItems
+    .filter((item) => item.dataset.route === "otherUsers")
+    .forEach((item) => {
+      item.hidden = !showOtherUsers;
+    });
+
+  drawerItems
+    .filter((item) => accountManagerOnlyRoutes.has(item.dataset.route))
+    .forEach((item) => {
+      item.hidden = !showAccountManagerPages;
+    });
+}
+
+function updateDrawerIdentity() {
+  if (drawerAvatar) {
+    drawerAvatar.textContent = initialForSession(appUserSession);
+  }
+
+  if (drawerUserEmail) {
+    drawerUserEmail.textContent = appState.currentUserEmail || appUserSession.memberName || "Signed in";
+  }
+
+  updateNavigationVisibility();
+}
+
+async function hydrateFromSupabase() {
+  const client = await createSupabaseClient();
+
+  if (!client) {
+    appState.dataStatus = "error";
+    appState.dataError = hasSupabaseConfig()
+      ? "Supabase client script did not load."
+      : "Supabase is not configured for this app.";
+    showAuthGate(appState.dataError, "error");
+    return false;
+  }
+
+  const sessionResult = await client.auth.getSession();
+
+  if (sessionResult.error) {
+    throw sessionResult.error;
+  }
+
+  currentAuthSession = sessionResult.data.session || null;
+
+  if (!currentAuthSession) {
+    showAuthGate("Log in to open the RORC app.");
+    return false;
+  }
+
+  if (window.RORC_SUPABASE?.getInitialAuthParams?.().type) {
+    window.RORC_SUPABASE.cleanAuthUrl?.();
+  }
+
+  showAppShell();
+  appState.dataStatus = "loading";
+  render(appState.currentRoute);
+
+  try {
+    const profilesResult = await client
+      .from("account_member_profiles")
+      .select("*")
+      .order("account_number", { ascending: true })
+      .order("member_name", { ascending: true });
+
+    if (profilesResult.error) {
+      throw profilesResult.error;
+    }
+
+    const profiles = profilesResult.data || [];
+    const currentProfile = findProfileForSession(currentAuthSession, profiles);
+
+    if (!profiles.length) {
+      throw new Error("No member profiles were returned for this login.");
+    }
+
+    if (!currentProfile) {
+      throw new Error("This Supabase user is signed in, but it is not linked to a RORC member profile.");
+    }
+
+    const [
+      timesheetResult,
+      heaterResult,
+      heaterGroupResult,
+      billingResult
+    ] = await Promise.all([
+      client
+        .from("timesheet_entries")
+        .select("*")
+        .order("signed_in_at", { ascending: false })
+        .limit(1000),
+      client
+        .from("heater_use_entries_with_duration")
+        .select("*")
+        .order("used_on", { ascending: false })
+        .limit(500),
+      client
+        .from("heater_use_group_members")
+        .select("*"),
+      client
+        .from("billing_line_items")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(1000)
+    ]);
+
+    const optionalErrors = [
+      ["timesheet records", timesheetResult.error],
+      ["heater records", heaterResult.error],
+      ["heater group records", heaterGroupResult.error],
+      ["billing records", billingResult.error]
+    ].filter(([, error]) => Boolean(error));
+
+    applySupabaseData({
+      profiles,
+      timesheetRows: timesheetResult.error ? [] : (timesheetResult.data || []),
+      heaterRows: heaterResult.error ? [] : (heaterResult.data || []),
+      heaterGroupRows: heaterGroupResult.error ? [] : (heaterGroupResult.data || []),
+      billingRows: billingResult.error ? [] : (billingResult.data || [])
+    });
+
+    appState.authMemberId = currentProfile.account_member_id;
+    appState.currentUserEmail = currentAuthSession.user.email || currentProfile.email_address || "";
+    appState.dataStatus = optionalErrors.length ? "partial" : "live";
+    appState.dataError = optionalErrors.length
+      ? `Could not load ${optionalErrors.map(([label]) => label).join(", ")}.`
+      : "";
+    refreshSessions(appState.authMemberId);
+    updateDrawerIdentity();
+  } catch (error) {
+    console.error("Supabase data load failed.", error);
+    clearLiveData();
+    appState.dataStatus = "error";
+    appState.dataError = error.message || "Supabase data load failed.";
+    refreshSessions();
+    updateDrawerIdentity();
+    showAuthGate(appState.dataError, "error");
+    return false;
+  }
+
+  render(appState.currentRoute);
+  return appState.dataStatus === "live";
+}
+
+function applySupabaseData({
+  profiles,
+  timesheetRows,
+  heaterRows,
+  heaterGroupRows,
+  billingRows
+}) {
+  const accountsById = new Map();
+
+  profiles.forEach((row) => {
+    if (!accountsById.has(row.account_id)) {
+      accountsById.set(row.account_id, {
+        id: row.account_id,
+        accountNumber: row.account_number || "",
+        membershipDetails: row.membership_details || "",
+        notesOnAccount: row.notes_on_account || "",
+        expirationDate: row.expiration_date || null,
+        billingIdHeater: row.billing_id_heater || "",
+        marksAgainstAccount: row.marks_against_account || "",
+        billingStatus: row.billing_status || "none",
+        stripeStatus: row.stripe_status || "None",
+        currentPeriodEnd: row.current_period_end || null,
+        lastSync: row.last_sync || null
+      });
+    }
+  });
+
+  accounts = [...accountsById.values()];
+  accountMembers = profiles.map((row) => ({
+    id: row.account_member_id,
+    accountId: row.account_id,
+    memberName: row.member_name || "Unnamed Member",
+    accountType: row.account_type || "Active Membership",
+    legacyAccountType: row.legacy_account_type || "",
+    phoneNumber: row.phone_number || "",
+    emailAddress: row.email_address || "",
+    imagePath: row.image_path || "",
+    allowGuestEntry: Boolean(row.allow_guest_entry),
+    allowHeaterUse: accountTypeAllowsHeater(row.account_type),
+    isBillingOwner: Boolean(row.is_billing_owner),
+    pinConfigured: true
+  }));
+
+  timesheetEntries = timesheetRows.map((row) => ({
+    id: row.id,
+    memberOrGuest: row.member_or_guest,
+    memberId: row.member_id,
+    guestName: row.guest_name || "",
+    dayPassOrOpenGym: row.day_pass_or_open_gym || "",
+    memberEnteredWithId: row.member_entered_with_id,
+    liabilityAccepted: Boolean(row.liability_accepted),
+    signedInAt: row.signed_in_at,
+    signedOutAt: row.signed_out_at
+  }));
+
+  const heaterGroupMap = heaterGroupRows.reduce((map, row) => {
+    const current = map.get(row.heater_use_entry_id) || [];
+    current.push(row.account_member_id);
+    map.set(row.heater_use_entry_id, current);
+    return map;
+  }, new Map());
+
+  heaterUseEntries = heaterRows.map((row) => ({
+    id: row.id,
+    usedOn: row.used_on,
+    event: row.event,
+    responsibleMemberId: row.responsible_member_id,
+    groupMemberIds: heaterGroupMap.get(row.id) || [],
+    groupPay: Boolean(row.group_pay),
+    turnHeaterOn: row.turn_heater_on || "On",
+    startAt: row.start_at,
+    endAt: row.end_at,
+    paid: Boolean(row.paid),
+    note: row.note || ""
+  }));
+
+  billingLineItems = billingRows.map((row) => ({
+    id: row.id,
+    accountMemberId: row.account_member_id,
+    timesheetEntryId: row.timesheet_entry_id,
+    heaterUseEntryId: row.heater_use_entry_id,
+    createdAt: row.created_at,
+    amountCents: row.amount_cents || 0,
+    reason: row.reason || "Billing item",
+    postedToStripeAt: row.posted_to_stripe_at
+  }));
+}
+
+function accountTypeAllowsHeater(accountType) {
+  return ["Account Manager", "Active Membership", "Billed Monthly"].includes(accountType);
+}
+
+function resolveMemberId(preferredName, fallbackType) {
+  const preferred = accountMembers.find((member) => (
+    member.memberName.toLowerCase() === preferredName.toLowerCase()
+  ));
+
+  if (preferred) return preferred.id;
+
+  return accountMembers.find((member) => member.accountType === fallbackType)?.id
+    || accountMembers[0]?.id
+    || "";
+}
+
+function refreshSessions(memberId = appState.authMemberId) {
+  const sessionMemberId = findMember(memberId)
+    ? memberId
+    : resolveMemberId("RORC", "Account Manager");
+
+  frontDoorSession = buildSession(sessionMemberId);
+  appUserSession = buildSession(sessionMemberId);
+
+  if (!findMember(appState.selectedMemberId)) {
+    appState.selectedMemberId = accountMembers[0]?.id || "";
+  }
+}
+
+function dataSourceNotice() {
+  if (appState.dataStatus === "live") {
+    return `<p class="data-source-note">Live Supabase data</p>`;
+  }
+
+  if (appState.dataStatus === "partial") {
+    return `<p class="data-source-note is-warning">Live member data. ${escapeHtml(appState.dataError)}</p>`;
+  }
+
+  if (appState.dataStatus === "loading") {
+    return `<p class="data-source-note">Loading Supabase data...</p>`;
+  }
+
+  if (appState.dataStatus === "error") {
+    return `<p class="data-source-note is-warning">Could not load Supabase data. ${escapeHtml(appState.dataError)}</p>`;
+  }
+
+  return `<p class="data-source-note is-warning">Waiting for Supabase data...</p>`;
+}
+
+function openDrawer() {
+  if (!appDrawer || !drawerOverlay || !navControl) return;
+
+  appDrawer.classList.add("is-open");
+  appDrawer.setAttribute("aria-hidden", "false");
+  drawerOverlay.hidden = false;
+  navControl.setAttribute("aria-expanded", "true");
+  document.body.classList.add("drawer-open");
+}
+
+function closeDrawer() {
+  if (!appDrawer || !drawerOverlay || !navControl) return;
+
+  appDrawer.classList.remove("is-open");
+  appDrawer.setAttribute("aria-hidden", "true");
+  drawerOverlay.hidden = true;
+  navControl.setAttribute("aria-expanded", "false");
+  document.body.classList.remove("drawer-open");
+}
+
+function visibleMembersForSession(session) {
+  if (isAccountManager(session)) {
+    return accountMembers;
+  }
+
+  return accountMembers.filter((member) => member.accountId === session.accountId);
+}
+
+function guestSponsorsForSession(session) {
+  const visibleMembers = visibleMembersForSession(session);
+
+  return visibleMembers.filter((member) => (
+    member.accountType === "Account Manager" || member.allowGuestEntry
+  ));
+}
+
+function memberPickerOptions(source) {
+  if (source === "guestSponsors") {
+    return [...guestSponsorsForSession(frontDoorSession)].sort(sortMembers);
+  }
+
+  if (source === "heaterResponsible") {
+    return [...visibleMembersForSession(frontDoorSession)].sort(sortMembers);
+  }
+
+  return [...visibleMembersForSession(frontDoorSession)].sort(sortMembers);
+}
+
+function memberPickerLabel(member) {
+  if (!member) {
+    return `<span class="member-picker-placeholder">Select member</span>`;
+  }
+
+  return `
+    <span class="status-dot ${accountTypeTone(member.accountType)}" aria-hidden="true"></span>
+    <span>${escapeHtml(member.memberName)}</span>
+  `;
+}
+
+function setMemberPickerValue(inputId, memberId) {
+  const input = document.getElementById(inputId);
+  const button = document.querySelector(`[data-member-picker="${inputId}"]`);
+  const label = button?.querySelector(".member-picker-selected");
+  const member = findMember(memberId);
+
+  if (!input || !button || !label) return;
+
+  input.value = member?.id || "";
+  label.innerHTML = memberPickerLabel(member);
+  button.classList.toggle("has-value", Boolean(member));
+}
+
+function selectedMemberIdsFromInput(input) {
+  return (input?.value || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function setMultiMemberPickerValue(inputId, memberIds) {
+  const input = document.getElementById(inputId);
+  const button = document.querySelector(`[data-member-multi-picker="${inputId}"]`);
+  const label = button?.querySelector(".member-picker-selected");
+  const placeholder = button?.dataset.memberPickerPlaceholder || "Select members";
+  const selectedMembers = memberIds
+    .map((memberId) => findMember(memberId))
+    .filter(Boolean);
+
+  if (!input || !button || !label) return;
+
+  input.value = selectedMembers.map((member) => member.id).join(",");
+  button.classList.toggle("has-value", selectedMembers.length > 0);
+
+  if (selectedMembers.length === 0) {
+    label.innerHTML = `<span class="member-picker-placeholder">${escapeHtml(placeholder)}</span>`;
+    return;
+  }
+
+  label.innerHTML = `
+    <span class="member-picker-chip-row">
+      ${selectedMembers.map((member) => `
+        <span class="member-picker-chip">
+          <span class="status-dot ${accountTypeTone(member.accountType)}" aria-hidden="true"></span>
+          <span>${escapeHtml(member.memberName)}</span>
+        </span>
+      `).join("")}
+    </span>
+  `;
+}
+
+function openMemberPicker(button) {
+  const inputId = button.dataset.memberPicker;
+  const input = document.getElementById(inputId);
+  const source = button.dataset.memberPickerSource;
+  const title = button.dataset.memberPickerTitle || "Name";
+  const options = memberPickerOptions(source);
+  let selectedMemberId = input?.value || "";
+
+  const overlay = document.createElement("div");
+  overlay.className = "member-picker-overlay";
+  overlay.innerHTML = `
+    <section class="member-picker-dialog" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+      <header class="member-picker-header">
+        <h2>${escapeHtml(title)}</h2>
+      </header>
+      <div class="member-picker-search-wrap">
+        <label>
+          <span>Search</span>
+          <input class="member-picker-search" type="search" autocomplete="off" autofocus />
+        </label>
+      </div>
+      <div class="member-picker-list" role="radiogroup">
+        ${options.map((member) => renderMemberPickerOption(member, selectedMemberId)).join("")}
+      </div>
+      <footer class="member-picker-footer">
+        <button class="member-picker-done" type="button">Done</button>
+      </footer>
+    </section>
+  `;
+
+  document.body.appendChild(overlay);
+  document.body.classList.add("picker-open");
+
+  const searchInput = overlay.querySelector(".member-picker-search");
+  const doneButton = overlay.querySelector(".member-picker-done");
+  const optionButtons = [...overlay.querySelectorAll("[data-member-picker-option]")];
+
+  const close = () => {
+    overlay.remove();
+    document.body.classList.remove("picker-open");
+    document.removeEventListener("keydown", handleKeydown);
+  };
+
+  const selectMember = (memberId) => {
+    selectedMemberId = memberId;
+    optionButtons.forEach((option) => {
+      const isSelected = option.dataset.memberPickerOption === memberId;
+      option.classList.toggle("is-selected", isSelected);
+      option.setAttribute("aria-checked", String(isSelected));
+    });
+    setMemberPickerValue(inputId, memberId);
+  };
+
+  optionButtons.forEach((option) => {
+    option.addEventListener("click", () => {
+      selectMember(option.dataset.memberPickerOption);
+      close();
+    });
+  });
+
+  searchInput?.addEventListener("input", () => {
+    const query = searchInput.value.trim().toLowerCase();
+
+    optionButtons.forEach((option) => {
+      option.hidden = query !== "" && !option.dataset.search.includes(query);
+    });
+  });
+
+  doneButton?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      close();
+    }
+  });
+
+  const handleKeydown = (event) => {
+    if (event.key === "Escape") {
+      close();
+    }
+  };
+
+  document.addEventListener("keydown", handleKeydown);
+  searchInput?.focus();
+}
+
+function openMultiMemberPicker(button) {
+  const inputId = button.dataset.memberMultiPicker;
+  const input = document.getElementById(inputId);
+  const source = button.dataset.memberPickerSource;
+  const title = button.dataset.memberPickerTitle || "Names";
+  const options = memberPickerOptions(source);
+  const selectedMemberIds = new Set(selectedMemberIdsFromInput(input));
+
+  const overlay = document.createElement("div");
+  overlay.className = "member-picker-overlay";
+  overlay.innerHTML = `
+    <section class="member-picker-dialog" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+      <header class="member-picker-header">
+        <h2>${escapeHtml(title)}</h2>
+      </header>
+      <div class="member-picker-search-wrap">
+        <label>
+          <span>Search</span>
+          <input class="member-picker-search" type="search" autocomplete="off" autofocus />
+        </label>
+      </div>
+      <div class="member-picker-list" role="group">
+        ${options.map((member) => renderMemberPickerOption(member, selectedMemberIds.has(member.id), "checkbox")).join("")}
+      </div>
+      <footer class="member-picker-footer">
+        <button class="member-picker-done" type="button">Done</button>
+      </footer>
+    </section>
+  `;
+
+  document.body.appendChild(overlay);
+  document.body.classList.add("picker-open");
+
+  const searchInput = overlay.querySelector(".member-picker-search");
+  const doneButton = overlay.querySelector(".member-picker-done");
+  const optionButtons = [...overlay.querySelectorAll("[data-member-picker-option]")];
+
+  const close = () => {
+    overlay.remove();
+    document.body.classList.remove("picker-open");
+    document.removeEventListener("keydown", handleKeydown);
+  };
+
+  const syncSelection = () => {
+    optionButtons.forEach((option) => {
+      const isSelected = selectedMemberIds.has(option.dataset.memberPickerOption);
+      option.classList.toggle("is-selected", isSelected);
+      option.setAttribute("aria-checked", String(isSelected));
+    });
+    setMultiMemberPickerValue(inputId, [...selectedMemberIds]);
+  };
+
+  optionButtons.forEach((option) => {
+    option.addEventListener("click", () => {
+      const memberId = option.dataset.memberPickerOption;
+
+      if (selectedMemberIds.has(memberId)) {
+        selectedMemberIds.delete(memberId);
+      } else {
+        selectedMemberIds.add(memberId);
+      }
+
+      syncSelection();
+    });
+  });
+
+  searchInput?.addEventListener("input", () => {
+    const query = searchInput.value.trim().toLowerCase();
+
+    optionButtons.forEach((option) => {
+      option.hidden = query !== "" && !option.dataset.search.includes(query);
+    });
+  });
+
+  doneButton?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      close();
+    }
+  });
+
+  const handleKeydown = (event) => {
+    if (event.key === "Escape") {
+      close();
+    }
+  };
+
+  document.addEventListener("keydown", handleKeydown);
+  searchInput?.focus();
+}
+
+function renderMemberPickerOption(member, selectedMember, role = "radio") {
+  const account = accountForMember(member);
+  const isSelected = typeof selectedMember === "boolean"
+    ? selectedMember
+    : member.id === selectedMember;
+  const searchValue = [
+    member.memberName,
+    member.accountType,
+    account?.accountNumber,
+    member.emailAddress
+  ].join(" ").toLowerCase();
+
+  const controlClass = role === "checkbox" ? "member-picker-checkbox" : "member-picker-radio";
+
+  return `
+    <button
+      class="member-picker-option ${role === "checkbox" ? "is-checkbox" : "is-radio"} ${isSelected ? "is-selected" : ""}"
+      data-member-picker-option="${escapeHtml(member.id)}"
+      data-search="${escapeHtml(searchValue)}"
+      role="${escapeHtml(role)}"
+      aria-checked="${isSelected}"
+      type="button"
+    >
+      <span class="${controlClass}" aria-hidden="true"></span>
+      <span class="status-dot ${accountTypeTone(member.accountType)}" aria-hidden="true"></span>
+      <span class="member-picker-name">${escapeHtml(member.memberName)}</span>
+    </button>
+  `;
+}
+
+function bindMemberPickers() {
+  document.querySelectorAll("[data-member-picker]").forEach((button) => {
+    const inputId = button.dataset.memberPicker;
+    const input = document.getElementById(inputId);
+
+    if (input?.value) {
+      setMemberPickerValue(inputId, input.value);
+    } else {
+      setMemberPickerValue(inputId, "");
+    }
+
+    button.addEventListener("click", () => openMemberPicker(button));
+  });
+
+  document.querySelectorAll("[data-member-multi-picker]").forEach((button) => {
+    const inputId = button.dataset.memberMultiPicker;
+    const input = document.getElementById(inputId);
+
+    setMultiMemberPickerValue(inputId, selectedMemberIdsFromInput(input));
+    button.addEventListener("click", () => openMultiMemberPicker(button));
+  });
+}
+
+function formatDateTime(date) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  }).format(date);
+}
+
+function formatDateOnly(date) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric"
+  }).format(date);
+}
+
+function formatShortDate(value) {
+  if (!value) return "Not set";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric"
+  }).format(parseDateValue(value));
+}
+
+function formatShortDateTime(value) {
+  if (!value) return "Open";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(value));
+}
+
+function parseDateValue(value) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return new Date(`${value}T12:00:00`);
+  }
+
+  return new Date(value);
+}
+
+function formatCurrency(cents) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD"
+  }).format(cents / 100);
+}
+
+function durationMinutes(start, end) {
+  if (!start || !end) return null;
+
+  return Math.max(0, Math.round((new Date(end) - new Date(start)) / 60000));
+}
+
+function formatDuration(start, end) {
+  const minutes = durationMinutes(start, end);
+
+  if (minutes === null) return "Still signed in";
+
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+
+  if (hours === 0) return `${remainingMinutes}m`;
+  if (remainingMinutes === 0) return `${hours}h`;
+  return `${hours}h ${remainingMinutes}m`;
+}
+
+function isOpenGymWindow(date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const weekday = values.weekday;
+  const minutes = Number(values.hour) * 60 + Number(values.minute);
+  const startsAt = (17 * 60) + 50;
+  const endsAt = (20 * 60) + 10;
+
+  return ["Tue", "Thu"].includes(weekday) && minutes >= startsAt && minutes <= endsAt;
+}
+
+function accountTypeTone(accountType) {
+  if (accountType === "Account Manager") return "gray";
+  if (accountType === "Open Gym Only") return "blue";
+  if (accountType === "Account Past Due NO ACCESS ALLOWED") return "red";
+  if (accountType === "Billed Monthly") return "amber";
+  return "green";
+}
+
+function heaterDisplayState(entry) {
+  return heaterRecordStatus(entry).label;
+}
+
+function heaterRecordStatus(entry) {
+  const isCurrentlyOn = !entry?.endAt && (entry?.turnHeaterOn || "On") === "On";
+
+  return {
+    key: isCurrentlyOn ? "currently-on" : "complete",
+    label: isCurrentlyOn ? "Currently On" : "Complete"
+  };
+}
+
+function sortMembers(a, b) {
+  const typeDifference = statusOrder.indexOf(a.accountType) - statusOrder.indexOf(b.accountType);
+
+  if (typeDifference !== 0) return typeDifference;
+
+  const accountA = accountForMember(a)?.accountNumber || "";
+  const accountB = accountForMember(b)?.accountNumber || "";
+  return accountA.localeCompare(accountB, undefined, { numeric: true }) || a.memberName.localeCompare(b.memberName);
+}
+
+function recordsForMember(memberId) {
+  const member = findMember(memberId);
+  const sameAccountMembers = accountMembers
+    .filter((accountMember) => accountMember.accountId === member?.accountId)
+    .map((accountMember) => accountMember.id);
+
+  return {
+    timesheet: timesheetEntries.filter((entry) => entry.memberId === memberId),
+    guests: timesheetEntries.filter((entry) => entry.memberOrGuest === "Guest" && entry.memberEnteredWithId === memberId),
+    heater: heaterUseEntries.filter((entry) => entry.responsibleMemberId === memberId || entry.groupMemberIds.includes(memberId)),
+    billing: billingLineItems.filter((item) => (
+      item.accountMemberId === memberId
+      || (member?.isBillingOwner && sameAccountMembers.includes(item.accountMemberId))
+    ))
+  };
+}
+
+function currentMonthRecords(records, dateField) {
+  const now = new Date();
+
+  return records.filter((record) => {
+    const recordDate = new Date(record[dateField]);
+    return recordDate.getMonth() === now.getMonth() && recordDate.getFullYear() === now.getFullYear();
+  });
+}
+
+function accessCopy(accountType) {
+  if (accountType === "Open Gym Only") return "Open Gym access Tuesday and Thursday nights from 6pm - 8pm.";
+  if (accountType === "Account Manager") return "Account Manager access with full administrative permissions.";
+  if (accountType === "Account Past Due NO ACCESS ALLOWED") return "Access is blocked until the account is restored.";
+  return "Basic Membership Access From 7am - 9pm. Follow calendar events for times closed.";
+}
+
+function renderCurrentlySignedIn() {
+  const root = document.getElementById("currentlySignedInContent");
+
+  if (!root) return;
+
+  const openEntries = timesheetEntries
+    .filter((entry) => !entry.signedOutAt)
+    .sort((a, b) => new Date(b.signedInAt) - new Date(a.signedInAt));
+
+  if (openEntries.length === 0) {
+    root.innerHTML = `
+      <section class="empty-state">
+        <p>No items</p>
+      </section>
+    `;
+    return;
+  }
+
+  root.innerHTML = `
+    <section class="live-record-page">
+      <div class="account-page-heading">
+        <div>
+          <p class="eyebrow">Open Timesheet</p>
+          <h2>Currently Signed In</h2>
+          ${dataSourceNotice()}
+        </div>
+      </div>
+      <div class="status-panel">
+        <div class="member-card-list">
+          ${openEntries.map(renderSignedInCard).join("")}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderSignedInCard(entry) {
+  const member = entry.memberOrGuest === "Member"
+    ? findMember(entry.memberId)
+    : findMember(entry.memberEnteredWithId);
+  const displayName = entry.memberOrGuest === "Guest"
+    ? entry.guestName || "Guest"
+    : member?.memberName || "Unknown Member";
+
+  return `
+    <article class="member-list-card as-row signed-in-name-row">
+      <span class="status-dot ${accountTypeTone(member?.accountType)}" aria-hidden="true"></span>
+      <span class="member-list-main">
+        <strong>${escapeHtml(displayName)}</strong>
+      </span>
+      <span class="member-list-actions" aria-hidden="true">
+        <span>Sign Out</span>
+      </span>
+    </article>
+  `;
+}
+
+function renderHeaterRecords() {
+  const root = document.getElementById("heaterRecordsContent");
+
+  if (!root) {
+    bindHeaterRecordsActions();
+    return;
+  }
+
+  const records = [...heaterUseEntries]
+    .sort((a, b) => new Date(b.startAt || b.usedOn) - new Date(a.startAt || a.usedOn))
+    .slice(0, 50);
+
+  if (records.length === 0) {
+    root.innerHTML = `
+      <section class="empty-state">
+        <p>No items</p>
+      </section>
+    `;
+    bindHeaterRecordsActions();
+    return;
+  }
+
+  root.innerHTML = `
+    <section class="live-record-page">
+      <div class="account-page-heading">
+        <div>
+          <p class="eyebrow">Heater Billing Records</p>
+          <h2>Heater Records</h2>
+          ${dataSourceNotice()}
+        </div>
+      </div>
+      <div class="detail-card">
+        <ol class="record-list heater-record-list">
+          ${records.map((entry) => {
+            const member = findMember(entry.responsibleMemberId);
+            const heaterState = heaterRecordStatus(entry);
+            return `
+              <li>
+                <strong class="heater-record-event">${escapeHtml(entry.event || "Heater Use")}</strong>
+                <span class="heater-record-meta">${formatShortDate(entry.usedOn)} · ${escapeHtml(member?.memberName || "No responsible member")}</span>
+                <button class="heater-state-action is-${escapeHtml(heaterState.key)}" data-heater-state="${escapeHtml(heaterState.key)}" type="button">${escapeHtml(heaterState.label)}</button>
+              </li>
+            `;
+          }).join("")}
+        </ol>
+      </div>
+    </section>
+  `;
+
+  bindHeaterRecordsActions();
+}
+
+function renderAccountInfo() {
+  const root = document.getElementById("accountInfoContent");
+
+  if (!root) return;
+
+  if (!isAccountManager(appUserSession)) {
+    root.innerHTML = `
+      <div class="restricted-card">
+        <p class="eyebrow">Account Manager Only</p>
+        <h2>Account &amp; Info is restricted.</h2>
+        <p>Use My Account to view your own membership information.</p>
+      </div>
+    `;
+    return;
+  }
+
+  const members = [...accountMembers].sort(sortMembers);
+  const groups = statusOrder
+    .map((status) => ({
+      status,
+      members: members.filter((member) => member.accountType === status)
+    }))
+    .filter((group) => group.members.length > 0);
+
+  root.innerHTML = `
+    <div class="account-page-heading">
+      <div>
+        <p class="eyebrow">Account Manager View</p>
+        <h2>Membership Accounts</h2>
+        <p>Search, review, and open member accounts. Details use the same shared-account model as Supabase: account data is shared, member data is per person.</p>
+        ${dataSourceNotice()}
+      </div>
+      <div class="account-summary-strip">
+        <span><strong>${members.length}</strong> members</span>
+        <span><strong>${accounts.length}</strong> accounts</span>
+        <span><strong>${members.filter((member) => member.accountType === "Open Gym Only").length}</strong> open gym</span>
+      </div>
+    </div>
+    <label class="account-search">
+      <span>Search accounts</span>
+      <input id="accountSearch" type="search" placeholder="Name, account number, email, status" autocomplete="off" />
+    </label>
+    <div id="accountStatusGroups" class="account-status-groups">
+      ${groups.map(renderAccountStatusGroup).join("")}
+    </div>
+  `;
+
+  bindAccountInfoActions();
+}
+
+function renderOtherUsers() {
+  const root = document.getElementById("otherUsersContent");
+
+  if (!root) return;
+
+  const currentMember = findMember(appUserSession.memberId);
+  const account = accountForMember(currentMember);
+  const members = otherUsersOnCurrentAccount();
+
+  if (members.length === 0) {
+    render("myAccount");
+    return;
+  }
+
+  const groups = statusOrder
+    .map((status) => ({
+      status,
+      members: members.filter((member) => member.accountType === status)
+    }))
+    .filter((group) => group.members.length > 0);
+
+  root.innerHTML = `
+    <div class="account-page-heading">
+      <div>
+        <p class="eyebrow">Shared Account</p>
+        <h2>Other Users On My Account</h2>
+        <p>Review the other people attached to ${escapeHtml(account?.accountNumber || "your account")}. These users share the same account number, while each person keeps their own member record.</p>
+        ${dataSourceNotice()}
+      </div>
+      <div class="account-summary-strip">
+        <span><strong>${members.length}</strong> other users</span>
+        <span><strong>${escapeHtml(account?.accountNumber || "N/A")}</strong> account</span>
+        <span><strong>${escapeHtml(currentMember?.accountType || "Member")}</strong></span>
+      </div>
+    </div>
+
+    <label class="account-search">
+      <span>Search users on my account</span>
+      <input id="otherUsersSearch" type="search" placeholder="Name, email, phone, status" autocomplete="off" />
+    </label>
+    <div id="otherUsersStatusGroups" class="account-status-groups">
+      ${groups.map(renderAccountStatusGroup).join("")}
+    </div>
+  `;
+
+  bindOtherUsersActions();
+}
+
+function renderAccountStatusGroup(group) {
+  return `
+    <section class="status-panel" data-status-panel>
+      <header class="status-panel-header">
+        <h3>${escapeHtml(group.status)}</h3>
+        <span>${group.members.length}</span>
+      </header>
+      <div class="member-card-list">
+        ${group.members.map(renderMemberListCard).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderMemberListCard(member) {
+  const account = accountForMember(member);
+  const records = recordsForMember(member.id);
+  const monthlySignIns = currentMonthRecords(records.timesheet, "signedInAt").length;
+  const openBilling = records.billing
+    .filter((item) => !item.postedToStripeAt)
+    .reduce((total, item) => total + item.amountCents, 0);
+  const searchValue = [
+    member.memberName,
+    member.accountType,
+    member.emailAddress,
+    member.phoneNumber,
+    account?.accountNumber
+  ].join(" ").toLowerCase();
+
+  return `
+    <button class="member-list-card" data-member-detail="${escapeHtml(member.id)}" data-search="${escapeHtml(searchValue)}" type="button">
+      <span class="status-dot ${accountTypeTone(member.accountType)}" aria-hidden="true"></span>
+      <span class="member-list-main">
+        <strong>${escapeHtml(member.memberName)}</strong>
+        <small>${escapeHtml(member.accountType)}</small>
+      </span>
+      <span class="member-list-meta">
+        <strong>${escapeHtml(account?.accountNumber || "")}</strong>
+        <small>${monthlySignIns} sign-ins this month</small>
+      </span>
+      <span class="member-list-actions" aria-hidden="true">
+        <small>${openBilling > 0 ? formatCurrency(openBilling) : "No open balance"}</small>
+        <span>Details</span>
+      </span>
+    </button>
+  `;
+}
+
+function bindMemberDirectoryActions(searchId, returnRoute) {
+  document.querySelectorAll("[data-member-detail]").forEach((button) => {
+    button.addEventListener("click", () => {
+      appState.selectedMemberId = button.dataset.memberDetail;
+      appState.detailReturnRoute = returnRoute;
+      render("accountDetails");
+    });
+  });
+
+  const search = document.getElementById(searchId);
+  if (!search) return;
+
+  search.addEventListener("input", () => {
+    const query = search.value.trim().toLowerCase();
+
+    document.querySelectorAll(".member-list-card").forEach((card) => {
+      card.hidden = query !== "" && !card.dataset.search.includes(query);
+    });
+
+    document.querySelectorAll("[data-status-panel]").forEach((panel) => {
+      const hasVisibleRows = [...panel.querySelectorAll(".member-list-card")]
+        .some((card) => !card.hidden);
+      panel.hidden = !hasVisibleRows;
+    });
+  });
+}
+
+function bindAccountInfoActions() {
+  bindMemberDirectoryActions("accountSearch", "accountInfo");
+}
+
+function bindOtherUsersActions() {
+  bindMemberDirectoryActions("otherUsersSearch", "otherUsers");
+}
+
+function renderAccountDetail(memberId) {
+  const root = document.getElementById("accountDetailContent");
+  const member = findMember(memberId);
+
+  if (!root) return;
+
+  if (!member) {
+    root.innerHTML = `
+      <section class="empty-state">
+        <p>Account not found</p>
+      </section>
+    `;
+    return;
+  }
+
+  const account = accountForMember(member);
+  const canView = isAccountManager(appUserSession)
+    || member.id === appUserSession.memberId
+    || member.accountId === appUserSession.accountId;
+
+  if (!canView) {
+    root.innerHTML = `
+      <div class="restricted-card">
+        <p class="eyebrow">Restricted</p>
+        <h2>This account is not visible to your login.</h2>
+      </div>
+    `;
+    return;
+  }
+
+  const records = recordsForMember(member.id);
+  const monthlySignIns = currentMonthRecords(records.timesheet, "signedInAt").length;
+  const openBilling = records.billing
+    .filter((item) => !item.postedToStripeAt)
+    .reduce((total, item) => total + item.amountCents, 0);
+  const heaterMinutes = records.heater.reduce((total, entry) => {
+    const minutes = durationMinutes(entry.startAt, entry.endAt);
+    return total + (minutes || 0);
+  }, 0);
+
+  root.innerHTML = `
+    <div class="member-detail-shell">
+      <header class="detail-hero">
+        <div class="detail-identity">
+          <span class="status-dot status-dot-large ${accountTypeTone(member.accountType)}" aria-hidden="true"></span>
+          <div>
+            <p class="eyebrow">${escapeHtml(member.accountType)}</p>
+            <h2>${escapeHtml(member.memberName)}</h2>
+            <p>${escapeHtml(account?.accountNumber || "")} · ${escapeHtml(account?.membershipDetails || accessCopy(member.accountType))}</p>
+          </div>
+        </div>
+        <div class="detail-quick-actions">
+          <button data-detail-action="phone" data-member-id="${escapeAttribute(member.id)}" type="button">Phone Call</button>
+          <button data-detail-action="text" data-member-id="${escapeAttribute(member.id)}" type="button">Text Message</button>
+          <button data-detail-action="email" data-member-id="${escapeAttribute(member.id)}" type="button">Email</button>
+          <button class="edit-chip" data-detail-action="edit" data-member-id="${escapeAttribute(member.id)}" type="button">Edit</button>
+        </div>
+        <div class="detail-stat-grid">
+          <article>
+            <span>Open Billing</span>
+            <strong>${formatCurrency(openBilling)}</strong>
+          </article>
+          <article>
+            <span>Sign-ins This Month</span>
+            <strong>${monthlySignIns}</strong>
+          </article>
+          <article>
+            <span>Guest Entries</span>
+            <strong>${records.guests.length}</strong>
+          </article>
+          <article>
+            <span>Heater Hours</span>
+            <strong>${(heaterMinutes / 60).toFixed(1)}</strong>
+          </article>
+        </div>
+      </header>
+
+      <nav class="detail-tabs" aria-label="Account detail sections">
+        <button class="detail-tab is-active" data-detail-panel="overview" type="button">Overview</button>
+        <button class="detail-tab" data-detail-panel="billing" type="button">Billing</button>
+        <button class="detail-tab" data-detail-panel="timesheet" type="button">Timesheet</button>
+        <button class="detail-tab" data-detail-panel="guests" type="button">Guest Entries</button>
+        <button class="detail-tab" data-detail-panel="heater" type="button">Heater Use</button>
+      </nav>
+
+      <div class="detail-panel-stack">
+        <section class="detail-panel is-active" data-detail-panel-view="overview">
+          ${renderOverviewPanel(member, account)}
+        </section>
+        <section class="detail-panel" data-detail-panel-view="billing">
+          ${renderBillingPanel(records.billing)}
+        </section>
+        <section class="detail-panel" data-detail-panel-view="timesheet">
+          ${renderTimesheetPanel(records.timesheet)}
+        </section>
+        <section class="detail-panel" data-detail-panel-view="guests">
+          ${renderGuestPanel(records.guests)}
+        </section>
+        <section class="detail-panel" data-detail-panel-view="heater">
+          ${renderHeaterPanel(records.heater)}
+        </section>
+      </div>
+    </div>
+  `;
+
+  bindAccountDetailActions();
+}
+
+function renderOverviewPanel(member, account) {
+  return `
+    <div class="detail-card">
+      <h3>Member</h3>
+      ${renderDefinitionGrid([
+        ["Member Name", member.memberName],
+        ["Account Number", account?.accountNumber],
+        ["Account Type", member.accountType],
+        ["PIN Status", member.pinConfigured ? "Set" : "Needs setup"],
+        ["Phone Number", member.phoneNumber || "Not set"],
+        ["Email Address", member.emailAddress || "Not set"],
+        ["Billing Owner", member.isBillingOwner ? "Yes" : "No"],
+        ["Guest Entry", member.allowGuestEntry ? "Allowed" : "Not allowed"],
+        ["Heater Use", member.allowHeaterUse ? "Allowed" : "Not allowed"]
+      ])}
+    </div>
+    <div class="detail-card">
+      <h3>Shared Account</h3>
+      ${renderDefinitionGrid([
+        ["Membership Details", account?.membershipDetails || accessCopy(member.accountType)],
+        ["Notes On Account", account?.notesOnAccount || "None"],
+        ["Billing Status", account?.billingStatus || "None"],
+        ["Stripe Status", account?.stripeStatus || "None"],
+        ["Current Period End", account?.currentPeriodEnd ? formatShortDate(account.currentPeriodEnd) : "Not set"],
+        ["Heater Billing ID", account?.billingIdHeater || "Not set"]
+      ])}
+    </div>
+  `;
+}
+
+function renderDefinitionGrid(items) {
+  return `
+    <dl class="definition-grid">
+      ${items.map(([label, value]) => `
+        <div>
+          <dt>${escapeHtml(label)}</dt>
+          <dd>${escapeHtml(value || "Not set")}</dd>
+        </div>
+      `).join("")}
+    </dl>
+  `;
+}
+
+function renderBillingPanel(items) {
+  if (items.length === 0) return renderPanelEmpty("No billing line items yet.");
+
+  return `
+    <div class="detail-card">
+      <h3>Billing Line Items</h3>
+      <ol class="record-list">
+        ${items.map((item) => `
+          <li>
+            <div>
+              <strong>${escapeHtml(item.reason)}</strong>
+              <span>${formatShortDateTime(item.createdAt)} · ${item.postedToStripeAt ? "Posted to Stripe" : "Pending monthly billing"}</span>
+            </div>
+            <b>${formatCurrency(item.amountCents)}</b>
+          </li>
+        `).join("")}
+      </ol>
+    </div>
+  `;
+}
+
+function renderTimesheetPanel(items) {
+  if (items.length === 0) return renderPanelEmpty("No member sign-ins yet.");
+
+  return `
+    <div class="detail-card">
+      <h3>Timesheet History</h3>
+      <ol class="record-list">
+        ${items.map((item) => `
+          <li>
+            <div>
+              <strong>${formatShortDateTime(item.signedInAt)}</strong>
+              <span>${formatDuration(item.signedInAt, item.signedOutAt)} · ${item.signedOutAt ? `Out ${formatShortDateTime(item.signedOutAt)}` : "Currently signed in"}</span>
+            </div>
+            <b>${escapeHtml(item.memberOrGuest)}</b>
+          </li>
+        `).join("")}
+      </ol>
+    </div>
+  `;
+}
+
+function renderGuestPanel(items) {
+  if (items.length === 0) return renderPanelEmpty("No guest entries for this member.");
+
+  return `
+    <div class="detail-card">
+      <h3>Guest Entries</h3>
+      <ol class="record-list">
+        ${items.map((item) => `
+          <li>
+            <div>
+              <strong>${escapeHtml(item.guestName)}</strong>
+              <span>${formatShortDateTime(item.signedInAt)} · ${escapeHtml(item.dayPassOrOpenGym || "Day Pass")} · Liability ${item.liabilityAccepted ? "accepted" : "not accepted"}</span>
+            </div>
+            <b>${item.dayPassOrOpenGym === "Open Gym" ? "Free" : "$0.25"}</b>
+          </li>
+        `).join("")}
+      </ol>
+    </div>
+  `;
+}
+
+function renderHeaterPanel(items) {
+  if (items.length === 0) return renderPanelEmpty("No heater use records for this member.");
+
+  return `
+    <div class="detail-card">
+      <h3>Heater Use</h3>
+      <ol class="record-list">
+        ${items.map((item) => `
+          <li>
+            <div>
+              <strong>${escapeHtml(item.event || "Member Use")}</strong>
+              <span>${formatShortDate(item.usedOn)} · ${formatDuration(item.startAt, item.endAt)}</span>
+            </div>
+            <b>${escapeHtml(heaterDisplayState(item))}</b>
+          </li>
+        `).join("")}
+      </ol>
+    </div>
+  `;
+}
+
+function renderPanelEmpty(message) {
+  return `
+    <div class="detail-card detail-empty">
+      <p>${escapeHtml(message)}</p>
+    </div>
+  `;
+}
+
+function syncLocalMember(memberId, updates) {
+  const index = accountMembers.findIndex((member) => member.id === memberId);
+
+  if (index < 0) return;
+
+  accountMembers[index] = {
+    ...accountMembers[index],
+    ...updates
+  };
+}
+
+function canEditMember(member) {
+  return Boolean(isAccountManager(appUserSession) || member?.id === appUserSession.memberId);
+}
+
+function showDetailActionMessage(message) {
+  window.alert(message);
+}
+
+async function updateMemberContact(member, updates) {
+  const client = await createSupabaseClient();
+
+  if (!client) {
+    throw new Error("Supabase is not available.");
+  }
+
+  const dbUpdates = {
+    phone_number: updates.phoneNumber,
+    email_address: updates.emailAddress
+  };
+
+  if (isAccountManager(appUserSession)) {
+    dbUpdates.member_name = updates.memberName;
+  }
+
+  const { error } = await client
+    .from("account_members")
+    .update(dbUpdates)
+    .eq("id", member.id);
+
+  if (error) {
+    throw error;
+  }
+
+  if (member.id === appUserSession.memberId) {
+    const metadata = currentAuthSession?.user?.user_metadata || {};
+    const authUpdate = {
+      data: {
+        ...metadata,
+        display_name: updates.memberName,
+        email: updates.emailAddress,
+        full_name: updates.memberName,
+        member_name: updates.memberName,
+        name: updates.memberName,
+        phone: updates.phoneNumber,
+        phone_number: updates.phoneNumber
+      }
+    };
+
+    if (updates.emailAddress && updates.emailAddress !== String(currentAuthSession?.user?.email || "").trim().toLowerCase()) {
+      authUpdate.email = updates.emailAddress;
+    }
+
+    const { error: authError } = await client.auth.updateUser(authUpdate);
+
+    if (authError) {
+      throw authError;
+    }
+
+    const sessionResult = await client.auth.getSession();
+    currentAuthSession = sessionResult.data?.session || currentAuthSession;
+    appState.currentUserEmail = currentAuthSession?.user?.email || updates.emailAddress;
+  }
+
+  syncLocalMember(member.id, updates);
+  refreshSessions(appState.authMemberId);
+  updateDrawerIdentity();
+}
+
+function openMemberEditDialog(member) {
+  if (!canEditMember(member)) {
+    showDetailActionMessage("You can view this account, but you cannot edit it.");
+    return;
+  }
+
+  const canEditName = isAccountManager(appUserSession);
+  const overlay = document.createElement("div");
+  overlay.className = "member-edit-overlay";
+  overlay.innerHTML = `
+    <section class="member-edit-dialog" role="dialog" aria-modal="true" aria-label="Edit member">
+      <header>
+        <p class="eyebrow">Edit Member</p>
+        <h2>${escapeHtml(member.memberName)}</h2>
+      </header>
+
+      <label>
+        <span>Member Name</span>
+        <input id="editMemberName" type="text" value="${escapeAttribute(member.memberName)}" ${canEditName ? "" : "disabled"} />
+      </label>
+
+      <label>
+        <span>Phone Number</span>
+        <input id="editMemberPhone" type="tel" value="${escapeAttribute(member.phoneNumber)}" inputmode="tel" />
+      </label>
+
+      <label>
+        <span>Email Address</span>
+        <input id="editMemberEmail" type="email" value="${escapeAttribute(member.emailAddress)}" inputmode="email" />
+      </label>
+
+      <p id="editMemberResult" class="member-edit-result"></p>
+
+      <footer>
+        <button class="member-edit-cancel" type="button">Cancel</button>
+        <button class="member-edit-save" type="button">Save</button>
+      </footer>
+    </section>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener("keydown", handleKeydown);
+  };
+
+  const setResult = (message, tone = "default") => {
+    const result = overlay.querySelector("#editMemberResult");
+    if (!result) return;
+    result.textContent = message;
+    result.dataset.tone = tone;
+  };
+
+  const saveButton = overlay.querySelector(".member-edit-save");
+  const save = async () => {
+    const memberName = String(overlay.querySelector("#editMemberName")?.value || "").trim();
+    const phoneNumber = String(overlay.querySelector("#editMemberPhone")?.value || "").trim();
+    const emailAddress = String(overlay.querySelector("#editMemberEmail")?.value || "").trim().toLowerCase();
+
+    if (!memberName) {
+      setResult("Member name is required.", "error");
+      return;
+    }
+
+    saveButton.disabled = true;
+    setResult("Saving...");
+
+    try {
+      await updateMemberContact(member, {
+        memberName,
+        phoneNumber,
+        emailAddress
+      });
+
+      setResult("Saved.", "success");
+      window.setTimeout(() => {
+        close();
+        render(appState.currentRoute);
+      }, 350);
+    } catch (error) {
+      setResult(error.message || "Could not save member.", "error");
+    } finally {
+      saveButton.disabled = false;
+    }
+  };
+
+  overlay.querySelector(".member-edit-cancel")?.addEventListener("click", close);
+  saveButton?.addEventListener("click", save);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      close();
+    }
+  });
+
+  const handleKeydown = (event) => {
+    if (event.key === "Escape") {
+      close();
+    }
+
+    if (event.key === "Enter" && event.target?.tagName === "INPUT") {
+      save();
+    }
+  };
+
+  document.addEventListener("keydown", handleKeydown);
+  overlay.querySelector(canEditName ? "#editMemberName" : "#editMemberPhone")?.focus();
+}
+
+function handleDetailQuickAction(button) {
+  const member = findMember(button.dataset.memberId);
+
+  if (!member) {
+    showDetailActionMessage("Member not found.");
+    return;
+  }
+
+  if (button.dataset.detailAction === "phone") {
+    const href = phoneHref(member.phoneNumber, "tel");
+
+    if (!href) {
+      showDetailActionMessage("No phone number is saved for this member.");
+      return;
+    }
+
+    window.location.href = href;
+    return;
+  }
+
+  if (button.dataset.detailAction === "text") {
+    const href = phoneHref(member.phoneNumber, "sms");
+
+    if (!href) {
+      showDetailActionMessage("No phone number is saved for this member.");
+      return;
+    }
+
+    window.location.href = href;
+    return;
+  }
+
+  if (button.dataset.detailAction === "email") {
+    const href = emailHref(member.emailAddress, "RORC");
+
+    if (!href) {
+      showDetailActionMessage("No email address is saved for this member.");
+      return;
+    }
+
+    window.location.href = href;
+    return;
+  }
+
+  if (button.dataset.detailAction === "edit") {
+    openMemberEditDialog(member);
+  }
+}
+
+function bindAccountDetailActions() {
+  document.querySelectorAll("[data-detail-action]").forEach((button) => {
+    button.addEventListener("click", () => handleDetailQuickAction(button));
+  });
+
+  document.querySelectorAll(".detail-tab").forEach((button) => {
+    button.addEventListener("click", () => {
+      const panelName = button.dataset.detailPanel;
+
+      document.querySelectorAll(".detail-tab").forEach((tab) => {
+        tab.classList.toggle("is-active", tab === button);
+      });
+
+      document.querySelectorAll("[data-detail-panel-view]").forEach((panel) => {
+        panel.classList.toggle("is-active", panel.dataset.detailPanelView === panelName);
+      });
+    });
+  });
+}
+
+function bindHeaterRecordsActions() {
+  const confirm = document.getElementById("heaterConfirm");
+  const openButton = document.querySelector("[data-open-heater-confirm]");
+  const closeButton = document.querySelector("[data-heater-confirm-close]");
+  const acceptButton = document.querySelector("[data-heater-confirm-accept]");
+
+  if (!confirm || !openButton || !closeButton || !acceptButton) return;
+
+  openButton.addEventListener("click", () => {
+    confirm.hidden = false;
+  });
+
+  closeButton.addEventListener("click", () => {
+    confirm.hidden = true;
+  });
+
+  acceptButton.addEventListener("click", () => {
+    confirm.hidden = true;
+    render("heaterForm");
+  });
+
+  confirm.addEventListener("click", (event) => {
+    if (event.target === confirm) {
+      confirm.hidden = true;
+    }
+  });
+}
+
+function populateHeaterForm() {
+  const heaterDate = document.getElementById("heaterDate");
+
+  if (heaterDate) {
+    heaterDate.value = formatDateOnly(new Date());
+  }
+
+  updateHeaterGroupPayFields();
+}
+
+function populateMemberSignIn() {
+  const input = document.getElementById("memberNameSelect");
+  const dateTimeIn = document.getElementById("dateTimeIn");
+
+  if (!input || !dateTimeIn) return;
+
+  dateTimeIn.value = formatDateTime(new Date());
+  setMultiMemberPickerValue(input.id, selectedMemberIdsFromInput(input));
+}
+
+function populateGuestSignIn() {
+  const input = document.getElementById("guestMemberSelect");
+  const dateTimeIn = document.getElementById("guestDateTimeIn");
+
+  if (!input || !dateTimeIn) return;
+
+  dateTimeIn.value = formatDateTime(new Date());
+  setMemberPickerValue(input.id, input.value);
+}
+
+function updateOpenGymWarning(selectedButton) {
+  const warning = document.getElementById("openGymWarning");
+
+  if (!warning) return;
+
+  warning.hidden = selectedButton.textContent.trim() !== "Open Gym" || isOpenGymWindow(new Date());
+}
+
+function updateHeaterGroupPayFields(selectedButton) {
+  const selectedValue = selectedButton?.dataset.heaterGroupPay
+    || document.querySelector("[data-heater-group-pay].is-selected")?.dataset.heaterGroupPay
+    || "";
+  const singleField = document.getElementById("heaterResponsiblePartyField");
+  const multiField = document.getElementById("heaterResponsiblePartiesField");
+
+  if (!singleField || !multiField) return;
+
+  singleField.hidden = selectedValue !== "N";
+  multiField.hidden = selectedValue !== "Y";
+
+  if (selectedButton && selectedValue === "N") {
+    setMultiMemberPickerValue("heaterResponsibleMembers", []);
+  } else if (selectedButton && selectedValue === "Y") {
+    setMemberPickerValue("heaterResponsibleMember", "");
+  }
+}
+
+function bindRouteActions() {
+  document.querySelectorAll("[data-route-target]").forEach((button) => {
+    button.addEventListener("click", () => render(button.dataset.routeTarget));
+  });
+
+  document.querySelectorAll(".segmented-control").forEach((group) => {
+    group.querySelectorAll(".segment").forEach((button) => {
+      button.addEventListener("click", () => {
+        group.querySelectorAll(".segment").forEach((segment) => {
+          segment.classList.toggle("is-selected", segment === button);
+        });
+        updateOpenGymWarning(button);
+        updateHeaterGroupPayFields(button);
+      });
+    });
+  });
+
+  document.querySelectorAll(".event-choice-grid").forEach((group) => {
+    group.querySelectorAll(".choice-segment").forEach((button) => {
+      button.addEventListener("click", () => {
+        group.querySelectorAll(".choice-segment").forEach((segment) => {
+          segment.classList.toggle("is-selected", segment === button);
+        });
+      });
+    });
+  });
+
+  document.querySelectorAll(".segment.is-selected").forEach(updateOpenGymWarning);
+}
+
+function loginEmailValue() {
+  return String(appLoginEmail?.value || "").trim().toLowerCase();
+}
+
+async function handlePasswordLogin() {
+  const email = loginEmailValue();
+  const password = String(appLoginPassword?.value || "");
+
+  if (!email || !password) {
+    setAuthMessage("Enter your email and password.", "error");
+    return;
+  }
+
+  setAuthButtonBusy(appLoginButton, true, "Logging in...");
+  setAuthMessage("Checking login...");
+
+  try {
+    const client = await createSupabaseClient();
+
+    if (!client) {
+      throw new Error("Supabase is not available.");
+    }
+
+    const { error } = await client.auth.signInWithPassword({ email, password });
+
+    if (error) {
+      throw error;
+    }
+
+    if (appLoginPassword) {
+      appLoginPassword.value = "";
+    }
+
+    setAuthMessage("Loading RORC app...", "success");
+    await hydrateFromSupabase();
+  } catch (error) {
+    setAuthMessage(error.message || "Could not log in.", "error");
+  } finally {
+    setAuthButtonBusy(appLoginButton, false);
+  }
+}
+
+async function handleMagicLinkLogin() {
+  const email = loginEmailValue();
+
+  if (!email) {
+    setAuthMessage("Enter your email first.", "error");
+    return;
+  }
+
+  setAuthButtonBusy(appMagicLinkButton, true, "Sending...");
+  setAuthMessage("Sending secure login link...");
+
+  try {
+    const client = await createSupabaseClient();
+
+    if (!client) {
+      throw new Error("Supabase is not available.");
+    }
+
+    const { error } = await client.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: appUrl(),
+        shouldCreateUser: false
+      }
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    setAuthMessage("Check your email for the RORC app login link.", "success");
+  } catch (error) {
+    setAuthMessage(error.message || "Could not send login link.", "error");
+  } finally {
+    setAuthButtonBusy(appMagicLinkButton, false);
+  }
+}
+
+async function handlePasswordReset() {
+  const email = loginEmailValue();
+
+  if (!email) {
+    setAuthMessage("Enter your email first.", "error");
+    return;
+  }
+
+  setAuthButtonBusy(appResetPasswordButton, true, "Sending...");
+  setAuthMessage("Sending password reset link...");
+
+  try {
+    const client = await createSupabaseClient();
+
+    if (!client) {
+      throw new Error("Supabase is not available.");
+    }
+
+    const { error } = await client.auth.resetPasswordForEmail(email, {
+      redirectTo: dashboardUrl()
+    });
+
+    if (error) {
+      throw error;
+    }
+
+    setAuthMessage("Check your email for the password reset link.", "success");
+  } catch (error) {
+    setAuthMessage(error.message || "Could not send reset link.", "error");
+  } finally {
+    setAuthButtonBusy(appResetPasswordButton, false);
+  }
+}
+
+async function handleLogout() {
+  const client = await createSupabaseClient();
+
+  if (client) {
+    await client.auth.signOut({ scope: "local" });
+  }
+
+  currentAuthSession = null;
+  appState.authMemberId = "";
+  appState.currentUserEmail = "";
+  appState.dataStatus = "loading";
+  appState.dataError = "";
+  clearLiveData();
+  updateNavigationVisibility();
+  showAuthGate("Signed out.", "success");
+}
+
+function bindAuthActions() {
+  appLoginButton?.addEventListener("click", handlePasswordLogin);
+  appMagicLinkButton?.addEventListener("click", handleMagicLinkLogin);
+  appResetPasswordButton?.addEventListener("click", handlePasswordReset);
+  appLogoutButton?.addEventListener("click", handleLogout);
+
+  [appLoginEmail, appLoginPassword].forEach((input) => {
+    input?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        handlePasswordLogin();
+      }
+    });
+  });
+}
+
+function render(routeName) {
+  let resolvedRouteName = routeName;
+
+  if (accountManagerOnlyRoutes.has(resolvedRouteName) && !isAccountManager(appUserSession)) {
+    resolvedRouteName = "myAccount";
+  }
+
+  if (resolvedRouteName === "otherUsers" && !hasOtherUsersOnCurrentAccount()) {
+    resolvedRouteName = "myAccount";
+  }
+
+  const route = routes[resolvedRouteName] || routes.currentlySignedIn;
+  const template = document.getElementById(route.template);
+
+  if (!template || !view || !screenTitle || !appShell || !navControl) return;
+
+  closeDrawer();
+  appState.currentRoute = resolvedRouteName;
+
+  const backRoute = Boolean(route.formRoute || route.detailRoute);
+  const activeRouteName = resolvedRouteName === "accountDetails" ? appState.detailReturnRoute : resolvedRouteName;
+
+  screenTitle.textContent = route.title;
+  appShell.classList.toggle("is-form-route", Boolean(route.formRoute));
+  appShell.classList.toggle("is-detail-route", Boolean(route.detailRoute));
+  navControl.classList.toggle("is-back", backRoute);
+  navControl.setAttribute("aria-label", backRoute ? "Go back" : "Open menu");
+
+  view.innerHTML = "";
+  view.appendChild(template.content.cloneNode(true));
+
+  navItems.forEach((item) => {
+    item.classList.toggle("is-active", item.dataset.route === activeRouteName);
+  });
+
+  drawerItems.forEach((item) => {
+    item.classList.toggle("is-active", item.dataset.route === activeRouteName);
+  });
+
+  route.afterRender?.();
+  populateMemberSignIn();
+  populateGuestSignIn();
+  bindMemberPickers();
+  bindRouteActions();
+}
+
+navItems.forEach((item) => {
+  item.addEventListener("click", () => render(item.dataset.route));
+});
+
+drawerItems.forEach((item) => {
+  item.addEventListener("click", () => {
+    const route = routes[item.dataset.route];
+
+    if (route?.action) {
+      route.action();
+      return;
+    }
+
+    render(item.dataset.route);
+    closeDrawer();
+  });
+});
+
+drawerOverlay?.addEventListener("click", closeDrawer);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeDrawer();
+  }
+});
+
+navControl?.addEventListener("click", () => {
+  if (appShell?.classList.contains("is-form-route")) {
+    render(routes[appState.currentRoute]?.returnRoute || "currentlySignedIn");
+    return;
+  }
+
+  if (appShell?.classList.contains("is-detail-route")) {
+    render(appState.detailReturnRoute || "accountInfo");
+    return;
+  }
+
+  if (appDrawer?.classList.contains("is-open")) {
+    closeDrawer();
+  } else {
+    openDrawer();
+  }
+});
+
+async function initApp() {
+  bindAuthActions();
+
+  try {
+    await hydrateFromSupabase();
+  } catch (error) {
+    console.error("RORC app auth failed.", error);
+    showAuthGate(error.message || "Could not check your RORC login.", "error");
+  }
+}
+
+function registerAppServiceWorker() {
+  if (!("serviceWorker" in navigator)) {
+    scheduleInstallRequestIfNeeded();
+    return;
+  }
+
+  window.addEventListener("load", () => {
+    navigator.serviceWorker
+      .register("./sw.js", { scope: "./" })
+      .catch((error) => {
+        console.warn("RORC app service worker registration failed.", error);
+      })
+      .finally(scheduleInstallRequestIfNeeded);
+  });
+}
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+
+  if (installFallbackTimer) {
+    window.clearTimeout(installFallbackTimer);
+    installFallbackTimer = null;
+  }
+
+  if (installRequestedFromUrl()) {
+    showInstallSheet({
+      title: "Download RORC App",
+      message: "Install the RORC App to your home screen for faster member sign-in, guest sign-in, and heater records.",
+      primaryLabel: "Install App",
+      primaryAction: requestAppInstall
+    });
+  }
+});
+
+window.addEventListener("appinstalled", () => {
+  deferredInstallPrompt = null;
+  cleanInstallUrl();
+});
+
+initApp();
+registerAppServiceWorker();

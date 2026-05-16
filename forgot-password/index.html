@@ -5,18 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Reset Password | RORC</title>
   <link rel="stylesheet" href="../style.css" />
+  <script src="/scripts/rorc-supabase-client.js" defer></script>
 </head>
 <body>
   <main class="page-content membership-page">
     <section class="membership-hero">
       <h1>Reset Password</h1>
-      <p>Enter the email address tied to your membership and we’ll send you a new login PIN.</p>
+      <p>Enter the email address tied to your membership and we’ll send you a secure password reset link.</p>
     </section>
 
     <section class="rorc-card" style="max-width: 520px; margin: 0 auto;">
       <h2 class="rorc-card-title">Forgot Password</h2>
       <p class="rorc-card-text">
-        Your password will be reset and a new PIN will be emailed to you.
+        You will receive a Supabase reset link for your RORC login.
       </p>
 
       <div style="display:grid; gap:12px;">
@@ -50,50 +51,6 @@
     </section>
   </main>
 
-  <script>
-    const resetBtn = document.getElementById("resetBtn");
-    const resetEmail = document.getElementById("resetEmail");
-    const resetResult = document.getElementById("resetResult");
-
-    resetBtn.addEventListener("click", async () => {
-      const email = resetEmail.value.trim();
-
-      if (!email) {
-        resetResult.textContent = "Please enter your email address.";
-        return;
-      }
-
-      resetResult.textContent = "Sending...";
-
-      try {
-        const res = await fetch("/api/reset-password", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ email })
-        });
-
-        const data = await res.json();
-
-        if (data.success) {
-          resetResult.textContent =
-            "If that email is on file, a new password has been sent. If nothing arrives, check your spam folder.";
-          resetEmail.value = "";
-        } else {
-          resetResult.textContent =
-            data.error || "Could not process password reset.";
-        }
-      } catch (err) {
-        resetResult.textContent = "Could not process password reset.";
-      }
-    });
-
-    resetEmail.addEventListener("keypress", function(e) {
-      if (e.key === "Enter") {
-        resetBtn.click();
-      }
-    });
-  </script>
+  <script src="/scripts/rorc-reset-password.js" defer></script>
 </body>
 </html>

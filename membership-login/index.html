@@ -5,71 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Membership Login | RORC</title>
   <link rel="stylesheet" href="../style.css" />
-<script>
-  (function() {
-    const STORAGE_KEY = "memberData";
-    const DASHBOARD_PATH = "/member-dashboard/";
-    const LOGIN_PATH = "/membership-login/";
-    const html = document.documentElement;
-    const pageType = window.location.pathname.startsWith(DASHBOARD_PATH) ? "dashboard" : "default";
-    html.dataset.rorcAuthPage = pageType;
-
-    let member = null;
-
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object" && String(parsed["Member Name"] || "").trim()) {
-          member = parsed;
-        }
-      }
-    } catch (error) {
-      try {
-        window.localStorage.removeItem(STORAGE_KEY);
-      } catch (storageError) {
-        // Ignore storage failures during bootstrap.
-      }
-    }
-
-    window.__RORC_AUTH_HINT__ = {
-      signedIn: !!member,
-      member: member
-    };
-    html.dataset.rorcAuthHint = member ? "signed-in" : "signed-out";
-
-    if (!member) {
-      return;
-    }
-
-    document.addEventListener("click", function(event) {
-      if (html.dataset.rorcAuthHint !== "signed-in") {
-        return;
-      }
-
-      const link = event.target.closest(".site-menu-login");
-      if (!link) {
-        return;
-      }
-
-      event.preventDefault();
-
-      if (pageType === "dashboard") {
-        try {
-          window.localStorage.removeItem(STORAGE_KEY);
-        } catch (error) {
-          // Ignore storage failures during logout.
-        }
-
-        html.dataset.rorcAuthHint = "signed-out";
-        window.location.href = LOGIN_PATH;
-        return;
-      }
-
-      window.location.href = DASHBOARD_PATH;
-    }, true);
-  })();
-</script>
+<script src="/scripts/rorc-supabase-client.js" defer></script>
 <script src="/scripts/rorc-auth-nav.js" defer></script>
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-EGC30XZVXV"></script>
   <script>
@@ -118,7 +54,7 @@
 
     <section class="rorc-card" style="max-width: 520px; margin: 0 auto;">
       <p class="rorc-card-text" style="margin-bottom: 0;">
-        Enter the email or phone number tied to your membership, plus your 4-digit PIN. If you're new, please register for an account!
+        Enter the email tied to your membership. Use a password if you have set one, or request a secure email login link.
       </p>
       <div class="rorc-actions" style="justify-content:center; margin-top: 0; margin-bottom: 16px;">
         <button
@@ -132,38 +68,35 @@
       <div style="display:grid; gap:12px;">
         <label>
           <span style="display:block; font-size:12px; letter-spacing:0.18em; text-transform:uppercase; color:#c2cad6; margin-bottom:6px;">
-            Email or Phone
+            Email
           </span>
           <input
             id="login"
-            type="text"
+            type="email"
             inputmode="email"
             autocomplete="username"
             required
             style="width:100%; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,0.2); background:#0b0f14; color:#f5f5f5;"
-            placeholder="name@email.com or 541-555-1234"
+            placeholder="name@email.com"
           />
         </label>
 
         <label>
           <span style="display:block; font-size:12px; letter-spacing:0.18em; text-transform:uppercase; color:#c2cad6; margin-bottom:6px;">
-            4-Digit PIN
+            Password
           </span>
           <input
-            id="pin"
+            id="password"
             type="password"
-            inputmode="numeric"
             autocomplete="current-password"
-            pattern="\\d{4}"
-            maxlength="4"
-            required
             style="width:100%; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,0.2); background:#0b0f14; color:#f5f5f5;"
-            placeholder="1234"
+            placeholder="Optional if using email login link"
           />
         </label>
 
         <div class="rorc-actions" style="justify-content:flex-start;">
           <button id="loginBtn" class="rorc-btn rorc-btn-neutral" type="button">Log In</button>
+          <button id="magicLinkBtn" class="rorc-btn rorc-btn-neutral" type="button">Email Login Link</button>
           <button id="resetPasswordBtn" class="rorc-btn rorc-btn-text" type="button">Reset Password</button>
         </div>
 
@@ -185,68 +118,6 @@
     </div>
   </footer>
 
-  <script>
-    if (window.__RORC_AUTH_HINT__ && window.__RORC_AUTH_HINT__.signedIn) {
-      window.location.href = "/member-dashboard/";
-    }
-
-    const MEMBER_LOGIN_URL = "/api/member-login";
-
-    document.getElementById("loginBtn").addEventListener("click", async () => {
-      const login = document.getElementById("login").value.trim();
-      const pin = document.getElementById("pin").value.trim();
-      const result = document.getElementById("result");
-      const button = document.getElementById("loginBtn");
-
-      if (!login || !pin) {
-        result.textContent = "Enter email/phone and PIN.";
-        return;
-      }
-
-      button.disabled = true;
-      result.textContent = "Checking...";
-
-      try {
-        const res = await fetch(MEMBER_LOGIN_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ login, pin })
-        });
-
-        const data = await res.json();
-
-        if (data.success) {
-          // store member data
-          localStorage.setItem("memberData", JSON.stringify(data.member));
-
-          // optional quick success message
-          result.textContent = "Login successful...";
-
-          // redirect to dashboard
-          setTimeout(() => {
-            window.location.href = "/member-dashboard/";
-          }, 600);
-        } else {
-          result.textContent = data.error || "Invalid login.";
-        }
-      } catch (err) {
-        result.textContent = "Login failed. Please try again.";
-      } finally {
-        button.disabled = false;
-      }
-    });
-
-    document.getElementById("pin").addEventListener("keypress", function(e) {
-      if (e.key === "Enter") {
-        document.getElementById("loginBtn").click();
-      }
-    });
-
-    document.getElementById("resetPasswordBtn").addEventListener("click", function() {
-      window.location.href = "/forgot-password/";
-    });
-  </script>
+  <script src="/scripts/rorc-login.js" defer></script>
 </body>
 </html>

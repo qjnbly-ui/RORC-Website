@@ -342,6 +342,7 @@ html[data-rorc-auth-hint="signed-in"][data-rorc-auth-page="dashboard"] .site-men
   font-size: 12.5px;
   font-weight: 600;
   letter-spacing: 0.14em;
+  text-decoration: none;
   text-transform: uppercase;
   cursor: pointer;
   transition: 0.15s ease;
@@ -350,6 +351,7 @@ html[data-rorc-auth-hint="signed-in"][data-rorc-auth-page="dashboard"] .site-men
 .rorc-btn:hover {
   transform: translateY(-1px);
   border-color: #e7d2a0;
+  text-decoration: none;
 }
 
 .rorc-btn-neutral {

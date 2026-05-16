@@ -4,3 +4,6 @@ features/off/*
 !features/off/.gitkeep
 features/build/*
 !features/build/.gitkeep
+RORC App/app.config.js
+Appsheet Inspect/
+supabase/.temp/
