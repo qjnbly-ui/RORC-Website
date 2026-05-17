@@ -1474,6 +1474,7 @@ function applySupabaseData({
         billingIdHeater: row.billing_id_heater || "",
         marksAgainstAccount: row.marks_against_account || "",
         billingStatus: row.billing_status || "none",
+        stripeCustomerId: row.stripe_customer_id || "",
         stripeStatus: row.stripe_status || "None",
         currentPeriodEnd: row.current_period_end || null,
         lastSync: row.last_sync || null
@@ -2878,6 +2879,22 @@ async function updateMemberContact(member, updates) {
     }
   }
 
+  if (isAccountManager(appUserSession) && Object.prototype.hasOwnProperty.call(updates, "stripeCustomerId")) {
+    const nextStripeCustomerId = String(updates.stripeCustomerId || "").trim();
+    const currentStripeCustomerId = String(accountForMember(member)?.stripeCustomerId || "").trim();
+
+    if (nextStripeCustomerId !== currentStripeCustomerId) {
+      await updateAccountStripeCustomerId(member.accountId, nextStripeCustomerId);
+      const accountIndex = accounts.findIndex((account) => account.id === member.accountId);
+      if (accountIndex >= 0) {
+        accounts[accountIndex] = {
+          ...accounts[accountIndex],
+          stripeCustomerId: nextStripeCustomerId
+        };
+      }
+    }
+  }
+
   if (member.id === appUserSession.memberId) {
     const metadata = currentAuthSession?.user?.user_metadata || {};
     const authUpdate = {
@@ -2927,6 +2944,32 @@ async function updateMemberContact(member, updates) {
 
   refreshSessions(appState.authMemberId);
   updateDrawerIdentity();
+}
+
+async function updateAccountStripeCustomerId(accountId, stripeCustomerId) {
+  const token = currentAuthSession?.access_token || "";
+
+  if (!token) {
+    throw new Error("Missing session token.");
+  }
+
+  const response = await fetch("/api/update-account-billing", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      accountId,
+      stripeCustomerId: stripeCustomerId || null
+    })
+  });
+
+  const body = await response.json().catch(() => ({}));
+
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not update Stripe customer ID.");
+  }
 }
 
 async function moveMemberToAccountClientFallback(member, targetAccountNumber) {
@@ -3075,6 +3118,10 @@ function openMemberEditDialog(member) {
           `).join("")}
         </select>
       </label>
+      <label>
+        <span>Stripe Customer ID</span>
+        <input id="editStripeCustomerId" type="text" value="${escapeAttribute(account?.stripeCustomerId || "")}" placeholder="cus_..." autocapitalize="off" autocomplete="off" spellcheck="false" />
+      </label>
       ` : ""}
 
       <p id="editMemberResult" class="member-edit-result"></p>
@@ -3138,6 +3185,7 @@ function openMemberEditDialog(member) {
     const emailAddress = String(overlay.querySelector("#editMemberEmail")?.value || "").trim().toLowerCase();
     const accountNumber = String(overlay.querySelector("#editAccountNumber")?.value || displayAccountNumberForMember(member) || "").trim();
     const accountType = String(overlay.querySelector("#editMemberAccountType")?.value || member.accountType);
+    const stripeCustomerId = String(overlay.querySelector("#editStripeCustomerId")?.value || account?.stripeCustomerId || "").trim();
 
     if (!memberName) {
       setResult("Member name is required.", "error");
@@ -3158,7 +3206,8 @@ function openMemberEditDialog(member) {
         phoneNumber,
         emailAddress,
         accountType,
-        accountNumber
+        accountNumber,
+        stripeCustomerId
       });
 
       setResult("Saved.", "success");
