@@ -354,6 +354,7 @@ const accountTypeOptions = [
   "RESTRICTED ACCOUNT"
 ];
 
+
 function canonicalAccountType(accountType) {
   if (accountType === "Billed Monthly") return "Special Access Account";
   if (accountType === "Account Past Due NO ACCESS ALLOWED") return "RESTRICTED ACCOUNT";
@@ -460,8 +461,9 @@ const routes = {
     template: "placeholderTemplate"
   },
   message: {
-    title: "Message",
-    template: "placeholderTemplate"
+    title: "Automation Settings",
+    template: "feedbackTemplate",
+    afterRender: renderAutomationSettingsPage
   },
   contracts: {
     title: "Contracts",
@@ -509,6 +511,10 @@ function isAccountManager(memberOrSession) {
 
 function isKioskAccount(memberOrSession) {
   return memberOrSession?.accountType === "Kiosk Account";
+}
+
+function isKioskModeSession(memberOrSession) {
+  return isKioskAccount(memberOrSession) && String(memberOrSession?.memberName || "").trim().toLowerCase() === "rorc";
 }
 
 function escapeHtml(value) {
@@ -926,6 +932,214 @@ function bindFeedbackActions() {
   form.addEventListener("submit", submitFeedback);
 }
 
+async function loadAutomationSettings() {
+  const token = currentAuthSession?.access_token || "";
+  const response = await fetch("/api/automation-settings", {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not load automation settings.");
+  }
+
+  return body.settings || {};
+}
+
+async function saveAutomationSettings(settings) {
+  const token = currentAuthSession?.access_token || "";
+  const response = await fetch("/api/automation-settings", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ settings })
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not save automation settings.");
+  }
+}
+
+function renderAutomationSettingsPage() {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+
+  root.innerHTML = `
+    <section class="feedback-shell">
+      <header class="feedback-hero">
+        <p class="eyebrow">Admin</p>
+        <h2>Automation Settings</h2>
+        <p>Control webhooks, SMS, and toggles for gym and heater automations.</p>
+      </header>
+
+      <form id="automationSettingsForm" class="feedback-form" autocomplete="off">
+        <label class="automation-toggle">
+          <input id="gymLightsOnEnabled" type="checkbox" />
+          <span>Gym Lights On Enabled</span>
+        </label>
+        <label>
+          <span>Gym Lights On SMS To</span>
+          <input id="gymLightsOnSmsTo" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+        </label>
+
+        <label class="automation-toggle">
+          <input id="gymLightsOffEnabled" type="checkbox" />
+          <span>Gym Lights Off Enabled</span>
+        </label>
+        <label>
+          <span>Gym Lights Off SMS To</span>
+          <input id="gymLightsOffSmsTo" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+        </label>
+
+        <label class="automation-toggle">
+          <input id="heaterOnEnabled" type="checkbox" />
+          <span>Heater On Automation Enabled</span>
+        </label>
+        <label class="automation-toggle">
+          <input id="heaterOffEnabled" type="checkbox" />
+          <span>Heater Off Automation Enabled</span>
+        </label>
+
+        <div class="automation-advanced">
+          <button id="toggleAutomationAdvanced" class="auth-secondary" type="button">Edit Advanced URLs</button>
+          <div id="automationAdvancedFields" hidden>
+            <label>
+              <span>Gym Lights On Step 1 URL</span>
+              <input id="gymLightsOnStep1Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
+            </label>
+            <label>
+              <span>Gym Lights On Step 2 URL</span>
+              <input id="gymLightsOnStep2Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
+            </label>
+            <label>
+              <span>Gym Lights Off Step 1 URL</span>
+              <input id="gymLightsOffStep1Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
+            </label>
+            <label>
+              <span>Gym Lights Off Step 2 URL</span>
+              <input id="gymLightsOffStep2Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
+            </label>
+          </div>
+        </div>
+
+        <div class="feedback-actions">
+          <button id="automationSettingsSave" type="submit">Save Settings</button>
+          <p id="automationSettingsResult" class="feedback-result" aria-live="polite"></p>
+        </div>
+      </form>
+    </section>
+  `;
+
+  bindAutomationSettingsActions();
+}
+
+function automationResult(message, tone = "default") {
+  const el = document.getElementById("automationSettingsResult");
+  if (!el) return;
+  el.textContent = message;
+  el.dataset.tone = tone;
+}
+
+function applyAutomationSettingsToForm(settings) {
+  const setValue = (id, value) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.value = value || "";
+  };
+  const setChecked = (id, checked) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.checked = Boolean(checked);
+  };
+
+  setChecked("gymLightsOnEnabled", settings.gym_lights_on?.enabled);
+  setValue("gymLightsOnStep1Url", settings.gym_lights_on?.step1_url);
+  setValue("gymLightsOnStep2Url", settings.gym_lights_on?.step2_url);
+  setValue("gymLightsOnSmsTo", settings.gym_lights_on?.sms_to);
+
+  setChecked("gymLightsOffEnabled", settings.gym_lights_off?.enabled);
+  setValue("gymLightsOffStep1Url", settings.gym_lights_off?.step1_url);
+  setValue("gymLightsOffStep2Url", settings.gym_lights_off?.step2_url);
+  setValue("gymLightsOffSmsTo", settings.gym_lights_off?.sms_to);
+
+  setChecked("heaterOnEnabled", settings.heater_on?.enabled);
+  setChecked("heaterOffEnabled", settings.heater_off?.enabled);
+}
+
+function collectAutomationSettingsFromForm() {
+  const getValue = (id) => String(document.getElementById(id)?.value || "").trim();
+  const isChecked = (id) => Boolean(document.getElementById(id)?.checked);
+
+  return {
+    gym_lights_on: {
+      enabled: isChecked("gymLightsOnEnabled"),
+      step1_url: getValue("gymLightsOnStep1Url"),
+      step2_url: getValue("gymLightsOnStep2Url"),
+      sms_to: getValue("gymLightsOnSmsTo")
+    },
+    gym_lights_off: {
+      enabled: isChecked("gymLightsOffEnabled"),
+      step1_url: getValue("gymLightsOffStep1Url"),
+      step2_url: getValue("gymLightsOffStep2Url"),
+      sms_to: getValue("gymLightsOffSmsTo")
+    },
+    heater_on: {
+      enabled: isChecked("heaterOnEnabled")
+    },
+    heater_off: {
+      enabled: isChecked("heaterOffEnabled")
+    }
+  };
+}
+
+async function bindAutomationSettingsActions() {
+  const form = document.getElementById("automationSettingsForm");
+  const saveButton = document.getElementById("automationSettingsSave");
+  if (!form || !saveButton) return;
+  const advancedToggle = document.getElementById("toggleAutomationAdvanced");
+  const advancedFields = document.getElementById("automationAdvancedFields");
+
+  try {
+    automationResult("Loading settings...");
+    const settings = await loadAutomationSettings();
+    applyAutomationSettingsToForm(settings);
+    automationResult("Loaded.", "success");
+  } catch (error) {
+    automationResult(error.message || "Could not load settings.", "error");
+  }
+
+  advancedToggle?.addEventListener("click", () => {
+    if (!advancedFields) return;
+    const nextHidden = !advancedFields.hidden;
+    advancedFields.hidden = nextHidden;
+    advancedToggle.textContent = nextHidden ? "Edit Advanced URLs" : "Hide Advanced URLs";
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    saveButton.disabled = true;
+    saveButton.textContent = "Saving...";
+    automationResult("Saving...");
+
+    try {
+      const settings = collectAutomationSettingsFromForm();
+      await saveAutomationSettings(settings);
+      automationResult("Saved.", "success");
+    } catch (error) {
+      automationResult(error.message || "Could not save settings.", "error");
+    } finally {
+      saveButton.disabled = false;
+      saveButton.textContent = "Save Settings";
+    }
+  });
+}
+
 function bindSharePageActions() {
   document.querySelectorAll("[data-share-action]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1077,7 +1291,7 @@ function hasOtherUsersOnCurrentAccount() {
 function updateNavigationVisibility() {
   const showOtherUsers = hasOtherUsersOnCurrentAccount();
   const showAccountManagerPages = isAccountManager(appUserSession);
-  const kioskMode = isKioskAccount(appUserSession);
+  const kioskMode = isKioskModeSession(appUserSession);
 
   drawerItems
     .filter((item) => item.dataset.route === "otherUsers")
@@ -1388,7 +1602,7 @@ function closeDrawer() {
 }
 
 function visibleMembersForSession(session) {
-  if (isAccountManager(session) || isKioskAccount(session)) {
+  if (isAccountManager(session) || isKioskModeSession(session)) {
     return accountMembers;
   }
 
@@ -1406,15 +1620,17 @@ function guestSponsorsForSession(session) {
 }
 
 function memberPickerOptions(source) {
+  const sortOnly = (members) => [...members].sort(sortMembers);
+
   if (source === "guestSponsors") {
-    return [...guestSponsorsForSession(frontDoorSession)].sort(sortMembers);
+    return sortOnly(guestSponsorsForSession(frontDoorSession));
   }
 
   if (source === "heaterResponsible") {
-    return [...visibleMembersForSession(frontDoorSession)].sort(sortMembers);
+    return sortOnly(visibleMembersForSession(frontDoorSession));
   }
 
-  return [...visibleMembersForSession(frontDoorSession)].sort(sortMembers);
+  return sortOnly(visibleMembersForSession(frontDoorSession));
 }
 
 function memberPickerLabel(member) {
@@ -1823,8 +2039,11 @@ function heaterRecordStatus(entry) {
 }
 
 function sortMembers(a, b) {
-  const typeIndexA = Math.max(statusOrder.indexOf(canonicalAccountType(a.accountType)), 999);
-  const typeIndexB = Math.max(statusOrder.indexOf(canonicalAccountType(b.accountType)), 999);
+  const pickerOrder = ["Account Manager", "Kiosk Account", "Active Membership", "Open Gym Only"];
+  const typeA = canonicalAccountType(a.accountType);
+  const typeB = canonicalAccountType(b.accountType);
+  const typeIndexA = Math.max(pickerOrder.indexOf(typeA), statusOrder.indexOf(typeA), 999);
+  const typeIndexB = Math.max(pickerOrder.indexOf(typeB), statusOrder.indexOf(typeB), 999);
   const typeDifference = typeIndexA - typeIndexB;
 
   if (typeDifference !== 0) return typeDifference;
@@ -1940,6 +2159,8 @@ async function signOutTimesheetEntry(entryId) {
   }
 
   const button = document.querySelector(`[data-sign-out-entry="${CSS.escape(entryId)}"]`);
+  const entry = timesheetEntries.find((item) => item.id === entryId);
+  const wasOneSignedIn = openTimesheetCount() === 1;
   if (button) {
     button.disabled = true;
     button.textContent = "Signing Out...";
@@ -1956,7 +2177,27 @@ async function signOutTimesheetEntry(entryId) {
       throw error;
     }
 
+    if (entry?.memberOrGuest === "Member" && entry.memberId) {
+      const guestSignOutResult = await client
+        .from("timesheet_entries")
+        .update({ signed_out_at: new Date().toISOString() })
+        .eq("member_or_guest", "Guest")
+        .eq("member_entered_with_id", entry.memberId)
+        .is("signed_out_at", null);
+
+      if (guestSignOutResult.error) {
+        throw guestSignOutResult.error;
+      }
+    }
+
     await hydrateFromSupabase();
+    if (wasOneSignedIn && openTimesheetCount() === 0) {
+      const memberName = entry?.memberId ? (findMember(entry.memberId)?.memberName || "Unknown") : "Unknown";
+      const visitDurationMinutes = durationMinutes(entry?.signedInAt, new Date().toISOString()) || 0;
+      triggerGymLightsOffSequence(memberName, visitDurationMinutes).catch((sequenceError) => {
+        console.warn("Gym lights off sequence failed.", sequenceError);
+      });
+    }
     render("currentlySignedIn");
   } catch (error) {
     showDetailActionMessage(error.message || "Could not sign out.");
@@ -2583,27 +2824,46 @@ async function updateMemberContact(member, updates) {
 
     if (targetAccountNumber && targetAccountNumber !== currentAccountNumber) {
       const token = currentAuthSession?.access_token || "";
+      let moved = false;
+      let apiErrorMessage = "";
 
-      if (!token) {
-        throw new Error("Session expired. Sign in again to move account.");
+      if (token) {
+        try {
+          const response = await fetch("/api/move-member-account", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({
+              memberId: member.id,
+              targetAccountNumber
+            })
+          });
+
+          const body = await response.json().catch(() => ({}));
+
+          if (!response.ok || body.success === false) {
+            apiErrorMessage = body.error || `Move endpoint failed (${response.status}).`;
+          } else {
+            moved = true;
+          }
+        } catch (error) {
+          apiErrorMessage = error.message || "Move endpoint request failed.";
+        }
       }
 
-      const response = await fetch("/api/move-member-account", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          memberId: member.id,
-          targetAccountNumber
-        })
-      });
+      if (!moved) {
+        try {
+          await moveMemberToAccountClientFallback(member, targetAccountNumber);
+          moved = true;
+        } catch (fallbackError) {
+          throw new Error(fallbackError.message || apiErrorMessage || "Could not move member to account.");
+        }
+      }
 
-      const body = await response.json().catch(() => ({}));
-
-      if (!response.ok || body.success === false) {
-        throw new Error(body.error || "Could not move member to account.");
+      if (!moved) {
+        throw new Error(apiErrorMessage || "Could not move member to account.");
       }
     }
   }
@@ -2657,6 +2917,72 @@ async function updateMemberContact(member, updates) {
 
   refreshSessions(appState.authMemberId);
   updateDrawerIdentity();
+}
+
+async function moveMemberToAccountClientFallback(member, targetAccountNumber) {
+  const client = await createSupabaseClient();
+
+  if (!client) {
+    throw new Error("Supabase is not available.");
+  }
+
+  let targetAccountId = "";
+  const existingAccountResult = await client
+    .from("accounts")
+    .select("id,account_number")
+    .eq("account_number", targetAccountNumber)
+    .maybeSingle();
+
+  if (existingAccountResult.error) {
+    throw existingAccountResult.error;
+  }
+
+  if (existingAccountResult.data?.id) {
+    targetAccountId = existingAccountResult.data.id;
+  } else {
+    const createResult = await client
+      .from("accounts")
+      .insert({ account_number: targetAccountNumber })
+      .select("id")
+      .single();
+
+    if (createResult.error) {
+      throw createResult.error;
+    }
+
+    targetAccountId = createResult.data?.id || "";
+  }
+
+  if (!targetAccountId) {
+    throw new Error("Could not resolve target account.");
+  }
+
+  if (member.isBillingOwner) {
+    const billingOwnerResult = await client
+      .from("account_members")
+      .select("id")
+      .eq("account_id", targetAccountId)
+      .eq("is_billing_owner", true)
+      .limit(1)
+      .maybeSingle();
+
+    if (billingOwnerResult.error) {
+      throw billingOwnerResult.error;
+    }
+
+    if (billingOwnerResult.data) {
+      throw new Error("Target account already has a billing owner. Move a non-billing-owner profile or reassign billing owner first.");
+    }
+  }
+
+  const updateResult = await client
+    .from("account_members")
+    .update({ account_id: targetAccountId })
+    .eq("id", member.id);
+
+  if (updateResult.error) {
+    throw updateResult.error;
+  }
 }
 
 async function deleteMemberRecord(member) {
@@ -3055,6 +3381,73 @@ function updateHeaterGroupPayFields(selectedButton) {
   }
 }
 
+function openTimesheetCount() {
+  return timesheetEntries.filter((entry) => !entry.signedOutAt).length;
+}
+
+function isOpenGymFirstSignInWindow(date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const weekday = values.weekday;
+  const minutes = Number(values.hour) * 60 + Number(values.minute);
+  const startsAt = (17 * 60) + 50;
+  const endsAt = (20 * 60);
+
+  return ["Tue", "Thu"].includes(weekday) && minutes >= startsAt && minutes <= endsAt;
+}
+
+function isEligibleForFirstSignInRule(member, signedInAt, wasNoOneSignedIn) {
+  if (!wasNoOneSignedIn || !member) return false;
+
+  const type = canonicalAccountType(member.accountType);
+  if (type === "Active Membership" || type === "Account Manager") {
+    return true;
+  }
+
+  if (type === "Open Gym Only") {
+    return isOpenGymFirstSignInWindow(signedInAt);
+  }
+
+  return false;
+}
+
+async function triggerGymLightsOnSequence(memberName) {
+  const payload = { memberName };
+  const response = await fetch("/api/gym-lights-on-sequence", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || "Gym lights on sequence failed.");
+  }
+}
+
+async function triggerGymLightsOffSequence(memberName, visitDurationMinutes) {
+  const payload = { memberName, visitDurationMinutes };
+  const response = await fetch("/api/gym-lights-off-sequence", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || "Gym lights off sequence failed.");
+  }
+}
+
 async function saveMemberSignIn() {
   const memberInput = document.getElementById("memberNameSelect");
   const saveButton = document.querySelector(".member-sign-in-screen .save-action");
@@ -3066,6 +3459,11 @@ async function saveMemberSignIn() {
   }
 
   const uniqueMemberIds = [...new Set(selectedMemberIds)];
+  const signedInAtDate = new Date();
+  const wasNoOneSignedIn = openTimesheetCount() === 0;
+  const firstValidMember = uniqueMemberIds
+    .map((memberId) => findMember(memberId))
+    .find((member) => isEligibleForFirstSignInRule(member, signedInAtDate, wasNoOneSignedIn));
   const alreadySignedIn = uniqueMemberIds.filter((memberId) => (
     timesheetEntries.some((entry) => (
       entry.memberOrGuest === "Member"
@@ -3098,7 +3496,7 @@ async function saveMemberSignIn() {
     const rows = uniqueMemberIds.map((memberId) => ({
       member_or_guest: "Member",
       member_id: memberId,
-      signed_in_at: new Date().toISOString()
+      signed_in_at: signedInAtDate.toISOString()
     }));
 
     const { error } = await client
@@ -3107,6 +3505,12 @@ async function saveMemberSignIn() {
 
     if (error) {
       throw error;
+    }
+
+    if (firstValidMember) {
+      triggerGymLightsOnSequence(firstValidMember.memberName).catch((sequenceError) => {
+        console.warn("Gym lights on sequence failed.", sequenceError);
+      });
     }
 
     await hydrateFromSupabase();
@@ -3492,7 +3896,7 @@ function bindAuthActions() {
 function render(routeName) {
   let resolvedRouteName = routeName;
 
-  if (isKioskAccount(appUserSession) && !kioskAllowedRoutes.has(resolvedRouteName)) {
+  if (isKioskModeSession(appUserSession) && !kioskAllowedRoutes.has(resolvedRouteName)) {
     resolvedRouteName = "currentlySignedIn";
   }
 

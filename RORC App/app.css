@@ -725,6 +725,33 @@ h1 {
   color: #9bd59b;
 }
 
+.automation-toggle {
+  align-items: center;
+  display: flex !important;
+  gap: 10px;
+}
+
+.automation-toggle input {
+  accent-color: var(--accent);
+  min-height: auto !important;
+  width: 18px;
+}
+
+.automation-toggle span {
+  color: var(--text) !important;
+  font-size: 0.95rem !important;
+  font-weight: 800 !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+
+.automation-advanced {
+  border-top: 1px solid #3d3d3d;
+  display: grid;
+  gap: 12px;
+  padding-top: 6px;
+}
+
 .share-hero,
 .share-invite-card,
 .share-action-card {

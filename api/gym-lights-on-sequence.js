@@ -1,0 +1,77 @@
+const STEP_1_URL = "https://api-v2.voicemonkey.io/announcement?token=1f3e0ed4c447604419dfed7d277cda79_90cb39a4dfc7ff4c222a54e3e93f4e80&device=stage-only-announcement&text=Welcome%20to%20the%20Ruth%20Oben%20Chain%20Recreation%20center.&chime=soundbank%3A%2F%2Fsoundlibrary%2Falarms%2Fbeeps_and_bloops%2Fintro_02&voice=Joanna";
+const STEP_2_URL = "https://api-v2.voicemonkey.io/trigger?token=1f3e0ed4c447604419dfed7d277cda79_90cb39a4dfc7ff4c222a54e3e93f4e80&device=all-lights-on";
+const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
+const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+module.exports = async (req, res) => {
+  if (req.method !== "POST") {
+    return res.status(405).json({
+      success: false,
+      error: "Method not allowed"
+    });
+  }
+
+  try {
+    const memberName = String(req.body?.memberName || "Unknown").trim() || "Unknown";
+    const settings = await getAutomationConfig("gym_lights_on");
+    if (settings.enabled === false) {
+      return res.status(200).json({ success: true, skipped: true });
+    }
+    const step1Url = String(settings.step1_url || STEP_1_URL);
+    const step2Url = String(settings.step2_url || STEP_2_URL);
+
+    const step1 = await fetch(step1Url, { method: "GET" });
+    if (!step1.ok) {
+      const text = await step1.text();
+      throw new Error(`Step 1 failed: ${step1.status} ${text}`);
+    }
+
+    const step2 = await fetch(step2Url, { method: "GET" });
+    if (!step2.ok) {
+      const text = await step2.text();
+      throw new Error(`Step 2 failed: ${step2.status} ${text}`);
+    }
+
+    const origin = `https://${req.headers.host}`;
+    const step3 = await fetch(`${origin}/api/send-gym-open-text`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ memberName, to: settings.sms_to || "" })
+    });
+
+    const step3Body = await step3.json().catch(() => ({}));
+    if (!step3.ok || step3Body.success === false) {
+      throw new Error(step3Body.error || "Step 3 failed.");
+    }
+
+    return res.status(200).json({
+      success: true
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Sequence failed"
+    });
+  }
+};
+
+async function getAutomationConfig(id) {
+  if (!SERVICE_ROLE_KEY) return {};
+  const params = new URLSearchParams({
+    select: "config",
+    id: `eq.${id}`,
+    limit: "1"
+  });
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/automation_settings?${params.toString()}`, {
+    headers: {
+      apikey: SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`
+    }
+  });
+
+  if (!response.ok) return {};
+  const rows = await response.json().catch(() => []);
+  return rows[0]?.config || {};
+}
