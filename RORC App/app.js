@@ -224,7 +224,7 @@ function accountForMember(member) {
 
 function displayAccountNumberForMember(member) {
   if (!member) return "";
-  return String(accountForMember(member)?.accountNumber || "").trim();
+  return String(accountForMember(member)?.accountNumber || member.accountNumber || "").trim();
 }
 
 function isAccountManager(memberOrSession) {
@@ -1612,6 +1612,7 @@ async function loadGlobalMemberDirectory() {
   globalMemberDirectory = rows.map((row) => ({
     id: row.account_member_id,
     accountId: row.account_id,
+    accountNumber: row.account_number || "",
     memberName: row.member_name || "Unnamed Member",
     accountType: canonicalAccountType(row.account_type),
     legacyAccountType: "",
@@ -1657,6 +1658,7 @@ function applySupabaseData({
   accountMembers = profiles.map((row) => ({
     id: row.account_member_id,
     accountId: row.account_id,
+    accountNumber: row.account_number || "",
     memberName: row.member_name || "Unnamed Member",
     accountType: canonicalAccountType(row.account_type),
     legacyAccountType: row.legacy_account_type || "",
@@ -2234,11 +2236,19 @@ function heaterRecordStatus(entry) {
 }
 
 function sortMembers(a, b) {
-  const pickerOrder = ["Account Manager", "Kiosk Account", "Active Membership", "Open Gym Only"];
+  const pickerOrder = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Open Gym Only", "RESTRICTED ACCOUNT"];
+  const resolveTypeIndex = (accountType) => {
+    const pickerIndex = pickerOrder.indexOf(accountType);
+    if (pickerIndex >= 0) return pickerIndex;
+    const statusIndex = statusOrder.indexOf(accountType);
+    if (statusIndex >= 0) return statusIndex;
+    return 999;
+  };
+
   const typeA = canonicalAccountType(a.accountType);
   const typeB = canonicalAccountType(b.accountType);
-  const typeIndexA = Math.max(pickerOrder.indexOf(typeA), statusOrder.indexOf(typeA), 999);
-  const typeIndexB = Math.max(pickerOrder.indexOf(typeB), statusOrder.indexOf(typeB), 999);
+  const typeIndexA = resolveTypeIndex(typeA);
+  const typeIndexB = resolveTypeIndex(typeB);
   const typeDifference = typeIndexA - typeIndexB;
 
   if (typeDifference !== 0) return typeDifference;
