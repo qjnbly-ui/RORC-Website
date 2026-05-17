@@ -5,71 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Member Dashboard | RORC</title>
   <link rel="stylesheet" href="../style.css" />
-<script>
-  (function() {
-    const STORAGE_KEY = "memberData";
-    const DASHBOARD_PATH = "/member-dashboard/";
-    const LOGIN_PATH = "/membership-login/";
-    const html = document.documentElement;
-    const pageType = window.location.pathname.startsWith(DASHBOARD_PATH) ? "dashboard" : "default";
-    html.dataset.rorcAuthPage = pageType;
-
-    let member = null;
-
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object" && String(parsed["Member Name"] || "").trim()) {
-          member = parsed;
-        }
-      }
-    } catch (error) {
-      try {
-        window.localStorage.removeItem(STORAGE_KEY);
-      } catch (storageError) {
-        // Ignore storage failures during bootstrap.
-      }
-    }
-
-    window.__RORC_AUTH_HINT__ = {
-      signedIn: !!member,
-      member: member
-    };
-    html.dataset.rorcAuthHint = member ? "signed-in" : "signed-out";
-
-    if (!member) {
-      return;
-    }
-
-    document.addEventListener("click", function(event) {
-      if (html.dataset.rorcAuthHint !== "signed-in") {
-        return;
-      }
-
-      const link = event.target.closest(".site-menu-login");
-      if (!link) {
-        return;
-      }
-
-      event.preventDefault();
-
-      if (pageType === "dashboard") {
-        try {
-          window.localStorage.removeItem(STORAGE_KEY);
-        } catch (error) {
-          // Ignore storage failures during logout.
-        }
-
-        html.dataset.rorcAuthHint = "signed-out";
-        window.location.href = LOGIN_PATH;
-        return;
-      }
-
-      window.location.href = DASHBOARD_PATH;
-    }, true);
-  })();
-</script>
+<script src="/scripts/rorc-supabase-client.js" defer></script>
 <script src="/scripts/rorc-auth-nav.js" defer></script>
 </head>
 <body>
@@ -126,24 +62,18 @@
       </div>
     </section>
 
-    <section id="rorcAppCard" class="rorc-card" style="max-width: 720px; margin: 24px auto 0;">
+    <section id="rorcAppCard" class="rorc-card" style="max-width: 720px; margin: 18px auto 0;" hidden>
       <h2 class="rorc-card-title">RORC Application</h2>
       <p class="rorc-card-text">
-        Mandatory sign-in, heater control, and account tools — all in one place.
-      </p>
-      <p class="rorc-card-text">
-        Over time, the app will only be used on the kiosk at the facility, and its features will be integrated into this dashboard.
-        Login credentials are the same as what you used to log into the portal.
+        Open the member sign-in, guest sign-in, current attendance, and heater records app.
       </p>
       <div class="rorc-actions">
-        <button class="rorc-btn rorc-btn-neutral" onclick="openAppSheetPopup()">
+        <a class="rorc-btn rorc-btn-neutral" href="/RORC%20App/">
           Open App
-        </button>
-        <button
-          class="rorc-btn rorc-btn-ghost"
-          onclick="window.open('https://www.appsheet.com/newshortcut/148f600c-2af7-4191-a6bf-b88b04244cb0', '_blank')">
-          Download
-        </button>
+        </a>
+        <a id="installRorcAppBtn" class="rorc-btn rorc-btn-gold" href="/RORC%20App/?install=1">
+          Download App
+        </a>
       </div>
     </section>
 
@@ -157,18 +87,13 @@
 
       <div class="rorc-password-form">
         <label class="rorc-auth-label">
-          <span>Current PIN</span>
-          <input id="currentPin" class="rorc-auth-input" type="password" maxlength="4" inputmode="numeric" />
+          <span>New Password</span>
+          <input id="newPassword" class="rorc-auth-input" type="password" autocomplete="new-password" />
         </label>
 
         <label class="rorc-auth-label">
-          <span>New PIN</span>
-          <input id="newPin" class="rorc-auth-input" type="password" maxlength="4" inputmode="numeric" />
-        </label>
-
-        <label class="rorc-auth-label">
-          <span>Confirm New PIN</span>
-          <input id="confirmPin" class="rorc-auth-input" type="password" maxlength="4" inputmode="numeric" />
+          <span>Confirm New Password</span>
+          <input id="confirmPassword" class="rorc-auth-input" type="password" autocomplete="new-password" />
         </label>
 
         <div class="rorc-actions" style="justify-content:flex-start;">
@@ -210,311 +135,6 @@
     </div>
   </div>
 
-  <div id="appSheetModal" class="rorc-modal" role="dialog" aria-modal="true" aria-labelledby="rorcModalTitle">
-    <div class="rorc-modal-head">
-      <h3 id="rorcModalTitle" class="rorc-modal-title">RORC Application</h3>
-      <button class="rorc-btn rorc-btn-danger rorc-close" onclick="closeAppSheetPopup()">Close</button>
-    </div>
-    <div class="rorc-modal-body">
-      <iframe id="appSheetIframe" title="AppSheet Application" class="rorc-iframe"></iframe>
-    </div>
-  </div>
-
-  <script>
-  const memberData = (window.__RORC_AUTH_HINT__ && window.__RORC_AUTH_HINT__.member)
-    ? window.__RORC_AUTH_HINT__.member
-    : JSON.parse(localStorage.getItem("memberData"));
-  const container = document.getElementById("memberDashboard");
-  const billingBtn = document.getElementById("billingBtn");
-  const appCard = document.getElementById("rorcAppCard");
-
-  if (!memberData) {
-    container.innerHTML = `
-      <p>Not logged in.</p>
-      <p><a href="https://payments.ruthobenchainrc.com/p/login/eVaeWh2tN0vxgSs288" target="_blank" rel="noopener">Open Membership Portal</a></p>
-    `;
-    if (billingBtn) {
-      billingBtn.style.display = "none";
-    }
-    if (appCard) {
-      appCard.style.display = "none";
-    }
-  } else {
-    container.innerHTML = `
-      <h3>Welcome, ${memberData["Member Name"]}</h3>
-
-      <p><strong>Account Type:</strong> ${memberData["Account Type"] || ""}</p>
-      <p><strong>Account Number:</strong> ${memberData["Account Number"] || ""}</p>
-      <p><strong>Status:</strong> ${memberData["StripeStatus"] || ""}</p>
-    `;
-    if (appCard) {
-      appCard.style.display = "block";
-    }
-  }
-
-  const accountPhone = document.getElementById("accountPhone");
-  const accountEmail = document.getElementById("accountEmail");
-
-  if (memberData && accountPhone && accountEmail) {
-    accountPhone.value = memberData["Phone Number"] || "";
-    accountEmail.value = (memberData["Email Address"] || "").trim();
-  }
-
-  const stripeCustomerId = memberData ? memberData["StripeCustomerID"] : "";
-
-  if (billingBtn) {
-    if (memberData && !stripeCustomerId) {
-      billingBtn.textContent = "Open Membership Portal";
-      billingBtn.addEventListener("click", () => {
-        window.open("https://payments.ruthobenchainrc.com/p/login/eVaeWh2tN0vxgSs288", "_blank");
-      });
-    } else {
-      billingBtn.addEventListener("click", async () => {
-      try {
-        const res = await fetch("/api/member-portal", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            member: memberData
-          })
-        });
-
-        const data = await res.json();
-
-        if (data.success && data.url) {
-          window.location.href = data.url;
-        } else {
-          alert(data.error || "Could not open billing portal.");
-        }
-      } catch (err) {
-        alert("Could not open billing portal.");
-      }
-    });
-    }
-  }
-
-  const openAccountInfoBtn = document.getElementById("openAccountInfoBtn");
-  const accountInfoModal = document.getElementById("accountInfoModal");
-  const updateAccountBtn = document.getElementById("updateAccountBtn");
-  const accountResult = document.getElementById("accountResult");
-  const updatePasswordModal = document.getElementById("updatePasswordModal");
-  const openUpdatePasswordBtn = document.getElementById("openUpdatePasswordBtn");
-  const updatePasswordBtn = document.getElementById("updatePasswordBtn");
-  const passwordResult = document.getElementById("passwordResult");
-
-  const closeAccountInfoModal = () => {
-    if (!accountInfoModal) return;
-    accountInfoModal.hidden = true;
-  };
-
-  const openAccountInfoModal = () => {
-    if (!accountInfoModal) return;
-    accountInfoModal.hidden = false;
-    if (accountResult) {
-      accountResult.textContent = "";
-    }
-    const phoneInput = document.getElementById("accountPhone");
-    const emailInput = document.getElementById("accountEmail");
-    if (phoneInput) {
-      phoneInput.value = memberData ? String(memberData["Phone Number"] || "") : "";
-    }
-    if (emailInput) {
-      emailInput.value = memberData ? String(memberData["Email Address"] || "") : "";
-    }
-    if (phoneInput) {
-      phoneInput.focus();
-    }
-  };
-
-  const closeUpdatePasswordModal = () => {
-    if (!updatePasswordModal) return;
-    updatePasswordModal.hidden = true;
-  };
-
-  const openUpdatePasswordModal = () => {
-    if (!updatePasswordModal) return;
-    updatePasswordModal.hidden = false;
-    if (passwordResult) {
-      passwordResult.textContent = "";
-    }
-    const currentPinInput = document.getElementById("currentPin");
-    if (currentPinInput) {
-      currentPinInput.focus();
-    }
-  };
-
-  if (!memberData && openAccountInfoBtn) {
-    openAccountInfoBtn.style.display = "none";
-  }
-
-  if (!memberData && openUpdatePasswordBtn) {
-    openUpdatePasswordBtn.style.display = "none";
-  }
-
-  if (openAccountInfoBtn) {
-    openAccountInfoBtn.addEventListener("click", () => {
-      if (!memberData) {
-        return;
-      }
-      openAccountInfoModal();
-    });
-  }
-
-  if (openUpdatePasswordBtn) {
-    openUpdatePasswordBtn.addEventListener("click", () => {
-      if (!memberData) {
-        return;
-      }
-      openUpdatePasswordModal();
-    });
-  }
-
-  if (accountInfoModal) {
-    accountInfoModal.addEventListener("click", (event) => {
-      if (event.target && event.target.hasAttribute("data-close")) {
-        closeAccountInfoModal();
-      }
-    });
-
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && !accountInfoModal.hidden) {
-        closeAccountInfoModal();
-      }
-    });
-  }
-
-  if (updatePasswordModal) {
-    updatePasswordModal.addEventListener("click", (event) => {
-      if (event.target && event.target.hasAttribute("data-close")) {
-        closeUpdatePasswordModal();
-      }
-    });
-
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && !updatePasswordModal.hidden) {
-        closeUpdatePasswordModal();
-      }
-    });
-  }
-
-  if (updateAccountBtn) {
-    updateAccountBtn.addEventListener("click", async () => {
-      const phone = document.getElementById("accountPhone").value.trim();
-      const email = document.getElementById("accountEmail").value.trim();
-
-      if (!email) {
-        accountResult.textContent = "Email address is required.";
-        return;
-      }
-
-      try {
-        const res = await fetch("/api/update-account-info", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            member: memberData,
-            phone,
-            email
-          })
-        });
-
-        const data = await res.json();
-
-        if (data.success) {
-          accountResult.textContent = data.message || "Account information updated.";
-
-          // keep localStorage in sync
-          memberData["Phone Number"] = phone;
-          memberData["Email Address"] = email;
-          localStorage.setItem("memberData", JSON.stringify(memberData));
-        } else {
-          accountResult.textContent = data.error || "Could not update account information.";
-        }
-      } catch (err) {
-        accountResult.textContent = "Could not update account information.";
-      }
-    });
-  }
-
-  if (updatePasswordBtn) {
-    updatePasswordBtn.addEventListener("click", async () => {
-      const currentPin = document.getElementById("currentPin").value.trim();
-      const newPin = document.getElementById("newPin").value.trim();
-      const confirmPin = document.getElementById("confirmPin").value.trim();
-
-      if (!memberData) {
-        passwordResult.textContent = "Please log in again.";
-        return;
-      }
-
-      if (!currentPin || !newPin || !confirmPin) {
-        passwordResult.textContent = "Please fill out all password fields.";
-        return;
-      }
-
-      if (!/^\d{4}$/.test(newPin)) {
-        passwordResult.textContent = "New password must be exactly 4 digits.";
-        return;
-      }
-
-      if (newPin !== confirmPin) {
-        passwordResult.textContent = "New passwords do not match.";
-        return;
-      }
-
-      const originalLabel = updatePasswordBtn.textContent;
-      updatePasswordBtn.disabled = true;
-      updatePasswordBtn.textContent = "Updating...";
-
-      try {
-        const res = await fetch("/api/update-password", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            member: memberData,
-            currentPin,
-            newPin
-          })
-        });
-
-        const data = await res.json();
-
-        if (data.success) {
-          passwordResult.textContent = data.message || "Password updated.";
-          document.getElementById("currentPin").value = "";
-          document.getElementById("newPin").value = "";
-          document.getElementById("confirmPin").value = "";
-          setTimeout(() => {
-            closeUpdatePasswordModal();
-          }, 700);
-        } else {
-          passwordResult.textContent = data.error || "Could not update password.";
-        }
-      } catch (err) {
-        passwordResult.textContent = "Could not update password.";
-      } finally {
-        updatePasswordBtn.disabled = false;
-        updatePasswordBtn.textContent = originalLabel;
-      }
-    });
-  }
-  </script>
-  <script>
-    function openAppSheetPopup() {
-      const url = "https://www.appsheet.com/start/148f600c-2af7-4191-a6bf-b88b04244cb0?_=" + Date.now();
-      document.getElementById('appSheetIframe').src = url;
-      document.getElementById('appSheetModal').style.display = 'flex';
-    }
-
-    function closeAppSheetPopup() {
-      document.getElementById('appSheetModal').style.display = 'none';
-    }
-  </script>
+  <script src="/scripts/rorc-dashboard.js" defer></script>
 </body>
 </html>

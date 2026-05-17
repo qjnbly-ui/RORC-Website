@@ -1,7 +1,8 @@
 {
+  "scripts": {
+    "rorc:create-auth-users": "node scripts/create-supabase-auth-users.js"
+  },
   "dependencies": {
-    "googleapis": "^171.4.0",
-    "resend": "^6.9.3",
     "stripe": "^20.4.1"
   }
 }
