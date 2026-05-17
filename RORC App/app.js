@@ -338,11 +338,27 @@ let billingLineItems = [
 
 const statusOrder = [
   "Account Manager",
+  "Kiosk Account",
+  "Special Access Account",
   "Active Membership",
   "Open Gym Only",
-  "Billed Monthly",
-  "Account Past Due NO ACCESS ALLOWED"
+  "RESTRICTED ACCOUNT"
 ];
+
+const accountTypeOptions = [
+  "Account Manager",
+  "Kiosk Account",
+  "Special Access Account",
+  "Active Membership",
+  "Open Gym Only",
+  "RESTRICTED ACCOUNT"
+];
+
+function canonicalAccountType(accountType) {
+  if (accountType === "Billed Monthly") return "Special Access Account";
+  if (accountType === "Account Past Due NO ACCESS ALLOWED") return "RESTRICTED ACCOUNT";
+  return accountType || "Active Membership";
+}
 
 const appState = {
   selectedMemberId: "m-damien",
@@ -360,6 +376,16 @@ const accountManagerOnlyRoutes = new Set([
   "advertisementBanners",
   "message",
   "contracts"
+]);
+
+const kioskAllowedRoutes = new Set([
+  "memberSignIn",
+  "guestSignIn",
+  "currentlySignedIn",
+  "heaterRecords",
+  "heaterForm",
+  "feedback",
+  "calendar"
 ]);
 
 let frontDoorSession = buildSession("m-rorc");
@@ -418,7 +444,8 @@ const routes = {
   },
   feedback: {
     title: "Feedback",
-    template: "placeholderTemplate"
+    template: "feedbackTemplate",
+    afterRender: renderFeedbackPage
   },
   calendar: {
     title: "Calendar",
@@ -453,13 +480,12 @@ const routes = {
 
 function buildSession(memberId) {
   const member = findMember(memberId);
-  const account = member ? accountForMember(member) : null;
 
   return {
     memberId,
     memberName: member?.memberName || "",
     accountId: member?.accountId || "",
-    accountNumber: account?.accountNumber || "",
+    accountNumber: displayAccountNumberForMember(member),
     accountType: member?.accountType || ""
   };
 }
@@ -472,8 +498,17 @@ function accountForMember(member) {
   return accounts.find((account) => account.id === member?.accountId) || null;
 }
 
+function displayAccountNumberForMember(member) {
+  if (!member) return "";
+  return String(accountForMember(member)?.accountNumber || "").trim();
+}
+
 function isAccountManager(memberOrSession) {
   return memberOrSession?.accountType === "Account Manager";
+}
+
+function isKioskAccount(memberOrSession) {
+  return memberOrSession?.accountType === "Kiosk Account";
 }
 
 function escapeHtml(value) {
@@ -764,6 +799,133 @@ function renderSharePage() {
   bindSharePageActions();
 }
 
+function renderFeedbackPage() {
+  const root = document.getElementById("feedbackContent");
+  const member = findMember(appUserSession.memberId);
+  const account = member ? accountForMember(member) : null;
+
+  if (!root) return;
+
+  root.innerHTML = `
+    <section class="feedback-shell">
+      <header class="feedback-hero">
+        <p class="eyebrow">RORC App</p>
+        <h2>Feedback</h2>
+        <p>Share bugs, ideas, and requests. Your message will be emailed to the RORC app inbox.</p>
+      </header>
+
+      <form id="feedbackForm" class="feedback-form">
+        <input id="feedbackMemberName" type="hidden" value="${escapeAttribute(member?.memberName || "")}" />
+        <input id="feedbackAccountNumber" type="hidden" value="${escapeAttribute(displayAccountNumberForMember(member))}" />
+
+        <label>
+          <span>Type</span>
+          <select id="feedbackType">
+            <option value="Bug Report">Bug Report</option>
+            <option value="Feature Request">Feature Request</option>
+            <option value="Usability">Usability</option>
+            <option value="General" selected>General</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Subject (optional)</span>
+          <input id="feedbackSubject" type="text" maxlength="120" />
+        </label>
+
+        <label>
+          <span>Message</span>
+          <textarea id="feedbackMessage" rows="6" maxlength="4000" required></textarea>
+        </label>
+
+        <div class="feedback-actions">
+          <button id="feedbackSubmit" type="submit">Send Feedback</button>
+          <p id="feedbackResult" class="feedback-result" aria-live="polite"></p>
+        </div>
+      </form>
+    </section>
+  `;
+
+  bindFeedbackActions();
+}
+
+function setFeedbackResult(message, tone = "default") {
+  const result = document.getElementById("feedbackResult");
+  if (!result) return;
+  result.textContent = message;
+  result.dataset.tone = tone;
+}
+
+async function submitFeedback(event) {
+  event.preventDefault();
+
+  const submitButton = document.getElementById("feedbackSubmit");
+  const feedbackType = String(document.getElementById("feedbackType")?.value || "General").trim();
+  const subject = String(document.getElementById("feedbackSubject")?.value || "").trim();
+  const message = String(document.getElementById("feedbackMessage")?.value || "").trim();
+  const memberName = String(document.getElementById("feedbackMemberName")?.value || "").trim();
+  const accountNumber = String(document.getElementById("feedbackAccountNumber")?.value || "").trim();
+  const token = currentAuthSession?.access_token || "";
+
+  if (!message) {
+    setFeedbackResult("Please enter a message before sending.", "error");
+    return;
+  }
+
+  if (!token) {
+    setFeedbackResult("Your session expired. Please sign in again.", "error");
+    return;
+  }
+
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "Sending...";
+  }
+  setFeedbackResult("Sending feedback...");
+
+  try {
+    const response = await fetch("/api/app-feedback", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        feedbackType,
+        subject,
+        message,
+        memberName,
+        accountNumber
+      })
+    });
+
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok || body.success === false) {
+      throw new Error(body.error || "Could not send feedback.");
+    }
+
+    const messageInput = document.getElementById("feedbackMessage");
+    const subjectInput = document.getElementById("feedbackSubject");
+    if (messageInput) messageInput.value = "";
+    if (subjectInput) subjectInput.value = "";
+    setFeedbackResult("Feedback sent. Thank you.", "success");
+  } catch (error) {
+    setFeedbackResult(error.message || "Could not send feedback.", "error");
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = "Send Feedback";
+    }
+  }
+}
+
+function bindFeedbackActions() {
+  const form = document.getElementById("feedbackForm");
+  if (!form) return;
+  form.addEventListener("submit", submitFeedback);
+}
+
 function bindSharePageActions() {
   document.querySelectorAll("[data-share-action]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -915,18 +1077,26 @@ function hasOtherUsersOnCurrentAccount() {
 function updateNavigationVisibility() {
   const showOtherUsers = hasOtherUsersOnCurrentAccount();
   const showAccountManagerPages = isAccountManager(appUserSession);
+  const kioskMode = isKioskAccount(appUserSession);
 
   drawerItems
     .filter((item) => item.dataset.route === "otherUsers")
     .forEach((item) => {
-      item.hidden = !showOtherUsers;
+      item.hidden = kioskMode || !showOtherUsers;
     });
 
   drawerItems
     .filter((item) => accountManagerOnlyRoutes.has(item.dataset.route))
     .forEach((item) => {
-      item.hidden = !showAccountManagerPages;
+      item.hidden = kioskMode || !showAccountManagerPages;
     });
+
+  if (kioskMode) {
+    drawerItems.forEach((item) => {
+      const routeName = item.dataset.route;
+      item.hidden = !["feedback", "calendar"].includes(routeName);
+    });
+  }
 }
 
 function updateDrawerIdentity() {
@@ -1092,13 +1262,13 @@ function applySupabaseData({
     id: row.account_member_id,
     accountId: row.account_id,
     memberName: row.member_name || "Unnamed Member",
-    accountType: row.account_type || "Active Membership",
+    accountType: canonicalAccountType(row.account_type),
     legacyAccountType: row.legacy_account_type || "",
     phoneNumber: row.phone_number || "",
     emailAddress: row.email_address || "",
     imagePath: row.image_path || "",
     allowGuestEntry: Boolean(row.allow_guest_entry),
-    allowHeaterUse: accountTypeAllowsHeater(row.account_type),
+    allowHeaterUse: accountTypeAllowsHeater(canonicalAccountType(row.account_type)),
     isBillingOwner: Boolean(row.is_billing_owner),
     pinConfigured: true
   }));
@@ -1149,7 +1319,7 @@ function applySupabaseData({
 }
 
 function accountTypeAllowsHeater(accountType) {
-  return ["Account Manager", "Active Membership", "Billed Monthly"].includes(accountType);
+  return ["Account Manager", "Kiosk Account", "Active Membership", "Special Access Account"].includes(canonicalAccountType(accountType));
 }
 
 function resolveMemberId(preferredName, fallbackType) {
@@ -1179,7 +1349,7 @@ function refreshSessions(memberId = appState.authMemberId) {
 
 function dataSourceNotice() {
   if (appState.dataStatus === "live") {
-    return `<p class="data-source-note">Live Supabase data</p>`;
+    return `<p class="data-source-note">Live data</p>`;
   }
 
   if (appState.dataStatus === "partial") {
@@ -1187,14 +1357,14 @@ function dataSourceNotice() {
   }
 
   if (appState.dataStatus === "loading") {
-    return `<p class="data-source-note">Loading Supabase data...</p>`;
+    return `<p class="data-source-note">Loading data...</p>`;
   }
 
   if (appState.dataStatus === "error") {
-    return `<p class="data-source-note is-warning">Could not load Supabase data. ${escapeHtml(appState.dataError)}</p>`;
+    return `<p class="data-source-note is-warning">Could not load data. ${escapeHtml(appState.dataError)}</p>`;
   }
 
-  return `<p class="data-source-note is-warning">Waiting for Supabase data...</p>`;
+  return `<p class="data-source-note is-warning">Waiting for data...</p>`;
 }
 
 function openDrawer() {
@@ -1218,7 +1388,7 @@ function closeDrawer() {
 }
 
 function visibleMembersForSession(session) {
-  if (isAccountManager(session)) {
+  if (isAccountManager(session) || isKioskAccount(session)) {
     return accountMembers;
   }
 
@@ -1229,7 +1399,9 @@ function guestSponsorsForSession(session) {
   const visibleMembers = visibleMembersForSession(session);
 
   return visibleMembers.filter((member) => (
-    member.accountType === "Account Manager" || member.allowGuestEntry
+    member.accountType === "Account Manager"
+    || member.accountType === "Active Membership"
+    || member.allowGuestEntry
   ));
 }
 
@@ -1485,13 +1657,14 @@ function openMultiMemberPicker(button) {
 
 function renderMemberPickerOption(member, selectedMember, role = "radio") {
   const account = accountForMember(member);
+  const memberAccountNumber = displayAccountNumberForMember(member);
   const isSelected = typeof selectedMember === "boolean"
     ? selectedMember
     : member.id === selectedMember;
   const searchValue = [
     member.memberName,
     member.accountType,
-    account?.accountNumber,
+    memberAccountNumber,
     member.emailAddress
   ].join(" ").toLowerCase();
 
@@ -1627,10 +1800,12 @@ function isOpenGymWindow(date) {
 }
 
 function accountTypeTone(accountType) {
-  if (accountType === "Account Manager") return "gray";
-  if (accountType === "Open Gym Only") return "blue";
-  if (accountType === "Account Past Due NO ACCESS ALLOWED") return "red";
-  if (accountType === "Billed Monthly") return "amber";
+  const normalizedType = canonicalAccountType(accountType);
+  if (normalizedType === "Account Manager") return "gray";
+  if (normalizedType === "Kiosk Account") return "gray";
+  if (normalizedType === "Open Gym Only") return "blue";
+  if (normalizedType === "RESTRICTED ACCOUNT") return "red";
+  if (normalizedType === "Special Access Account") return "purple";
   return "green";
 }
 
@@ -1648,7 +1823,9 @@ function heaterRecordStatus(entry) {
 }
 
 function sortMembers(a, b) {
-  const typeDifference = statusOrder.indexOf(a.accountType) - statusOrder.indexOf(b.accountType);
+  const typeIndexA = Math.max(statusOrder.indexOf(canonicalAccountType(a.accountType)), 999);
+  const typeIndexB = Math.max(statusOrder.indexOf(canonicalAccountType(b.accountType)), 999);
+  const typeDifference = typeIndexA - typeIndexB;
 
   if (typeDifference !== 0) return typeDifference;
 
@@ -1684,9 +1861,12 @@ function currentMonthRecords(records, dateField) {
 }
 
 function accessCopy(accountType) {
-  if (accountType === "Open Gym Only") return "Open Gym access Tuesday and Thursday nights from 6pm - 8pm.";
-  if (accountType === "Account Manager") return "Account Manager access with full administrative permissions.";
-  if (accountType === "Account Past Due NO ACCESS ALLOWED") return "Access is blocked until the account is restored.";
+  const normalizedType = canonicalAccountType(accountType);
+  if (normalizedType === "Open Gym Only") return "Open Gym access Tuesday and Thursday nights from 6pm - 8pm.";
+  if (normalizedType === "Account Manager") return "Account Manager access with full administrative permissions.";
+  if (normalizedType === "Kiosk Account") return "Kiosk account access for member sign-in, guest sign-in, currently signed in, heater records, feedback, and calendar.";
+  if (normalizedType === "Special Access Account") return "Custom contract access for approved organizations and special-use accounts.";
+  if (normalizedType === "RESTRICTED ACCOUNT") return "Access is blocked until the account is restored.";
   return "Basic Membership Access From 7am - 9pm. Follow calendar events for times closed.";
 }
 
@@ -1730,21 +1910,61 @@ function renderSignedInCard(entry) {
   const member = entry.memberOrGuest === "Member"
     ? findMember(entry.memberId)
     : findMember(entry.memberEnteredWithId);
-  const displayName = entry.memberOrGuest === "Guest"
+  const isGuest = entry.memberOrGuest === "Guest";
+  const primaryName = isGuest
     ? entry.guestName || "Guest"
     : member?.memberName || "Unknown Member";
+  const guestContext = isGuest
+    ? `signed in with ${member?.memberName || "Unknown Member"}`
+    : "";
 
   return `
     <article class="member-list-card as-row signed-in-name-row">
       <span class="status-dot ${accountTypeTone(member?.accountType)}" aria-hidden="true"></span>
       <span class="member-list-main">
-        <strong>${escapeHtml(displayName)}</strong>
+        <strong>${escapeHtml(primaryName)}</strong>${isGuest ? `<span class="guest-signin-context">${escapeHtml(guestContext)}</span>` : ""}
       </span>
-      <span class="member-list-actions" aria-hidden="true">
-        <span>Sign Out</span>
+      <span class="member-list-actions">
+        <button class="inline-signout-button" data-sign-out-entry="${escapeAttribute(entry.id)}" type="button">Sign Out</button>
       </span>
     </article>
   `;
+}
+
+async function signOutTimesheetEntry(entryId) {
+  const client = await createSupabaseClient();
+
+  if (!client) {
+    showDetailActionMessage("Supabase is not available.");
+    return;
+  }
+
+  const button = document.querySelector(`[data-sign-out-entry="${CSS.escape(entryId)}"]`);
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Signing Out...";
+  }
+
+  try {
+    const { error } = await client
+      .from("timesheet_entries")
+      .update({ signed_out_at: new Date().toISOString() })
+      .eq("id", entryId)
+      .is("signed_out_at", null);
+
+    if (error) {
+      throw error;
+    }
+
+    await hydrateFromSupabase();
+    render("currentlySignedIn");
+  } catch (error) {
+    showDetailActionMessage(error.message || "Could not sign out.");
+    if (button) {
+      button.disabled = false;
+      button.textContent = "Sign Out";
+    }
+  }
 }
 
 function renderHeaterRecords() {
@@ -1796,7 +2016,60 @@ function renderHeaterRecords() {
     </section>
   `;
 
+  const hasOpenHeater = records.some((entry) => heaterRecordStatus(entry).key === "currently-on");
+  const fab = document.querySelector(".heater-fab");
+  const fabLabel = fab?.querySelector(".heater-fab-label");
+  const confirmMessage = document.querySelector("#heaterConfirm .confirm-dialog p");
+  const confirmAccept = document.querySelector("[data-heater-confirm-accept]");
+
+  if (fab && fabLabel && confirmMessage && confirmAccept) {
+    fabLabel.textContent = hasOpenHeater ? "Heater Off" : "Heater On";
+    fab.setAttribute("aria-label", hasOpenHeater ? "Open heater off confirm" : "Open heater use form");
+    confirmAccept.textContent = hasOpenHeater ? "HEATER OFF" : "HEATER ON";
+    confirmMessage.innerHTML = hasOpenHeater
+      ? "Turn Heater Off<br /><span>(Ends current heater billing record)</span>"
+      : "Open Heater Use Form<br /><span>(Heater costs $13 per hour)</span>";
+  }
+
   bindHeaterRecordsActions();
+}
+
+function activeHeaterEntry() {
+  return [...heaterUseEntries]
+    .filter((entry) => !entry.endAt && (entry.turnHeaterOn || "On") === "On")
+    .sort((a, b) => new Date(b.startAt || b.usedOn) - new Date(a.startAt || a.usedOn))[0] || null;
+}
+
+async function turnHeaterOffActiveEntry() {
+  const activeEntry = activeHeaterEntry();
+
+  if (!activeEntry) {
+    showDetailActionMessage("No active heater entry found.");
+    return;
+  }
+
+  const client = await createSupabaseClient();
+
+  if (!client) {
+    showDetailActionMessage("Supabase is not available.");
+    return;
+  }
+
+  const { error } = await client
+    .from("heater_use_entries")
+    .update({
+      end_at: new Date().toISOString(),
+      turn_heater_on: "Off"
+    })
+    .eq("id", activeEntry.id)
+    .is("end_at", null);
+
+  if (error) {
+    throw error;
+  }
+
+  await hydrateFromSupabase();
+  render("heaterRecords");
 }
 
 function renderAccountInfo() {
@@ -1828,7 +2101,7 @@ function renderAccountInfo() {
       <div>
         <p class="eyebrow">Account Manager View</p>
         <h2>Membership Accounts</h2>
-        <p>Search, review, and open member accounts. Details use the same shared-account model as Supabase: account data is shared, member data is per person.</p>
+        <p>Search, review, and open member accounts. Details use a shared-account model: account data is shared, member data is per person.</p>
         ${dataSourceNotice()}
       </div>
       <div class="account-summary-strip">
@@ -1913,6 +2186,7 @@ function renderAccountStatusGroup(group) {
 
 function renderMemberListCard(member) {
   const account = accountForMember(member);
+  const memberAccountNumber = displayAccountNumberForMember(member);
   const records = recordsForMember(member.id);
   const monthlySignIns = currentMonthRecords(records.timesheet, "signedInAt").length;
   const openBilling = records.billing
@@ -1923,7 +2197,7 @@ function renderMemberListCard(member) {
     member.accountType,
     member.emailAddress,
     member.phoneNumber,
-    account?.accountNumber
+    memberAccountNumber
   ].join(" ").toLowerCase();
 
   return `
@@ -1934,7 +2208,7 @@ function renderMemberListCard(member) {
         <small>${escapeHtml(member.accountType)}</small>
       </span>
       <span class="member-list-meta">
-        <strong>${escapeHtml(account?.accountNumber || "")}</strong>
+        <strong>${escapeHtml(memberAccountNumber || "")}</strong>
         <small>${monthlySignIns} sign-ins this month</small>
       </span>
       <span class="member-list-actions" aria-hidden="true">
@@ -1996,6 +2270,7 @@ function renderAccountDetail(memberId) {
   }
 
   const account = accountForMember(member);
+  const memberAccountNumber = displayAccountNumberForMember(member);
   const canView = isAccountManager(appUserSession)
     || member.id === appUserSession.memberId
     || member.accountId === appUserSession.accountId;
@@ -2028,7 +2303,7 @@ function renderAccountDetail(memberId) {
           <div>
             <p class="eyebrow">${escapeHtml(member.accountType)}</p>
             <h2>${escapeHtml(member.memberName)}</h2>
-            <p>${escapeHtml(account?.accountNumber || "")} · ${escapeHtml(account?.membershipDetails || accessCopy(member.accountType))}</p>
+            <p>${escapeHtml(memberAccountNumber || "")} · ${escapeHtml(account?.membershipDetails || accessCopy(member.accountType))}</p>
           </div>
         </div>
         <div class="detail-quick-actions">
@@ -2089,12 +2364,13 @@ function renderAccountDetail(memberId) {
 }
 
 function renderOverviewPanel(member, account) {
+  const memberAccountNumber = displayAccountNumberForMember(member);
   return `
     <div class="detail-card">
       <h3>Member</h3>
       ${renderDefinitionGrid([
         ["Member Name", member.memberName],
-        ["Account Number", account?.accountNumber],
+        ["Account Number", memberAccountNumber],
         ["Account Type", member.accountType],
         ["PIN Status", member.pinConfigured ? "Set" : "Needs setup"],
         ["Phone Number", member.phoneNumber || "Not set"],
@@ -2234,6 +2510,14 @@ function syncLocalMember(memberId, updates) {
   };
 }
 
+function removeLocalMember(memberId) {
+  const index = accountMembers.findIndex((member) => member.id === memberId);
+
+  if (index < 0) return;
+
+  accountMembers.splice(index, 1);
+}
+
 function canEditMember(member) {
   return Boolean(isAccountManager(appUserSession) || member?.id === appUserSession.memberId);
 }
@@ -2256,6 +2540,7 @@ async function updateMemberContact(member, updates) {
 
   if (isAccountManager(appUserSession)) {
     dbUpdates.member_name = updates.memberName;
+    dbUpdates.account_type = updates.accountType || member.accountType;
   }
 
   const { error } = await client
@@ -2264,7 +2549,63 @@ async function updateMemberContact(member, updates) {
     .eq("id", member.id);
 
   if (error) {
+    if (
+      updates.accountType === "Special Access Account"
+      && String(error.message || "").toLowerCase().includes("membership_account_type")
+    ) {
+      throw new Error("Special Access Account is not added in Supabase yet. Run supabase/add_special_access_account_type.sql first.");
+    }
+
     throw error;
+  }
+
+  if (isAccountManager(appUserSession)) {
+    const { error: accountTypeError } = await client
+      .from("account_members")
+      .update({ account_type: updates.accountType || member.accountType })
+      .eq("account_id", member.accountId);
+
+    if (accountTypeError) {
+      if (
+        updates.accountType === "Special Access Account"
+        && String(accountTypeError.message || "").toLowerCase().includes("membership_account_type")
+      ) {
+        throw new Error("Special Access Account is not added in Supabase yet. Run supabase/add_special_access_account_type.sql first.");
+      }
+
+      throw accountTypeError;
+    }
+  }
+
+  if (isAccountManager(appUserSession) && updates.accountNumber) {
+    const currentAccountNumber = displayAccountNumberForMember(member);
+    const targetAccountNumber = String(updates.accountNumber || "").trim();
+
+    if (targetAccountNumber && targetAccountNumber !== currentAccountNumber) {
+      const token = currentAuthSession?.access_token || "";
+
+      if (!token) {
+        throw new Error("Session expired. Sign in again to move account.");
+      }
+
+      const response = await fetch("/api/move-member-account", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          memberId: member.id,
+          targetAccountNumber
+        })
+      });
+
+      const body = await response.json().catch(() => ({}));
+
+      if (!response.ok || body.success === false) {
+        throw new Error(body.error || "Could not move member to account.");
+      }
+    }
   }
 
   if (member.id === appUserSession.memberId) {
@@ -2297,7 +2638,57 @@ async function updateMemberContact(member, updates) {
     appState.currentUserEmail = currentAuthSession?.user?.email || updates.emailAddress;
   }
 
-  syncLocalMember(member.id, updates);
+  syncLocalMember(member.id, {
+    ...updates,
+    accountType: updates.accountType || member.accountType,
+    allowHeaterUse: accountTypeAllowsHeater(updates.accountType || member.accountType)
+  });
+
+  if (isAccountManager(appUserSession)) {
+    accountMembers.forEach((accountMember) => {
+      if (accountMember.accountId === member.accountId) {
+        syncLocalMember(accountMember.id, {
+          accountType: updates.accountType || member.accountType,
+          allowHeaterUse: accountTypeAllowsHeater(updates.accountType || member.accountType)
+        });
+      }
+    });
+  }
+
+  refreshSessions(appState.authMemberId);
+  updateDrawerIdentity();
+}
+
+async function deleteMemberRecord(member) {
+  if (!isAccountManager(appUserSession)) {
+    throw new Error("Only account managers can delete members.");
+  }
+
+  if (!member?.id) {
+    throw new Error("Member not found.");
+  }
+
+  if (member.id === appUserSession.memberId) {
+    throw new Error("You cannot delete your own signed-in member record.");
+  }
+
+  const client = await createSupabaseClient();
+
+  if (!client) {
+    throw new Error("Supabase is not available.");
+  }
+
+  const { error } = await client
+    .from("account_members")
+    .delete()
+    .eq("id", member.id);
+
+  if (error) {
+    throw error;
+  }
+
+  removeLocalMember(member.id);
+  appState.selectedMemberId = null;
   refreshSessions(appState.authMemberId);
   updateDrawerIdentity();
 }
@@ -2309,6 +2700,8 @@ function openMemberEditDialog(member) {
   }
 
   const canEditName = isAccountManager(appUserSession);
+  const canDeleteMember = isAccountManager(appUserSession) && member.id !== appUserSession.memberId;
+  const account = accountForMember(member);
   const overlay = document.createElement("div");
   overlay.className = "member-edit-overlay";
   overlay.innerHTML = `
@@ -2333,9 +2726,25 @@ function openMemberEditDialog(member) {
         <input id="editMemberEmail" type="email" value="${escapeAttribute(member.emailAddress)}" inputmode="email" />
       </label>
 
+      ${canEditName ? `
+      <label>
+        <span>Account Number</span>
+        <input id="editAccountNumber" type="text" value="${escapeAttribute(displayAccountNumberForMember(member))}" />
+      </label>
+      <label>
+        <span>Account Type</span>
+        <select id="editMemberAccountType">
+          ${accountTypeOptions.map((accountType) => `
+            <option value="${escapeAttribute(accountType)}" ${accountType === member.accountType ? "selected" : ""}>${escapeHtml(accountType)}</option>
+          `).join("")}
+        </select>
+      </label>
+      ` : ""}
+
       <p id="editMemberResult" class="member-edit-result"></p>
 
       <footer>
+        ${canDeleteMember ? '<button class="member-edit-delete" type="button">Delete</button>' : ""}
         <button class="member-edit-cancel" type="button">Cancel</button>
         <button class="member-edit-save" type="button">Save</button>
       </footer>
@@ -2357,13 +2766,50 @@ function openMemberEditDialog(member) {
   };
 
   const saveButton = overlay.querySelector(".member-edit-save");
+  const deleteButton = overlay.querySelector(".member-edit-delete");
+  const openDeleteConfirmDialog = () => new Promise((resolve) => {
+    const confirmOverlay = document.createElement("div");
+    confirmOverlay.className = "member-delete-confirm-overlay";
+    confirmOverlay.innerHTML = `
+      <section class="member-delete-confirm-dialog" role="dialog" aria-modal="true" aria-label="Confirm member delete">
+        <h3>Delete ${escapeHtml(member.memberName)}?</h3>
+        <p>This permanently removes this member record.</p>
+        <footer>
+          <button class="member-delete-confirm-cancel" type="button">Cancel</button>
+          <button class="member-delete-confirm-accept" type="button">Delete</button>
+        </footer>
+      </section>
+    `;
+
+    overlay.appendChild(confirmOverlay);
+
+    const closeConfirm = (confirmed) => {
+      confirmOverlay.remove();
+      resolve(confirmed);
+    };
+
+    confirmOverlay.querySelector(".member-delete-confirm-cancel")?.addEventListener("click", () => closeConfirm(false));
+    confirmOverlay.querySelector(".member-delete-confirm-accept")?.addEventListener("click", () => closeConfirm(true));
+    confirmOverlay.addEventListener("click", (event) => {
+      if (event.target === confirmOverlay) {
+        closeConfirm(false);
+      }
+    });
+  });
   const save = async () => {
     const memberName = String(overlay.querySelector("#editMemberName")?.value || "").trim();
     const phoneNumber = String(overlay.querySelector("#editMemberPhone")?.value || "").trim();
     const emailAddress = String(overlay.querySelector("#editMemberEmail")?.value || "").trim().toLowerCase();
+    const accountNumber = String(overlay.querySelector("#editAccountNumber")?.value || displayAccountNumberForMember(member) || "").trim();
+    const accountType = String(overlay.querySelector("#editMemberAccountType")?.value || member.accountType);
 
     if (!memberName) {
       setResult("Member name is required.", "error");
+      return;
+    }
+
+    if (canEditName && !accountNumber) {
+      setResult("Account number is required.", "error");
       return;
     }
 
@@ -2374,14 +2820,16 @@ function openMemberEditDialog(member) {
       await updateMemberContact(member, {
         memberName,
         phoneNumber,
-        emailAddress
+        emailAddress,
+        accountType,
+        accountNumber
       });
 
       setResult("Saved.", "success");
+      close();
       window.setTimeout(() => {
-        close();
-        render(appState.currentRoute);
-      }, 350);
+        hydrateFromSupabase();
+      }, 180);
     } catch (error) {
       setResult(error.message || "Could not save member.", "error");
     } finally {
@@ -2391,6 +2839,29 @@ function openMemberEditDialog(member) {
 
   overlay.querySelector(".member-edit-cancel")?.addEventListener("click", close);
   saveButton?.addEventListener("click", save);
+  deleteButton?.addEventListener("click", async () => {
+    if (!canDeleteMember) {
+      setResult("Only account managers can delete members.", "error");
+      return;
+    }
+
+    const confirmed = await openDeleteConfirmDialog();
+    if (!confirmed) return;
+
+    deleteButton.disabled = true;
+    saveButton.disabled = true;
+    setResult("Deleting...");
+
+    try {
+      await deleteMemberRecord(member);
+      close();
+      render(appState.detailReturnRoute || "accountInfo");
+    } catch (error) {
+      setResult(error.message || "Could not delete member.", "error");
+      deleteButton.disabled = false;
+      saveButton.disabled = false;
+    }
+  });
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) {
       close();
@@ -2498,6 +2969,15 @@ function bindHeaterRecordsActions() {
 
   acceptButton.addEventListener("click", () => {
     confirm.hidden = true;
+    const isHeaterOffAction = String(openButton.querySelector(".heater-fab-label")?.textContent || "").trim() === "Heater Off";
+
+    if (isHeaterOffAction) {
+      turnHeaterOffActiveEntry().catch((error) => {
+        showDetailActionMessage(error.message || "Could not turn heater off.");
+      });
+      return;
+    }
+
     render("heaterForm");
   });
 
@@ -2514,6 +2994,16 @@ function populateHeaterForm() {
   if (heaterDate) {
     heaterDate.value = formatDateOnly(new Date());
   }
+
+  const turnHeaterSegments = document.querySelectorAll('.heater-use-screen [aria-label="Turn heater on"] .segment');
+  turnHeaterSegments.forEach((segment, index) => {
+    segment.classList.toggle("is-selected", index === 0);
+  });
+
+  const groupPaySegments = document.querySelectorAll('.heater-use-screen [aria-label="Group pay"] .segment');
+  groupPaySegments.forEach((segment) => {
+    segment.classList.toggle("is-selected", segment.dataset.heaterGroupPay === "N");
+  });
 
   updateHeaterGroupPayFields();
 }
@@ -2565,6 +3055,251 @@ function updateHeaterGroupPayFields(selectedButton) {
   }
 }
 
+async function saveMemberSignIn() {
+  const memberInput = document.getElementById("memberNameSelect");
+  const saveButton = document.querySelector(".member-sign-in-screen .save-action");
+  const selectedMemberIds = selectedMemberIdsFromInput(memberInput);
+
+  if (selectedMemberIds.length === 0) {
+    showDetailActionMessage("Select at least one member.");
+    return;
+  }
+
+  const uniqueMemberIds = [...new Set(selectedMemberIds)];
+  const alreadySignedIn = uniqueMemberIds.filter((memberId) => (
+    timesheetEntries.some((entry) => (
+      entry.memberOrGuest === "Member"
+      && entry.memberId === memberId
+      && !entry.signedOutAt
+    ))
+  ));
+
+  if (alreadySignedIn.length > 0) {
+    const names = alreadySignedIn
+      .map((memberId) => findMember(memberId)?.memberName || "Member")
+      .join(", ");
+    showDetailActionMessage(`${names} already signed in.`);
+    return;
+  }
+
+  const client = await createSupabaseClient();
+
+  if (!client) {
+    showDetailActionMessage("Supabase is not available.");
+    return;
+  }
+
+  if (saveButton) {
+    saveButton.disabled = true;
+    saveButton.textContent = "Saving...";
+  }
+
+  try {
+    const rows = uniqueMemberIds.map((memberId) => ({
+      member_or_guest: "Member",
+      member_id: memberId,
+      signed_in_at: new Date().toISOString()
+    }));
+
+    const { error } = await client
+      .from("timesheet_entries")
+      .insert(rows);
+
+    if (error) {
+      throw error;
+    }
+
+    await hydrateFromSupabase();
+    render("currentlySignedIn");
+  } catch (error) {
+    showDetailActionMessage(error.message || "Could not save member sign-in.");
+  } finally {
+    if (saveButton) {
+      saveButton.disabled = false;
+      saveButton.textContent = "Save";
+    }
+  }
+}
+
+async function saveGuestSignIn() {
+  const form = document.querySelector(".guest-sign-in-screen");
+  const saveButton = form?.querySelector(".save-action");
+  const guestName = String(form?.querySelector('input[type="text"]')?.value || "").trim();
+  const memberEnteredWithId = String(document.getElementById("guestMemberSelect")?.value || "").trim();
+  const passType = String(form?.querySelector('[aria-label="Guest pass type"] .segment.is-selected')?.textContent || "").trim();
+  const liabilityValue = String(form?.querySelector('[aria-label="Liability accepted"] .segment.is-selected')?.textContent || "").trim();
+  const liabilityAccepted = liabilityValue === "Y";
+
+  if (!guestName) {
+    showDetailActionMessage("Guest name is required.");
+    return;
+  }
+
+  if (!memberEnteredWithId) {
+    showDetailActionMessage("Select the member entered with.");
+    return;
+  }
+
+  if (!["Day Pass", "Open Gym"].includes(passType)) {
+    showDetailActionMessage("Select Day Pass or Open Gym.");
+    return;
+  }
+
+  if (!["Y", "N"].includes(liabilityValue)) {
+    showDetailActionMessage("Select liability accepted: Y or N.");
+    return;
+  }
+
+  if (!liabilityAccepted) {
+    showDetailActionMessage("Liability must be accepted to sign in a guest.");
+    return;
+  }
+
+  if (passType === "Open Gym" && !isOpenGymWindow(new Date())) {
+    showDetailActionMessage("Open Gym is only available Tuesday and Thursday nights 6pm to 8pm.");
+    return;
+  }
+
+  const client = await createSupabaseClient();
+
+  if (!client) {
+    showDetailActionMessage("Supabase is not available.");
+    return;
+  }
+
+  if (saveButton) {
+    saveButton.disabled = true;
+    saveButton.textContent = "Saving...";
+  }
+
+  try {
+    const { error } = await client
+      .from("timesheet_entries")
+      .insert({
+        member_or_guest: "Guest",
+        guest_name: guestName,
+        day_pass_or_open_gym: passType,
+        member_entered_with_id: memberEnteredWithId,
+        liability_accepted: true,
+        signed_in_at: new Date().toISOString()
+      });
+
+    if (error) {
+      throw error;
+    }
+
+    await hydrateFromSupabase();
+    render("currentlySignedIn");
+  } catch (error) {
+    showDetailActionMessage(error.message || "Could not save guest sign-in.");
+  } finally {
+    if (saveButton) {
+      saveButton.disabled = false;
+      saveButton.textContent = "Save";
+    }
+  }
+}
+
+async function saveHeaterUse() {
+  const form = document.querySelector(".heater-use-screen");
+  const saveButton = form?.querySelector(".save-action");
+
+  if (!form) return;
+
+  const turnHeaterOn = String(form.querySelector('[aria-label="Turn heater on"] .segment.is-selected')?.textContent || "").trim();
+  const eventName = String(form.querySelector('[aria-label="Heater event"] .choice-segment.is-selected')?.textContent || "").trim();
+  const groupPayValue = String(form.querySelector('[aria-label="Group pay"] .segment.is-selected')?.dataset.heaterGroupPay || "").trim();
+  const note = String(form.querySelector("textarea")?.value || "").trim();
+  const singleResponsibleMemberId = String(document.getElementById("heaterResponsibleMember")?.value || "").trim();
+  const multiResponsibleMemberIds = selectedMemberIdsFromInput(document.getElementById("heaterResponsibleMembers"));
+
+  if (!["On", "Off"].includes(turnHeaterOn)) {
+    showDetailActionMessage("Select heater state: On or Off.");
+    return;
+  }
+
+  if (!eventName) {
+    showDetailActionMessage("Select an event.");
+    return;
+  }
+
+  if (!["N", "Y"].includes(groupPayValue)) {
+    showDetailActionMessage("Select Group Pay: N or Y.");
+    return;
+  }
+
+  if (groupPayValue === "N" && !singleResponsibleMemberId) {
+    showDetailActionMessage("Select a responsible party.");
+    return;
+  }
+
+  if (groupPayValue === "Y" && multiResponsibleMemberIds.length === 0) {
+    showDetailActionMessage("Select at least one responsible party.");
+    return;
+  }
+
+  const client = await createSupabaseClient();
+
+  if (!client) {
+    showDetailActionMessage("Supabase is not available.");
+    return;
+  }
+
+  if (saveButton) {
+    saveButton.disabled = true;
+    saveButton.textContent = "Saving...";
+  }
+
+  try {
+    const groupPay = groupPayValue === "Y";
+    const responsibleMemberId = groupPay ? (multiResponsibleMemberIds[0] || null) : singleResponsibleMemberId;
+    const usedOn = new Date().toISOString().slice(0, 10);
+
+    const { data: createdEntry, error } = await client
+      .from("heater_use_entries")
+      .insert({
+        used_on: usedOn,
+        event: eventName,
+        responsible_member_id: responsibleMemberId,
+        group_pay: groupPay,
+        turn_heater_on: turnHeaterOn,
+        start_at: new Date().toISOString(),
+        note: note || null
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    if (groupPay && createdEntry?.id) {
+      const groupRows = [...new Set(multiResponsibleMemberIds)].map((memberId) => ({
+        heater_use_entry_id: createdEntry.id,
+        account_member_id: memberId
+      }));
+
+      const { error: groupError } = await client
+        .from("heater_use_group_members")
+        .insert(groupRows);
+
+      if (groupError) {
+        throw groupError;
+      }
+    }
+
+    await hydrateFromSupabase();
+    render("heaterRecords");
+  } catch (error) {
+    showDetailActionMessage(error.message || "Could not save heater record.");
+  } finally {
+    if (saveButton) {
+      saveButton.disabled = false;
+      saveButton.textContent = "Save";
+    }
+  }
+}
+
 function bindRouteActions() {
   document.querySelectorAll("[data-route-target]").forEach((button) => {
     button.addEventListener("click", () => render(button.dataset.routeTarget));
@@ -2593,6 +3328,19 @@ function bindRouteActions() {
   });
 
   document.querySelectorAll(".segment.is-selected").forEach(updateOpenGymWarning);
+
+  const memberSignInSave = document.querySelector(".member-sign-in-screen .save-action");
+  memberSignInSave?.addEventListener("click", saveMemberSignIn);
+
+  const guestSignInSave = document.querySelector(".guest-sign-in-screen .save-action");
+  guestSignInSave?.addEventListener("click", saveGuestSignIn);
+
+  const heaterUseSave = document.querySelector(".heater-use-screen .save-action");
+  heaterUseSave?.addEventListener("click", saveHeaterUse);
+
+  document.querySelectorAll("[data-sign-out-entry]").forEach((button) => {
+    button.addEventListener("click", () => signOutTimesheetEntry(button.dataset.signOutEntry));
+  });
 }
 
 function loginEmailValue() {
@@ -2744,6 +3492,10 @@ function bindAuthActions() {
 function render(routeName) {
   let resolvedRouteName = routeName;
 
+  if (isKioskAccount(appUserSession) && !kioskAllowedRoutes.has(resolvedRouteName)) {
+    resolvedRouteName = "currentlySignedIn";
+  }
+
   if (accountManagerOnlyRoutes.has(resolvedRouteName) && !isAccountManager(appUserSession)) {
     resolvedRouteName = "myAccount";
   }
@@ -2754,6 +3506,7 @@ function render(routeName) {
 
   const route = routes[resolvedRouteName] || routes.currentlySignedIn;
   const template = document.getElementById(route.template);
+  const shouldResetScrollTop = resolvedRouteName === "accountDetails";
 
   if (!template || !view || !screenTitle || !appShell || !navControl) return;
 
@@ -2769,6 +3522,11 @@ function render(routeName) {
   navControl.classList.toggle("is-back", backRoute);
   navControl.setAttribute("aria-label", backRoute ? "Go back" : "Open menu");
 
+  if (shouldResetScrollTop) {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    view.scrollTop = 0;
+  }
+
   view.innerHTML = "";
   view.appendChild(template.content.cloneNode(true));
 
@@ -2781,6 +3539,9 @@ function render(routeName) {
   });
 
   route.afterRender?.();
+  if (shouldResetScrollTop) {
+    view.scrollTop = 0;
+  }
   populateMemberSignIn();
   populateGuestSignIn();
   bindMemberPickers();
