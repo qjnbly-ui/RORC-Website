@@ -32,6 +32,7 @@ let notificationDispatchRecords = [];
 let memberNotifications = [];
 let notificationPollTimer = null;
 let notifiedIds = new Set();
+let notificationUnreadCount = 0;
 
 const statusOrder = [
   "Account Manager",
@@ -94,6 +95,7 @@ const kioskAllowedRoutes = new Set([
   "currentlySignedIn",
   "heaterRecords",
   "heaterForm",
+  "notifications",
   "feedback",
   "calendar"
 ]);
@@ -173,6 +175,11 @@ const routes = {
     title: "Bot Settings",
     template: "feedbackTemplate",
     afterRender: renderAutomationSettingsPage
+  },
+  notifications: {
+    title: "Notifications",
+    template: "feedbackTemplate",
+    afterRender: renderUserNotificationsPage
   },
   notificationsEmail: {
     title: "Notifications & Email",
@@ -800,6 +807,41 @@ function renderNotificationsPage() {
   });
 }
 
+function renderUserNotificationsPage() {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+
+  const records = [...memberNotifications]
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .slice(0, 100);
+
+  root.innerHTML = `
+    <section class="live-record-page">
+      ${records.length ? `
+      <div class="detail-card">
+        <ol class="record-list heater-record-list">
+          ${records.map((record) => `
+            <li>
+              <strong class="heater-record-event">${escapeHtml(record.title)}</strong>
+              <span class="heater-record-meta">${escapeHtml(record.channelsLabel)} · ${escapeHtml(record.recipientsLabel)} · ${formatShortDateTime(record.createdAt)}</span>
+              <button class="heater-state-action is-paid" type="button">${escapeHtml(record.statusLabel)}</button>
+            </li>
+          `).join("")}
+        </ol>
+      </div>
+      ` : `
+      <section class="empty-state">
+        <p>No notifications yet.</p>
+      </section>
+      `}
+    </section>
+  `;
+
+  markOwnNotificationsRead()
+    .then(() => refreshMemberNotifications({ announceNew: false }))
+    .catch(() => null);
+}
+
 function renderMessageComposerPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
@@ -823,7 +865,6 @@ function renderMessageComposerPage() {
             <button id="messageChannelText" class="segment" type="button" aria-pressed="false">Text</button>
             <button id="messageChannelEmail" class="segment" type="button" aria-pressed="false">Email</button>
             <button id="messageChannelInApp" class="segment" type="button" aria-pressed="false">In-App</button>
-            <button id="messageChannelBrowser" class="segment" type="button" aria-pressed="false">Browser</button>
           </div>
         </div>
 
@@ -926,24 +967,20 @@ function bindMessageComposerActions() {
   const textToggle = document.getElementById("messageChannelText");
   const emailToggle = document.getElementById("messageChannelEmail");
   const inAppToggle = document.getElementById("messageChannelInApp");
-  const browserToggle = document.getElementById("messageChannelBrowser");
 
-  if (!form || !saveButton || !result || !textToggle || !emailToggle || !inAppToggle || !browserToggle) return;
+  if (!form || !saveButton || !result || !textToggle || !emailToggle || !inAppToggle) return;
 
   let includeText = false;
   let includeEmail = false;
   let includeInApp = false;
-  let includeBrowser = false;
 
   const renderChannelToggles = () => {
     textToggle.classList.toggle("is-selected", includeText);
     emailToggle.classList.toggle("is-selected", includeEmail);
     inAppToggle.classList.toggle("is-selected", includeInApp);
-    browserToggle.classList.toggle("is-selected", includeBrowser);
     textToggle.setAttribute("aria-pressed", String(includeText));
     emailToggle.setAttribute("aria-pressed", String(includeEmail));
     inAppToggle.setAttribute("aria-pressed", String(includeInApp));
-    browserToggle.setAttribute("aria-pressed", String(includeBrowser));
   };
 
   const setResult = (message, tone = "default") => {
@@ -965,17 +1002,6 @@ function bindMessageComposerActions() {
     includeInApp = !includeInApp;
     renderChannelToggles();
   });
-  browserToggle.addEventListener("click", async () => {
-    if (!includeBrowser && "Notification" in window && Notification.permission === "default") {
-      try {
-        await Notification.requestPermission();
-      } catch (error) {
-        // Ignore permission prompt errors.
-      }
-    }
-    includeBrowser = !includeBrowser;
-    renderChannelToggles();
-  });
 
   document.getElementById("messageMembers")?.addEventListener("change", setMessageRecipientSummary);
   setMessageRecipientSummary();
@@ -983,7 +1009,6 @@ function bindMessageComposerActions() {
   includeText = false;
   includeEmail = false;
   includeInApp = false;
-  includeBrowser = false;
   renderChannelToggles();
 
   form.addEventListener("submit", async (event) => {
@@ -1009,7 +1034,7 @@ function bindMessageComposerActions() {
       return;
     }
 
-    if (!includeText && !includeEmail && !includeInApp && !includeBrowser) {
+    if (!includeText && !includeEmail && !includeInApp) {
       setResult("Select at least one delivery channel.", "error");
       return;
     }
@@ -1025,8 +1050,7 @@ function bindMessageComposerActions() {
         channels: {
           text: includeText,
           email: includeEmail,
-          inApp: includeInApp,
-          browser: includeBrowser
+          inApp: includeInApp
         },
         sendAt
       });
@@ -1040,7 +1064,6 @@ function bindMessageComposerActions() {
         includeText,
         includeEmail,
         includeInApp,
-        includeBrowser,
         selectedCount: memberIds.length,
         sentTextCount: response.sentTextCount || 0,
         sentEmailCount: response.sentEmailCount || 0,
@@ -1060,7 +1083,6 @@ function addNotificationDispatchRecord({
   includeText,
   includeEmail,
   includeInApp,
-  includeBrowser,
   selectedCount,
   sentTextCount,
   sentEmailCount,
@@ -1070,7 +1092,6 @@ function addNotificationDispatchRecord({
   if (includeText) channels.push("Text");
   if (includeEmail) channels.push("Email");
   if (includeInApp) channels.push("In-App");
-  if (includeBrowser) channels.push("Browser");
 
   const record = {
     id: `msg-${Date.now()}`,
@@ -1356,7 +1377,7 @@ function updateNavigationVisibility() {
   if (kioskMode) {
     drawerItems.forEach((item) => {
       const routeName = item.dataset.route;
-      item.hidden = !["feedback", "calendar"].includes(routeName);
+      item.hidden = !["feedback", "calendar", "notifications"].includes(routeName);
     });
   }
 }
@@ -1371,6 +1392,16 @@ function updateDrawerIdentity() {
   }
 
   updateNavigationVisibility();
+  updateNotificationBadge();
+}
+
+function updateNotificationBadge() {
+  const badge = document.getElementById("drawerNotificationsBadge");
+  if (!badge) return;
+
+  const hasUnread = notificationUnreadCount > 0;
+  badge.hidden = !hasUnread;
+  badge.textContent = hasUnread ? `New ${notificationUnreadCount}` : "New";
 }
 
 async function fetchMemberNotifications() {
@@ -1398,47 +1429,56 @@ async function fetchMemberNotifications() {
         k === "inApp" ? "In-App" : k === "browser" ? "Browser" : k === "text" ? "Text" : k === "email" ? "Email" : k
       )).join(" + ") || "In-App"
       : "In-App",
-    recipientsLabel: "To you",
-    statusLabel: row.read_at ? "Read" : "Unread",
+    recipientsLabel: row.recipient_member_id === appState.authMemberId ? "To you" : "Shared account",
+    statusLabel: row.recipient_member_id === appState.authMemberId
+      ? (row.read_at ? "Read" : "Unread")
+      : "Delivered",
     createdAt: row.created_at,
     readAt: row.read_at,
-    rawChannels: row.channels || {}
+    rawChannels: row.channels || {},
+    recipientMemberId: row.recipient_member_id
   }));
-}
-
-function canShowBrowserNotice(notification) {
-  if (!("Notification" in window)) return false;
-  if (Notification.permission !== "granted") return false;
-  if (notification?.rawChannels?.browser !== true) return false;
-  return true;
-}
-
-function showBrowserNotification(notification) {
-  if (!canShowBrowserNotice(notification)) return;
-  try {
-    new Notification(notification.title || "RORC", {
-      body: notification.message || "",
-      icon: "/Images/LOGOS/LOGO.png",
-      badge: "/RORC%20App/icons/favicon-32.png"
-    });
-  } catch (error) {
-    // Ignore browser notification errors.
-  }
 }
 
 async function refreshMemberNotifications({ announceNew = false } = {}) {
   const rows = await fetchMemberNotifications();
   memberNotifications = rows;
+  notificationUnreadCount = rows.filter((row) => row.recipientMemberId === appState.authMemberId && !row.readAt).length;
+  updateNotificationBadge();
 
   if (announceNew) {
     rows.forEach((notification) => {
       if (!notifiedIds.has(notification.id)) {
         notifiedIds.add(notification.id);
-        showBrowserNotification(notification);
       }
     });
   } else {
     rows.forEach((notification) => notifiedIds.add(notification.id));
+  }
+}
+
+async function markOwnNotificationsRead() {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) return;
+
+  const ids = memberNotifications
+    .filter((row) => row.recipientMemberId === appState.authMemberId && !row.readAt)
+    .map((row) => row.id);
+
+  if (!ids.length) return;
+
+  const response = await fetch("/api/member-notifications", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ ids })
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || "Could not mark notifications as read.");
   }
 }
 
@@ -1454,8 +1494,8 @@ function startNotificationPolling() {
   notificationPollTimer = window.setInterval(async () => {
     try {
       await refreshMemberNotifications({ announceNew: true });
-      if (appState.currentRoute === "notificationsEmail") {
-        render("notificationsEmail");
+      if (appState.currentRoute === "notificationsEmail" || appState.currentRoute === "notifications") {
+        render(appState.currentRoute);
       }
     } catch (error) {
       // Ignore polling errors to avoid interrupting app flow.
@@ -1567,7 +1607,11 @@ async function hydrateFromSupabase() {
       : "";
     refreshSessions(appState.authMemberId);
     updateDrawerIdentity();
-    await loadGlobalMemberDirectory();
+    try {
+      await loadGlobalMemberDirectory();
+    } catch (directoryError) {
+      console.warn("Could not load full member directory.", directoryError);
+    }
     try {
       await refreshMemberNotifications({ announceNew: false });
       startNotificationPolling();
