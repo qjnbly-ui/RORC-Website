@@ -1341,8 +1341,8 @@ async function hydrateFromSupabase() {
   if (!client) {
     appState.dataStatus = "error";
     appState.dataError = hasSupabaseConfig()
-      ? "Supabase client script did not load."
-      : "Supabase is not configured for this app.";
+      ? "App data client script did not load."
+      : "App data is not configured for this app.";
     showAuthGate(appState.dataError, "error");
     return false;
   }
@@ -1387,7 +1387,7 @@ async function hydrateFromSupabase() {
     }
 
     if (!currentProfile) {
-      throw new Error("This Supabase user is signed in, but it is not linked to a RORC member profile.");
+      throw new Error("This signed-in user is not linked to a RORC member profile.");
     }
 
     const [
@@ -1443,7 +1443,7 @@ async function hydrateFromSupabase() {
     console.error("Supabase data load failed.", error);
     clearLiveData();
     appState.dataStatus = "error";
-    appState.dataError = error.message || "Supabase data load failed.";
+    appState.dataError = error.message || "Data load failed.";
     refreshSessions();
     updateDrawerIdentity();
     showAuthGate(appState.dataError, "error");
@@ -2164,7 +2164,7 @@ async function signOutTimesheetEntry(entryId) {
   const client = await createSupabaseClient();
 
   if (!client) {
-    showDetailActionMessage("Supabase is not available.");
+    showDetailActionMessage("App data is not available.");
     return;
   }
 
@@ -2302,7 +2302,7 @@ async function turnHeaterOffActiveEntry() {
   const client = await createSupabaseClient();
 
   if (!client) {
-    showDetailActionMessage("Supabase is not available.");
+    showDetailActionMessage("App data is not available.");
     return;
   }
 
@@ -2781,7 +2781,7 @@ async function updateMemberContact(member, updates) {
   const client = await createSupabaseClient();
 
   if (!client) {
-    throw new Error("Supabase is not available.");
+    throw new Error("App data is not available.");
   }
 
   const dbUpdates = {
@@ -2804,7 +2804,7 @@ async function updateMemberContact(member, updates) {
       updates.accountType === "Special Access Account"
       && String(error.message || "").toLowerCase().includes("membership_account_type")
     ) {
-      throw new Error("Special Access Account is not added in Supabase yet. Run supabase/add_special_access_account_type.sql first.");
+      throw new Error("Special Access Account is not added yet. Run supabase/add_special_access_account_type.sql first.");
     }
 
     throw error;
@@ -2821,7 +2821,7 @@ async function updateMemberContact(member, updates) {
         updates.accountType === "Special Access Account"
         && String(accountTypeError.message || "").toLowerCase().includes("membership_account_type")
       ) {
-        throw new Error("Special Access Account is not added in Supabase yet. Run supabase/add_special_access_account_type.sql first.");
+        throw new Error("Special Access Account is not added yet. Run supabase/add_special_access_account_type.sql first.");
       }
 
       throw accountTypeError;
@@ -2933,7 +2933,7 @@ async function moveMemberToAccountClientFallback(member, targetAccountNumber) {
   const client = await createSupabaseClient();
 
   if (!client) {
-    throw new Error("Supabase is not available.");
+    throw new Error("App data is not available.");
   }
 
   let targetAccountId = "";
@@ -3011,7 +3011,7 @@ async function deleteMemberRecord(member) {
   const client = await createSupabaseClient();
 
   if (!client) {
-    throw new Error("Supabase is not available.");
+    throw new Error("App data is not available.");
   }
 
   const { error } = await client
@@ -3493,7 +3493,7 @@ async function saveMemberSignIn() {
   const client = await createSupabaseClient();
 
   if (!client) {
-    showDetailActionMessage("Supabase is not available.");
+    showDetailActionMessage("App data is not available.");
     return;
   }
 
@@ -3577,7 +3577,7 @@ async function saveGuestSignIn() {
   const client = await createSupabaseClient();
 
   if (!client) {
-    showDetailActionMessage("Supabase is not available.");
+    showDetailActionMessage("App data is not available.");
     return;
   }
 
@@ -3655,7 +3655,7 @@ async function saveHeaterUse() {
   const client = await createSupabaseClient();
 
   if (!client) {
-    showDetailActionMessage("Supabase is not available.");
+    showDetailActionMessage("App data is not available.");
     return;
   }
 
@@ -3777,7 +3777,7 @@ async function handlePasswordLogin() {
     const client = await createSupabaseClient();
 
     if (!client) {
-      throw new Error("Supabase is not available.");
+      throw new Error("App data is not available.");
     }
 
     const { error } = await client.auth.signInWithPassword({ email, password });
@@ -3814,7 +3814,7 @@ async function handleMagicLinkLogin() {
     const client = await createSupabaseClient();
 
     if (!client) {
-      throw new Error("Supabase is not available.");
+      throw new Error("App data is not available.");
     }
 
     const { error } = await client.auth.signInWithOtp({
@@ -3852,7 +3852,7 @@ async function handlePasswordReset() {
     const client = await createSupabaseClient();
 
     if (!client) {
-      throw new Error("Supabase is not available.");
+      throw new Error("App data is not available.");
     }
 
     const { error } = await client.auth.resetPasswordForEmail(email, {
