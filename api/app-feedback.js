@@ -69,19 +69,20 @@ module.exports = async (req, res) => {
       message
     ].join("\n");
 
-    const htmlBody = `
-      <h2>RORC App Feedback</h2>
-      <p><strong>Submitted:</strong> ${escapeHtml(submittedAt)}</p>
-      <p><strong>Type:</strong> ${escapeHtml(feedbackType)}</p>
-      <p><strong>Subject:</strong> ${escapeHtml(subject || "(none)")}</p>
-      <p><strong>Member:</strong> ${escapeHtml(memberName || "(unknown)")}</p>
-      <p><strong>Account Number:</strong> ${escapeHtml(accountNumber || "(unknown)")}</p>
-      <p><strong>Member Email:</strong> ${escapeHtml(memberEmail || "(unknown)")}</p>
-      <p><strong>Auth User ID:</strong> ${escapeHtml(userId || "(unknown)")}</p>
-      <hr />
-      <p><strong>Message</strong></p>
-      <pre style="white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;">${escapeHtml(message)}</pre>
-    `;
+    const htmlBody = buildEmailTemplate({
+      title: "RORC App Feedback",
+      bodyHtml: `
+        <p style="margin:0 0 8px;color:#d1d5db;"><strong>Submitted:</strong> ${escapeHtml(submittedAt)}</p>
+        <p style="margin:0 0 8px;color:#d1d5db;"><strong>Type:</strong> ${escapeHtml(feedbackType)}</p>
+        <p style="margin:0 0 8px;color:#d1d5db;"><strong>Subject:</strong> ${escapeHtml(subject || "(none)")}</p>
+        <p style="margin:0 0 8px;color:#d1d5db;"><strong>Member:</strong> ${escapeHtml(memberName || "(unknown)")}</p>
+        <p style="margin:0 0 8px;color:#d1d5db;"><strong>Account Number:</strong> ${escapeHtml(accountNumber || "(unknown)")}</p>
+        <p style="margin:0 0 8px;color:#d1d5db;"><strong>Member Email:</strong> ${escapeHtml(memberEmail || "(unknown)")}</p>
+        <p style="margin:0 0 14px;color:#d1d5db;"><strong>Auth User ID:</strong> ${escapeHtml(userId || "(unknown)")}</p>
+        <p style="margin:0 0 6px;color:#f8fafc;"><strong>Message</strong></p>
+        <div style="white-space:pre-wrap;color:#d1d5db;line-height:1.6;">${escapeHtml(message)}</div>
+      `
+    });
 
     const resendResponse = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -143,4 +144,36 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function buildEmailTemplate({ title, bodyHtml }) {
+  return `
+    <div style="background:#0f1115;padding:24px 12px;font-family:Arial,sans-serif;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:680px;margin:0 auto;background:#171a21;border:1px solid #2c3340;border-radius:14px;overflow:hidden;">
+        <tr>
+          <td style="padding:22px 24px;border-bottom:1px solid #2c3340;">
+            <h1 style="margin:0;color:#f8fafc;font-size:26px;line-height:1.1;">${escapeHtml(title)}</h1>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:22px 24px;">
+            ${bodyHtml}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:18px 24px;border-top:1px solid #2c3340;color:#9ca3af;font-size:13px;line-height:1.6;">
+            <p style="margin:0 0 8px;">&copy; 2026 Ruth Obenchain Recreation Center</p>
+            <p style="margin:0 0 8px;">
+              <a href="https://ruthobenchainrc.com/support/" style="color:#cbd5e1;text-decoration:none;">Support</a>
+              &nbsp;|&nbsp;
+              <a href="https://ruthobenchainrc.com/privacy-policy/" style="color:#cbd5e1;text-decoration:none;">Privacy Policy</a>
+              &nbsp;|&nbsp;
+              <a href="https://ruthobenchainrc.com/terms-of-service/" style="color:#cbd5e1;text-decoration:none;">Terms of Service</a>
+            </p>
+            <p style="margin:0;">Operated by Bly Community Action Team<br />Designed &amp; Built by N3XRA</p>
+          </td>
+        </tr>
+      </table>
+    </div>
+  `;
 }

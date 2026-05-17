@@ -436,7 +436,10 @@ select {
   border-bottom: 1px solid var(--bar-border);
   display: flex;
   justify-content: space-between;
+  position: sticky;
   padding: 0 18px;
+  top: 0;
+  z-index: 12;
 }
 
 .app-title-group {
@@ -941,6 +944,10 @@ h1 {
 
 .data-source-note.is-warning {
   color: #f6b94f !important;
+}
+
+.live-record-page > .data-source-note {
+  text-align: center;
 }
 
 .account-page-heading {
@@ -1535,6 +1542,61 @@ h1 {
   color: #fff;
 }
 
+.app-notice-overlay {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 20px;
+  position: fixed;
+  z-index: 120;
+}
+
+.app-notice-dialog {
+  background:
+    radial-gradient(circle at top right, rgba(239, 59, 54, 0.16), transparent 36%),
+    #121212;
+  border: 1px solid #444;
+  border-radius: 16px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  display: grid;
+  gap: 12px;
+  max-width: 420px;
+  padding: 20px;
+  width: 100%;
+}
+
+.app-notice-dialog h3 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.app-notice-dialog p {
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.app-notice-dialog footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.app-notice-ok {
+  appearance: none;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: #fff;
+  cursor: pointer;
+  font-weight: 900;
+  min-height: 40px;
+  min-width: 96px;
+  padding: 0 16px;
+}
+
 .detail-tabs {
   background: #171717;
   border: 1px solid #3d3d3d;
@@ -1788,6 +1850,12 @@ h1 {
 .heater-fab-icon svg {
   height: 50px;
   width: 50px;
+}
+
+.message-fab .heater-fab-icon {
+  font-size: 3.4rem;
+  font-weight: 500;
+  line-height: 1;
 }
 
 .confirm-overlay {

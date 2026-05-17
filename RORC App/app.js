@@ -22,319 +22,15 @@ let currentAuthSession = null;
 let deferredInstallPrompt = null;
 let installFallbackTimer = null;
 
-let accounts = [
-  {
-    id: "a-1",
-    accountNumber: "#1",
-    membershipDetails: "RORC administration and front-door access account.",
-    notesOnAccount: "Account Manager access. Used for front-door sign-in and account administration.",
-    billingStatus: "active",
-    stripeStatus: "Active",
-    currentPeriodEnd: "2026-06-01T08:00:00-07:00",
-    billingIdHeater: "RORC-ADMIN"
-  },
-  {
-    id: "a-8",
-    accountNumber: "#8",
-    membershipDetails: "Basic Membership Access From 7am - 9pm. Follow calendar events for times closed.",
-    notesOnAccount: "Shared household account. Damien is billing owner.",
-    billingStatus: "active",
-    stripeStatus: "Active",
-    currentPeriodEnd: "2026-06-01T08:00:00-07:00",
-    billingIdHeater: "HTR-8"
-  },
-  {
-    id: "a-17",
-    accountNumber: "#017",
-    membershipDetails: "Basic Membership Access From 7am - 9pm. Follow calendar events for times closed.",
-    notesOnAccount: "",
-    billingStatus: "active",
-    stripeStatus: "Active",
-    currentPeriodEnd: "2026-06-01T08:00:00-07:00",
-    billingIdHeater: "HTR-017"
-  },
-  {
-    id: "a-28",
-    accountNumber: "#28",
-    membershipDetails: "Basic Membership Access From 7am - 9pm. Follow calendar events for times closed.",
-    notesOnAccount: "Family account.",
-    billingStatus: "active",
-    stripeStatus: "Active",
-    currentPeriodEnd: "2026-06-01T08:00:00-07:00",
-    billingIdHeater: "HTR-28"
-  },
-  {
-    id: "a-96",
-    accountNumber: "#96",
-    membershipDetails: "Basic Membership Access From 7am - 9pm. Follow calendar events for times closed.",
-    notesOnAccount: "",
-    billingStatus: "active",
-    stripeStatus: "Active",
-    currentPeriodEnd: "2026-06-01T08:00:00-07:00",
-    billingIdHeater: "HTR-96"
-  },
-  {
-    id: "a-130",
-    accountNumber: "#130",
-    membershipDetails: "Basic Membership Access From 7am - 9pm. Follow calendar events for times closed.",
-    notesOnAccount: "",
-    billingStatus: "active",
-    stripeStatus: "Active",
-    currentPeriodEnd: "2026-06-01T08:00:00-07:00",
-    billingIdHeater: "HTR-130"
-  },
-  {
-    id: "a-11",
-    accountNumber: "#11",
-    membershipDetails: "Open Gym access Tuesday and Thursday nights from 6pm - 8pm.",
-    notesOnAccount: "Shared open gym account.",
-    billingStatus: "none",
-    stripeStatus: "None",
-    currentPeriodEnd: null,
-    billingIdHeater: null
-  },
-  {
-    id: "a-15",
-    accountNumber: "#15",
-    membershipDetails: "Open Gym access Tuesday and Thursday nights from 6pm - 8pm.",
-    notesOnAccount: "",
-    billingStatus: "none",
-    stripeStatus: "None",
-    currentPeriodEnd: null,
-    billingIdHeater: null
-  },
-  {
-    id: "a-6",
-    accountNumber: "#6",
-    membershipDetails: "Open Gym access Tuesday and Thursday nights from 6pm - 8pm.",
-    notesOnAccount: "",
-    billingStatus: "none",
-    stripeStatus: "None",
-    currentPeriodEnd: null,
-    billingIdHeater: null
-  }
-];
-
-let accountMembers = [
-  {
-    id: "m-rorc",
-    accountId: "a-1",
-    memberName: "RORC",
-    accountType: "Account Manager",
-    phoneNumber: "",
-    emailAddress: "qjnbly@gmail.com",
-    allowGuestEntry: true,
-    allowHeaterUse: true,
-    isBillingOwner: false,
-    pinConfigured: true
-  },
-  {
-    id: "m-quentin",
-    accountId: "a-1",
-    memberName: "Quentin Nichols",
-    accountType: "Account Manager",
-    phoneNumber: "5415550198",
-    emailAddress: "qjnbly@gmail.com",
-    allowGuestEntry: true,
-    allowHeaterUse: true,
-    isBillingOwner: true,
-    pinConfigured: true
-  },
-  {
-    id: "m-kbyd",
-    accountId: "a-1",
-    memberName: "KBYD",
-    accountType: "Account Manager",
-    phoneNumber: "",
-    emailAddress: "",
-    allowGuestEntry: true,
-    allowHeaterUse: true,
-    isBillingOwner: false,
-    pinConfigured: true
-  },
-  {
-    id: "m-apca",
-    accountId: "a-1",
-    memberName: "APCA",
-    accountType: "Account Manager",
-    phoneNumber: "",
-    emailAddress: "",
-    allowGuestEntry: true,
-    allowHeaterUse: true,
-    isBillingOwner: false,
-    pinConfigured: true
-  },
-  {
-    id: "m-damien",
-    accountId: "a-8",
-    memberName: "Damien",
-    accountType: "Active Membership",
-    phoneNumber: "5418924711",
-    emailAddress: "crossdamien989@gmail.com",
-    allowGuestEntry: true,
-    allowHeaterUse: true,
-    isBillingOwner: true,
-    pinConfigured: true
-  },
-  {
-    id: "m-roman",
-    accountId: "a-8",
-    memberName: "Roman",
-    accountType: "Active Membership",
-    phoneNumber: "",
-    emailAddress: "",
-    allowGuestEntry: false,
-    allowHeaterUse: true,
-    isBillingOwner: false,
-    pinConfigured: true
-  },
-  {
-    id: "m-skylar",
-    accountId: "a-17",
-    memberName: "Skylar Jacobs",
-    accountType: "Active Membership",
-    phoneNumber: "5415550117",
-    emailAddress: "skylar@example.com",
-    allowGuestEntry: true,
-    allowHeaterUse: true,
-    isBillingOwner: true,
-    pinConfigured: true
-  },
-  {
-    id: "m-bill",
-    accountId: "a-28",
-    memberName: "Bill Johnson",
-    accountType: "Active Membership",
-    phoneNumber: "5415550128",
-    emailAddress: "bill@example.com",
-    allowGuestEntry: true,
-    allowHeaterUse: true,
-    isBillingOwner: true,
-    pinConfigured: true
-  },
-  {
-    id: "m-josiah",
-    accountId: "a-28",
-    memberName: "Josiah Johnson",
-    accountType: "Active Membership",
-    phoneNumber: "",
-    emailAddress: "",
-    allowGuestEntry: false,
-    allowHeaterUse: true,
-    isBillingOwner: false,
-    pinConfigured: true
-  },
-  {
-    id: "m-nathan",
-    accountId: "a-96",
-    memberName: "Nathan Taber",
-    accountType: "Active Membership",
-    phoneNumber: "5415550196",
-    emailAddress: "nathan@example.com",
-    allowGuestEntry: true,
-    allowHeaterUse: true,
-    isBillingOwner: true,
-    pinConfigured: true
-  },
-  {
-    id: "m-jennifer",
-    accountId: "a-130",
-    memberName: "Jennifer Newman",
-    accountType: "Active Membership",
-    phoneNumber: "5415550130",
-    emailAddress: "jennifer@example.com",
-    allowGuestEntry: true,
-    allowHeaterUse: true,
-    isBillingOwner: true,
-    pinConfigured: true
-  },
-  {
-    id: "m-eldon",
-    accountId: "a-6",
-    memberName: "Eldon Louis",
-    accountType: "Open Gym Only",
-    phoneNumber: "",
-    emailAddress: "",
-    allowGuestEntry: false,
-    allowHeaterUse: false,
-    isBillingOwner: true,
-    pinConfigured: true
-  },
-  {
-    id: "m-angela",
-    accountId: "a-11",
-    memberName: "Angela Lee",
-    accountType: "Open Gym Only",
-    phoneNumber: "5415550011",
-    emailAddress: "angela@example.com",
-    allowGuestEntry: false,
-    allowHeaterUse: false,
-    isBillingOwner: true,
-    pinConfigured: true
-  },
-  {
-    id: "m-logan",
-    accountId: "a-11",
-    memberName: "Logan Lee",
-    accountType: "Open Gym Only",
-    phoneNumber: "",
-    emailAddress: "",
-    allowGuestEntry: false,
-    allowHeaterUse: false,
-    isBillingOwner: false,
-    pinConfigured: true
-  },
-  {
-    id: "m-harmony",
-    accountId: "a-15",
-    memberName: "Harmony Lee",
-    accountType: "Open Gym Only",
-    phoneNumber: "",
-    emailAddress: "",
-    allowGuestEntry: false,
-    allowHeaterUse: false,
-    isBillingOwner: false,
-    pinConfigured: true
-  },
-  {
-    id: "m-rick",
-    accountId: "a-15",
-    memberName: "Rick Lee",
-    accountType: "Open Gym Only",
-    phoneNumber: "5415550015",
-    emailAddress: "rick@example.com",
-    allowGuestEntry: false,
-    allowHeaterUse: false,
-    isBillingOwner: true,
-    pinConfigured: true
-  }
-];
-
-let timesheetEntries = [
-  { id: "ts-1", memberOrGuest: "Member", memberId: "m-damien", signedInAt: "2026-05-15T08:30:00-07:00", signedOutAt: "2026-05-15T10:05:00-07:00" },
-  { id: "ts-2", memberOrGuest: "Member", memberId: "m-roman", signedInAt: "2026-05-15T08:32:00-07:00", signedOutAt: "2026-05-15T09:48:00-07:00" },
-  { id: "ts-3", memberOrGuest: "Guest", guestName: "Guest of Damien", dayPassOrOpenGym: "Day Pass", memberEnteredWithId: "m-damien", liabilityAccepted: true, signedInAt: "2026-05-12T18:14:00-07:00", signedOutAt: "2026-05-12T19:15:00-07:00" },
-  { id: "ts-4", memberOrGuest: "Member", memberId: "m-skylar", signedInAt: "2026-05-14T16:40:00-07:00", signedOutAt: "2026-05-14T18:10:00-07:00" },
-  { id: "ts-5", memberOrGuest: "Member", memberId: "m-angela", signedInAt: "2026-05-14T18:02:00-07:00", signedOutAt: "2026-05-14T19:42:00-07:00" },
-  { id: "ts-6", memberOrGuest: "Member", memberId: "m-logan", signedInAt: "2026-05-14T18:04:00-07:00", signedOutAt: "2026-05-14T19:30:00-07:00" },
-  { id: "ts-7", memberOrGuest: "Guest", guestName: "Open Gym Guest", dayPassOrOpenGym: "Open Gym", memberEnteredWithId: "m-angela", liabilityAccepted: true, signedInAt: "2026-05-14T18:16:00-07:00", signedOutAt: "2026-05-14T19:25:00-07:00" },
-  { id: "ts-8", memberOrGuest: "Member", memberId: "m-bill", signedInAt: "2026-05-13T09:00:00-07:00", signedOutAt: "2026-05-13T10:30:00-07:00" },
-  { id: "ts-9", memberOrGuest: "Member", memberId: "m-josiah", signedInAt: "2026-05-13T09:02:00-07:00", signedOutAt: "2026-05-13T10:18:00-07:00" },
-  { id: "ts-10", memberOrGuest: "Member", memberId: "m-quentin", signedInAt: "2026-05-15T14:10:00-07:00", signedOutAt: null }
-];
-
-let heaterUseEntries = [
-  { id: "hu-1", usedOn: "2026-05-11", event: "MEMBER USE", responsibleMemberId: "m-damien", groupMemberIds: ["m-roman"], groupPay: true, turnHeaterOn: "Off", startAt: "2026-05-11T18:00:00-07:00", endAt: "2026-05-11T19:30:00-07:00", paid: false },
-  { id: "hu-2", usedOn: "2026-05-09", event: "RORC", responsibleMemberId: "m-quentin", groupMemberIds: [], groupPay: false, turnHeaterOn: "Off", startAt: "2026-05-09T09:00:00-07:00", endAt: "2026-05-09T10:00:00-07:00", paid: true },
-  { id: "hu-3", usedOn: "2026-05-08", event: "MEMBER USE", responsibleMemberId: "m-skylar", groupMemberIds: [], groupPay: false, turnHeaterOn: "Off", startAt: "2026-05-08T17:20:00-07:00", endAt: "2026-05-08T18:10:00-07:00", paid: false }
-];
-
-let billingLineItems = [
-  { id: "bli-1", accountMemberId: "m-damien", timesheetEntryId: "ts-3", heaterUseEntryId: null, createdAt: "2026-05-12T19:16:00-07:00", amountCents: 25, reason: "Guest entry fee for 1 guest", postedToStripeAt: null },
-  { id: "bli-2", accountMemberId: "m-damien", timesheetEntryId: null, heaterUseEntryId: "hu-1", createdAt: "2026-05-11T19:31:00-07:00", amountCents: 975, reason: "Heater use split charge", postedToStripeAt: null },
-  { id: "bli-3", accountMemberId: "m-roman", timesheetEntryId: null, heaterUseEntryId: "hu-1", createdAt: "2026-05-11T19:31:00-07:00", amountCents: 975, reason: "Heater use split charge", postedToStripeAt: null },
-  { id: "bli-4", accountMemberId: "m-skylar", timesheetEntryId: null, heaterUseEntryId: "hu-3", createdAt: "2026-05-08T18:11:00-07:00", amountCents: 1083, reason: "Heater use charge", postedToStripeAt: null }
-];
+let accounts = [];
+let accountMembers = [];
+let timesheetEntries = [];
+let heaterUseEntries = [];
+let billingLineItems = [];
+let notificationDispatchRecords = [];
+let memberNotifications = [];
+let notificationPollTimer = null;
+let notifiedIds = new Set();
 
 const statusOrder = [
   "Account Manager",
@@ -372,7 +68,7 @@ function canonicalAccountType(accountType) {
 }
 
 const appState = {
-  selectedMemberId: "m-damien",
+  selectedMemberId: "",
   detailReturnRoute: "accountInfo",
   currentRoute: "currentlySignedIn",
   dataStatus: "loading",
@@ -386,6 +82,8 @@ const accountManagerOnlyRoutes = new Set([
   "gymProjects",
   "advertisementBanners",
   "message",
+  "notificationsEmail",
+  "messageCompose",
   "contracts"
 ]);
 
@@ -399,8 +97,8 @@ const kioskAllowedRoutes = new Set([
   "calendar"
 ]);
 
-let frontDoorSession = buildSession("m-rorc");
-let appUserSession = buildSession("m-quentin");
+let frontDoorSession = buildSession("");
+let appUserSession = buildSession("");
 
 const routes = {
   memberSignIn: {
@@ -421,7 +119,7 @@ const routes = {
     afterRender: renderCurrentlySignedIn
   },
   heaterRecords: {
-    title: "Heater Records",
+    title: "Thermostat",
     template: "heaterRecordsTemplate",
     afterRender: renderHeaterRecords
   },
@@ -471,9 +169,21 @@ const routes = {
     template: "placeholderTemplate"
   },
   message: {
-    title: "Automation Settings",
+    title: "Bot Settings",
     template: "feedbackTemplate",
     afterRender: renderAutomationSettingsPage
+  },
+  notificationsEmail: {
+    title: "Notifications & Email",
+    template: "feedbackTemplate",
+    afterRender: renderNotificationsPage
+  },
+  messageCompose: {
+    title: "Message Data Form",
+    template: "feedbackTemplate",
+    formRoute: true,
+    returnRoute: "notificationsEmail",
+    afterRender: renderMessageComposerPage
   },
   contracts: {
     title: "Contracts",
@@ -695,14 +405,14 @@ async function shareRorcApp() {
 
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(shareData.url);
-      window.alert("RORC App link copied.");
+      showAppNotice("RORC App link copied.");
       return;
     }
 
-    window.prompt("Copy the RORC App link:", shareData.url);
+    showAppNotice(`Copy the RORC App link:\n${shareData.url}`);
   } catch (error) {
     if (error?.name === "AbortError") return;
-    window.alert("Could not open sharing. App link: " + shareData.url);
+    showAppNotice("Could not open sharing. App link: " + shareData.url);
   }
 }
 
@@ -716,10 +426,10 @@ async function copyAppLink() {
       return;
     }
 
-    window.prompt("Copy the RORC App link:", url);
+    showAppNotice(`Copy the RORC App link:\n${url}`);
     setShareStatus("Copy the app link from the box.");
   } catch (error) {
-    window.prompt("Copy the RORC App link:", url);
+    showAppNotice(`Copy the RORC App link:\n${url}`);
     setShareStatus("Copy the app link from the box.");
   }
 }
@@ -984,7 +694,7 @@ function renderAutomationSettingsPage() {
     <section class="feedback-shell">
       <header class="feedback-hero">
         <p class="eyebrow">Admin</p>
-        <h2>Automation Settings</h2>
+        <h2>Bot Settings</h2>
         <p>Control webhooks, SMS, and toggles for gym and heater automations.</p>
       </header>
 
@@ -1047,6 +757,329 @@ function renderAutomationSettingsPage() {
   `;
 
   bindAutomationSettingsActions();
+}
+
+function renderNotificationsPage() {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+
+  const records = [...memberNotifications]
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .slice(0, 100);
+
+  root.innerHTML = `
+    <section class="live-record-page">
+      ${records.length ? `
+      <div class="detail-card">
+        <ol class="record-list heater-record-list">
+          ${records.map((record) => `
+            <li>
+              <strong class="heater-record-event">${escapeHtml(record.title)}</strong>
+              <span class="heater-record-meta">${escapeHtml(record.channelsLabel)} · ${escapeHtml(record.recipientsLabel)} · ${formatShortDateTime(record.createdAt)}</span>
+              <button class="heater-state-action is-paid" type="button">${escapeHtml(record.statusLabel)}</button>
+            </li>
+          `).join("")}
+        </ol>
+      </div>
+      ` : `
+      <section class="empty-state">
+        <p>No notifications yet.</p>
+      </section>
+      `}
+      <button class="heater-fab message-fab" type="button" aria-label="Create new notification">
+        <span class="heater-fab-label">New</span>
+        <span class="heater-fab-icon" aria-hidden="true">+</span>
+      </button>
+    </section>
+  `;
+
+  document.querySelector(".message-fab")?.addEventListener("click", () => {
+    render("messageCompose");
+  });
+}
+
+function renderMessageComposerPage() {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+
+  const now = new Date();
+  const localNow = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 16);
+
+  root.innerHTML = `
+    <form id="messageComposerForm" class="form-screen guest-sign-in-screen" autocomplete="off">
+      <div class="form-card">
+        <label>
+          <span>Title<mark>*</mark></span>
+          <input id="messageTitle" type="text" required />
+        </label>
+
+        <div class="segmented-field">
+          <span>Delivery Channels</span>
+          <div class="segmented-control" data-multi-select="true">
+            <button id="messageChannelText" class="segment" type="button" aria-pressed="false">Text</button>
+            <button id="messageChannelEmail" class="segment" type="button" aria-pressed="false">Email</button>
+            <button id="messageChannelInApp" class="segment" type="button" aria-pressed="false">In-App</button>
+            <button id="messageChannelBrowser" class="segment" type="button" aria-pressed="false">Browser</button>
+          </div>
+        </div>
+
+        <label>
+          <span>To Members<mark>*</mark></span>
+          <input id="messageMembers" class="member-picker-value" type="hidden" required />
+          <button
+            id="messageMembersPicker"
+            class="member-picker-button multi-member-picker-button"
+            data-member-multi-picker="messageMembers"
+            data-member-picker-source="memberSignIn"
+            data-member-picker-placeholder="Select members"
+            data-member-picker-title="To Members"
+            type="button"
+          >
+            <span class="member-picker-selected">
+              <span class="member-picker-placeholder">Select members</span>
+            </span>
+            <span class="member-picker-plus" aria-hidden="true">+</span>
+          </button>
+        </label>
+        <p id="messageRecipientSummary" class="auth-message">No members selected.</p>
+
+        <label>
+          <span>Message<mark>*</mark></span>
+          <textarea id="messageBody" required></textarea>
+        </label>
+
+        <label>
+          <span>Time & Date</span>
+          <input id="messageSendAt" type="datetime-local" value="${escapeAttribute(localNow)}" />
+        </label>
+
+        <p id="messageComposerResult" class="auth-message" aria-live="polite"></p>
+      </div>
+      <div class="form-actions">
+        <button class="text-action" data-route-target="notificationsEmail" type="button">Cancel</button>
+        <button id="messageComposerSave" class="save-action" type="submit">Save</button>
+      </div>
+    </form>
+  `;
+
+  bindMessageComposerActions();
+}
+
+function selectedMessageMemberIds() {
+  const input = document.getElementById("messageMembers");
+  return selectedMemberIdsFromInput(input);
+}
+
+function setMessageRecipientSummary() {
+  const summary = document.getElementById("messageRecipientSummary");
+  if (!summary) return;
+
+  const selectedMembers = selectedMessageMemberIds()
+    .map((id) => findMember(id))
+    .filter(Boolean);
+
+  if (!selectedMembers.length) {
+    summary.textContent = "No members selected.";
+    return;
+  }
+
+  const phones = new Set(
+    selectedMembers
+      .map((member) => String(member.phoneNumber || "").trim())
+      .filter(Boolean)
+  );
+  const emails = new Set(
+    selectedMembers
+      .map((member) => String(member.emailAddress || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  summary.textContent = `${selectedMembers.length} members selected · ${phones.size} phone numbers · ${emails.size} emails`;
+}
+
+async function sendMemberMessage(payload) {
+  const token = currentAuthSession?.access_token || "";
+  const response = await fetch("/api/send-member-message", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not send message.");
+  }
+  return body;
+}
+
+function bindMessageComposerActions() {
+  const form = document.getElementById("messageComposerForm");
+  const saveButton = document.getElementById("messageComposerSave");
+  const result = document.getElementById("messageComposerResult");
+  const textToggle = document.getElementById("messageChannelText");
+  const emailToggle = document.getElementById("messageChannelEmail");
+  const inAppToggle = document.getElementById("messageChannelInApp");
+  const browserToggle = document.getElementById("messageChannelBrowser");
+
+  if (!form || !saveButton || !result || !textToggle || !emailToggle || !inAppToggle || !browserToggle) return;
+
+  let includeText = false;
+  let includeEmail = false;
+  let includeInApp = false;
+  let includeBrowser = false;
+
+  const renderChannelToggles = () => {
+    textToggle.classList.toggle("is-selected", includeText);
+    emailToggle.classList.toggle("is-selected", includeEmail);
+    inAppToggle.classList.toggle("is-selected", includeInApp);
+    browserToggle.classList.toggle("is-selected", includeBrowser);
+    textToggle.setAttribute("aria-pressed", String(includeText));
+    emailToggle.setAttribute("aria-pressed", String(includeEmail));
+    inAppToggle.setAttribute("aria-pressed", String(includeInApp));
+    browserToggle.setAttribute("aria-pressed", String(includeBrowser));
+  };
+
+  const setResult = (message, tone = "default") => {
+    result.textContent = message;
+    result.classList.toggle("is-error", tone === "error");
+    result.classList.toggle("is-success", tone === "success");
+  };
+
+  textToggle.addEventListener("click", () => {
+    includeText = !includeText;
+    renderChannelToggles();
+  });
+
+  emailToggle.addEventListener("click", () => {
+    includeEmail = !includeEmail;
+    renderChannelToggles();
+  });
+  inAppToggle.addEventListener("click", () => {
+    includeInApp = !includeInApp;
+    renderChannelToggles();
+  });
+  browserToggle.addEventListener("click", async () => {
+    if (!includeBrowser && "Notification" in window && Notification.permission === "default") {
+      try {
+        await Notification.requestPermission();
+      } catch (error) {
+        // Ignore permission prompt errors.
+      }
+    }
+    includeBrowser = !includeBrowser;
+    renderChannelToggles();
+  });
+
+  document.getElementById("messageMembers")?.addEventListener("change", setMessageRecipientSummary);
+  setMessageRecipientSummary();
+  // Force a clean default every time this screen opens.
+  includeText = false;
+  includeEmail = false;
+  includeInApp = false;
+  includeBrowser = false;
+  renderChannelToggles();
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const title = String(document.getElementById("messageTitle")?.value || "").trim();
+    const message = String(document.getElementById("messageBody")?.value || "").trim();
+    const memberIds = selectedMessageMemberIds();
+    const sendAt = String(document.getElementById("messageSendAt")?.value || "").trim();
+
+    if (!title) {
+      setResult("Title is required.", "error");
+      return;
+    }
+
+    if (!message) {
+      setResult("Message is required.", "error");
+      return;
+    }
+
+    if (!memberIds.length) {
+      setResult("Select at least one member.", "error");
+      return;
+    }
+
+    if (!includeText && !includeEmail && !includeInApp && !includeBrowser) {
+      setResult("Select at least one delivery channel.", "error");
+      return;
+    }
+
+    saveButton.disabled = true;
+    setResult("Sending...");
+
+    try {
+      const response = await sendMemberMessage({
+        title,
+        message,
+        memberIds,
+        channels: {
+          text: includeText,
+          email: includeEmail,
+          inApp: includeInApp,
+          browser: includeBrowser
+        },
+        sendAt
+      });
+
+      setResult(
+        `Sent. Texts: ${response.sentTextCount || 0}, Emails: ${response.sentEmailCount || 0}, In-App: ${response.sentInAppCount || 0}.`,
+        "success"
+      );
+      addNotificationDispatchRecord({
+        title,
+        includeText,
+        includeEmail,
+        includeInApp,
+        includeBrowser,
+        selectedCount: memberIds.length,
+        sentTextCount: response.sentTextCount || 0,
+        sentEmailCount: response.sentEmailCount || 0,
+        sentInAppCount: response.sentInAppCount || 0
+      });
+      window.setTimeout(() => render("notificationsEmail"), 220);
+    } catch (error) {
+      setResult(error.message || "Could not send message.", "error");
+    } finally {
+      saveButton.disabled = false;
+    }
+  });
+}
+
+function addNotificationDispatchRecord({
+  title,
+  includeText,
+  includeEmail,
+  includeInApp,
+  includeBrowser,
+  selectedCount,
+  sentTextCount,
+  sentEmailCount,
+  sentInAppCount
+}) {
+  const channels = [];
+  if (includeText) channels.push("Text");
+  if (includeEmail) channels.push("Email");
+  if (includeInApp) channels.push("In-App");
+  if (includeBrowser) channels.push("Browser");
+
+  const record = {
+    id: `msg-${Date.now()}`,
+    title: String(title || "").trim() || "Message",
+    channelsLabel: channels.join(" + ") || "Unspecified",
+    recipientsLabel: `${selectedCount || 0} members`,
+    statusLabel: `SMS ${sentTextCount || 0} · Email ${sentEmailCount || 0} · In-App ${sentInAppCount || 0}`,
+    createdAt: new Date().toISOString()
+  };
+  notificationDispatchRecords.unshift(record);
+  memberNotifications.unshift(record);
 }
 
 function automationResult(message, tone = "default") {
@@ -1276,6 +1309,8 @@ function clearLiveData() {
   timesheetEntries = [];
   heaterUseEntries = [];
   billingLineItems = [];
+  memberNotifications = [];
+  notifiedIds = new Set();
 }
 
 function initialForSession(session) {
@@ -1333,6 +1368,96 @@ function updateDrawerIdentity() {
   }
 
   updateNavigationVisibility();
+}
+
+async function fetchMemberNotifications() {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) return [];
+
+  const response = await fetch("/api/member-notifications", {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not load notifications.");
+  }
+
+  return (body.notifications || []).map((row) => ({
+    id: row.id,
+    title: row.title || "Notification",
+    message: row.message || "",
+    channelsLabel: Array.isArray(Object.keys(row.channels || {}))
+      ? Object.entries(row.channels || {}).filter(([, enabled]) => Boolean(enabled)).map(([k]) => (
+        k === "inApp" ? "In-App" : k === "browser" ? "Browser" : k === "text" ? "Text" : k === "email" ? "Email" : k
+      )).join(" + ") || "In-App"
+      : "In-App",
+    recipientsLabel: "To you",
+    statusLabel: row.read_at ? "Read" : "Unread",
+    createdAt: row.created_at,
+    readAt: row.read_at,
+    rawChannels: row.channels || {}
+  }));
+}
+
+function canShowBrowserNotice(notification) {
+  if (!("Notification" in window)) return false;
+  if (Notification.permission !== "granted") return false;
+  if (notification?.rawChannels?.browser !== true) return false;
+  return true;
+}
+
+function showBrowserNotification(notification) {
+  if (!canShowBrowserNotice(notification)) return;
+  try {
+    new Notification(notification.title || "RORC", {
+      body: notification.message || "",
+      icon: "/Images/LOGOS/LOGO.png",
+      badge: "/RORC%20App/icons/favicon-32.png"
+    });
+  } catch (error) {
+    // Ignore browser notification errors.
+  }
+}
+
+async function refreshMemberNotifications({ announceNew = false } = {}) {
+  const rows = await fetchMemberNotifications();
+  memberNotifications = rows;
+
+  if (announceNew) {
+    rows.forEach((notification) => {
+      if (!notifiedIds.has(notification.id)) {
+        notifiedIds.add(notification.id);
+        showBrowserNotification(notification);
+      }
+    });
+  } else {
+    rows.forEach((notification) => notifiedIds.add(notification.id));
+  }
+}
+
+function stopNotificationPolling() {
+  if (notificationPollTimer) {
+    window.clearInterval(notificationPollTimer);
+    notificationPollTimer = null;
+  }
+}
+
+function startNotificationPolling() {
+  stopNotificationPolling();
+  notificationPollTimer = window.setInterval(async () => {
+    try {
+      await refreshMemberNotifications({ announceNew: true });
+      if (appState.currentRoute === "notificationsEmail") {
+        render("notificationsEmail");
+      }
+    } catch (error) {
+      // Ignore polling errors to avoid interrupting app flow.
+    }
+  }, 12000);
 }
 
 async function hydrateFromSupabase() {
@@ -1439,6 +1564,12 @@ async function hydrateFromSupabase() {
       : "";
     refreshSessions(appState.authMemberId);
     updateDrawerIdentity();
+    try {
+      await refreshMemberNotifications({ announceNew: false });
+      startNotificationPolling();
+    } catch (notificationError) {
+      console.warn("Could not load notifications.", notificationError);
+    }
   } catch (error) {
     console.error("Supabase data load failed.", error);
     clearLiveData();
@@ -1613,7 +1744,16 @@ function closeDrawer() {
 }
 
 function visibleMembersForSession(session) {
-  if (isAccountManager(session) || isKioskAccount(session)) {
+  const kioskOrManager = (
+    isAccountManager(session)
+    || isKioskAccount(session)
+    || isAccountManager(appUserSession)
+    || isKioskAccount(appUserSession)
+    || isAccountManager(frontDoorSession)
+    || isKioskAccount(frontDoorSession)
+  );
+
+  if (kioskOrManager) {
     return accountMembers;
   }
 
@@ -1632,6 +1772,11 @@ function guestSponsorsForSession(session) {
 
 function memberPickerOptions(source) {
   const sortOnly = (members) => [...members].sort(sortMembers);
+  const kioskOrManager = isAccountManager(appUserSession) || isKioskAccount(appUserSession);
+
+  if ((source === "memberSignIn" || source === "heaterResponsible") && kioskOrManager) {
+    return sortOnly(accountMembers);
+  }
 
   if (source === "guestSponsors") {
     return sortOnly(guestSponsorsForSession(frontDoorSession));
@@ -1687,6 +1832,7 @@ function setMultiMemberPickerValue(inputId, memberIds) {
   if (!input || !button || !label) return;
 
   input.value = selectedMembers.map((member) => member.id).join(",");
+  input.dispatchEvent(new Event("change", { bubbles: true }));
   button.classList.toggle("has-value", selectedMembers.length > 0);
 
   if (selectedMembers.length === 0) {
@@ -1724,7 +1870,7 @@ function openMemberPicker(button) {
       <div class="member-picker-search-wrap">
         <label>
           <span>Search</span>
-          <input class="member-picker-search" type="search" autocomplete="off" autofocus />
+          <input class="member-picker-search" type="search" autocomplete="off" />
         </label>
       </div>
       <div class="member-picker-list" role="radiogroup">
@@ -1788,7 +1934,6 @@ function openMemberPicker(button) {
   };
 
   document.addEventListener("keydown", handleKeydown);
-  searchInput?.focus();
 }
 
 function openMultiMemberPicker(button) {
@@ -1809,7 +1954,7 @@ function openMultiMemberPicker(button) {
       <div class="member-picker-search-wrap">
         <label>
           <span>Search</span>
-          <input class="member-picker-search" type="search" autocomplete="off" autofocus />
+          <input class="member-picker-search" type="search" autocomplete="off" />
         </label>
       </div>
       <div class="member-picker-list" role="group">
@@ -1879,7 +2024,6 @@ function openMultiMemberPicker(button) {
   };
 
   document.addEventListener("keydown", handleKeydown);
-  searchInput?.focus();
 }
 
 function renderMemberPickerOption(member, selectedMember, role = "radio") {
@@ -2243,13 +2387,7 @@ function renderHeaterRecords() {
 
   root.innerHTML = `
     <section class="live-record-page">
-      <div class="account-page-heading">
-        <div>
-          <p class="eyebrow">Heater Billing Records</p>
-          <h2>Heater Records</h2>
-          ${dataSourceNotice()}
-        </div>
-      </div>
+      <p class="data-source-note">Live data</p>
       <div class="detail-card">
         <ol class="record-list heater-record-list">
           ${records.map((entry) => {
@@ -2775,7 +2913,44 @@ function canEditMember(member) {
 }
 
 function showDetailActionMessage(message) {
-  window.alert(message);
+  showAppNotice(message);
+}
+
+function showAppNotice(message, title = "Notice") {
+  const existing = document.querySelector(".app-notice-overlay");
+  if (existing) existing.remove();
+
+  const overlay = document.createElement("div");
+  overlay.className = "app-notice-overlay";
+  overlay.innerHTML = `
+    <section class="app-notice-dialog" role="alertdialog" aria-modal="true" aria-label="${escapeAttribute(title)}">
+      <h3>${escapeHtml(title)}</h3>
+      <p>${escapeHtml(String(message || ""))}</p>
+      <footer>
+        <button class="app-notice-ok" type="button">OK</button>
+      </footer>
+    </section>
+  `;
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener("keydown", onKeydown);
+  };
+
+  const onKeydown = (event) => {
+    if (event.key === "Escape" || event.key === "Enter") {
+      close();
+    }
+  };
+
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      close();
+    }
+  });
+  overlay.querySelector(".app-notice-ok")?.addEventListener("click", close);
+  document.addEventListener("keydown", onKeydown);
+  document.body.appendChild(overlay);
 }
 
 async function updateMemberContact(member, updates) {
@@ -3769,6 +3944,10 @@ function bindRouteActions() {
   });
 
   document.querySelectorAll(".segmented-control").forEach((group) => {
+    if (group.dataset.multiSelect === "true") {
+      return;
+    }
+
     group.querySelectorAll(".segment").forEach((button) => {
       button.addEventListener("click", () => {
         group.querySelectorAll(".segment").forEach((segment) => {
@@ -3933,6 +4112,7 @@ async function handleLogout() {
   appState.dataStatus = "loading";
   appState.dataError = "";
   clearLiveData();
+  stopNotificationPolling();
   updateNavigationVisibility();
   showAuthGate("Signed out.", "success");
 }
@@ -3969,7 +4149,12 @@ function render(routeName) {
 
   const route = routes[resolvedRouteName] || routes.currentlySignedIn;
   const template = document.getElementById(route.template);
-  const shouldResetScrollTop = resolvedRouteName === "accountDetails";
+  const resetScrollTop = () => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    if (view) {
+      view.scrollTop = 0;
+    }
+  };
 
   if (!template || !view || !screenTitle || !appShell || !navControl) return;
 
@@ -3985,10 +4170,7 @@ function render(routeName) {
   navControl.classList.toggle("is-back", backRoute);
   navControl.setAttribute("aria-label", backRoute ? "Go back" : "Open menu");
 
-  if (shouldResetScrollTop) {
-    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-    view.scrollTop = 0;
-  }
+  resetScrollTop();
 
   view.innerHTML = "";
   view.appendChild(template.content.cloneNode(true));
@@ -4002,9 +4184,7 @@ function render(routeName) {
   });
 
   route.afterRender?.();
-  if (shouldResetScrollTop) {
-    view.scrollTop = 0;
-  }
+  resetScrollTop();
   populateMemberSignIn();
   populateGuestSignIn();
   bindMemberPickers();
