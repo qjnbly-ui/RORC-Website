@@ -356,9 +356,19 @@ const accountTypeOptions = [
 
 
 function canonicalAccountType(accountType) {
-  if (accountType === "Billed Monthly") return "Special Access Account";
-  if (accountType === "Account Past Due NO ACCESS ALLOWED") return "RESTRICTED ACCOUNT";
-  return accountType || "Active Membership";
+  const normalized = String(accountType || "").trim().toLowerCase();
+
+  if (!normalized) return "Active Membership";
+  if (normalized === "account manager") return "Account Manager";
+  if (normalized === "kiosk account") return "Kiosk Account";
+  if (normalized === "active membership") return "Active Membership";
+  if (normalized === "open gym only") return "Open Gym Only";
+  if (normalized === "special access account") return "Special Access Account";
+  if (normalized === "restricted account") return "RESTRICTED ACCOUNT";
+  if (normalized === "billed monthly") return "Special Access Account";
+  if (normalized === "account past due no access allowed") return "RESTRICTED ACCOUNT";
+
+  return String(accountType || "").trim() || "Active Membership";
 }
 
 const appState = {
@@ -506,11 +516,11 @@ function displayAccountNumberForMember(member) {
 }
 
 function isAccountManager(memberOrSession) {
-  return memberOrSession?.accountType === "Account Manager";
+  return canonicalAccountType(memberOrSession?.accountType) === "Account Manager";
 }
 
 function isKioskAccount(memberOrSession) {
-  return memberOrSession?.accountType === "Kiosk Account";
+  return canonicalAccountType(memberOrSession?.accountType) === "Kiosk Account";
 }
 
 function isKioskModeSession(memberOrSession) {
