@@ -14,13 +14,16 @@ module.exports = async (req, res) => {
 
     const user = await getSupabaseUser(token);
     const member = await getAccountMemberByAuthUserId(user.id);
-    if (!member?.id) {
+    if (!member?.id || !member?.account_id) {
       return res.status(404).json({ success: false, error: "Member profile not found." });
     }
 
+    const accountMemberIds = await getAccountMemberIds(member.account_id);
+
     if (req.method === "GET") {
+      const idList = accountMemberIds.map((id) => `"${String(id).replaceAll('"', "")}"`).join(",");
       const rows = await supabaseRest(
-        `member_notifications?select=id,title,message,channels,created_at,read_at,recipient_member_id,created_by_member_id&recipient_member_id=eq.${encodeURIComponent(member.id)}&order=created_at.desc&limit=100`
+        `member_notifications?select=id,title,message,channels,created_at,read_at,recipient_member_id,created_by_member_id&recipient_member_id=in.(${encodeURIComponent(idList)})&order=created_at.desc&limit=200`
       );
       return res.status(200).json({ success: true, notifications: rows || [] });
     }
@@ -32,8 +35,9 @@ module.exports = async (req, res) => {
       }
 
       const idList = ids.map((id) => `"${id.replaceAll('"', "")}"`).join(",");
+      const accountScopedIdList = accountMemberIds.map((id) => `"${String(id).replaceAll('"', "")}"`).join(",");
       const response = await fetch(
-        `${SUPABASE_URL}/rest/v1/member_notifications?recipient_member_id=eq.${encodeURIComponent(member.id)}&id=in.(${encodeURIComponent(idList)})`,
+        `${SUPABASE_URL}/rest/v1/member_notifications?recipient_member_id=in.(${encodeURIComponent(accountScopedIdList)})&recipient_member_id=eq.${encodeURIComponent(member.id)}&id=in.(${encodeURIComponent(idList)})`,
         {
           method: "PATCH",
           headers: {
@@ -81,8 +85,13 @@ async function getSupabaseUser(token) {
 }
 
 async function getAccountMemberByAuthUserId(authUserId) {
-  const rows = await supabaseRest(`account_members?select=id&auth_user_id=eq.${encodeURIComponent(authUserId)}&limit=1`);
+  const rows = await supabaseRest(`account_members?select=id,account_id&auth_user_id=eq.${encodeURIComponent(authUserId)}&limit=1`);
   return rows[0] || null;
+}
+
+async function getAccountMemberIds(accountId) {
+  const rows = await supabaseRest(`account_members?select=id&account_id=eq.${encodeURIComponent(accountId)}&limit=500`);
+  return rows.map((row) => row.id).filter(Boolean);
 }
 
 async function supabaseRest(path) {

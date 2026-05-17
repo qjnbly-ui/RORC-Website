@@ -33,7 +33,6 @@ module.exports = async (req, res) => {
     const sendText = Boolean(req.body?.channels?.text);
     const sendEmail = Boolean(req.body?.channels?.email);
     const sendInApp = Boolean(req.body?.channels?.inApp);
-    const sendBrowser = Boolean(req.body?.channels?.browser);
 
     if (!title) {
       return res.status(400).json({ success: false, error: "Title is required." });
@@ -44,7 +43,7 @@ module.exports = async (req, res) => {
     if (!memberIds.length) {
       return res.status(400).json({ success: false, error: "Select at least one member." });
     }
-    if (!sendText && !sendEmail && !sendInApp && !sendBrowser) {
+    if (!sendText && !sendEmail && !sendInApp) {
       return res.status(400).json({ success: false, error: "Select at least one delivery channel." });
     }
 
@@ -95,7 +94,7 @@ module.exports = async (req, res) => {
       }
     }
 
-    if (sendInApp || sendBrowser) {
+    if (sendInApp) {
       try {
         await createInAppNotifications({
           memberIds: members.map((member) => member.id),
@@ -103,8 +102,7 @@ module.exports = async (req, res) => {
           message,
           createdByMemberId: manager.id,
           channels: {
-            inApp: sendInApp,
-            browser: sendBrowser
+            inApp: sendInApp
           }
         });
         sentInAppCount = members.length;
@@ -199,7 +197,7 @@ async function sendResendEmail(to, subject, message) {
   const safeMessage = escapeHtml(message).replaceAll("\n", "<br />");
   const html = buildEmailTemplate({
     title: safeSubject,
-    bodyHtml: `<p style="margin:0;color:#d1d5db;line-height:1.65;font-size:16px;">${safeMessage}</p>`
+    bodyHtml: `<p style="margin:0;color:#d1d5db;line-height:1.65;font-size:16px;text-align:center;">${safeMessage}</p>`
   });
 
   const response = await fetch("https://api.resend.com/emails", {
@@ -225,29 +223,29 @@ async function sendResendEmail(to, subject, message) {
 
 function buildEmailTemplate({ title, bodyHtml }) {
   return `
-    <div style="background:#0f1115;padding:24px 12px;font-family:Arial,sans-serif;">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:680px;margin:0 auto;background:#171a21;border:1px solid #2c3340;border-radius:14px;overflow:hidden;">
+    <div style="font-family:Arial,sans-serif;background:#111;color:#f5f5f5;padding:28px;line-height:1.55;text-align:center;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#1b1b1b;border:1px solid #333;border-radius:14px;overflow:hidden;text-align:center;">
         <tr>
-          <td style="padding:22px 24px;border-bottom:1px solid #2c3340;">
-            <h1 style="margin:0;color:#f8fafc;font-size:26px;line-height:1.1;">${title}</h1>
+          <td style="padding:28px 28px 16px;border-bottom:1px solid #333;text-align:center;">
+            <h2 style="margin:0;color:#fff;font-size:32px;line-height:1.15;text-align:center;">${title}</h2>
           </td>
         </tr>
         <tr>
-          <td style="padding:22px 24px;">
+          <td style="padding:20px 28px;text-align:center;">
             ${bodyHtml}
           </td>
         </tr>
         <tr>
-          <td style="padding:18px 24px;border-top:1px solid #2c3340;color:#9ca3af;font-size:13px;line-height:1.6;">
-            <p style="margin:0 0 8px;">&copy; 2026 Ruth Obenchain Recreation Center</p>
-            <p style="margin:0 0 8px;">
-              <a href="https://ruthobenchainrc.com/support/" style="color:#cbd5e1;text-decoration:none;">Support</a>
+          <td style="padding:24px 28px;border-top:1px solid #333;color:#888;font-size:13px;line-height:1.6;text-align:center;">
+            <p style="margin:0 0 8px;text-align:center;">&copy; 2026 Ruth Obenchain Recreation Center</p>
+            <p style="margin:0 0 8px;text-align:center;">
+              <a href="https://ruthobenchainrc.com/support/" style="color:#bbb;text-decoration:none;">Support</a>
               &nbsp;|&nbsp;
-              <a href="https://ruthobenchainrc.com/privacy-policy/" style="color:#cbd5e1;text-decoration:none;">Privacy Policy</a>
+              <a href="https://ruthobenchainrc.com/privacy-policy/" style="color:#bbb;text-decoration:none;">Privacy Policy</a>
               &nbsp;|&nbsp;
-              <a href="https://ruthobenchainrc.com/terms-of-service/" style="color:#cbd5e1;text-decoration:none;">Terms of Service</a>
+              <a href="https://ruthobenchainrc.com/terms-of-service/" style="color:#bbb;text-decoration:none;">Terms of Service</a>
             </p>
-            <p style="margin:0;">Operated by Bly Community Action Team<br />Designed &amp; Built by N3XRA</p>
+            <p style="margin:0;text-align:center;">Operated by Bly Community Action Team<br />Designed &amp; Built by N3XRA</p>
           </td>
         </tr>
       </table>
