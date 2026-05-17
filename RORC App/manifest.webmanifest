@@ -7,7 +7,7 @@
   "scope": "/RORC%20App/",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui"],
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "background_color": "#111111",
   "theme_color": "#262626",
   "categories": ["business", "productivity", "sports"],

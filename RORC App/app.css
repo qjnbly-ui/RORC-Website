@@ -14,6 +14,8 @@
   --app-bar-height: 68px;
   --bottom-nav-height: 92px;
   --form-actions-height: 84px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --app-viewport-height: 100dvh;
 }
 
 * {
@@ -30,6 +32,15 @@ body {
   background: var(--app-bg);
   color: var(--text);
   font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+/* Prevent iOS/mobile focus zoom on form controls. */
+@media (hover: none) and (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
 }
 
 [hidden] {
@@ -56,7 +67,7 @@ select {
     radial-gradient(circle at 50% 0%, rgba(239, 59, 54, 0.18), transparent 42%),
     linear-gradient(180deg, #171717 0%, #0d0d0d 100%);
   display: flex;
-  min-height: 100vh;
+  min-height: var(--app-viewport-height);
   padding: 28px 16px;
 }
 
@@ -282,7 +293,7 @@ select {
   color: var(--text);
   display: grid;
   grid-template-rows: 124px 1fr 86px;
-  height: 100vh;
+  height: var(--app-viewport-height);
   left: 0;
   max-width: 100vw;
   position: fixed;
@@ -407,7 +418,7 @@ select {
 .app-shell {
   display: grid;
   grid-template-rows: var(--app-bar-height) 1fr;
-  min-height: 100vh;
+  min-height: var(--app-viewport-height);
   background: var(--app-bg);
 }
 
@@ -538,18 +549,18 @@ h1 {
 .view {
   min-height: 0;
   overflow: auto;
-  padding-bottom: var(--bottom-nav-height);
+  padding-bottom: calc(var(--bottom-nav-height) + var(--safe-bottom));
   position: relative;
 }
 
 .app-shell.is-form-route .view {
-  padding-bottom: calc(var(--bottom-nav-height) + var(--form-actions-height));
+  padding-bottom: calc(var(--bottom-nav-height) + var(--form-actions-height) + var(--safe-bottom));
 }
 
 .empty-state {
   align-items: center;
   display: flex;
-  min-height: calc(100vh - var(--app-bar-height) - var(--bottom-nav-height));
+  min-height: calc(var(--app-viewport-height) - var(--app-bar-height) - var(--bottom-nav-height));
   justify-content: center;
 }
 
@@ -574,7 +585,7 @@ h1 {
 .calendar-page {
   display: flex;
   justify-content: center;
-  min-height: calc(100vh - var(--app-bar-height) - var(--bottom-nav-height));
+  min-height: calc(var(--app-viewport-height) - var(--app-bar-height) - var(--bottom-nav-height));
   padding: 16px;
 }
 
@@ -583,7 +594,7 @@ h1 {
   border: 1px solid var(--line);
   border-radius: 18px;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
-  height: calc(100vh - var(--app-bar-height) - var(--bottom-nav-height) - 32px);
+  height: calc(var(--app-viewport-height) - var(--app-bar-height) - var(--bottom-nav-height) - 32px);
   max-width: 1180px;
   min-height: 560px;
   overflow: hidden;
@@ -598,7 +609,7 @@ h1 {
 }
 
 .share-page {
-  min-height: calc(100vh - var(--app-bar-height) - var(--bottom-nav-height));
+  min-height: calc(var(--app-viewport-height) - var(--app-bar-height) - var(--bottom-nav-height));
   padding: 16px;
 }
 
@@ -610,7 +621,7 @@ h1 {
 }
 
 .feedback-page {
-  min-height: calc(100vh - var(--app-bar-height) - var(--bottom-nav-height));
+  min-height: calc(var(--app-viewport-height) - var(--app-bar-height) - var(--bottom-nav-height));
   padding: 16px;
 }
 
@@ -910,7 +921,7 @@ h1 {
 
 .currently-signed-in-page,
 .heater-records-content {
-  min-height: calc(100vh - var(--app-bar-height) - var(--bottom-nav-height));
+  min-height: calc(var(--app-viewport-height) - var(--app-bar-height) - var(--bottom-nav-height));
 }
 
 .live-record-page {
@@ -1712,7 +1723,7 @@ h1 {
 }
 
 .heater-records-page {
-  min-height: calc(100vh - var(--app-bar-height) - var(--bottom-nav-height));
+  min-height: calc(var(--app-viewport-height) - var(--app-bar-height) - var(--bottom-nav-height));
   position: relative;
 }
 
@@ -1851,7 +1862,7 @@ h1 {
 .heater-use-screen {
   align-content: start;
   max-width: none;
-  min-height: calc(100vh - var(--app-bar-height));
+  min-height: calc(var(--app-viewport-height) - var(--app-bar-height));
   padding: 0;
 }
 
@@ -1911,8 +1922,9 @@ h1 {
   bottom: 0;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  height: var(--bottom-nav-height);
+  height: calc(var(--bottom-nav-height) + var(--safe-bottom));
   left: 0;
+  padding-bottom: var(--safe-bottom);
   position: fixed;
   right: 0;
   z-index: 10;
@@ -1982,7 +1994,7 @@ textarea:focus-visible,
 .guest-sign-in-screen {
   align-content: start;
   max-width: none;
-  min-height: calc(100vh - var(--app-bar-height));
+  min-height: calc(var(--app-viewport-height) - var(--app-bar-height));
   padding: 0;
 }
 
@@ -2132,7 +2144,7 @@ textarea:focus-visible,
   color: var(--text);
   display: grid;
   grid-template-rows: auto auto 1fr auto;
-  height: min(92vh, 900px);
+  height: min(92dvh, 900px);
   left: 50%;
   max-width: 100vw;
   position: fixed;
@@ -2456,7 +2468,7 @@ textarea:focus-visible,
 
   .calendar-frame {
     border-radius: 14px;
-    height: calc(100vh - var(--app-bar-height) - var(--bottom-nav-height) - 20px);
+    height: calc(var(--app-viewport-height) - var(--app-bar-height) - var(--bottom-nav-height) - 20px);
     min-height: 460px;
   }
 
@@ -2786,7 +2798,7 @@ textarea:focus-visible,
   .member-picker-dialog {
     border-left: 0;
     border-right: 0;
-    height: 100vh;
+    height: var(--app-viewport-height);
     width: 100vw;
   }
 
@@ -2812,7 +2824,7 @@ textarea:focus-visible,
 
   .member-picker-footer {
     min-height: 70px;
-    padding: 0 22px;
+    padding: 0 22px max(12px, var(--safe-bottom));
   }
 
   .segment {

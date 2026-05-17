@@ -1613,7 +1613,7 @@ function closeDrawer() {
 }
 
 function visibleMembersForSession(session) {
-  if (isAccountManager(session) || isKioskModeSession(session)) {
+  if (isAccountManager(session) || isKioskAccount(session)) {
     return accountMembers;
   }
 

@@ -3,6 +3,7 @@
   const LOGIN_PATH = "/membership-login/";
   const SUPABASE_HELPER_SRC = "/scripts/rorc-supabase-client.js";
   const LEGACY_STORAGE_KEY = "memberData";
+  const AUTH_HINT_CACHE_KEY = "rorcAuthHint";
 
   let helperPromise = null;
 
@@ -92,6 +93,32 @@
       signedIn,
       member: signedIn ? member : null
     };
+
+    try {
+      window.sessionStorage.setItem(
+        AUTH_HINT_CACHE_KEY,
+        JSON.stringify({
+          signedIn: Boolean(signedIn),
+          updatedAt: Date.now()
+        })
+      );
+    } catch (error) {
+      // Ignore storage failures; this is an optional UX cache.
+    }
+  }
+
+  function readCachedHint() {
+    try {
+      const raw = window.sessionStorage.getItem(AUTH_HINT_CACHE_KEY);
+      if (!raw) return null;
+
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return null;
+      if (typeof parsed.signedIn !== "boolean") return null;
+      return parsed;
+    } catch (error) {
+      return null;
+    }
   }
 
   function loadHelper() {
@@ -124,12 +151,12 @@
 
   async function getAuthState() {
     const helper = await loadHelper();
-    const result = await helper.getCurrentMemberProfile();
+    const session = await helper.getSession();
 
     return {
-      signedIn: !!result.session,
-      member: result.profile,
-      session: result.session
+      signedIn: Boolean(session),
+      member: null,
+      session
     };
   }
 
@@ -164,6 +191,19 @@
       return;
     }
 
+    const onDashboard = window.location.pathname.startsWith(DASHBOARD_PATH);
+    const cachedHint = readCachedHint();
+
+    if (cachedHint?.signedIn) {
+      if (onDashboard) {
+        applyLogoutNav(link);
+        bindLogout(link);
+      } else {
+        applyPortalNav(link);
+      }
+      document.documentElement.dataset.rorcAuthHint = "signed-in";
+    }
+
     let authState;
 
     try {
@@ -171,8 +211,6 @@
     } catch (error) {
       authState = { signedIn: false, member: null };
     }
-
-    const onDashboard = window.location.pathname.startsWith(DASHBOARD_PATH);
 
     if (authState.signedIn) {
       setHintState(true, authState.member);

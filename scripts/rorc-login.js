@@ -1,5 +1,6 @@
 (function() {
   const DASHBOARD_PATH = "/member-dashboard/";
+  const AUTH_HINT_CACHE_KEY = "rorcAuthHint";
 
   function byId(id) {
     return document.getElementById(id);
@@ -92,6 +93,20 @@
     return String(byId("password")?.value || "");
   }
 
+  function cacheSignedInHint() {
+    try {
+      window.sessionStorage.setItem(
+        AUTH_HINT_CACHE_KEY,
+        JSON.stringify({
+          signedIn: true,
+          updatedAt: Date.now()
+        })
+      );
+    } catch (error) {
+      // Ignore storage failures.
+    }
+  }
+
   async function init() {
     try {
       await redirectIfSignedIn();
@@ -118,6 +133,7 @@
 
       try {
         await signInWithPassword(email, password);
+        cacheSignedInHint();
         setResult("Login successful...", "success");
         window.location.href = DASHBOARD_PATH;
       } catch (error) {
