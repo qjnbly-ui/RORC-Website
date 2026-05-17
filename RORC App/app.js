@@ -24,6 +24,7 @@ let installFallbackTimer = null;
 
 let accounts = [];
 let accountMembers = [];
+let globalMemberDirectory = [];
 let timesheetEntries = [];
 let heaterUseEntries = [];
 let billingLineItems = [];
@@ -213,7 +214,8 @@ function buildSession(memberId) {
 }
 
 function findMember(memberId) {
-  return accountMembers.find((member) => member.id === memberId);
+  return accountMembers.find((member) => member.id === memberId)
+    || globalMemberDirectory.find((member) => member.id === memberId);
 }
 
 function accountForMember(member) {
@@ -1306,6 +1308,7 @@ function findProfileForSession(session, profiles) {
 function clearLiveData() {
   accounts = [];
   accountMembers = [];
+  globalMemberDirectory = [];
   timesheetEntries = [];
   heaterUseEntries = [];
   billingLineItems = [];
@@ -1564,6 +1567,7 @@ async function hydrateFromSupabase() {
       : "";
     refreshSessions(appState.authMemberId);
     updateDrawerIdentity();
+    await loadGlobalMemberDirectory();
     try {
       await refreshMemberNotifications({ announceNew: false });
       startNotificationPolling();
@@ -1583,6 +1587,42 @@ async function hydrateFromSupabase() {
 
   render(appState.currentRoute);
   return appState.dataStatus === "live";
+}
+
+async function loadGlobalMemberDirectory() {
+  globalMemberDirectory = [];
+
+  const canLoadFullDirectory = isAccountManager(appUserSession) || isKioskAccount(appUserSession);
+  const token = currentAuthSession?.access_token || "";
+  if (!canLoadFullDirectory || !token) return;
+
+  const response = await fetch("/api/member-directory", {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not load full member directory.");
+  }
+
+  const rows = Array.isArray(body.members) ? body.members : [];
+  globalMemberDirectory = rows.map((row) => ({
+    id: row.account_member_id,
+    accountId: row.account_id,
+    memberName: row.member_name || "Unnamed Member",
+    accountType: canonicalAccountType(row.account_type),
+    legacyAccountType: "",
+    phoneNumber: row.phone_number || "",
+    emailAddress: row.email_address || "",
+    imagePath: "",
+    allowGuestEntry: Boolean(row.allow_guest_entry),
+    allowHeaterUse: accountTypeAllowsHeater(canonicalAccountType(row.account_type)),
+    isBillingOwner: Boolean(row.is_billing_owner),
+    pinConfigured: true
+  }));
 }
 
 function applySupabaseData({
@@ -1754,7 +1794,7 @@ function visibleMembersForSession(session) {
   );
 
   if (kioskOrManager) {
-    return accountMembers;
+    return globalMemberDirectory.length ? globalMemberDirectory : accountMembers;
   }
 
   return accountMembers.filter((member) => member.accountId === session.accountId);
@@ -1775,7 +1815,7 @@ function memberPickerOptions(source) {
   const kioskOrManager = isAccountManager(appUserSession) || isKioskAccount(appUserSession);
 
   if ((source === "memberSignIn" || source === "heaterResponsible") && kioskOrManager) {
-    return sortOnly(accountMembers);
+    return sortOnly(globalMemberDirectory.length ? globalMemberDirectory : accountMembers);
   }
 
   if (source === "guestSponsors") {

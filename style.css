@@ -132,23 +132,7 @@ a { color: inherit; }
   opacity: 1;
 }
 
-html[data-rorc-auth-hint="signed-in"] .site-menu-login {
-  font-size: 0;
-}
-
-html[data-rorc-auth-hint="signed-in"] .site-menu-login::after {
-  font-size: 11px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-}
-
-html[data-rorc-auth-hint="signed-in"]:not([data-rorc-auth-page="dashboard"]) .site-menu-login::after {
-  content: "Portal";
-}
-
-html[data-rorc-auth-hint="signed-in"][data-rorc-auth-page="dashboard"] .site-menu-login::after {
-  content: "Logout";
-}
+/* Keep the real anchor text clickable; auth-nav script updates text directly. */
 
 .site-menu-button,
 .site-menu-close {
