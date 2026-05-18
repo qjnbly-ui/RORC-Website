@@ -3867,7 +3867,7 @@ function populateHeaterForm() {
 
   const timerDuration = document.getElementById("heaterTimerDuration");
   if (timerDuration) {
-    timerDuration.value = "60";
+    timerDuration.value = "15";
   }
 
   const timerUntil = document.getElementById("heaterTimerUntil");
