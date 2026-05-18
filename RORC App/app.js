@@ -31,6 +31,8 @@ let billingLineItems = [];
 let notificationDispatchRecords = [];
 let memberNotifications = [];
 let notificationPollTimer = null;
+let timesheetPollTimer = null;
+let timesheetSyncInFlight = false;
 let heaterCountdownTimer = null;
 const pendingHeaterAutoOffIds = new Set();
 let notifiedIds = new Set();
@@ -121,7 +123,7 @@ const routes = {
   currentlySignedIn: {
     title: "Currently Signed In",
     template: "currentlySignedInTemplate",
-    afterRender: renderCurrentlySignedIn
+    afterRender: renderCurrentlySignedInRoute
   },
   heaterRecords: {
     title: "Thermostat",
@@ -1557,6 +1559,65 @@ function stopNotificationPolling() {
   }
 }
 
+function stopTimesheetPolling() {
+  if (timesheetPollTimer) {
+    window.clearInterval(timesheetPollTimer);
+    timesheetPollTimer = null;
+  }
+}
+
+function startTimesheetPolling() {
+  stopTimesheetPolling();
+  timesheetPollTimer = window.setInterval(async () => {
+    try {
+      await syncTimesheetEntries({ rerender: appState.currentRoute === "currentlySignedIn" });
+    } catch (error) {
+      // Ignore polling errors to avoid interrupting app flow.
+    }
+  }, 8000);
+}
+
+async function syncTimesheetEntries({ rerender = false } = {}) {
+  if (timesheetSyncInFlight) return;
+
+  const client = await createSupabaseClient();
+  if (!client) return;
+
+  timesheetSyncInFlight = true;
+  try {
+    const timesheetResult = await client
+      .from("timesheet_entries")
+      .select("*")
+      .order("signed_in_at", { ascending: false })
+      .limit(1000);
+
+    if (timesheetResult.error) {
+      throw timesheetResult.error;
+    }
+
+    const nextEntries = (timesheetResult.data || []).map((row) => ({
+      id: row.id,
+      memberId: row.member_id,
+      memberOrGuest: row.member_or_guest,
+      guestName: row.guest_name || "",
+      memberEnteredWithId: row.member_entered_with_id || "",
+      signedInAt: row.signed_in_at,
+      signedOutAt: row.signed_out_at || "",
+      accountTypeAtSignIn: row.account_type_at_sign_in || "",
+      locationLabel: row.location_label || ""
+    }));
+
+    timesheetEntries = nextEntries;
+    refreshSessions(appState.authMemberId);
+    if (rerender && appState.currentRoute === "currentlySignedIn") {
+      renderCurrentlySignedIn();
+      bindRouteActions();
+    }
+  } finally {
+    timesheetSyncInFlight = false;
+  }
+}
+
 function startNotificationPolling() {
   stopNotificationPolling();
   notificationPollTimer = window.setInterval(async () => {
@@ -1683,6 +1744,7 @@ async function hydrateFromSupabase() {
     try {
       await refreshMemberNotifications({ announceNew: false });
       startNotificationPolling();
+      startTimesheetPolling();
     } catch (notificationError) {
       console.warn("Could not load notifications.", notificationError);
     }
@@ -2487,6 +2549,11 @@ function renderCurrentlySignedIn() {
       </div>
     </section>
   `;
+}
+
+function renderCurrentlySignedInRoute() {
+  renderCurrentlySignedIn();
+  void syncTimesheetEntries({ rerender: true });
 }
 
 function renderSignedInCard(entry) {
@@ -4568,6 +4635,7 @@ async function handleLogout() {
   appState.dataError = "";
   clearLiveData();
   stopNotificationPolling();
+  stopTimesheetPolling();
   updateNavigationVisibility();
   showAuthGate("Signed out.", "success");
 }
