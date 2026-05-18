@@ -32,6 +32,7 @@ let notificationDispatchRecords = [];
 let memberNotifications = [];
 let notificationPollTimer = null;
 let heaterCountdownTimer = null;
+const pendingHeaterAutoOffIds = new Set();
 let notifiedIds = new Set();
 let notificationUnreadCount = 0;
 
@@ -982,7 +983,7 @@ async function triggerHeaterOnSequence(memberIds) {
   }
 }
 
-async function triggerHeaterOffSequence(memberIds = []) {
+async function triggerHeaterOffSequence(memberIds = [], options = {}) {
   const token = currentAuthSession?.access_token || "";
   if (!token) return;
 
@@ -993,7 +994,10 @@ async function triggerHeaterOffSequence(memberIds = []) {
       Authorization: `Bearer ${token}`
     },
     body: JSON.stringify({
-      memberIds: [...new Set((memberIds || []).filter(Boolean))]
+      memberIds: [...new Set((memberIds || []).filter(Boolean))],
+      heaterUseEntryId: options.heaterUseEntryId || null,
+      timerTriggered: Boolean(options.timerTriggered),
+      timerMinutes: Number(options.timerMinutes || 0) || null
     })
   });
 
@@ -2382,6 +2386,14 @@ function heaterCountdownText(entry) {
   return hours > 0 ? `Timer ${hours}h ${mins}m left` : `Timer ${mins}m left`;
 }
 
+function configuredTimerMinutes(entry) {
+  const target = heaterTimerTarget(entry);
+  const start = entry?.startAt ? new Date(entry.startAt) : null;
+  if (!target || !start || Number.isNaN(target.getTime()) || Number.isNaN(start.getTime())) return null;
+  const minutes = Math.round((target.getTime() - start.getTime()) / 60000);
+  return minutes > 0 ? minutes : null;
+}
+
 function sortMembers(a, b) {
   const pickerOrder = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Open Gym Only", "RESTRICTED ACCOUNT"];
   const resolveTypeIndex = (accountType) => {
@@ -2621,6 +2633,16 @@ function renderHeaterRecords() {
 
   bindHeaterRecordsActions();
 
+  const expiredTimers = records.filter((entry) => {
+    if (entry.endAt || !entry.setATimer || (entry.turnHeaterOn || "On") !== "On") return false;
+    const target = heaterTimerTarget(entry);
+    return Boolean(target && target.getTime() <= Date.now());
+  });
+
+  expiredTimers.forEach((entry) => {
+    turnHeaterOffEntry(entry, { timerTriggered: true });
+  });
+
   if (heaterCountdownTimer) {
     window.clearTimeout(heaterCountdownTimer);
     heaterCountdownTimer = null;
@@ -2674,12 +2696,54 @@ async function turnHeaterOffActiveEntry() {
     ? activeEntry.groupMemberIds
     : [activeEntry.responsibleMemberId];
 
-  triggerHeaterOffSequence(offRecipients).catch((sequenceError) => {
+  triggerHeaterOffSequence(offRecipients, {
+    heaterUseEntryId: activeEntry.id,
+    timerTriggered: false
+  }).catch((sequenceError) => {
     console.warn("Heater off sequence failed.", sequenceError);
   });
 
   await hydrateFromSupabase();
   render("heaterRecords");
+}
+
+async function turnHeaterOffEntry(entry, { timerTriggered = false } = {}) {
+  if (!entry?.id || pendingHeaterAutoOffIds.has(entry.id)) return;
+  pendingHeaterAutoOffIds.add(entry.id);
+
+  try {
+    const client = await createSupabaseClient();
+    if (!client) return;
+
+    const { error } = await client
+      .from("heater_use_entries")
+      .update({
+        end_at: new Date().toISOString(),
+        turn_heater_on: "Off"
+      })
+      .eq("id", entry.id)
+      .is("end_at", null);
+
+    if (error) throw error;
+
+    const offRecipients = entry.groupPay ? entry.groupMemberIds : [entry.responsibleMemberId];
+    triggerHeaterOffSequence(offRecipients, {
+      heaterUseEntryId: entry.id,
+      timerTriggered,
+      timerMinutes: timerTriggered ? configuredTimerMinutes(entry) : null
+    }).catch((sequenceError) => {
+      console.warn("Heater off sequence failed.", sequenceError);
+    });
+
+    await hydrateFromSupabase();
+    if (appState.currentRoute === "heaterRecords") {
+      render("heaterRecords");
+    }
+  } catch (error) {
+    console.warn("Auto heater off failed.", error);
+  } finally {
+    pendingHeaterAutoOffIds.delete(entry.id);
+  }
 }
 
 function renderAccountInfo() {
@@ -4308,7 +4372,10 @@ async function saveHeaterUse() {
       });
     } else if (turnHeaterOn === "Off") {
       const smsRecipients = groupPay ? multiResponsibleMemberIds : [singleResponsibleMemberId];
-      triggerHeaterOffSequence(smsRecipients).catch((sequenceError) => {
+      triggerHeaterOffSequence(smsRecipients, {
+        heaterUseEntryId: createdEntry?.id || null,
+        timerTriggered: false
+      }).catch((sequenceError) => {
         console.warn("Heater off sequence failed.", sequenceError);
       });
     }

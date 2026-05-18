@@ -39,13 +39,18 @@ module.exports = async (req, res) => {
     const requestedIds = Array.isArray(req.body?.memberIds)
       ? req.body.memberIds.map((v) => String(v || "").trim()).filter(Boolean)
       : [];
+    const heaterUseEntryId = String(req.body?.heaterUseEntryId || "").trim();
+    const timerTriggered = Boolean(req.body?.timerTriggered);
+    const timerMinutes = Math.max(0, Number(req.body?.timerMinutes || 0) || 0);
     const targetIds = [...new Set(requestedIds)];
     let sentCount = 0;
     const errors = [];
 
     if (targetIds.length) {
       const members = await loadMembersByIds(targetIds);
-      const message = "A prior heater use event was completed under your name. Reminder all use will be billed monthly.";
+      const billedByMember = heaterUseEntryId
+        ? await loadBilledAmountByMember(heaterUseEntryId)
+        : new Map();
 
       if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
         errors.push("Twilio credentials are not configured.");
@@ -56,6 +61,12 @@ module.exports = async (req, res) => {
             errors.push(`${member.member_name || member.id}: no valid phone number`);
             continue;
           }
+
+          const billedCents = billedByMember.get(member.id) || 0;
+          const billedDollars = (billedCents / 100).toFixed(2);
+          const message = timerTriggered
+            ? `Your ${Math.max(1, Math.round(timerMinutes))} min timer has went off and the heater successfully turned off. $${billedDollars} has been added to your monthly bill.`
+            : "A prior heater use event was completed under your name. Reminder all use will be billed monthly.";
 
           try {
             await sendTwilioText(to, message);
@@ -115,6 +126,26 @@ async function getAutomationConfig(id) {
   if (!response.ok) return {};
   const rows = await response.json().catch(() => []);
   return rows[0]?.config || {};
+}
+
+async function loadBilledAmountByMember(heaterUseEntryId) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const rows = await supabaseRest(
+      `billing_line_items?select=account_member_id,amount_cents&heater_use_entry_id=eq.${encodeURIComponent(heaterUseEntryId)}`
+    );
+    if (rows.length > 0 || attempt === 2) {
+      const totals = new Map();
+      rows.forEach((row) => {
+        const memberId = String(row.account_member_id || "");
+        if (!memberId) return;
+        const prev = totals.get(memberId) || 0;
+        totals.set(memberId, prev + Number(row.amount_cents || 0));
+      });
+      return totals;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return new Map();
 }
 
 async function setEcobeeMode(mode) {
