@@ -875,12 +875,18 @@ function renderNotificationsPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
 
+  const reminderNote = `
+    <section class="empty-state">
+      <p>Notifications are temporarily disabled. Reminder: re-enable polling and notification delivery when ready.</p>
+    </section>
+  `;
   const records = [...memberNotifications]
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 100);
 
   root.innerHTML = `
     <section class="live-record-page">
+      ${reminderNote}
       ${records.length ? `
       <div class="detail-card">
         <ol class="record-list heater-record-list">
@@ -914,12 +920,18 @@ function renderUserNotificationsPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
 
+  const reminderNote = `
+    <section class="empty-state">
+      <p>Notifications are temporarily disabled. Reminder: re-enable polling and notification delivery when ready.</p>
+    </section>
+  `;
   const records = [...memberNotifications]
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 100);
 
   root.innerHTML = `
     <section class="live-record-page">
+      ${reminderNote}
       ${records.length ? `
       <div class="detail-card">
         <ol class="record-list heater-record-list">
@@ -940,9 +952,7 @@ function renderUserNotificationsPage() {
     </section>
   `;
 
-  markOwnNotificationsRead()
-    .then(() => refreshMemberNotifications({ announceNew: false }))
-    .catch(() => null);
+  // Intentionally disabled while notifications polling is paused.
 }
 
 function renderMessageComposerPage() {
@@ -1635,6 +1645,12 @@ function updateNotificationBadge() {
   badge.textContent = hasUnread ? `New ${notificationUnreadCount}` : "New";
 }
 
+function createHttpError(message, statusCode) {
+  const error = new Error(message);
+  error.statusCode = Number(statusCode) || 500;
+  return error;
+}
+
 async function fetchMemberNotifications() {
   const token = currentAuthSession?.access_token || "";
   if (!token) return [];
@@ -1648,7 +1664,7 @@ async function fetchMemberNotifications() {
 
   const body = await response.json().catch(() => ({}));
   if (!response.ok || body.success === false) {
-    throw new Error(body.error || "Could not load notifications.");
+    throw createHttpError(body.error || "Could not load notifications.", response.status);
   }
 
   return (body.notifications || []).map((row) => ({
@@ -1709,7 +1725,7 @@ async function markOwnNotificationsRead() {
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || "Could not mark notifications as read.");
+    throw createHttpError(body.error || "Could not mark notifications as read.", response.status);
   }
 }
 
@@ -1788,7 +1804,9 @@ function startNotificationPolling() {
         render(appState.currentRoute);
       }
     } catch (error) {
-      // Ignore polling errors to avoid interrupting app flow.
+      if (Number(error?.statusCode) === 401) {
+        stopNotificationPolling();
+      }
     }
   }, 12000);
 }
@@ -1909,8 +1927,7 @@ async function hydrateFromSupabase() {
       console.warn("Could not load full member directory.", directoryError);
     }
     try {
-      await refreshMemberNotifications({ announceNew: false });
-      startNotificationPolling();
+      // Notifications polling intentionally disabled for now.
       startTimesheetPolling();
     } catch (notificationError) {
       console.warn("Could not load notifications.", notificationError);
