@@ -4102,6 +4102,50 @@ function isOpenGymFirstSignInWindow(date) {
   return ["Tue", "Thu"].includes(weekday) && minutes >= startsAt && minutes <= endsAt;
 }
 
+function isActiveMembershipWindow(date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const minutes = Number(values.hour) * 60 + Number(values.minute);
+  const startsAt = 7 * 60;
+  const endsAt = 21 * 60;
+
+  return minutes >= startsAt && minutes <= endsAt;
+}
+
+function canMemberSignInNow(member, signedInAt) {
+  const type = canonicalAccountType(member?.accountType);
+
+  if (!member) {
+    return { allowed: false, reason: "Member not found." };
+  }
+
+  if (type === "RESTRICTED ACCOUNT") {
+    return { allowed: false, reason: "Restricted account cannot sign in." };
+  }
+
+  if (type === "Account Manager" || type === "Special Access Account" || type === "Kiosk Account") {
+    return { allowed: true, reason: "" };
+  }
+
+  if (type === "Active Membership") {
+    return isActiveMembershipWindow(signedInAt)
+      ? { allowed: true, reason: "" }
+      : { allowed: false, reason: "Active Membership can sign in only 7:00 AM to 9:00 PM." };
+  }
+
+  if (type === "Open Gym Only") {
+    return isOpenGymFirstSignInWindow(signedInAt)
+      ? { allowed: true, reason: "" }
+      : { allowed: false, reason: "Open Gym Only can sign in Tuesday/Thursday 5:50 PM to 8:00 PM." };
+  }
+
+  return { allowed: true, reason: "" };
+}
+
 function isEligibleForFirstSignInRule(member, signedInAt, wasNoOneSignedIn) {
   if (!wasNoOneSignedIn || !member) return false;
 
@@ -4162,6 +4206,21 @@ async function saveMemberSignIn() {
   const uniqueMemberIds = [...new Set(selectedMemberIds)];
   const signedInAtDate = new Date();
   const wasNoOneSignedIn = openTimesheetCount() === 0;
+  const blockedMembers = uniqueMemberIds
+    .map((memberId) => {
+      const member = findMember(memberId);
+      const validation = canMemberSignInNow(member, signedInAtDate);
+      return { member, validation };
+    })
+    .filter(({ validation }) => !validation.allowed);
+
+  if (blockedMembers.length > 0) {
+    const firstBlocked = blockedMembers[0];
+    const name = firstBlocked.member?.memberName || "Selected member";
+    showDetailActionMessage(`${name}: ${firstBlocked.validation.reason}`);
+    return;
+  }
+
   const firstValidMember = uniqueMemberIds
     .map((memberId) => findMember(memberId))
     .find((member) => isEligibleForFirstSignInRule(member, signedInAtDate, wasNoOneSignedIn));
