@@ -2347,10 +2347,27 @@ function heaterRecordStatus(entry) {
 
 function heaterTimerTarget(entry) {
   if (!entry?.setATimer || !entry?.timerStop) return null;
+  const startAt = entry.startAt ? new Date(entry.startAt) : null;
   const usedOn = String(entry.usedOn || "").slice(0, 10);
   const stop = String(entry.timerStop || "").slice(0, 5);
-  if (!usedOn || !stop) return null;
-  return new Date(`${usedOn}T${stop}:00`);
+  if (!stop) return null;
+
+  const base = startAt && !Number.isNaN(startAt.getTime())
+    ? new Date(startAt)
+    : (usedOn ? new Date(`${usedOn}T00:00:00`) : null);
+  if (!base || Number.isNaN(base.getTime())) return null;
+
+  const [hh, mm] = stop.split(":").map((value) => Number(value));
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+
+  const target = new Date(base);
+  target.setHours(hh, mm, 0, 0);
+
+  if (startAt && target.getTime() < startAt.getTime()) {
+    target.setDate(target.getDate() + 1);
+  }
+
+  return target;
 }
 
 function heaterCountdownText(entry) {
@@ -4232,7 +4249,7 @@ async function saveHeaterUse() {
   try {
     const groupPay = groupPayValue === "Y";
     const responsibleMemberId = groupPay ? (multiResponsibleMemberIds[0] || null) : singleResponsibleMemberId;
-    const usedOn = new Date().toISOString().slice(0, 10);
+    const usedOn = formatDateOnly(new Date());
     const now = new Date();
     const timerStart = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:00`;
     let timerStop = null;
