@@ -134,6 +134,7 @@ const appState = {
   detailReturnRoute: "accountInfo",
   currentRoute: "currentlySignedIn",
   masterLogsTab: "timesheet",
+  notificationsHistoryFilter: "all",
   dataStatus: "loading",
   dataError: "",
   authMemberId: "",
@@ -942,19 +943,36 @@ function renderNotificationsPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
 
-  const records = [...memberNotifications]
+  const historyFilter = String(appState.notificationsHistoryFilter || "all");
+  const allRecords = [...memberNotifications]
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 100);
+  const records = allRecords.filter((record) => {
+    if (historyFilter === "all") return true;
+    const channels = record.rawChannels || {};
+    if (historyFilter === "in_app") return Boolean(channels.inApp || channels.browser);
+    if (historyFilter === "text") return Boolean(channels.text);
+    if (historyFilter === "email") return Boolean(channels.email);
+    return true;
+  });
 
   root.innerHTML = `
     <section class="live-record-page">
+      <div class="detail-card">
+        <div class="master-logs-tabs" role="tablist" aria-label="Message history channels">
+          <button class="master-logs-tab ${historyFilter === "all" ? "is-active" : ""}" data-notification-history-filter="all" type="button">All</button>
+          <button class="master-logs-tab ${historyFilter === "in_app" ? "is-active" : ""}" data-notification-history-filter="in_app" type="button">In-App</button>
+          <button class="master-logs-tab ${historyFilter === "text" ? "is-active" : ""}" data-notification-history-filter="text" type="button">Text</button>
+          <button class="master-logs-tab ${historyFilter === "email" ? "is-active" : ""}" data-notification-history-filter="email" type="button">Email</button>
+        </div>
+      </div>
       ${records.length ? `
       <div class="detail-card">
         <ol class="record-list heater-record-list">
           ${records.map((record) => `
             <li data-notification-item="${escapeAttribute(record.id)}">
               <strong class="heater-record-event">${escapeHtml(record.title)}</strong>
-              <span class="heater-record-meta">${escapeHtml(formatNotificationMeta(record))}</span>
+              <span class="heater-record-meta">${escapeHtml(formatNotificationHistoryMeta(record))}</span>
               <button class="heater-state-action is-paid" type="button" disabled>${escapeHtml(record.statusLabel)}</button>
               <p class="heater-record-message">${escapeHtml(record.message || "")}</p>
             </li>
@@ -976,6 +994,7 @@ function renderNotificationsPage() {
   document.querySelector(".message-fab")?.addEventListener("click", () => {
     render("messageCompose");
   });
+  bindNotificationHistoryFilters();
 
   bindNotificationOpenActions();
 }
@@ -1030,6 +1049,13 @@ function formatNotificationMeta(record) {
   return [
     record.channelsLabel,
     record.recipientsLabel,
+    formatShortDateTime(record.createdAt)
+  ].filter((value) => String(value || "").trim()).join(" · ");
+}
+
+function formatNotificationHistoryMeta(record) {
+  return [
+    record.channelsLabel,
     formatShortDateTime(record.createdAt)
   ].filter((value) => String(value || "").trim()).join(" · ");
 }
@@ -1435,6 +1461,17 @@ function bindMarkAllNotificationsRead() {
       button.disabled = false;
       button.textContent = originalText;
     }
+  });
+}
+
+function bindNotificationHistoryFilters() {
+  document.querySelectorAll("[data-notification-history-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const next = String(button.dataset.notificationHistoryFilter || "all");
+      if (next === appState.notificationsHistoryFilter) return;
+      appState.notificationsHistoryFilter = next;
+      render("notificationsEmail");
+    });
   });
 }
 
@@ -2177,10 +2214,12 @@ async function fetchMemberNotifications() {
     title: row.title || "Notification",
     message: row.message || "",
     channelsLabel: Array.isArray(Object.keys(row.channels || {}))
-      ? Object.entries(row.channels || {}).filter(([, enabled]) => Boolean(enabled)).map(([k]) => (
-        k === "inApp" ? "In-App" : k === "browser" ? "Browser" : k === "text" ? "Text" : k === "email" ? "Email" : k
-      )).join(" + ") || "In-App"
-      : "In-App",
+      ? Object.entries(row.channels || {})
+        .filter(([, enabled]) => Boolean(enabled))
+        .map(([k]) => (k === "text" ? "Text" : k === "email" ? "Email" : ""))
+        .filter(Boolean)
+        .join(" + ")
+      : "",
     recipientsLabel: row.recipient_member_id === appState.authMemberId ? "" : "Shared account",
     statusLabel: row.recipient_member_id === appState.authMemberId
       ? (row.read_at ? "Read" : "Unread")
