@@ -854,7 +854,7 @@ function renderMessageComposerPage() {
     .slice(0, 16);
 
   root.innerHTML = `
-    <form id="messageComposerForm" class="form-screen guest-sign-in-screen" autocomplete="off">
+    <form id="messageComposerForm" class="form-screen message-composer-screen" autocomplete="off">
       <div class="form-card">
         <label>
           <span>Title<mark>*</mark></span>
