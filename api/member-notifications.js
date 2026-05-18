@@ -59,7 +59,8 @@ module.exports = async (req, res) => {
 
     return res.status(405).json({ success: false, error: "Method not allowed" });
   } catch (error) {
-    return res.status(500).json({ success: false, error: error.message || "Server error" });
+    const status = Number(error?.statusCode) || 500;
+    return res.status(status).json({ success: false, error: error.message || "Server error" });
   }
 };
 
@@ -78,7 +79,7 @@ async function getSupabaseUser(token) {
   });
 
   if (!response.ok) {
-    throw new Error("Invalid session");
+    throw httpError(401, "Invalid session");
   }
 
   return response.json();
@@ -104,8 +105,14 @@ async function supabaseRest(path) {
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`REST request failed: ${response.status} ${text}`);
+    throw httpError(response.status, `REST request failed: ${response.status} ${text}`);
   }
 
   return response.json();
+}
+
+function httpError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
 }
