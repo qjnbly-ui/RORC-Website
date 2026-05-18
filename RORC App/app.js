@@ -960,6 +960,45 @@ async function sendMemberMessage(payload) {
   return body;
 }
 
+async function triggerHeaterOnSequence(memberIds) {
+  const token = currentAuthSession?.access_token || "";
+  if (!token || !Array.isArray(memberIds) || memberIds.length === 0) return;
+
+  const response = await fetch("/api/heater-on-sequence", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      memberIds: [...new Set(memberIds)]
+    })
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Heater-on sequence failed.");
+  }
+}
+
+async function triggerHeaterOffSequence() {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) return;
+
+  const response = await fetch("/api/heater-off-sequence", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Heater-off sequence failed.");
+  }
+}
+
 function bindMessageComposerActions() {
   const form = document.getElementById("messageComposerForm");
   const saveButton = document.getElementById("messageComposerSave");
@@ -2552,6 +2591,10 @@ async function turnHeaterOffActiveEntry() {
     throw error;
   }
 
+  triggerHeaterOffSequence().catch((sequenceError) => {
+    console.warn("Heater off sequence failed.", sequenceError);
+  });
+
   await hydrateFromSupabase();
   render("heaterRecords");
 }
@@ -4018,6 +4061,17 @@ async function saveHeaterUse() {
       if (groupError) {
         throw groupError;
       }
+    }
+
+    if (turnHeaterOn === "On") {
+      const smsRecipients = groupPay ? multiResponsibleMemberIds : [singleResponsibleMemberId];
+      triggerHeaterOnSequence(smsRecipients).catch((sequenceError) => {
+        console.warn("Heater on sequence failed.", sequenceError);
+      });
+    } else if (turnHeaterOn === "Off") {
+      triggerHeaterOffSequence().catch((sequenceError) => {
+        console.warn("Heater off sequence failed.", sequenceError);
+      });
     }
 
     await hydrateFromSupabase();
