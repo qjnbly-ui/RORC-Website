@@ -945,10 +945,11 @@ function renderNotificationsPage() {
       <div class="detail-card">
         <ol class="record-list heater-record-list">
           ${records.map((record) => `
-            <li>
+            <li data-notification-item="${escapeAttribute(record.id)}">
               <strong class="heater-record-event">${escapeHtml(record.title)}</strong>
               <span class="heater-record-meta">${escapeHtml(record.channelsLabel)} · ${escapeHtml(record.recipientsLabel)} · ${formatShortDateTime(record.createdAt)}</span>
-              <button class="heater-state-action is-paid" type="button">${escapeHtml(record.statusLabel)}</button>
+              <button class="heater-state-action is-paid" type="button" disabled>${escapeHtml(record.statusLabel)}</button>
+              <p class="heater-record-message">${escapeHtml(record.message || "")}</p>
             </li>
           `).join("")}
         </ol>
@@ -968,6 +969,8 @@ function renderNotificationsPage() {
   document.querySelector(".message-fab")?.addEventListener("click", () => {
     render("messageCompose");
   });
+
+  bindNotificationOpenActions();
 }
 
 function renderUserNotificationsPage() {
@@ -984,10 +987,11 @@ function renderUserNotificationsPage() {
       <div class="detail-card">
         <ol class="record-list heater-record-list">
           ${records.map((record) => `
-            <li>
+            <li data-notification-item="${escapeAttribute(record.id)}">
               <strong class="heater-record-event">${escapeHtml(record.title)}</strong>
               <span class="heater-record-meta">${escapeHtml(record.channelsLabel)} · ${escapeHtml(record.recipientsLabel)} · ${formatShortDateTime(record.createdAt)}</span>
-              <button class="heater-state-action is-paid" type="button">${escapeHtml(record.statusLabel)}</button>
+              <button class="heater-state-action is-paid" data-notification-toggle="${escapeAttribute(record.id)}" type="button">${record.readAt ? "Mark Unread" : "Mark Read"}</button>
+              <p class="heater-record-message">${escapeHtml(record.message || "")}</p>
             </li>
           `).join("")}
         </ol>
@@ -999,6 +1003,85 @@ function renderUserNotificationsPage() {
       `}
     </section>
   `;
+
+  bindUserNotificationActions();
+  bindNotificationOpenActions();
+}
+
+function bindNotificationOpenActions() {
+  document.querySelectorAll("[data-notification-item]").forEach((row) => {
+    row.addEventListener("click", () => {
+      const notificationId = String(row.dataset.notificationItem || "").trim();
+      if (!notificationId) return;
+      const notification = memberNotifications.find((row) => row.id === notificationId);
+      if (!notification) return;
+
+      const title = notification.title || "Notification";
+      const details = [
+        formatShortDateTime(notification.createdAt),
+        notification.channelsLabel || "",
+        notification.recipientsLabel || "",
+        "",
+        notification.message || "(No message)"
+      ].join("\n");
+
+      showAppNotice(details, title);
+    });
+  });
+}
+
+function setNotificationToggleBusy(notificationId, busy) {
+  const button = document.querySelector(`[data-notification-toggle="${CSS.escape(notificationId)}"]`);
+  if (!button) return;
+  if (!button.dataset.defaultText) button.dataset.defaultText = button.textContent;
+  button.disabled = busy;
+  button.textContent = busy ? "Saving..." : (button.dataset.defaultText || button.textContent);
+}
+
+async function markNotificationsReadState(ids = [], read = true) {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) return;
+
+  const response = await fetch("/api/member-notifications", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ ids, read })
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw createHttpError(body.error || "Could not update notifications.", response.status);
+  }
+}
+
+function bindUserNotificationActions() {
+  document.querySelectorAll("[data-notification-toggle]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const notificationId = String(button.dataset.notificationToggle || "").trim();
+      if (!notificationId) return;
+
+      const notification = memberNotifications.find((row) => row.id === notificationId);
+      if (!notification) return;
+      if (notification.recipientMemberId !== appState.authMemberId) return;
+
+      const nextReadState = !notification.readAt;
+      setNotificationToggleBusy(notificationId, true);
+
+      try {
+        await markNotificationsReadState([notificationId], nextReadState);
+        await refreshMemberNotifications({ announceNew: false });
+        render("notifications");
+      } catch (error) {
+        showDetailActionMessage(error.message || "Could not update notification.");
+      } finally {
+        setNotificationToggleBusy(notificationId, false);
+      }
+    });
+  });
 }
 
 function renderMessageComposerPage() {

@@ -30,6 +30,7 @@ module.exports = async (req, res) => {
 
     if (req.method === "POST") {
       const ids = Array.isArray(req.body?.ids) ? req.body.ids.map((v) => String(v || "").trim()).filter(Boolean) : [];
+      const markRead = req.body?.read !== false;
       if (!ids.length) {
         return res.status(400).json({ success: false, error: "No notification IDs provided." });
       }
@@ -45,7 +46,7 @@ module.exports = async (req, res) => {
             Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
             "Content-Type": "application/json"
           },
-          body: JSON.stringify({ read_at: new Date().toISOString() })
+          body: JSON.stringify({ read_at: markRead ? new Date().toISOString() : null })
         }
       );
 
