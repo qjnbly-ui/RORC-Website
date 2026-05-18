@@ -46,7 +46,7 @@ module.exports = async (req, res) => {
 
     if (targetIds.length) {
       const members = await loadMembersByIds(targetIds);
-      const message = "A new heater use event was created under your name. Do not forget to turn heater off by signing out for it before leaving. All use will be billed monthly.";
+      const openBillingByMember = await loadOpenBillingTotalsByMember(targetIds);
 
       if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
         errors.push("Twilio credentials are not configured.");
@@ -57,6 +57,14 @@ module.exports = async (req, res) => {
             errors.push(`${member.member_name || member.id}: no valid phone number`);
             continue;
           }
+
+          const openBillingCents = openBillingByMember.get(member.id) || 0;
+          const message = [
+            "A new heater use event was created under your name.",
+            "Do not forget to turn heater off before leaving.",
+            `Current open billing total: ${formatCurrencyFromCents(openBillingCents)}.`,
+            "All use will be billed monthly."
+          ].join(" ");
 
           try {
             await sendTwilioText(to, message);
@@ -120,6 +128,30 @@ async function getAutomationConfig(id) {
   if (!response.ok) return {};
   const rows = await response.json().catch(() => []);
   return rows[0]?.config || {};
+}
+
+async function loadOpenBillingTotalsByMember(memberIds) {
+  if (!Array.isArray(memberIds) || memberIds.length === 0) {
+    return new Map();
+  }
+
+  const idList = memberIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
+  const rows = await supabaseRest(
+    `billing_line_items?select=account_member_id,amount_cents&account_member_id=in.(${encodeURIComponent(idList)})&posted_to_stripe_at=is.null`
+  );
+
+  const totals = new Map();
+  rows.forEach((row) => {
+    const memberId = String(row.account_member_id || "");
+    if (!memberId) return;
+    const prev = totals.get(memberId) || 0;
+    totals.set(memberId, prev + Number(row.amount_cents || 0));
+  });
+  return totals;
+}
+
+function formatCurrencyFromCents(cents) {
+  return `$${(Number(cents || 0) / 100).toFixed(2)}`;
 }
 
 function normalizePhone(value) {

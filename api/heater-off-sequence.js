@@ -48,9 +48,11 @@ module.exports = async (req, res) => {
 
     if (targetIds.length) {
       const members = await loadMembersByIds(targetIds);
+      const heaterEntryMeta = heaterUseEntryId ? await loadHeaterUseEntryMeta(heaterUseEntryId) : null;
       const billedByMember = heaterUseEntryId
         ? await loadBilledAmountByMember(heaterUseEntryId)
         : new Map();
+      const openBillingByMember = await loadOpenBillingTotalsByMember(targetIds);
 
       if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
         errors.push("Twilio credentials are not configured.");
@@ -63,10 +65,15 @@ module.exports = async (req, res) => {
           }
 
           const billedCents = billedByMember.get(member.id) || 0;
-          const billedDollars = (billedCents / 100).toFixed(2);
-          const message = timerTriggered
-            ? `Your ${Math.max(1, Math.round(timerMinutes))} min timer has went off and the heater successfully turned off. $${billedDollars} has been added to your monthly bill.`
-            : "A prior heater use event was completed under your name. Reminder all use will be billed monthly.";
+          const openBillingCents = openBillingByMember.get(member.id) || 0;
+          const message = buildHeaterOffMessage({
+            timerTriggered,
+            timerMinutes,
+            addedCents: billedCents,
+            openTotalCents: openBillingCents,
+            isGroupPay: Boolean(heaterEntryMeta?.groupPay) || targetIds.length > 1,
+            recipientCount: targetIds.length
+          });
 
           try {
             await sendTwilioText(to, message);
@@ -128,6 +135,21 @@ async function getAutomationConfig(id) {
   return rows[0]?.config || {};
 }
 
+async function loadHeaterUseEntryMeta(heaterUseEntryId) {
+  const rows = await supabaseRest(
+    `heater_use_entries?select=id,group_pay,set_a_timer,event&id=eq.${encodeURIComponent(heaterUseEntryId)}&limit=1`
+  );
+  const row = rows[0] || null;
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    groupPay: Boolean(row.group_pay),
+    setATimer: Boolean(row.set_a_timer),
+    event: String(row.event || "")
+  };
+}
+
 async function loadBilledAmountByMember(heaterUseEntryId) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const rows = await supabaseRest(
@@ -146,6 +168,72 @@ async function loadBilledAmountByMember(heaterUseEntryId) {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   return new Map();
+}
+
+async function loadOpenBillingTotalsByMember(memberIds) {
+  if (!Array.isArray(memberIds) || memberIds.length === 0) {
+    return new Map();
+  }
+
+  const idList = memberIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
+  const rows = await supabaseRest(
+    `billing_line_items?select=account_member_id,amount_cents&account_member_id=in.(${encodeURIComponent(idList)})&posted_to_stripe_at=is.null`
+  );
+
+  const totals = new Map();
+  rows.forEach((row) => {
+    const memberId = String(row.account_member_id || "");
+    if (!memberId) return;
+    const prev = totals.get(memberId) || 0;
+    totals.set(memberId, prev + Number(row.amount_cents || 0));
+  });
+  return totals;
+}
+
+function buildHeaterOffMessage({
+  timerTriggered,
+  timerMinutes,
+  addedCents,
+  openTotalCents,
+  isGroupPay,
+  recipientCount
+}) {
+  const addedText = formatCurrencyFromCents(addedCents);
+  const totalText = formatCurrencyFromCents(openTotalCents);
+
+  if (timerTriggered) {
+    return [
+      `Your ${Math.max(1, Math.round(timerMinutes))} min heater timer finished and the heater was turned off.`,
+      `${addedText} was added to your monthly bill.`,
+      `Your current open billing total is ${totalText}.`
+    ].join(" ");
+  }
+
+  if (isGroupPay || recipientCount > 1) {
+    return [
+      "The shared/group heater event has been completed and the heater was turned off.",
+      `${addedText} was added to your monthly bill.`,
+      `Your current open billing total is ${totalText}.`
+    ].join(" ");
+  }
+
+  if (addedCents > 0) {
+    return [
+      "Your heater use event has been completed and the heater was turned off.",
+      `${addedText} was added to your monthly bill.`,
+      `Your current open billing total is ${totalText}.`
+    ].join(" ");
+  }
+
+  return [
+    "A heater off record was submitted under your name.",
+    `${addedText} was added to your monthly bill.`,
+    `Your current open billing total is ${totalText}.`
+  ].join(" ");
+}
+
+function formatCurrencyFromCents(cents) {
+  return `$${(Number(cents || 0) / 100).toFixed(2)}`;
 }
 
 async function setEcobeeMode(mode) {
