@@ -3883,7 +3883,7 @@ function renderOverviewPanel(member, account) {
         ["Stripe Status", account?.stripeStatus || "None"],
         ["Current Period End", account?.currentPeriodEnd ? formatShortDate(account.currentPeriodEnd) : "Not set"],
         ["Heater Billing ID", account?.billingIdHeater || "Not set"],
-        ["Heater PIN", account?.heaterPin ? "Set (shared on account)" : "Not set"]
+        ["Heater PIN", account?.heaterPin || "Not set"]
       ])}
     </div>
   `;
