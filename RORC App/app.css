@@ -1418,9 +1418,24 @@ h1 {
   padding: 0 14px;
 }
 
+.heater-use-screen select {
+  background: #202020;
+  border: 1px solid #515863;
+  border-radius: 12px;
+  color: var(--text);
+  min-height: 52px;
+  padding: 0 14px;
+}
+
 .member-edit-dialog input:disabled {
   color: #89909b;
   opacity: 0.72;
+}
+
+.pin-input-row {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr auto;
 }
 
 .member-edit-checkbox {

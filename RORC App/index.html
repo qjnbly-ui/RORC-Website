@@ -349,6 +349,49 @@
               <button class="segment" data-heater-group-pay="Y" type="button">Y</button>
             </div>
           </div>
+          <div class="segmented-field">
+            <span>Add Timer?</span>
+            <div class="segmented-control" role="group" aria-label="Add timer">
+              <button class="segment" data-heater-timer-enabled="N" type="button">No</button>
+              <button class="segment" data-heater-timer-enabled="Y" type="button">Yes</button>
+            </div>
+          </div>
+          <div id="heaterTimerOptionsField" class="segmented-field" hidden>
+            <span>Timer Type</span>
+            <div class="segmented-control" role="group" aria-label="Timer type">
+              <button class="segment" data-heater-timer-mode="duration" type="button">Timer Length</button>
+              <button class="segment" data-heater-timer-mode="until" type="button">Turn Off At Time</button>
+            </div>
+            <label id="heaterTimerDurationField">
+              <span>Timer Length</span>
+              <select id="heaterTimerDuration">
+                <option value="15">15 minutes</option>
+                <option value="30">30 minutes</option>
+                <option value="45">45 minutes</option>
+                <option value="60">1 hour</option>
+                <option value="75">1 hour 15 minutes</option>
+                <option value="90">1 hour 30 minutes</option>
+                <option value="105">1 hour 45 minutes</option>
+                <option value="120">2 hours</option>
+                <option value="135">2 hours 15 minutes</option>
+                <option value="150">2 hours 30 minutes</option>
+                <option value="165">2 hours 45 minutes</option>
+                <option value="180">3 hours</option>
+                <option value="195">3 hours 15 minutes</option>
+                <option value="210">3 hours 30 minutes</option>
+                <option value="225">3 hours 45 minutes</option>
+                <option value="240">4 hours</option>
+                <option value="255">4 hours 15 minutes</option>
+                <option value="270">4 hours 30 minutes</option>
+                <option value="285">4 hours 45 minutes</option>
+                <option value="300">5 hours</option>
+              </select>
+            </label>
+            <label id="heaterTimerUntilField" hidden>
+              <span>Turn Off At</span>
+              <input id="heaterTimerUntil" type="time" />
+            </label>
+          </div>
           <div id="heaterResponsiblePartyField" class="segmented-field heater-responsible-field" hidden>
             <span>Responsible Party<mark>*</mark></span>
             <input id="heaterResponsibleMember" class="member-picker-value" type="hidden" />
@@ -365,6 +408,10 @@
               </span>
               <span class="member-picker-caret" aria-hidden="true"></span>
             </button>
+            <label class="heater-pin-field">
+              <span>Heater PIN<mark>*</mark></span>
+              <input id="heaterPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" minlength="4" autocomplete="off" />
+            </label>
           </div>
           <div id="heaterResponsiblePartiesField" class="segmented-field heater-responsible-field" hidden>
             <span>Responsible Parties<mark>*</mark></span>

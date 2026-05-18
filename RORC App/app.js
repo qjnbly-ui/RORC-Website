@@ -31,6 +31,7 @@ let billingLineItems = [];
 let notificationDispatchRecords = [];
 let memberNotifications = [];
 let notificationPollTimer = null;
+let heaterCountdownTimer = null;
 let notifiedIds = new Set();
 let notificationUnreadCount = 0;
 
@@ -981,7 +982,7 @@ async function triggerHeaterOnSequence(memberIds) {
   }
 }
 
-async function triggerHeaterOffSequence() {
+async function triggerHeaterOffSequence(memberIds = []) {
   const token = currentAuthSession?.access_token || "";
   if (!token) return;
 
@@ -990,12 +991,36 @@ async function triggerHeaterOffSequence() {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`
-    }
+    },
+    body: JSON.stringify({
+      memberIds: [...new Set((memberIds || []).filter(Boolean))]
+    })
   });
 
   const body = await response.json().catch(() => ({}));
   if (!response.ok || body.success === false) {
     throw new Error(body.error || "Heater-off sequence failed.");
+  }
+}
+
+async function verifyHeaterPin(memberId, pin) {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) {
+    throw new Error("You must be signed in to verify heater PIN.");
+  }
+
+  const response = await fetch("/api/verify-heater-pin", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ memberId, pin })
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Heater PIN verification failed.");
   }
 }
 
@@ -1704,8 +1729,7 @@ async function loadGlobalMemberDirectory() {
     imagePath: "",
     allowGuestEntry: Boolean(row.allow_guest_entry),
     allowHeaterUse: accountTypeAllowsHeater(canonicalAccountType(row.account_type)),
-    isBillingOwner: Boolean(row.is_billing_owner),
-    pinConfigured: true
+    isBillingOwner: Boolean(row.is_billing_owner)
   }));
 }
 
@@ -1728,6 +1752,7 @@ function applySupabaseData({
         expirationDate: row.expiration_date || null,
         billingIdHeater: row.billing_id_heater || "",
         marksAgainstAccount: row.marks_against_account || "",
+        heaterPin: row.heater_pin || "",
         billingStatus: row.billing_status || "none",
         stripeCustomerId: row.stripe_customer_id || "",
         stripeStatus: row.stripe_status || "None",
@@ -1750,8 +1775,7 @@ function applySupabaseData({
     imagePath: row.image_path || "",
     allowGuestEntry: Boolean(row.allow_guest_entry),
     allowHeaterUse: accountTypeAllowsHeater(canonicalAccountType(row.account_type)),
-    isBillingOwner: Boolean(row.is_billing_owner),
-    pinConfigured: true
+    isBillingOwner: Boolean(row.is_billing_owner)
   }));
 
   timesheetEntries = timesheetRows.map((row) => ({
@@ -1781,6 +1805,9 @@ function applySupabaseData({
     groupMemberIds: heaterGroupMap.get(row.id) || [],
     groupPay: Boolean(row.group_pay),
     turnHeaterOn: row.turn_heater_on || "On",
+    setATimer: Boolean(row.set_a_timer),
+    timerStart: row.timer_start || null,
+    timerStop: row.timer_stop || null,
     startAt: row.start_at,
     endAt: row.end_at,
     paid: Boolean(row.paid),
@@ -2318,6 +2345,26 @@ function heaterRecordStatus(entry) {
   };
 }
 
+function heaterTimerTarget(entry) {
+  if (!entry?.setATimer || !entry?.timerStop) return null;
+  const usedOn = String(entry.usedOn || "").slice(0, 10);
+  const stop = String(entry.timerStop || "").slice(0, 5);
+  if (!usedOn || !stop) return null;
+  return new Date(`${usedOn}T${stop}:00`);
+}
+
+function heaterCountdownText(entry) {
+  if (!entry?.setATimer || entry?.endAt) return "";
+  const target = heaterTimerTarget(entry);
+  if (!target || Number.isNaN(target.getTime())) return "";
+  const diffMs = target.getTime() - Date.now();
+  if (diffMs <= 0) return "Timer reached";
+  const totalMin = Math.floor(diffMs / 60000);
+  const hours = Math.floor(totalMin / 60);
+  const mins = totalMin % 60;
+  return hours > 0 ? `Timer ${hours}h ${mins}m left` : `Timer ${mins}m left`;
+}
+
 function sortMembers(a, b) {
   const pickerOrder = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Open Gym Only", "RESTRICTED ACCOUNT"];
   const resolveTypeIndex = (accountType) => {
@@ -2526,10 +2573,11 @@ function renderHeaterRecords() {
           ${records.map((entry) => {
             const member = findMember(entry.responsibleMemberId);
             const heaterState = heaterRecordStatus(entry);
+            const timerCountdown = heaterCountdownText(entry);
             return `
               <li>
                 <strong class="heater-record-event">${escapeHtml(entry.event || "Heater Use")}</strong>
-                <span class="heater-record-meta">${formatShortDate(entry.usedOn)} · ${escapeHtml(member?.memberName || "No responsible member")}</span>
+                <span class="heater-record-meta">${formatShortDate(entry.usedOn)} · ${escapeHtml(member?.memberName || "No responsible member")}${timerCountdown ? ` · ${escapeHtml(timerCountdown)}` : ""}</span>
                 <button class="heater-state-action is-${escapeHtml(heaterState.key)}" data-heater-state="${escapeHtml(heaterState.key)}" type="button">${escapeHtml(heaterState.label)}</button>
               </li>
             `;
@@ -2555,6 +2603,20 @@ function renderHeaterRecords() {
   }
 
   bindHeaterRecordsActions();
+
+  if (heaterCountdownTimer) {
+    window.clearTimeout(heaterCountdownTimer);
+    heaterCountdownTimer = null;
+  }
+
+  const hasActiveTimer = records.some((entry) => !entry.endAt && entry.setATimer && entry.timerStop);
+  if (hasActiveTimer && appState.currentRoute === "heaterRecords") {
+    heaterCountdownTimer = window.setTimeout(() => {
+      if (appState.currentRoute === "heaterRecords") {
+        render("heaterRecords");
+      }
+    }, 30000);
+  }
 }
 
 function activeHeaterEntry() {
@@ -2591,7 +2653,11 @@ async function turnHeaterOffActiveEntry() {
     throw error;
   }
 
-  triggerHeaterOffSequence().catch((sequenceError) => {
+  const offRecipients = activeEntry.groupPay
+    ? activeEntry.groupMemberIds
+    : [activeEntry.responsibleMemberId];
+
+  triggerHeaterOffSequence(offRecipients).catch((sequenceError) => {
     console.warn("Heater off sequence failed.", sequenceError);
   });
 
@@ -2899,7 +2965,6 @@ function renderOverviewPanel(member, account) {
         ["Member Name", member.memberName],
         ["Account Number", memberAccountNumber],
         ["Account Type", member.accountType],
-        ["PIN Status", member.pinConfigured ? "Set" : "Needs setup"],
         ["Phone Number", member.phoneNumber || "Not set"],
         ["Email Address", member.emailAddress || "Not set"],
         ["Billing Owner", member.isBillingOwner ? "Yes" : "No"],
@@ -2915,7 +2980,8 @@ function renderOverviewPanel(member, account) {
         ["Billing Status", account?.billingStatus || "None"],
         ["Stripe Status", account?.stripeStatus || "None"],
         ["Current Period End", account?.currentPeriodEnd ? formatShortDate(account.currentPeriodEnd) : "Not set"],
-        ["Heater Billing ID", account?.billingIdHeater || "Not set"]
+        ["Heater Billing ID", account?.billingIdHeater || "Not set"],
+        ["Heater PIN", account?.heaterPin ? "Set (shared on account)" : "Not set"]
       ])}
     </div>
   `;
@@ -3207,6 +3273,22 @@ async function updateMemberContact(member, updates) {
     }
   }
 
+  if (Object.prototype.hasOwnProperty.call(updates, "heaterPin")) {
+    const nextHeaterPin = String(updates.heaterPin || "").trim();
+    const currentHeaterPin = String(accountForMember(member)?.heaterPin || "").trim();
+
+    if (nextHeaterPin !== currentHeaterPin) {
+      await updateAccountHeaterPin(member.accountId, nextHeaterPin);
+      const accountIndex = accounts.findIndex((account) => account.id === member.accountId);
+      if (accountIndex >= 0) {
+        accounts[accountIndex] = {
+          ...accounts[accountIndex],
+          heaterPin: nextHeaterPin
+        };
+      }
+    }
+  }
+
   if (member.id === appUserSession.memberId) {
     const metadata = currentAuthSession?.user?.user_metadata || {};
     const authUpdate = {
@@ -3281,6 +3363,32 @@ async function updateAccountStripeCustomerId(accountId, stripeCustomerId) {
 
   if (!response.ok || body.success === false) {
     throw new Error(body.error || "Could not update Stripe customer ID.");
+  }
+}
+
+async function updateAccountHeaterPin(accountId, heaterPin) {
+  const token = currentAuthSession?.access_token || "";
+
+  if (!token) {
+    throw new Error("Missing session token.");
+  }
+
+  const response = await fetch("/api/update-account-heater-pin", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      accountId,
+      heaterPin: heaterPin || null
+    })
+  });
+
+  const body = await response.json().catch(() => ({}));
+
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not update account heater PIN.");
   }
 }
 
@@ -3417,6 +3525,14 @@ function openMemberEditDialog(member) {
         <input id="editMemberEmail" type="email" value="${escapeAttribute(member.emailAddress)}" inputmode="email" />
       </label>
 
+      <label>
+        <span>Shared Account Heater PIN</span>
+        <div class="pin-input-row">
+          <input id="editAccountHeaterPin" type="password" value="${escapeAttribute(account?.heaterPin || "")}" inputmode="numeric" pattern="[0-9]*" maxlength="4" minlength="4" autocomplete="off" />
+          <button id="toggleAccountHeaterPinVisibility" class="auth-secondary" type="button">Unveil</button>
+        </div>
+      </label>
+
       ${canEditName ? `
       <label>
         <span>Account Number</span>
@@ -3462,6 +3578,14 @@ function openMemberEditDialog(member) {
 
   const saveButton = overlay.querySelector(".member-edit-save");
   const deleteButton = overlay.querySelector(".member-edit-delete");
+  overlay.querySelector("#toggleAccountHeaterPinVisibility")?.addEventListener("click", () => {
+    const pinInput = overlay.querySelector("#editAccountHeaterPin");
+    const toggle = overlay.querySelector("#toggleAccountHeaterPinVisibility");
+    if (!pinInput || !toggle) return;
+    const reveal = pinInput.type === "password";
+    pinInput.type = reveal ? "text" : "password";
+    toggle.textContent = reveal ? "Hide" : "Unveil";
+  });
   const openDeleteConfirmDialog = () => new Promise((resolve) => {
     const confirmOverlay = document.createElement("div");
     confirmOverlay.className = "member-delete-confirm-overlay";
@@ -3498,6 +3622,7 @@ function openMemberEditDialog(member) {
     const accountNumber = String(overlay.querySelector("#editAccountNumber")?.value || displayAccountNumberForMember(member) || "").trim();
     const accountType = String(overlay.querySelector("#editMemberAccountType")?.value || member.accountType);
     const stripeCustomerId = String(overlay.querySelector("#editStripeCustomerId")?.value || account?.stripeCustomerId || "").trim();
+    const heaterPin = String(overlay.querySelector("#editAccountHeaterPin")?.value || "").trim();
 
     if (!memberName) {
       setResult("Member name is required.", "error");
@@ -3506,6 +3631,11 @@ function openMemberEditDialog(member) {
 
     if (canEditName && !accountNumber) {
       setResult("Account number is required.", "error");
+      return;
+    }
+
+    if (heaterPin && !/^\d{4}$/.test(heaterPin)) {
+      setResult("Shared account heater PIN must be 4 digits.", "error");
       return;
     }
 
@@ -3519,7 +3649,8 @@ function openMemberEditDialog(member) {
         emailAddress,
         accountType,
         accountNumber,
-        stripeCustomerId
+        stripeCustomerId,
+        heaterPin
       });
 
       setResult("Saved.", "success");
@@ -3702,7 +3833,34 @@ function populateHeaterForm() {
     segment.classList.toggle("is-selected", segment.dataset.heaterGroupPay === "N");
   });
 
+  const timerEnabledSegments = document.querySelectorAll('.heater-use-screen [aria-label="Add timer"] .segment');
+  timerEnabledSegments.forEach((segment) => {
+    segment.classList.toggle("is-selected", segment.dataset.heaterTimerEnabled === "N");
+  });
+
+  const timerModeSegments = document.querySelectorAll('.heater-use-screen [aria-label="Timer type"] .segment');
+  timerModeSegments.forEach((segment, index) => {
+    segment.classList.toggle("is-selected", index === 0);
+  });
+
+  const heaterPin = document.getElementById("heaterPin");
+  if (heaterPin) {
+    heaterPin.value = "";
+  }
+
+  const timerDuration = document.getElementById("heaterTimerDuration");
+  if (timerDuration) {
+    timerDuration.value = "60";
+  }
+
+  const timerUntil = document.getElementById("heaterTimerUntil");
+  if (timerUntil) {
+    const inTwoHours = new Date(Date.now() + (2 * 60 * 60 * 1000));
+    timerUntil.value = `${String(inTwoHours.getHours()).padStart(2, "0")}:${String(inTwoHours.getMinutes()).padStart(2, "0")}`;
+  }
+
   updateHeaterGroupPayFields();
+  updateHeaterTimerFields();
 }
 
 function populateMemberSignIn() {
@@ -3749,7 +3907,31 @@ function updateHeaterGroupPayFields(selectedButton) {
     setMultiMemberPickerValue("heaterResponsibleMembers", []);
   } else if (selectedButton && selectedValue === "Y") {
     setMemberPickerValue("heaterResponsibleMember", "");
+    const heaterPin = document.getElementById("heaterPin");
+    if (heaterPin) {
+      heaterPin.value = "";
+    }
   }
+}
+
+function updateHeaterTimerFields(selectedButton) {
+  const timerEnabledValue = selectedButton?.dataset.heaterTimerEnabled
+    || document.querySelector("[data-heater-timer-enabled].is-selected")?.dataset.heaterTimerEnabled
+    || "N";
+  const optionsField = document.getElementById("heaterTimerOptionsField");
+  const durationField = document.getElementById("heaterTimerDurationField");
+  const untilField = document.getElementById("heaterTimerUntilField");
+  if (!optionsField || !durationField || !untilField) return;
+
+  const enabled = timerEnabledValue === "Y";
+  optionsField.hidden = !enabled;
+  if (!enabled) return;
+
+  const mode = selectedButton?.dataset.heaterTimerMode
+    || document.querySelector("[data-heater-timer-mode].is-selected")?.dataset.heaterTimerMode
+    || "duration";
+  durationField.hidden = mode !== "duration";
+  untilField.hidden = mode !== "until";
 }
 
 function openTimesheetCount() {
@@ -3984,9 +4166,14 @@ async function saveHeaterUse() {
   const turnHeaterOn = String(form.querySelector('[aria-label="Turn heater on"] .segment.is-selected')?.textContent || "").trim();
   const eventName = String(form.querySelector('[aria-label="Heater event"] .choice-segment.is-selected')?.textContent || "").trim();
   const groupPayValue = String(form.querySelector('[aria-label="Group pay"] .segment.is-selected')?.dataset.heaterGroupPay || "").trim();
+  const timerEnabledValue = String(form.querySelector('[aria-label="Add timer"] .segment.is-selected')?.dataset.heaterTimerEnabled || "N").trim();
+  const timerMode = String(form.querySelector('[aria-label="Timer type"] .segment.is-selected')?.dataset.heaterTimerMode || "duration").trim();
+  const timerDurationMinutes = Number(document.getElementById("heaterTimerDuration")?.value || 0);
+  const timerUntilValue = String(document.getElementById("heaterTimerUntil")?.value || "").trim();
   const note = String(form.querySelector("textarea")?.value || "").trim();
   const singleResponsibleMemberId = String(document.getElementById("heaterResponsibleMember")?.value || "").trim();
   const multiResponsibleMemberIds = selectedMemberIdsFromInput(document.getElementById("heaterResponsibleMembers"));
+  const heaterPin = String(document.getElementById("heaterPin")?.value || "").trim();
 
   if (!["On", "Off"].includes(turnHeaterOn)) {
     showDetailActionMessage("Select heater state: On or Off.");
@@ -4013,6 +4200,23 @@ async function saveHeaterUse() {
     return;
   }
 
+  const timerEnabled = timerEnabledValue === "Y";
+  if (timerEnabled) {
+    if (timerMode === "duration" && (!Number.isFinite(timerDurationMinutes) || timerDurationMinutes <= 0)) {
+      showDetailActionMessage("Select a timer length.");
+      return;
+    }
+    if (timerMode === "until" && !/^\d{2}:\d{2}$/.test(timerUntilValue)) {
+      showDetailActionMessage("Select a valid turn-off time.");
+      return;
+    }
+  }
+
+  if (groupPayValue === "N" && !/^\d{4}$/.test(heaterPin)) {
+    showDetailActionMessage("Enter the 4-digit heater PIN.");
+    return;
+  }
+
   const client = await createSupabaseClient();
 
   if (!client) {
@@ -4029,6 +4233,20 @@ async function saveHeaterUse() {
     const groupPay = groupPayValue === "Y";
     const responsibleMemberId = groupPay ? (multiResponsibleMemberIds[0] || null) : singleResponsibleMemberId;
     const usedOn = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    const timerStart = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:00`;
+    let timerStop = null;
+
+    if (timerEnabled && timerMode === "duration") {
+      const stopDate = new Date(now.getTime() + (timerDurationMinutes * 60000));
+      timerStop = `${String(stopDate.getHours()).padStart(2, "0")}:${String(stopDate.getMinutes()).padStart(2, "0")}:00`;
+    } else if (timerEnabled && timerMode === "until") {
+      timerStop = `${timerUntilValue}:00`;
+    }
+
+    if (!groupPay && responsibleMemberId) {
+      await verifyHeaterPin(responsibleMemberId, heaterPin);
+    }
 
     const { data: createdEntry, error } = await client
       .from("heater_use_entries")
@@ -4038,6 +4256,9 @@ async function saveHeaterUse() {
         responsible_member_id: responsibleMemberId,
         group_pay: groupPay,
         turn_heater_on: turnHeaterOn,
+        set_a_timer: timerEnabled,
+        timer_start: timerEnabled ? timerStart : null,
+        timer_stop: timerEnabled ? timerStop : null,
         start_at: new Date().toISOString(),
         note: note || null
       })
@@ -4069,7 +4290,8 @@ async function saveHeaterUse() {
         console.warn("Heater on sequence failed.", sequenceError);
       });
     } else if (turnHeaterOn === "Off") {
-      triggerHeaterOffSequence().catch((sequenceError) => {
+      const smsRecipients = groupPay ? multiResponsibleMemberIds : [singleResponsibleMemberId];
+      triggerHeaterOffSequence(smsRecipients).catch((sequenceError) => {
         console.warn("Heater off sequence failed.", sequenceError);
       });
     }
@@ -4103,6 +4325,7 @@ function bindRouteActions() {
         });
         updateOpenGymWarning(button);
         updateHeaterGroupPayFields(button);
+        updateHeaterTimerFields(button);
       });
     });
   });
