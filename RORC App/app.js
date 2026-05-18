@@ -954,7 +954,7 @@ function renderNotificationsPage() {
           ${records.map((record) => `
             <li data-notification-item="${escapeAttribute(record.id)}">
               <strong class="heater-record-event">${escapeHtml(record.title)}</strong>
-              <span class="heater-record-meta">${escapeHtml(record.channelsLabel)} · ${escapeHtml(record.recipientsLabel)} · ${formatShortDateTime(record.createdAt)}</span>
+              <span class="heater-record-meta">${escapeHtml(formatNotificationMeta(record))}</span>
               <button class="heater-state-action is-paid" type="button" disabled>${escapeHtml(record.statusLabel)}</button>
               <p class="heater-record-message">${escapeHtml(record.message || "")}</p>
             </li>
@@ -987,16 +987,26 @@ function renderUserNotificationsPage() {
   const records = [...memberNotifications]
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 100);
+  const unreadIds = records
+    .filter((record) => record.recipientMemberId === appState.authMemberId && !record.readAt)
+    .map((record) => record.id);
 
   root.innerHTML = `
     <section class="live-record-page">
+      ${unreadIds.length ? `
+      <div class="detail-card">
+        <div class="form-actions">
+          <button class="save-action" data-notifications-mark-all-read type="button">Mark All Read</button>
+        </div>
+      </div>
+      ` : ""}
       ${records.length ? `
       <div class="detail-card">
         <ol class="record-list heater-record-list">
           ${records.map((record) => `
             <li data-notification-item="${escapeAttribute(record.id)}">
               <strong class="heater-record-event">${escapeHtml(record.title)}</strong>
-              <span class="heater-record-meta">${escapeHtml(record.channelsLabel)} · ${escapeHtml(record.recipientsLabel)} · ${formatShortDateTime(record.createdAt)}</span>
+              <span class="heater-record-meta">${escapeHtml(formatNotificationMeta(record))}</span>
               <button class="heater-state-action is-paid" data-notification-toggle="${escapeAttribute(record.id)}" type="button">${record.readAt ? "Mark Unread" : "Mark Read"}</button>
               <p class="heater-record-message">${escapeHtml(record.message || "")}</p>
             </li>
@@ -1012,7 +1022,16 @@ function renderUserNotificationsPage() {
   `;
 
   bindUserNotificationActions();
+  bindMarkAllNotificationsRead();
   bindNotificationOpenActions();
+}
+
+function formatNotificationMeta(record) {
+  return [
+    record.channelsLabel,
+    record.recipientsLabel,
+    formatShortDateTime(record.createdAt)
+  ].filter((value) => String(value || "").trim()).join(" · ");
 }
 
 function renderMasterLogsPage() {
@@ -1390,6 +1409,32 @@ function bindUserNotificationActions() {
         setNotificationToggleBusy(notificationId, false);
       }
     });
+  });
+}
+
+function bindMarkAllNotificationsRead() {
+  const button = document.querySelector("[data-notifications-mark-all-read]");
+  if (!button) return;
+
+  button.addEventListener("click", async () => {
+    const unreadIds = memberNotifications
+      .filter((record) => record.recipientMemberId === appState.authMemberId && !record.readAt)
+      .map((record) => record.id);
+    if (!unreadIds.length) return;
+
+    button.disabled = true;
+    const originalText = button.textContent;
+    button.textContent = "Saving...";
+
+    try {
+      await markNotificationsReadState(unreadIds, true);
+      await refreshMemberNotifications({ announceNew: false });
+      render("notifications");
+    } catch (error) {
+      showDetailActionMessage(error.message || "Could not mark all notifications as read.");
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   });
 }
 
@@ -2136,7 +2181,7 @@ async function fetchMemberNotifications() {
         k === "inApp" ? "In-App" : k === "browser" ? "Browser" : k === "text" ? "Text" : k === "email" ? "Email" : k
       )).join(" + ") || "In-App"
       : "In-App",
-    recipientsLabel: row.recipient_member_id === appState.authMemberId ? "To you" : "Shared account",
+    recipientsLabel: row.recipient_member_id === appState.authMemberId ? "" : "Shared account",
     statusLabel: row.recipient_member_id === appState.authMemberId
       ? (row.read_at ? "Read" : "Unread")
       : "Delivered",
@@ -4785,11 +4830,30 @@ function populateMemberSignIn() {
 function populateGuestSignIn() {
   const input = document.getElementById("guestMemberSelect");
   const dateTimeIn = document.getElementById("guestDateTimeIn");
+  const recentGuests = document.getElementById("recentGuestNames");
 
   if (!input || !dateTimeIn) return;
 
   dateTimeIn.value = formatDateTime(new Date());
   setMemberPickerValue(input.id, input.value);
+
+  if (recentGuests) {
+    const threshold = Date.now() - (24 * 60 * 60 * 1000);
+    const recentNames = [...new Set(
+      timesheetEntries
+        .filter((entry) => (
+          entry.memberOrGuest === "Guest"
+          && entry.guestName
+          && new Date(entry.signedInAt).getTime() >= threshold
+        ))
+        .map((entry) => String(entry.guestName || "").trim())
+        .filter(Boolean)
+    )].slice(0, 30);
+
+    recentGuests.innerHTML = recentNames
+      .map((name) => `<option value="${escapeAttribute(name)}"></option>`)
+      .join("");
+  }
 }
 
 function updateOpenGymWarning(selectedButton) {
@@ -5035,7 +5099,7 @@ async function saveMemberSignIn() {
 async function saveGuestSignIn() {
   const form = document.querySelector(".guest-sign-in-screen");
   const saveButton = form?.querySelector(".save-action");
-  const guestName = String(form?.querySelector('input[type="text"]')?.value || "").trim();
+  const guestName = String(document.getElementById("guestNameInput")?.value || "").trim();
   const memberEnteredWithId = String(document.getElementById("guestMemberSelect")?.value || "").trim();
   const passType = String(form?.querySelector('[aria-label="Guest pass type"] .segment.is-selected')?.textContent || "").trim();
   const liabilityValue = String(form?.querySelector('[aria-label="Liability accepted"] .segment.is-selected')?.textContent || "").trim();
@@ -5084,6 +5148,27 @@ async function saveGuestSignIn() {
   }
 
   try {
+    const nowIso = new Date().toISOString();
+    const sponsorSignedIn = timesheetEntries.some((entry) => (
+      entry.memberOrGuest === "Member"
+      && entry.memberId === memberEnteredWithId
+      && !entry.signedOutAt
+    ));
+
+    if (!sponsorSignedIn) {
+      const { error: sponsorSignInError } = await client
+        .from("timesheet_entries")
+        .insert({
+          member_or_guest: "Member",
+          member_id: memberEnteredWithId,
+          signed_in_at: nowIso
+        });
+
+      if (sponsorSignInError) {
+        throw sponsorSignInError;
+      }
+    }
+
     const { error } = await client
       .from("timesheet_entries")
       .insert({
@@ -5092,7 +5177,7 @@ async function saveGuestSignIn() {
         day_pass_or_open_gym: passType,
         member_entered_with_id: memberEnteredWithId,
         liability_accepted: true,
-        signed_in_at: new Date().toISOString()
+        signed_in_at: nowIso
       });
 
     if (error) {
