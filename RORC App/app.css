@@ -781,6 +781,31 @@ h1 {
   padding-top: 6px;
 }
 
+.settings-divider {
+  border: 0;
+  border-top: 1px solid #3d3d3d;
+  margin: 8px 0 4px;
+}
+
+.account-type-policy-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.policy-card {
+  background: #202020;
+  border: 1px solid #3d3d3d;
+  border-radius: 14px;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.policy-card h3 {
+  margin: 0;
+}
+
 .share-hero,
 .share-invite-card,
 .share-action-card {

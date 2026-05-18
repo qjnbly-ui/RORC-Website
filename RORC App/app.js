@@ -37,6 +37,7 @@ let heaterCountdownTimer = null;
 const pendingHeaterAutoOffIds = new Set();
 let notifiedIds = new Set();
 let notificationUnreadCount = 0;
+let accountTypePolicies = defaultAccountTypePolicies();
 
 const statusOrder = [
   "Account Manager",
@@ -55,6 +56,59 @@ const accountTypeOptions = [
   "Open Gym Only",
   "RESTRICTED ACCOUNT"
 ];
+
+function defaultAccountTypePolicies() {
+  return {
+    "Account Manager": {
+      accountType: "Account Manager",
+      canSignIn: true,
+      bypassTimeWindows: true,
+      allowedDays: [0, 1, 2, 3, 4, 5, 6],
+      allowedStartTime: null,
+      allowedEndTime: null
+    },
+    "Kiosk Account": {
+      accountType: "Kiosk Account",
+      canSignIn: true,
+      bypassTimeWindows: true,
+      allowedDays: [0, 1, 2, 3, 4, 5, 6],
+      allowedStartTime: null,
+      allowedEndTime: null
+    },
+    "Special Access Account": {
+      accountType: "Special Access Account",
+      canSignIn: true,
+      bypassTimeWindows: true,
+      allowedDays: [0, 1, 2, 3, 4, 5, 6],
+      allowedStartTime: null,
+      allowedEndTime: null
+    },
+    "Active Membership": {
+      accountType: "Active Membership",
+      canSignIn: true,
+      bypassTimeWindows: false,
+      allowedDays: [0, 1, 2, 3, 4, 5, 6],
+      allowedStartTime: "06:50:00",
+      allowedEndTime: "21:10:00"
+    },
+    "Open Gym Only": {
+      accountType: "Open Gym Only",
+      canSignIn: true,
+      bypassTimeWindows: false,
+      allowedDays: [2, 4],
+      allowedStartTime: "17:50:00",
+      allowedEndTime: "20:10:00"
+    },
+    "RESTRICTED ACCOUNT": {
+      accountType: "RESTRICTED ACCOUNT",
+      canSignIn: false,
+      bypassTimeWindows: false,
+      allowedDays: [],
+      allowedStartTime: null,
+      allowedEndTime: null
+    }
+  };
+}
 
 
 function canonicalAccountType(accountType) {
@@ -765,11 +819,56 @@ function renderAutomationSettingsPage() {
           <button id="automationSettingsSave" type="submit">Save Settings</button>
           <p id="automationSettingsResult" class="feedback-result" aria-live="polite"></p>
         </div>
+
+        <hr class="settings-divider" />
+        <header class="feedback-hero" style="margin-top:0;">
+          <p class="eyebrow">Access</p>
+          <h2>Account Type Access</h2>
+          <p>Edit allowed days/times and temporarily restrict sign-in for each account type.</p>
+        </header>
+
+        ${renderAccountTypePolicyFields()}
       </form>
     </section>
   `;
 
   bindAutomationSettingsActions();
+}
+
+function renderAccountTypePolicyFields() {
+  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Open Gym Only", "RESTRICTED ACCOUNT"];
+  return `
+    <section class="account-type-policy-grid">
+      ${orderedTypes.map((type) => {
+    const key = type.toLowerCase().replace(/[^a-z0-9]+/g, "_");
+    return `
+          <article class="policy-card">
+            <h3>${escapeHtml(type)}</h3>
+            <label class="automation-toggle">
+              <input id="policy_${key}_can_sign_in" type="checkbox" />
+              <span>Allow sign-in</span>
+            </label>
+            <label class="automation-toggle">
+              <input id="policy_${key}_bypass" type="checkbox" />
+              <span>24/7 bypass time windows</span>
+            </label>
+            <label>
+              <span>Allowed days (0=Sun ... 6=Sat)</span>
+              <input id="policy_${key}_days" type="text" placeholder="0,1,2,3,4,5,6" autocomplete="off" />
+            </label>
+            <label>
+              <span>Start time</span>
+              <input id="policy_${key}_start" type="time" />
+            </label>
+            <label>
+              <span>End time</span>
+              <input id="policy_${key}_end" type="time" />
+            </label>
+          </article>
+        `;
+  }).join("")}
+    </section>
+  `;
 }
 
 function renderNotificationsPage() {
@@ -1206,6 +1305,38 @@ function applyAutomationSettingsToForm(settings) {
 
   setChecked("heaterOnEnabled", settings.heater_on?.enabled);
   setChecked("heaterOffEnabled", settings.heater_off?.enabled);
+
+  applyAccountTypePoliciesToForm(settings.account_type_permissions || accountTypePolicies || {});
+}
+
+function policyFieldKey(accountType) {
+  return canonicalAccountType(accountType).toLowerCase().replace(/[^a-z0-9]+/g, "_");
+}
+
+function formatPolicyTimeForInput(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return raw.slice(0, 5);
+}
+
+function applyAccountTypePoliciesToForm(policies) {
+  const defaults = defaultAccountTypePolicies();
+  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Open Gym Only", "RESTRICTED ACCOUNT"];
+
+  orderedTypes.forEach((type) => {
+    const policy = policies[type] || defaults[type];
+    const key = policyFieldKey(type);
+    const canSignIn = document.getElementById(`policy_${key}_can_sign_in`);
+    const bypass = document.getElementById(`policy_${key}_bypass`);
+    const days = document.getElementById(`policy_${key}_days`);
+    const start = document.getElementById(`policy_${key}_start`);
+    const end = document.getElementById(`policy_${key}_end`);
+    if (canSignIn) canSignIn.checked = Boolean(policy?.canSignIn);
+    if (bypass) bypass.checked = Boolean(policy?.bypassTimeWindows);
+    if (days) days.value = (policy?.allowedDays || []).join(",");
+    if (start) start.value = formatPolicyTimeForInput(policy?.allowedStartTime);
+    if (end) end.value = formatPolicyTimeForInput(policy?.allowedEndTime);
+  });
 }
 
 function collectAutomationSettingsFromForm() {
@@ -1230,8 +1361,37 @@ function collectAutomationSettingsFromForm() {
     },
     heater_off: {
       enabled: isChecked("heaterOffEnabled")
-    }
+    },
+    account_type_permissions: collectAccountTypePoliciesFromForm()
   };
+}
+
+function collectAccountTypePoliciesFromForm() {
+  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Open Gym Only", "RESTRICTED ACCOUNT"];
+  const policies = {};
+
+  orderedTypes.forEach((type) => {
+    const key = policyFieldKey(type);
+    const canSignIn = Boolean(document.getElementById(`policy_${key}_can_sign_in`)?.checked);
+    const bypass = Boolean(document.getElementById(`policy_${key}_bypass`)?.checked);
+    const daysRaw = String(document.getElementById(`policy_${key}_days`)?.value || "");
+    const days = daysRaw
+      .split(",")
+      .map((value) => Number(String(value).trim()))
+      .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6);
+    const start = String(document.getElementById(`policy_${key}_start`)?.value || "").trim();
+    const end = String(document.getElementById(`policy_${key}_end`)?.value || "").trim();
+    policies[type] = {
+      accountType: type,
+      canSignIn,
+      bypassTimeWindows: bypass,
+      allowedDays: [...new Set(days)],
+      allowedStartTime: start ? `${start}:00` : null,
+      allowedEndTime: end ? `${end}:00` : null
+    };
+  });
+
+  return policies;
 }
 
 async function bindAutomationSettingsActions() {
@@ -1405,6 +1565,7 @@ function clearLiveData() {
   billingLineItems = [];
   memberNotifications = [];
   notifiedIds = new Set();
+  accountTypePolicies = defaultAccountTypePolicies();
 }
 
 function initialForSession(session) {
@@ -1691,7 +1852,8 @@ async function hydrateFromSupabase() {
       timesheetResult,
       heaterResult,
       heaterGroupResult,
-      billingResult
+      billingResult,
+      permissionsResult
     ] = await Promise.all([
       client
         .from("timesheet_entries")
@@ -1710,14 +1872,18 @@ async function hydrateFromSupabase() {
         .from("billing_line_items")
         .select("*")
         .order("created_at", { ascending: false })
-        .limit(1000)
+        .limit(1000),
+      client
+        .from("account_type_permissions")
+        .select("*")
     ]);
 
     const optionalErrors = [
       ["timesheet records", timesheetResult.error],
       ["heater records", heaterResult.error],
       ["heater group records", heaterGroupResult.error],
-      ["billing records", billingResult.error]
+      ["billing records", billingResult.error],
+      ["account type permissions", permissionsResult.error]
     ].filter(([, error]) => Boolean(error));
 
     applySupabaseData({
@@ -1725,7 +1891,8 @@ async function hydrateFromSupabase() {
       timesheetRows: timesheetResult.error ? [] : (timesheetResult.data || []),
       heaterRows: heaterResult.error ? [] : (heaterResult.data || []),
       heaterGroupRows: heaterGroupResult.error ? [] : (heaterGroupResult.data || []),
-      billingRows: billingResult.error ? [] : (billingResult.data || [])
+      billingRows: billingResult.error ? [] : (billingResult.data || []),
+      permissionsRows: permissionsResult.error ? [] : (permissionsResult.data || [])
     });
 
     appState.authMemberId = currentProfile.account_member_id;
@@ -1804,7 +1971,8 @@ function applySupabaseData({
   timesheetRows,
   heaterRows,
   heaterGroupRows,
-  billingRows
+  billingRows,
+  permissionsRows
 }) {
   const accountsById = new Map();
 
@@ -1890,6 +2058,31 @@ function applySupabaseData({
     reason: row.reason || "Billing item",
     postedToStripeAt: row.posted_to_stripe_at
   }));
+
+  accountTypePolicies = normalizeAccountTypePolicies(permissionsRows);
+}
+
+function normalizeAccountTypePolicies(rows = []) {
+  const defaults = defaultAccountTypePolicies();
+  const next = { ...defaults };
+
+  rows.forEach((row) => {
+    const accountType = canonicalAccountType(row.account_type);
+    const allowedDays = Array.isArray(row.allowed_days)
+      ? row.allowed_days.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value >= 0 && value <= 6)
+      : [];
+
+    next[accountType] = {
+      accountType,
+      canSignIn: Boolean(row.can_sign_in),
+      bypassTimeWindows: Boolean(row.bypass_time_windows),
+      allowedDays,
+      allowedStartTime: row.allowed_start_time || null,
+      allowedEndTime: row.allowed_end_time || null
+    };
+  });
+
+  return next;
 }
 
 function accountTypeAllowsHeater(accountType) {
@@ -4086,61 +4279,57 @@ function openTimesheetCount() {
   return timesheetEntries.filter((entry) => !entry.signedOutAt).length;
 }
 
-function isOpenGymFirstSignInWindow(date) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).formatToParts(date);
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const weekday = values.weekday;
-  const minutes = Number(values.hour) * 60 + Number(values.minute);
-  const startsAt = (17 * 60) + 50;
-  const endsAt = (20 * 60);
-
-  return ["Tue", "Thu"].includes(weekday) && minutes >= startsAt && minutes <= endsAt;
+function parseTimeStringToMinutes(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const parts = raw.split(":");
+  if (parts.length < 2) return null;
+  const hours = Number(parts[0]);
+  const minutes = Number(parts[1]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+  return (hours * 60) + minutes;
 }
 
-function isActiveMembershipWindow(date) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).formatToParts(date);
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const minutes = Number(values.hour) * 60 + Number(values.minute);
-  const startsAt = 7 * 60;
-  const endsAt = 21 * 60;
+function minuteOfDayLocal(date) {
+  return (date.getHours() * 60) + date.getMinutes();
+}
 
-  return minutes >= startsAt && minutes <= endsAt;
+function isWithinTimeWindow(nowMinutes, startMinutes, endMinutes) {
+  if (startMinutes === null || endMinutes === null) return true;
+  if (startMinutes <= endMinutes) {
+    return nowMinutes >= startMinutes && nowMinutes <= endMinutes;
+  }
+  return nowMinutes >= startMinutes || nowMinutes <= endMinutes;
 }
 
 function canMemberSignInNow(member, signedInAt) {
   const type = canonicalAccountType(member?.accountType);
+  const policy = accountTypePolicies[type] || defaultAccountTypePolicies()[type];
 
   if (!member) {
     return { allowed: false, reason: "Member not found." };
   }
 
-  if (type === "RESTRICTED ACCOUNT") {
-    return { allowed: false, reason: "Restricted account cannot sign in." };
+  if (!policy?.canSignIn) {
+    return { allowed: false, reason: `${type} is temporarily restricted from sign-in.` };
   }
 
-  if (type === "Account Manager" || type === "Special Access Account" || type === "Kiosk Account") {
+  if (policy.bypassTimeWindows) {
     return { allowed: true, reason: "" };
   }
 
-  if (type === "Active Membership") {
-    return isActiveMembershipWindow(signedInAt)
-      ? { allowed: true, reason: "" }
-      : { allowed: false, reason: "Active Membership can sign in only 7:00 AM to 9:00 PM." };
+  const weekday = signedInAt.getDay();
+  const allowedDays = Array.isArray(policy.allowedDays) ? policy.allowedDays : [];
+  if (allowedDays.length && !allowedDays.includes(weekday)) {
+    return { allowed: false, reason: `${type} cannot sign in on this day.` };
   }
 
-  if (type === "Open Gym Only") {
-    return isOpenGymFirstSignInWindow(signedInAt)
-      ? { allowed: true, reason: "" }
-      : { allowed: false, reason: "Open Gym Only can sign in Tuesday/Thursday 5:50 PM to 8:00 PM." };
+  const nowMinutes = minuteOfDayLocal(signedInAt);
+  const startMinutes = parseTimeStringToMinutes(policy.allowedStartTime);
+  const endMinutes = parseTimeStringToMinutes(policy.allowedEndTime);
+  if (!isWithinTimeWindow(nowMinutes, startMinutes, endMinutes)) {
+    return { allowed: false, reason: `${type} is outside its allowed sign-in time window.` };
   }
 
   return { allowed: true, reason: "" };
@@ -4148,17 +4337,7 @@ function canMemberSignInNow(member, signedInAt) {
 
 function isEligibleForFirstSignInRule(member, signedInAt, wasNoOneSignedIn) {
   if (!wasNoOneSignedIn || !member) return false;
-
-  const type = canonicalAccountType(member.accountType);
-  if (type === "Active Membership" || type === "Account Manager") {
-    return true;
-  }
-
-  if (type === "Open Gym Only") {
-    return isOpenGymFirstSignInWindow(signedInAt);
-  }
-
-  return false;
+  return canMemberSignInNow(member, signedInAt).allowed;
 }
 
 async function triggerGymLightsOnSequence(memberName) {
