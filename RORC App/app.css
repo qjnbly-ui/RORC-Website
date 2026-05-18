@@ -1946,6 +1946,135 @@ h1 {
   cursor: pointer;
 }
 
+.master-logs-shell {
+  display: grid;
+  gap: 14px;
+}
+
+.master-logs-tabs {
+  background: #171717;
+  border: 1px solid #3d3d3d;
+  border-radius: 999px;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 5px;
+}
+
+.master-logs-tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 800;
+  min-height: 44px;
+  padding: 0 12px;
+}
+
+.master-logs-tab.is-active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.master-log-list li {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.master-log-list li[data-master-log-id] {
+  cursor: pointer;
+}
+
+.master-log-modal-overlay {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 18px;
+  position: fixed;
+  z-index: 140;
+}
+
+.master-log-modal {
+  background:
+    radial-gradient(circle at top right, rgba(239, 59, 54, 0.16), transparent 36%),
+    #121212;
+  border: 1px solid #444;
+  border-radius: 16px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
+  display: grid;
+  gap: 12px;
+  max-height: 86vh;
+  max-width: 560px;
+  overflow: auto;
+  padding: 20px;
+  width: 100%;
+}
+
+.master-log-modal h3 {
+  margin: 0;
+}
+
+.master-log-subtitle {
+  color: var(--muted);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.master-log-form {
+  display: grid;
+  gap: 10px;
+}
+
+.master-log-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.master-log-form label span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.master-log-form input,
+.master-log-form select,
+.master-log-form textarea {
+  background: #202020;
+  border: 1px solid #515863;
+  border-radius: 12px;
+  color: var(--text);
+  min-height: 44px;
+  padding: 10px 12px;
+}
+
+.master-log-modal footer {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.master-log-modal footer button {
+  appearance: none;
+  border: 1px solid #4c4c4c;
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 800;
+  min-height: 40px;
+  padding: 0 14px;
+}
+
+.master-log-delete {
+  background: #2a1414;
+  border-color: #7f1d1d !important;
+  color: #fca5a5 !important;
+}
+
 .heater-row-timer {
   white-space: nowrap;
 }
@@ -2814,6 +2943,12 @@ textarea:focus-visible,
   .about-app-link-card {
     min-height: auto;
     padding: 18px;
+  }
+
+  .master-log-modal {
+    max-height: 100vh;
+    max-width: none;
+    width: 100%;
   }
 
   .account-page-heading {
