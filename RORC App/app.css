@@ -650,6 +650,135 @@ h1 {
   max-width: 980px;
 }
 
+.about-app-shell {
+  display: grid;
+  gap: 16px;
+  margin: 0 auto;
+  max-width: 980px;
+}
+
+.about-app-hero,
+.about-app-card,
+.about-app-link-card {
+  background:
+    radial-gradient(circle at top right, rgba(239, 59, 54, 0.16), transparent 36%),
+    #1b1b1b;
+  border: 1px solid #3d3d3d;
+  border-radius: 20px;
+}
+
+.about-app-hero {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  padding: 28px;
+  text-align: center;
+}
+
+.about-app-hero img {
+  height: 56px;
+  object-fit: contain;
+  width: 122px;
+}
+
+.about-app-hero h2 {
+  font-size: clamp(2rem, 6vw, 3rem);
+  line-height: 0.95;
+  margin: 0;
+}
+
+.about-app-hero p:not(.eyebrow) {
+  color: var(--muted);
+  margin: 0;
+  max-width: 760px;
+}
+
+.about-app-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.about-app-card {
+  display: grid;
+  gap: 8px;
+  padding: 20px;
+}
+
+.about-app-card span {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.about-app-card h3 {
+  font-size: 1.15rem;
+  margin: 0;
+}
+
+.about-app-card p {
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.about-app-links {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.about-app-link-card {
+  appearance: none;
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  min-height: 148px;
+  padding: 20px;
+  text-align: left;
+}
+
+.about-app-link-card span {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.about-app-link-card strong {
+  font-size: 1.05rem;
+}
+
+.about-app-link-card small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.about-app-link-card:hover {
+  border-color: rgba(239, 59, 54, 0.72);
+  transform: translateY(-1px);
+}
+
+.about-app-credit {
+  color: var(--muted);
+  margin: 2px 0 0;
+  text-align: center;
+}
+
+.about-app-credit a {
+  color: var(--text);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.about-app-credit a:hover {
+  text-decoration: underline;
+}
+
 .feedback-hero,
 .feedback-form {
   background:
@@ -2599,6 +2728,10 @@ textarea:focus-visible,
     padding: 12px;
   }
 
+  .feedback-page {
+    padding: 12px;
+  }
+
   .share-hero {
     border-radius: 16px;
     padding: 24px 16px;
@@ -2628,6 +2761,26 @@ textarea:focus-visible,
     grid-template-columns: 1fr;
     padding: 20px 16px;
     text-align: center;
+  }
+
+  .about-app-hero,
+  .about-app-card,
+  .about-app-link-card {
+    border-radius: 16px;
+  }
+
+  .about-app-hero {
+    padding: 24px 16px;
+  }
+
+  .about-app-grid,
+  .about-app-links {
+    grid-template-columns: 1fr;
+  }
+
+  .about-app-link-card {
+    min-height: auto;
+    padding: 18px;
   }
 
   .account-page-heading {

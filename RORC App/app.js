@@ -30,8 +30,10 @@ let heaterUseEntries = [];
 let billingLineItems = [];
 let notificationDispatchRecords = [];
 let memberNotifications = [];
-let notificationPollTimer = null;
-let timesheetPollTimer = null;
+let notificationRealtimeChannel = null;
+let notificationRealtimeRetryTimer = null;
+let timesheetRealtimeChannel = null;
+let timesheetRealtimeRetryTimer = null;
 let timesheetSyncInFlight = false;
 let heaterCountdownTimer = null;
 const pendingHeaterAutoOffIds = new Set();
@@ -257,7 +259,8 @@ const routes = {
   },
   about: {
     title: "About",
-    template: "placeholderTemplate"
+    template: "feedbackTemplate",
+    afterRender: renderAboutPage
   },
   share: {
     title: "Share",
@@ -592,6 +595,63 @@ function renderSharePage() {
   bindSharePageActions();
 }
 
+function renderAboutPage() {
+  const root = document.getElementById("feedbackContent");
+
+  if (!root) return;
+
+  root.innerHTML = `
+    <section class="about-app-shell">
+      <header class="about-app-hero">
+        <img src="../Images/LOGOS/LOGO.png" alt="RORC" />
+        <p class="eyebrow">Ruth Obenchain Recreation Center</p>
+        <h2>About RORC</h2>
+        <p>RORC is a community-operated gym in Bly, Oregon. This app supports member sign-in, guest access, heater records, account information, and calendar updates.</p>
+      </header>
+
+      <section class="about-app-grid" aria-label="About RORC details">
+        <article class="about-app-card">
+          <span>History</span>
+          <h3>Built for Community Use</h3>
+          <p>The facility has served as a local space where families, teams, and community groups can gather, stay active, and host events.</p>
+        </article>
+        <article class="about-app-card">
+          <span>Operations</span>
+          <h3>Membership and Events</h3>
+          <p>Members use this app for sign-ins and account tools, while the website provides rentals, projects, and support pages for facility operations.</p>
+        </article>
+        <article class="about-app-card">
+          <span>Location</span>
+          <h3>Bly, Oregon</h3>
+          <p>RORC is managed by the Bly Community Action Team and serves residents and visitors through open gym nights, contracts, and community programming.</p>
+        </article>
+      </section>
+
+      <section class="about-app-links">
+        <button class="about-app-link-card" data-about-action="website" type="button">
+          <span>Visit</span>
+          <strong>RORC Website</strong>
+          <small>Open the main website homepage.</small>
+        </button>
+        <button class="about-app-link-card" data-about-action="fullAbout" type="button">
+          <span>Read</span>
+          <strong>Full About Page</strong>
+          <small>View the complete RORC history and story page.</small>
+        </button>
+        <button class="about-app-link-card" data-about-action="support" type="button">
+          <span>Contact</span>
+          <strong>Support Page</strong>
+          <small>Get contact details for memberships and facility questions.</small>
+        </button>
+      </section>
+
+      <p class="about-app-credit">Built and maintained by <a href="https://n3xra.com" target="_blank" rel="noopener">N3XRA</a></p>
+    </section>
+  `;
+
+  bindAboutPageActions();
+}
+
 function renderFeedbackPage() {
   const root = document.getElementById("feedbackContent");
   const member = findMember(appUserSession.memberId);
@@ -875,18 +935,12 @@ function renderNotificationsPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
 
-  const reminderNote = `
-    <section class="empty-state">
-      <p>Notifications are temporarily disabled. Reminder: re-enable polling and notification delivery when ready.</p>
-    </section>
-  `;
   const records = [...memberNotifications]
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 100);
 
   root.innerHTML = `
     <section class="live-record-page">
-      ${reminderNote}
       ${records.length ? `
       <div class="detail-card">
         <ol class="record-list heater-record-list">
@@ -920,18 +974,12 @@ function renderUserNotificationsPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
 
-  const reminderNote = `
-    <section class="empty-state">
-      <p>Notifications are temporarily disabled. Reminder: re-enable polling and notification delivery when ready.</p>
-    </section>
-  `;
   const records = [...memberNotifications]
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 100);
 
   root.innerHTML = `
     <section class="live-record-page">
-      ${reminderNote}
       ${records.length ? `
       <div class="detail-card">
         <ol class="record-list heater-record-list">
@@ -951,8 +999,6 @@ function renderUserNotificationsPage() {
       `}
     </section>
   `;
-
-  // Intentionally disabled while notifications polling is paused.
 }
 
 function renderMessageComposerPage() {
@@ -1473,6 +1519,28 @@ function bindSharePageActions() {
   });
 }
 
+function bindAboutPageActions() {
+  document.querySelectorAll("[data-about-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = button.dataset.aboutAction;
+
+      if (action === "website") {
+        window.open("/", "_blank", "noopener");
+        return;
+      }
+
+      if (action === "fullAbout") {
+        window.open("/about-rorc/", "_blank", "noopener");
+        return;
+      }
+
+      if (action === "support") {
+        window.open("/support/", "_blank", "noopener");
+      }
+    });
+  });
+}
+
 function setAuthMessage(message, tone = "default") {
   if (!appAuthMessage) return;
 
@@ -1729,29 +1797,72 @@ async function markOwnNotificationsRead() {
   }
 }
 
-function stopNotificationPolling() {
-  if (notificationPollTimer) {
-    window.clearInterval(notificationPollTimer);
-    notificationPollTimer = null;
+function stopNotificationRealtime() {
+  if (notificationRealtimeRetryTimer) {
+    window.clearTimeout(notificationRealtimeRetryTimer);
+    notificationRealtimeRetryTimer = null;
   }
-}
 
-function stopTimesheetPolling() {
-  if (timesheetPollTimer) {
-    window.clearInterval(timesheetPollTimer);
-    timesheetPollTimer = null;
-  }
-}
-
-function startTimesheetPolling() {
-  stopTimesheetPolling();
-  timesheetPollTimer = window.setInterval(async () => {
+  if (notificationRealtimeChannel) {
     try {
-      await syncTimesheetEntries({ rerender: appState.currentRoute === "currentlySignedIn" });
+      notificationRealtimeChannel.unsubscribe();
     } catch (error) {
-      // Ignore polling errors to avoid interrupting app flow.
+      // Ignore unsubscribe failures during cleanup.
     }
-  }, 8000);
+    notificationRealtimeChannel = null;
+  }
+}
+
+function stopTimesheetRealtime() {
+  if (timesheetRealtimeRetryTimer) {
+    window.clearTimeout(timesheetRealtimeRetryTimer);
+    timesheetRealtimeRetryTimer = null;
+  }
+
+  if (timesheetRealtimeChannel) {
+    try {
+      timesheetRealtimeChannel.unsubscribe();
+    } catch (error) {
+      // Ignore unsubscribe failures during cleanup.
+    }
+    timesheetRealtimeChannel = null;
+  }
+}
+
+function scheduleTimesheetRealtimeReconnect() {
+  if (timesheetRealtimeRetryTimer) return;
+  timesheetRealtimeRetryTimer = window.setTimeout(() => {
+    timesheetRealtimeRetryTimer = null;
+    void startTimesheetRealtime();
+  }, 2500);
+}
+
+async function startTimesheetRealtime() {
+  stopTimesheetRealtime();
+
+  const client = await createSupabaseClient();
+  if (!client) return;
+
+  timesheetRealtimeChannel = client
+    .channel("timesheet-entries-live")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "timesheet_entries" },
+      async () => {
+        await syncTimesheetEntries({ rerender: appState.currentRoute === "currentlySignedIn" });
+      }
+    )
+    .subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await syncTimesheetEntries({ rerender: appState.currentRoute === "currentlySignedIn" });
+        return;
+      }
+
+      if (status === "TIMED_OUT" || status === "CHANNEL_ERROR" || status === "CLOSED") {
+        scheduleTimesheetRealtimeReconnect();
+      }
+    });
+
 }
 
 async function syncTimesheetEntries({ rerender = false } = {}) {
@@ -1795,20 +1906,58 @@ async function syncTimesheetEntries({ rerender = false } = {}) {
   }
 }
 
-function startNotificationPolling() {
-  stopNotificationPolling();
-  notificationPollTimer = window.setInterval(async () => {
-    try {
-      await refreshMemberNotifications({ announceNew: true });
-      if (appState.currentRoute === "notificationsEmail" || appState.currentRoute === "notifications") {
-        render(appState.currentRoute);
+function scheduleNotificationRealtimeReconnect() {
+  if (notificationRealtimeRetryTimer) return;
+  notificationRealtimeRetryTimer = window.setTimeout(() => {
+    notificationRealtimeRetryTimer = null;
+    void startNotificationRealtime();
+  }, 2500);
+}
+
+async function refreshNotificationsForCurrentRoute(announceNew = true) {
+  await refreshMemberNotifications({ announceNew });
+  if (appState.currentRoute === "notificationsEmail" || appState.currentRoute === "notifications") {
+    render(appState.currentRoute);
+  }
+}
+
+async function startNotificationRealtime() {
+  stopNotificationRealtime();
+
+  const client = await createSupabaseClient();
+  if (!client) return;
+
+  notificationRealtimeChannel = client
+    .channel("member-notifications-live")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "member_notifications" },
+      async () => {
+        try {
+          await refreshNotificationsForCurrentRoute(true);
+        } catch (error) {
+          if (Number(error?.statusCode) === 401) {
+            stopNotificationRealtime();
+          }
+        }
       }
-    } catch (error) {
-      if (Number(error?.statusCode) === 401) {
-        stopNotificationPolling();
+    )
+    .subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        try {
+          await refreshNotificationsForCurrentRoute(false);
+        } catch (error) {
+          if (Number(error?.statusCode) === 401) {
+            stopNotificationRealtime();
+          }
+        }
+        return;
       }
-    }
-  }, 12000);
+
+      if (status === "TIMED_OUT" || status === "CHANNEL_ERROR" || status === "CLOSED") {
+        scheduleNotificationRealtimeReconnect();
+      }
+    });
 }
 
 async function hydrateFromSupabase() {
@@ -1927,8 +2076,8 @@ async function hydrateFromSupabase() {
       console.warn("Could not load full member directory.", directoryError);
     }
     try {
-      // Notifications polling intentionally disabled for now.
-      startTimesheetPolling();
+      await startNotificationRealtime();
+      await startTimesheetRealtime();
     } catch (notificationError) {
       console.warn("Could not load notifications.", notificationError);
     }
@@ -4889,8 +5038,8 @@ async function handleLogout() {
   appState.dataStatus = "loading";
   appState.dataError = "";
   clearLiveData();
-  stopNotificationPolling();
-  stopTimesheetPolling();
+  stopNotificationRealtime();
+  stopTimesheetRealtime();
   updateNavigationVisibility();
   showAuthGate("Signed out.", "success");
 }

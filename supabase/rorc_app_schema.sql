@@ -576,13 +576,7 @@ security definer
 set search_path = public
 as $$
   select coalesce(
-    responsible_member = public.current_account_member_id()
-    or exists (
-      select 1
-      from public.heater_use_group_members hugm
-      where hugm.heater_use_entry_id = heater_entry_id
-        and hugm.account_member_id = public.current_account_member_id()
-    ),
+    public.current_account_member_id() is not null,
     false
   );
 $$;
@@ -598,13 +592,7 @@ security definer
 set search_path = public
 as $$
   select coalesce(
-    group_account_member = public.current_account_member_id()
-    or exists (
-      select 1
-      from public.heater_use_entries hue
-      where hue.id = heater_entry_id
-        and hue.responsible_member_id = public.current_account_member_id()
-    ),
+    public.current_account_member_id() is not null,
     false
   );
 $$;
