@@ -3009,6 +3009,16 @@ function renderHeaterRecords() {
   const records = [...heaterUseEntries]
     .sort((a, b) => new Date(b.startAt || b.usedOn) - new Date(a.startAt || a.usedOn))
     .slice(0, 50);
+  const activeTimerEntry = records.find((entry) => !entry.endAt && entry.setATimer && entry.timerStop);
+  const activeTimerCountdown = activeTimerEntry ? heaterCountdownText(activeTimerEntry) : "";
+  const timerStatusNote = activeTimerEntry
+    ? `
+      <p class="data-source-note heater-timer-note">
+        <span class="heater-timer-note-desktop">Timer is active. It can be turned off early.</span>
+        <span class="heater-timer-note-mobile">${escapeHtml(activeTimerCountdown || "Timer is active")} · Can be turned off early.</span>
+      </p>
+    `
+    : "";
 
   if (records.length === 0) {
     root.innerHTML = `
@@ -3023,6 +3033,7 @@ function renderHeaterRecords() {
   root.innerHTML = `
     <section class="live-record-page">
       <p class="data-source-note">Live data</p>
+      ${timerStatusNote}
       <div class="detail-card">
         <ol class="record-list heater-record-list">
           ${records.map((entry) => {
@@ -3032,7 +3043,7 @@ function renderHeaterRecords() {
             return `
               <li>
                 <strong class="heater-record-event">${escapeHtml(entry.event || "Heater Use")}</strong>
-                <span class="heater-record-meta">${formatShortDate(entry.usedOn)} · ${escapeHtml(member?.memberName || "No responsible member")}${timerCountdown ? ` · ${escapeHtml(timerCountdown)}` : ""}</span>
+                <span class="heater-record-meta">${formatShortDate(entry.usedOn)} · ${escapeHtml(member?.memberName || "No responsible member")}${timerCountdown ? ` <span class="heater-row-timer">· ${escapeHtml(timerCountdown)}</span>` : ""}</span>
                 <button class="heater-state-action is-${escapeHtml(heaterState.key)}" data-heater-state="${escapeHtml(heaterState.key)}" type="button">${escapeHtml(heaterState.label)}</button>
               </li>
             `;

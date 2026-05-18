@@ -1119,6 +1119,18 @@ h1 {
   text-align: center;
 }
 
+.heater-timer-note {
+  margin-top: -4px !important;
+}
+
+.heater-timer-note-desktop {
+  display: inline;
+}
+
+.heater-timer-note-mobile {
+  display: none;
+}
+
 .account-page-heading {
   align-items: center;
   display: grid;
@@ -1919,6 +1931,10 @@ h1 {
 
 .heater-record-meta {
   color: var(--muted);
+}
+
+.heater-row-timer {
+  white-space: nowrap;
 }
 
 .heater-state-action {
@@ -2850,6 +2866,18 @@ textarea:focus-visible,
 
   .heater-record-meta {
     font-size: 0.72rem;
+  }
+
+  .heater-row-timer {
+    display: none;
+  }
+
+  .heater-timer-note-desktop {
+    display: none;
+  }
+
+  .heater-timer-note-mobile {
+    display: inline;
   }
 
   .heater-state-action {
