@@ -3871,19 +3871,8 @@ function renderOverviewPanel(member, account) {
         ["Email Address", member.emailAddress || "Not set"],
         ["Billing Owner", member.isBillingOwner ? "Yes" : "No"],
         ["Guest Entry", member.allowGuestEntry ? "Allowed" : "Not allowed"],
-        ["Heater Use", member.allowHeaterUse ? "Allowed" : "Not allowed"]
-      ])}
-    </div>
-    <div class="detail-card">
-      <h3>Shared Account</h3>
-      ${renderDefinitionGrid([
-        ["Membership Details", account?.membershipDetails || accessCopy(member.accountType)],
-        ["Notes On Account", account?.notesOnAccount || "None"],
-        ["Billing Status", account?.billingStatus || "None"],
-        ["Stripe Status", account?.stripeStatus || "None"],
-        ["Current Period End", account?.currentPeriodEnd ? formatShortDate(account.currentPeriodEnd) : "Not set"],
-        ["Heater Billing ID", account?.billingIdHeater || "Not set"],
-        ["Heater PIN", account?.heaterPin || "Not set"]
+        ["Heater Use", member.allowHeaterUse ? "Allowed" : "Not allowed"],
+        ["Notes On Account", account?.notesOnAccount || "None"]
       ])}
     </div>
   `;
@@ -4450,11 +4439,17 @@ function openMemberEditDialog(member) {
       </label>
       <label>
         <span>Guest Entry Permission</span>
-        <input id="editAllowGuestEntry" type="checkbox" ${member.allowGuestEntry ? "checked" : ""} />
+        <select id="editAllowGuestEntry">
+          <option value="yes" ${member.allowGuestEntry ? "selected" : ""}>Yes</option>
+          <option value="no" ${member.allowGuestEntry ? "" : "selected"}>No</option>
+        </select>
       </label>
       <label>
         <span>Heater Permission</span>
-        <input id="editAllowHeaterUse" type="checkbox" ${member.allowHeaterUse ? "checked" : ""} />
+        <select id="editAllowHeaterUse">
+          <option value="yes" ${member.allowHeaterUse ? "selected" : ""}>Yes</option>
+          <option value="no" ${member.allowHeaterUse ? "" : "selected"}>No</option>
+        </select>
       </label>
       <label>
         <span>Stripe Customer ID</span>
@@ -4531,8 +4526,8 @@ function openMemberEditDialog(member) {
     const emailAddress = String(overlay.querySelector("#editMemberEmail")?.value || "").trim().toLowerCase();
     const accountNumber = String(overlay.querySelector("#editAccountNumber")?.value || displayAccountNumberForMember(member) || "").trim();
     const accountType = String(overlay.querySelector("#editMemberAccountType")?.value || member.accountType);
-    const allowGuestEntry = Boolean(overlay.querySelector("#editAllowGuestEntry")?.checked);
-    const allowHeaterUse = Boolean(overlay.querySelector("#editAllowHeaterUse")?.checked);
+    const allowGuestEntry = String(overlay.querySelector("#editAllowGuestEntry")?.value || "no") === "yes";
+    const allowHeaterUse = String(overlay.querySelector("#editAllowHeaterUse")?.value || "no") === "yes";
     const stripeCustomerId = String(overlay.querySelector("#editStripeCustomerId")?.value || account?.stripeCustomerId || "").trim();
     const heaterPin = String(overlay.querySelector("#editAccountHeaterPin")?.value || "").trim();
 

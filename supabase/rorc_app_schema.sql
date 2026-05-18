@@ -882,7 +882,11 @@ security definer
 set search_path = public
 as $$
 declare
+  sponsor_account_id uuid;
   guest_count integer;
+  used_free_guests integer;
+  free_guests_remaining integer;
+  billable_guest_count integer;
 begin
   if new.member_or_guest <> 'Guest'
      or new.member_entered_with_id is null
@@ -890,7 +894,37 @@ begin
     return new;
   end if;
 
+  select am.account_id
+  into sponsor_account_id
+  from public.account_members am
+  where am.id = new.member_entered_with_id;
+
+  if sponsor_account_id is null then
+    return new;
+  end if;
+
   guest_count := 1 + coalesce(array_length(new.additional_guests, 1), 0);
+  if guest_count <= 0 then
+    return new;
+  end if;
+
+  select coalesce(sum(1 + coalesce(array_length(te.additional_guests, 1), 0)), 0)
+  into used_free_guests
+  from public.timesheet_entries te
+  join public.account_members am on am.id = te.member_entered_with_id
+  where te.member_or_guest = 'Guest'
+    and te.day_pass_or_open_gym = 'Day Pass'
+    and am.account_id = sponsor_account_id
+    and te.id <> new.id
+    and date_trunc('month', te.signed_in_at at time zone 'America/Los_Angeles')
+      = date_trunc('month', new.signed_in_at at time zone 'America/Los_Angeles');
+
+  free_guests_remaining := greatest(0, 10 - used_free_guests);
+  billable_guest_count := greatest(0, guest_count - free_guests_remaining);
+
+  if billable_guest_count = 0 then
+    return new;
+  end if;
 
   insert into public.billing_line_items (
     account_member_id,
@@ -900,8 +934,8 @@ begin
   ) values (
     new.member_entered_with_id,
     new.id,
-    guest_count * 25,
-    'Guest entry fee for ' || guest_count || ' guest(s)'
+    billable_guest_count * 25,
+    'Guest entry fee for ' || billable_guest_count || ' guest(s) after 10 free/month'
   )
   on conflict do nothing;
 
