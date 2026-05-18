@@ -133,6 +133,7 @@ const appState = {
   selectedMemberId: "",
   detailReturnRoute: "accountInfo",
   currentRoute: "currentlySignedIn",
+  masterLogsTab: "timesheet",
   dataStatus: "loading",
   dataError: "",
   authMemberId: "",
@@ -145,6 +146,7 @@ const accountManagerOnlyRoutes = new Set([
   "advertisementBanners",
   "message",
   "notificationsEmail",
+  "masterLogs",
   "messageCompose",
   "contracts"
 ]);
@@ -245,6 +247,11 @@ const routes = {
     title: "Notifications & Email",
     template: "feedbackTemplate",
     afterRender: renderNotificationsPage
+  },
+  masterLogs: {
+    title: "Master Logs",
+    template: "feedbackTemplate",
+    afterRender: renderMasterLogsPage
   },
   messageCompose: {
     title: "Message Data Form",
@@ -1006,6 +1013,308 @@ function renderUserNotificationsPage() {
 
   bindUserNotificationActions();
   bindNotificationOpenActions();
+}
+
+function renderMasterLogsPage() {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+
+  const isThermostatTab = appState.masterLogsTab === "thermostat";
+  const timesheetRecords = [...timesheetEntries]
+    .sort((a, b) => new Date(b.signedInAt) - new Date(a.signedInAt))
+    .slice(0, 500);
+  const heaterRecords = [...heaterUseEntries]
+    .sort((a, b) => new Date(b.startAt || b.usedOn) - new Date(a.startAt || a.usedOn))
+    .slice(0, 500);
+
+  root.innerHTML = `
+    <section class="master-logs-shell">
+      <header class="account-page-heading">
+        <div>
+          <p class="eyebrow">Admin Logs</p>
+          <h2>Master Logs</h2>
+          ${dataSourceNotice()}
+        </div>
+      </header>
+
+      <div class="master-logs-tabs" role="tablist" aria-label="Master logs views">
+        <button class="master-logs-tab ${!isThermostatTab ? "is-active" : ""}" data-master-logs-tab="timesheet" type="button" role="tab" aria-selected="${!isThermostatTab}">
+          Timesheet Logs
+        </button>
+        <button class="master-logs-tab ${isThermostatTab ? "is-active" : ""}" data-master-logs-tab="thermostat" type="button" role="tab" aria-selected="${isThermostatTab}">
+          Thermostat Logs
+        </button>
+      </div>
+
+      <div class="detail-card">
+        ${!isThermostatTab ? `
+          <ol class="record-list master-log-list">
+            ${timesheetRecords.map((entry) => {
+              const member = entry.memberOrGuest === "Member"
+                ? findMember(entry.memberId)
+                : findMember(entry.memberEnteredWithId);
+              const personLabel = entry.memberOrGuest === "Guest"
+                ? `${entry.guestName || "Guest"} (with ${member?.memberName || "Unknown Member"})`
+                : (member?.memberName || "Unknown Member");
+              return `
+                <li data-master-log-type="timesheet" data-master-log-id="${escapeAttribute(entry.id)}">
+                  <div>
+                    <strong>${escapeHtml(personLabel)}</strong>
+                    <span>${escapeHtml(entry.memberOrGuest)} · In ${formatShortDateTime(entry.signedInAt)}${entry.signedOutAt ? ` · Out ${formatShortDateTime(entry.signedOutAt)}` : " · Currently signed in"}</span>
+                  </div>
+                  <b>${escapeHtml(entry.dayPassOrOpenGym || "Member")}</b>
+                </li>
+              `;
+            }).join("")}
+          </ol>
+        ` : `
+          <ol class="record-list master-log-list">
+            ${heaterRecords.map((entry) => {
+              const member = findMember(entry.responsibleMemberId);
+              const stateLabel = heaterRecordStatus(entry).label;
+              const payerLabel = entry.groupPay ? "Group Pay" : "Single Pay";
+              return `
+                <li data-master-log-type="heater" data-master-log-id="${escapeAttribute(entry.id)}">
+                  <div>
+                    <strong>${escapeHtml(entry.event || "Heater Use")} · ${escapeHtml(member?.memberName || "Unknown Member")}</strong>
+                    <span>${formatShortDate(entry.usedOn)} · Start ${formatShortDateTime(entry.startAt)}${entry.endAt ? ` · End ${formatShortDateTime(entry.endAt)}` : " · End pending"} · ${escapeHtml(payerLabel)}</span>
+                  </div>
+                  <b>${escapeHtml(stateLabel)}</b>
+                </li>
+              `;
+            }).join("")}
+          </ol>
+        `}
+      </div>
+    </section>
+  `;
+
+  bindMasterLogsActions();
+}
+
+function bindMasterLogsActions() {
+  document.querySelectorAll("[data-master-logs-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const tab = String(button.dataset.masterLogsTab || "").trim();
+      if (!tab || tab === appState.masterLogsTab) return;
+      appState.masterLogsTab = tab;
+      renderMasterLogsPage();
+    });
+  });
+
+  document.querySelectorAll("[data-master-log-id]").forEach((row) => {
+    row.addEventListener("click", () => {
+      const recordType = String(row.dataset.masterLogType || "").trim();
+      const recordId = String(row.dataset.masterLogId || "").trim();
+      if (!recordType || !recordId) return;
+      openMasterLogEditor(recordType, recordId);
+    });
+  });
+}
+
+function toDatetimeLocalValue(isoString) {
+  if (!isoString) return "";
+  const value = new Date(isoString);
+  if (Number.isNaN(value.getTime())) return "";
+  const local = new Date(value.getTime() - (value.getTimezoneOffset() * 60000));
+  return local.toISOString().slice(0, 16);
+}
+
+function fromDatetimeLocalValue(localValue) {
+  if (!localValue) return null;
+  const value = new Date(localValue);
+  if (Number.isNaN(value.getTime())) return null;
+  return value.toISOString();
+}
+
+function openMasterLogEditor(recordType, recordId) {
+  const isTimesheet = recordType === "timesheet";
+  const record = isTimesheet
+    ? timesheetEntries.find((entry) => entry.id === recordId)
+    : heaterUseEntries.find((entry) => entry.id === recordId);
+
+  if (!record) {
+    showDetailActionMessage("Record not found.");
+    return;
+  }
+
+  const member = findMember(isTimesheet ? (record.memberId || record.memberEnteredWithId) : record.responsibleMemberId);
+  const title = isTimesheet ? "Timesheet Log Record" : "Thermostat Log Record";
+
+  const overlay = document.createElement("div");
+  overlay.className = "master-log-modal-overlay";
+  overlay.innerHTML = `
+    <section class="master-log-modal" role="dialog" aria-modal="true" aria-label="${escapeAttribute(title)}">
+      <h3>${escapeHtml(title)}</h3>
+      <p class="master-log-subtitle">${escapeHtml(member?.memberName || "Unknown Member")} · ${escapeHtml(record.id)}</p>
+      <div class="master-log-form">
+        ${isTimesheet ? `
+          <label>
+            <span>Type</span>
+            <select id="masterLogTimesheetType">
+              <option value="Member" ${record.memberOrGuest === "Member" ? "selected" : ""}>Member</option>
+              <option value="Guest" ${record.memberOrGuest === "Guest" ? "selected" : ""}>Guest</option>
+            </select>
+          </label>
+          <label>
+            <span>Guest Name</span>
+            <input id="masterLogGuestName" type="text" value="${escapeAttribute(record.guestName || "")}" />
+          </label>
+          <label>
+            <span>Pass Type</span>
+            <input id="masterLogPassType" type="text" value="${escapeAttribute(record.dayPassOrOpenGym || "")}" />
+          </label>
+          <label>
+            <span>Signed In At</span>
+            <input id="masterLogSignedInAt" type="datetime-local" value="${escapeAttribute(toDatetimeLocalValue(record.signedInAt))}" />
+          </label>
+          <label>
+            <span>Signed Out At</span>
+            <input id="masterLogSignedOutAt" type="datetime-local" value="${escapeAttribute(toDatetimeLocalValue(record.signedOutAt))}" />
+          </label>
+        ` : `
+          <label>
+            <span>Event</span>
+            <input id="masterLogHeaterEvent" type="text" value="${escapeAttribute(record.event || "")}" />
+          </label>
+          <label>
+            <span>Heater State</span>
+            <select id="masterLogHeaterState">
+              <option value="On" ${(record.turnHeaterOn || "On") === "On" ? "selected" : ""}>On</option>
+              <option value="Off" ${(record.turnHeaterOn || "On") === "Off" ? "selected" : ""}>Off</option>
+            </select>
+          </label>
+          <label>
+            <span>Start At</span>
+            <input id="masterLogHeaterStartAt" type="datetime-local" value="${escapeAttribute(toDatetimeLocalValue(record.startAt))}" />
+          </label>
+          <label>
+            <span>End At</span>
+            <input id="masterLogHeaterEndAt" type="datetime-local" value="${escapeAttribute(toDatetimeLocalValue(record.endAt))}" />
+          </label>
+          <label>
+            <span>Note</span>
+            <textarea id="masterLogHeaterNote" rows="4">${escapeHtml(record.note || "")}</textarea>
+          </label>
+        `}
+      </div>
+      <p id="masterLogEditorResult" class="member-edit-result"></p>
+      <footer>
+        <button class="master-log-delete" type="button">Delete</button>
+        <button class="master-log-cancel" type="button">Cancel</button>
+        <button class="master-log-save" type="button">Save</button>
+      </footer>
+    </section>
+  `;
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener("keydown", onKeydown);
+  };
+
+  const onKeydown = (event) => {
+    if (event.key === "Escape") close();
+  };
+
+  const setResult = (message, tone = "default") => {
+    const result = overlay.querySelector("#masterLogEditorResult");
+    if (!result) return;
+    result.textContent = message;
+    result.dataset.tone = tone;
+  };
+
+  const saveButton = overlay.querySelector(".master-log-save");
+  const deleteButton = overlay.querySelector(".master-log-delete");
+
+  saveButton?.addEventListener("click", async () => {
+    const client = await createSupabaseClient();
+    if (!client) {
+      setResult("App data is not available.", "error");
+      return;
+    }
+
+    saveButton.disabled = true;
+    deleteButton.disabled = true;
+    setResult("Saving...");
+
+    try {
+      if (isTimesheet) {
+        const signedInAt = fromDatetimeLocalValue(String(overlay.querySelector("#masterLogSignedInAt")?.value || ""));
+        const signedOutAt = fromDatetimeLocalValue(String(overlay.querySelector("#masterLogSignedOutAt")?.value || ""));
+        const payload = {
+          member_or_guest: String(overlay.querySelector("#masterLogTimesheetType")?.value || "Member"),
+          guest_name: String(overlay.querySelector("#masterLogGuestName")?.value || "").trim() || null,
+          day_pass_or_open_gym: String(overlay.querySelector("#masterLogPassType")?.value || "").trim() || null,
+          signed_in_at: signedInAt || record.signedInAt,
+          signed_out_at: signedOutAt
+        };
+
+        const { error } = await client.from("timesheet_entries").update(payload).eq("id", recordId);
+        if (error) throw error;
+      } else {
+        const startAt = fromDatetimeLocalValue(String(overlay.querySelector("#masterLogHeaterStartAt")?.value || ""));
+        const endAt = fromDatetimeLocalValue(String(overlay.querySelector("#masterLogHeaterEndAt")?.value || ""));
+        const payload = {
+          event: String(overlay.querySelector("#masterLogHeaterEvent")?.value || "").trim() || null,
+          turn_heater_on: String(overlay.querySelector("#masterLogHeaterState")?.value || "On"),
+          start_at: startAt || record.startAt,
+          end_at: endAt,
+          note: String(overlay.querySelector("#masterLogHeaterNote")?.value || "").trim() || null
+        };
+
+        const { error } = await client.from("heater_use_entries").update(payload).eq("id", recordId);
+        if (error) throw error;
+      }
+
+      await hydrateFromSupabase();
+      renderMasterLogsPage();
+      close();
+    } catch (error) {
+      setResult(error.message || "Could not save record.", "error");
+      saveButton.disabled = false;
+      deleteButton.disabled = false;
+    }
+  });
+
+  deleteButton?.addEventListener("click", async () => {
+    const confirmed = window.confirm("Delete this record?");
+    if (!confirmed) return;
+
+    const client = await createSupabaseClient();
+    if (!client) {
+      setResult("App data is not available.", "error");
+      return;
+    }
+
+    saveButton.disabled = true;
+    deleteButton.disabled = true;
+    setResult("Deleting...");
+
+    try {
+      if (isTimesheet) {
+        const { error } = await client.from("timesheet_entries").delete().eq("id", recordId);
+        if (error) throw error;
+      } else {
+        const { error } = await client.from("heater_use_entries").delete().eq("id", recordId);
+        if (error) throw error;
+      }
+
+      await hydrateFromSupabase();
+      renderMasterLogsPage();
+      close();
+    } catch (error) {
+      setResult(error.message || "Could not delete record.", "error");
+      saveButton.disabled = false;
+      deleteButton.disabled = false;
+    }
+  });
+
+  overlay.querySelector(".master-log-cancel")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  document.addEventListener("keydown", onKeydown);
+  document.body.appendChild(overlay);
 }
 
 function bindNotificationOpenActions() {
@@ -2210,7 +2519,7 @@ async function loadGlobalMemberDirectory() {
     emailAddress: row.email_address || "",
     imagePath: "",
     allowGuestEntry: Boolean(row.allow_guest_entry),
-    allowHeaterUse: accountTypeAllowsHeater(canonicalAccountType(row.account_type)),
+    allowHeaterUse: Boolean(row.allow_heater_use),
     isBillingOwner: Boolean(row.is_billing_owner)
   }));
 }
@@ -2257,7 +2566,7 @@ function applySupabaseData({
     emailAddress: row.email_address || "",
     imagePath: row.image_path || "",
     allowGuestEntry: Boolean(row.allow_guest_entry),
-    allowHeaterUse: accountTypeAllowsHeater(canonicalAccountType(row.account_type)),
+    allowHeaterUse: Boolean(row.allow_heater_use),
     isBillingOwner: Boolean(row.is_billing_owner)
   }));
 
@@ -2332,10 +2641,6 @@ function normalizeAccountTypePolicies(rows = []) {
   });
 
   return next;
-}
-
-function accountTypeAllowsHeater(accountType) {
-  return ["Account Manager", "Kiosk Account", "Active Membership", "Special Access Account"].includes(canonicalAccountType(accountType));
 }
 
 function resolveMemberId(preferredName, fallbackType) {
@@ -2423,11 +2728,7 @@ function visibleMembersForSession(session) {
 function guestSponsorsForSession(session) {
   const visibleMembers = visibleMembersForSession(session);
 
-  return visibleMembers.filter((member) => (
-    member.accountType === "Account Manager"
-    || member.accountType === "Active Membership"
-    || member.allowGuestEntry
-  ));
+  return visibleMembers.filter((member) => member.allowGuestEntry);
 }
 
 function memberPickerOptions(source) {
@@ -3772,6 +4073,8 @@ async function updateMemberContact(member, updates) {
   if (isAccountManager(appUserSession)) {
     dbUpdates.member_name = updates.memberName;
     dbUpdates.account_type = updates.accountType || member.accountType;
+    dbUpdates.allow_guest_entry = Boolean(updates.allowGuestEntry);
+    dbUpdates.allow_heater_use = Boolean(updates.allowHeaterUse);
   }
 
   const { error } = await client
@@ -3922,16 +4225,14 @@ async function updateMemberContact(member, updates) {
 
   syncLocalMember(member.id, {
     ...updates,
-    accountType: updates.accountType || member.accountType,
-    allowHeaterUse: accountTypeAllowsHeater(updates.accountType || member.accountType)
+    accountType: updates.accountType || member.accountType
   });
 
   if (isAccountManager(appUserSession)) {
     accountMembers.forEach((accountMember) => {
       if (accountMember.accountId === member.accountId) {
         syncLocalMember(accountMember.id, {
-          accountType: updates.accountType || member.accountType,
-          allowHeaterUse: accountTypeAllowsHeater(updates.accountType || member.accountType)
+          accountType: updates.accountType || member.accountType
         });
       }
     });
@@ -4148,6 +4449,14 @@ function openMemberEditDialog(member) {
         </select>
       </label>
       <label>
+        <span>Guest Entry Permission</span>
+        <input id="editAllowGuestEntry" type="checkbox" ${member.allowGuestEntry ? "checked" : ""} />
+      </label>
+      <label>
+        <span>Heater Permission</span>
+        <input id="editAllowHeaterUse" type="checkbox" ${member.allowHeaterUse ? "checked" : ""} />
+      </label>
+      <label>
         <span>Stripe Customer ID</span>
         <input id="editStripeCustomerId" type="text" value="${escapeAttribute(account?.stripeCustomerId || "")}" placeholder="cus_..." autocapitalize="off" autocomplete="off" spellcheck="false" />
       </label>
@@ -4222,6 +4531,8 @@ function openMemberEditDialog(member) {
     const emailAddress = String(overlay.querySelector("#editMemberEmail")?.value || "").trim().toLowerCase();
     const accountNumber = String(overlay.querySelector("#editAccountNumber")?.value || displayAccountNumberForMember(member) || "").trim();
     const accountType = String(overlay.querySelector("#editMemberAccountType")?.value || member.accountType);
+    const allowGuestEntry = Boolean(overlay.querySelector("#editAllowGuestEntry")?.checked);
+    const allowHeaterUse = Boolean(overlay.querySelector("#editAllowHeaterUse")?.checked);
     const stripeCustomerId = String(overlay.querySelector("#editStripeCustomerId")?.value || account?.stripeCustomerId || "").trim();
     const heaterPin = String(overlay.querySelector("#editAccountHeaterPin")?.value || "").trim();
 
@@ -4249,6 +4560,8 @@ function openMemberEditDialog(member) {
         phoneNumber,
         emailAddress,
         accountType,
+        allowGuestEntry,
+        allowHeaterUse,
         accountNumber,
         stripeCustomerId,
         heaterPin

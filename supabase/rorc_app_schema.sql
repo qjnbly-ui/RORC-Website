@@ -177,6 +177,7 @@ create table if not exists public.account_members (
   account_id uuid not null references public.accounts(id) on delete restrict,
   member_name text not null,
   account_type public.membership_account_type not null default 'Active Membership',
+  allow_heater_use boolean not null default false,
   phone_number text,
   email_address citext,
   image_path text,
@@ -190,6 +191,9 @@ create table if not exists public.account_members (
   constraint account_members_member_name_not_blank check (btrim(member_name) <> '')
 );
 
+alter table public.account_members
+  add column if not exists allow_heater_use boolean not null default false;
+
 create index if not exists idx_account_members_account_id
   on public.account_members (account_id);
 
@@ -198,6 +202,9 @@ create index if not exists idx_account_members_email_address
 
 create index if not exists idx_account_members_account_type
   on public.account_members (account_type);
+
+create index if not exists idx_account_members_allow_heater_use
+  on public.account_members (allow_heater_use);
 
 create unique index if not exists idx_account_members_auth_user_id_unique
   on public.account_members (auth_user_id)
@@ -219,8 +226,6 @@ execute function public.set_updated_at();
 create table if not exists public.account_type_permissions (
   account_type public.membership_account_type primary key,
   can_sign_in boolean not null default false,
-  can_use_heater boolean not null default false,
-  can_bring_guests boolean not null default false,
   can_manage_members boolean not null default false,
   bypass_time_windows boolean not null default false,
   allowed_days smallint[] not null default '{}',
@@ -233,8 +238,6 @@ create table if not exists public.account_type_permissions (
 insert into public.account_type_permissions (
   account_type,
   can_sign_in,
-  can_use_heater,
-  can_bring_guests,
   can_manage_members,
   bypass_time_windows,
   allowed_days,
@@ -242,15 +245,13 @@ insert into public.account_type_permissions (
   allowed_end_time,
   notes
 ) values
-  ('Active Membership', true, true, false, false, false, array[0,1,2,3,4,5,6]::smallint[], time '06:50', time '21:10', 'Member access safety window for nominal 7am-9pm hours.'),
-  ('Open Gym Only', true, false, false, false, false, array[2,4]::smallint[], time '17:50', time '20:10', 'Open Gym Only access on Tuesdays and Thursdays from 6pm-8pm, with a 10-minute safety window.'),
-  ('Billed Monthly', true, true, false, false, false, array[0,1,2,3,4,5,6]::smallint[], time '06:50', time '21:10', 'Billed monthly access safety window for nominal 7am-9pm hours.'),
-  ('Account Manager', true, true, true, true, true, '{}'::smallint[], null, null, 'Admin role with unrestricted access.'),
-  ('Account Past Due NO ACCESS ALLOWED', false, false, false, false, false, '{}'::smallint[], null, null, 'Past-due account with no access.')
+  ('Active Membership', true, false, false, array[0,1,2,3,4,5,6]::smallint[], time '06:50', time '21:10', 'Member access safety window for nominal 7am-9pm hours.'),
+  ('Open Gym Only', true, false, false, array[2,4]::smallint[], time '17:50', time '20:10', 'Open Gym Only access on Tuesdays and Thursdays from 6pm-8pm, with a 10-minute safety window.'),
+  ('Billed Monthly', true, false, false, array[0,1,2,3,4,5,6]::smallint[], time '06:50', time '21:10', 'Billed monthly access safety window for nominal 7am-9pm hours.'),
+  ('Account Manager', true, true, true, '{}'::smallint[], null, null, 'Admin role with unrestricted access.'),
+  ('Account Past Due NO ACCESS ALLOWED', false, false, false, '{}'::smallint[], null, null, 'Past-due account with no access.')
 on conflict (account_type) do update set
   can_sign_in = excluded.can_sign_in,
-  can_use_heater = excluded.can_use_heater,
-  can_bring_guests = excluded.can_bring_guests,
   can_manage_members = excluded.can_manage_members,
   bypass_time_windows = excluded.bypass_time_windows,
   allowed_days = excluded.allowed_days,
@@ -648,9 +649,8 @@ set search_path = public
 as $$
   select coalesce(
     (
-      select atp.can_use_heater
+      select am.allow_heater_use
       from public.account_members am
-      join public.account_type_permissions atp on atp.account_type = am.account_type
       where am.id = member
         and public.account_billing_allows_access(am.account_id, am.account_type)
     ),
@@ -667,9 +667,8 @@ set search_path = public
 as $$
   select coalesce(
     (
-      select atp.can_bring_guests or am.allow_guest_entry
+      select am.allow_guest_entry
       from public.account_members am
-      join public.account_type_permissions atp on atp.account_type = am.account_type
       where am.id = member
         and public.account_billing_allows_access(am.account_id, am.account_type)
     ),
@@ -1367,6 +1366,16 @@ with check (public.is_admin());
 alter table public.account_members
   add column if not exists legacy_account_type text;
 
+update public.account_members
+set allow_heater_use = true
+where allow_heater_use = false
+  and account_type in ('Account Manager', 'Kiosk Account', 'Special Access Account', 'Active Membership');
+
+update public.account_members
+set allow_guest_entry = true
+where allow_guest_entry = false
+  and account_type = 'Account Manager';
+
 create or replace function public.jsonb_first_text(source jsonb, variadic keys text[])
 returns text
 language plpgsql
@@ -1571,6 +1580,7 @@ begin
     current_period_end timestamptz,
     last_sync timestamptz,
     allow_guest_entry boolean,
+    allow_heater_use boolean,
     is_billing_owner boolean default false
   ) on commit drop;
 
@@ -1599,7 +1609,8 @@ begin
       billing_status,
       current_period_end,
       last_sync,
-      allow_guest_entry
+      allow_guest_entry,
+      allow_heater_use
     )
     select
       source.row_data,
@@ -1629,6 +1640,11 @@ begin
         'Allow Guest Entry',
         'Allow guest entry and automatic billing at $0.25 a person.',
         'Allow Guest Entry And Automatic Billing At $0.25 A Person.'
+      )),
+      public.try_parse_bool(public.jsonb_first_text(
+        source.row_data,
+        'allow_heater_use',
+        'Allow Heater Use'
       ))
     from (
       select to_jsonb(cm) as row_data
@@ -1642,6 +1658,23 @@ begin
 
   get diagnostics skipped_rows = row_count;
 
+  -- Prevent unique collisions on account_members.legacy_source_row_number
+  -- when source data includes duplicate row numbers.
+  update tmp_current_memberships_norm norm
+  set legacy_source_row_number = null
+  from (
+    select
+      ctid,
+      row_number() over (
+        partition by legacy_source_row_number
+        order by coalesce(legacy_source_row_number, 2147483647), member_name, account_number
+      ) as rn
+    from tmp_current_memberships_norm
+    where legacy_source_row_number is not null
+  ) ranked
+  where norm.ctid = ranked.ctid
+    and ranked.rn > 1;
+
   update tmp_current_memberships_norm
   set allow_guest_entry = coalesce(
     allow_guest_entry,
@@ -1654,6 +1687,12 @@ begin
         or billing_status in ('active', 'trialing')
       )
     )
+  );
+
+  update tmp_current_memberships_norm
+  set allow_heater_use = coalesce(
+    allow_heater_use,
+    normalized_account_type in ('Account Manager', 'Kiosk Account', 'Special Access Account', 'Active Membership')
   );
 
   update tmp_current_memberships_norm norm
@@ -1724,6 +1763,7 @@ begin
     email_address,
     image_path,
     allow_guest_entry,
+    allow_heater_use,
     is_billing_owner,
     legacy_source_row_number,
     legacy_member_name,
@@ -1737,8 +1777,18 @@ begin
     norm.email_address,
     norm.image_path,
     norm.allow_guest_entry,
+    norm.allow_heater_use,
     norm.is_billing_owner,
-    norm.legacy_source_row_number,
+    case
+      when norm.legacy_source_row_number is null then null
+      when exists (
+        select 1
+        from public.account_members existing
+        where existing.legacy_source_row_number = norm.legacy_source_row_number
+          and (existing.account_id <> a.id or existing.member_name <> norm.member_name)
+      ) then null
+      else norm.legacy_source_row_number
+    end,
     norm.member_name,
     norm.account_type_text
   from tmp_current_memberships_norm norm
@@ -1750,6 +1800,7 @@ begin
     email_address = excluded.email_address,
     image_path = excluded.image_path,
     allow_guest_entry = excluded.allow_guest_entry,
+    allow_heater_use = excluded.allow_heater_use,
     is_billing_owner = excluded.is_billing_owner,
     legacy_source_row_number = coalesce(excluded.legacy_source_row_number, public.account_members.legacy_source_row_number),
     legacy_member_name = excluded.legacy_member_name,
@@ -1854,6 +1905,7 @@ select
   ab.billing_status,
   ab.current_period_end,
   ab.last_sync,
+  am.allow_heater_use,
   am.created_at,
   am.updated_at
 from public.account_members am

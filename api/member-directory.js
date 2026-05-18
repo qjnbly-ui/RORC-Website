@@ -25,7 +25,7 @@ module.exports = async (req, res) => {
     }
 
     const rows = await supabaseRest(
-      "account_member_profiles?select=account_member_id,account_id,account_number,member_name,account_type,phone_number,email_address,allow_guest_entry,is_billing_owner&order=account_number.asc&order=member_name.asc"
+      "account_member_profiles?select=account_member_id,account_id,account_number,member_name,account_type,phone_number,email_address,allow_guest_entry,allow_heater_use,is_billing_owner&order=account_number.asc&order=member_name.asc"
     );
 
     return res.status(200).json({ success: true, members: rows || [] });
