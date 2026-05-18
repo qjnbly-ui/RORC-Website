@@ -43,9 +43,9 @@ module.exports = async (req, res) => {
       return res.status(403).json({ success: false, error: "You cannot verify PINs for another account." });
     }
 
-    const verified = await callVerifyHeaterPin(memberId, pin);
+    const verified = await verifyAgainstAccountHeaterPin(target.account_id, pin);
     if (!verified) {
-      return res.status(403).json({ success: false, error: "Heater PIN is incorrect or does not match the account PIN." });
+      return res.status(403).json({ success: false, error: "Heater PIN does not match the shared account PIN." });
     }
 
     return res.status(200).json({ success: true, verified: true });
@@ -85,27 +85,10 @@ async function getAccountMemberById(memberId) {
   return rows[0] || null;
 }
 
-async function callVerifyHeaterPin(memberId, pin) {
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/verify_heater_pin`, {
-    method: "POST",
-    headers: {
-      apikey: SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      target_member_id: memberId,
-      candidate_pin: pin
-    })
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`PIN verify RPC failed: ${response.status} ${text}`);
-  }
-
-  const body = await response.json();
-  return body === true;
+async function verifyAgainstAccountHeaterPin(accountId, pin) {
+  const rows = await supabaseRest(`accounts?select=heater_pin&id=eq.${encodeURIComponent(accountId)}&limit=1`);
+  const accountPin = String(rows[0]?.heater_pin || "").trim();
+  return Boolean(accountPin && accountPin === pin);
 }
 
 async function supabaseRest(path) {
