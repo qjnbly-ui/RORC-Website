@@ -134,6 +134,7 @@ const appState = {
   detailReturnRoute: "accountInfo",
   currentRoute: "currentlySignedIn",
   masterLogsTab: "timesheet",
+  masterLogsBillingFilter: "all",
   notificationsHistoryFilter: "all",
   dataStatus: "loading",
   dataError: "",
@@ -959,11 +960,11 @@ function renderNotificationsPage() {
   root.innerHTML = `
     <section class="live-record-page">
       <div class="detail-card">
-        <div class="master-logs-tabs" role="tablist" aria-label="Message history channels">
-          <button class="master-logs-tab ${historyFilter === "all" ? "is-active" : ""}" data-notification-history-filter="all" type="button">All</button>
-          <button class="master-logs-tab ${historyFilter === "in_app" ? "is-active" : ""}" data-notification-history-filter="in_app" type="button">In-App</button>
-          <button class="master-logs-tab ${historyFilter === "text" ? "is-active" : ""}" data-notification-history-filter="text" type="button">Text</button>
-          <button class="master-logs-tab ${historyFilter === "email" ? "is-active" : ""}" data-notification-history-filter="email" type="button">Email</button>
+        <div class="notification-history-tabs master-logs-tabs" role="tablist" aria-label="Message history channels">
+          <button class="notification-history-tab master-logs-tab ${historyFilter === "all" ? "is-active" : ""}" data-notification-history-filter="all" type="button">All</button>
+          <button class="notification-history-tab master-logs-tab ${historyFilter === "in_app" ? "is-active" : ""}" data-notification-history-filter="in_app" type="button">In-App</button>
+          <button class="notification-history-tab master-logs-tab ${historyFilter === "text" ? "is-active" : ""}" data-notification-history-filter="text" type="button">Text</button>
+          <button class="notification-history-tab master-logs-tab ${historyFilter === "email" ? "is-active" : ""}" data-notification-history-filter="email" type="button">Email</button>
         </div>
       </div>
       ${records.length ? `
@@ -1064,12 +1065,25 @@ function renderMasterLogsPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
 
-  const isThermostatTab = appState.masterLogsTab === "thermostat";
+  const activeTab = appState.masterLogsTab || "timesheet";
+  const isThermostatTab = activeTab === "thermostat";
+  const isBillingTab = activeTab === "billing";
+  const billingFilter = String(appState.masterLogsBillingFilter || "all");
   const timesheetRecords = [...timesheetEntries]
     .sort((a, b) => new Date(b.signedInAt) - new Date(a.signedInAt))
     .slice(0, 500);
   const heaterRecords = [...heaterUseEntries]
     .sort((a, b) => new Date(b.startAt || b.usedOn) - new Date(a.startAt || a.usedOn))
+    .slice(0, 500);
+  const billingRecords = [...billingLineItems]
+    .filter((item) => (
+      billingFilter === "all"
+        ? true
+        : billingFilter === "guest"
+          ? Boolean(item.timesheetEntryId)
+          : Boolean(item.heaterUseEntryId)
+    ))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 500);
 
   root.innerHTML = `
@@ -1083,16 +1097,28 @@ function renderMasterLogsPage() {
       </header>
 
       <div class="master-logs-tabs" role="tablist" aria-label="Master logs views">
-        <button class="master-logs-tab ${!isThermostatTab ? "is-active" : ""}" data-master-logs-tab="timesheet" type="button" role="tab" aria-selected="${!isThermostatTab}">
-          Timesheet Logs
+        <button class="master-logs-tab ${activeTab === "timesheet" ? "is-active" : ""}" data-master-logs-tab="timesheet" type="button" role="tab" aria-selected="${activeTab === "timesheet"}">
+          Timesheet
         </button>
-        <button class="master-logs-tab ${isThermostatTab ? "is-active" : ""}" data-master-logs-tab="thermostat" type="button" role="tab" aria-selected="${isThermostatTab}">
-          Thermostat Logs
+        <button class="master-logs-tab ${activeTab === "thermostat" ? "is-active" : ""}" data-master-logs-tab="thermostat" type="button" role="tab" aria-selected="${activeTab === "thermostat"}">
+          Thermostat
+        </button>
+        <button class="master-logs-tab ${activeTab === "billing" ? "is-active" : ""}" data-master-logs-tab="billing" type="button" role="tab" aria-selected="${activeTab === "billing"}">
+          Billing
         </button>
       </div>
-
+      ${isBillingTab ? `
       <div class="detail-card">
-        ${!isThermostatTab ? `
+        <div class="master-logs-filter-row" role="tablist" aria-label="Billing log filters">
+          <button class="master-logs-filter-chip ${billingFilter === "all" ? "is-active" : ""}" data-master-billing-filter="all" type="button">All</button>
+          <button class="master-logs-filter-chip ${billingFilter === "guest" ? "is-active" : ""}" data-master-billing-filter="guest" type="button">Guest Sign-In</button>
+          <button class="master-logs-filter-chip ${billingFilter === "heater" ? "is-active" : ""}" data-master-billing-filter="heater" type="button">Heater Use</button>
+        </div>
+      </div>
+      ` : ""}
+
+      ${activeTab === "timesheet" ? (timesheetRecords.length ? `
+      <div class="detail-card">
           <ol class="record-list master-log-list">
             ${timesheetRecords.map((entry) => {
               const member = entry.memberOrGuest === "Member"
@@ -1112,7 +1138,13 @@ function renderMasterLogsPage() {
               `;
             }).join("")}
           </ol>
-        ` : `
+      </div>
+      ` : `
+      <section class="empty-state">
+        <p>No timesheet logs yet.</p>
+      </section>
+      `) : activeTab === "thermostat" ? (heaterRecords.length ? `
+      <div class="detail-card">
           <ol class="record-list master-log-list">
             ${heaterRecords.map((entry) => {
               const member = findMember(entry.responsibleMemberId);
@@ -1129,8 +1161,34 @@ function renderMasterLogsPage() {
               `;
             }).join("")}
           </ol>
-        `}
       </div>
+      ` : `
+      <section class="empty-state">
+        <p>No thermostat logs yet.</p>
+      </section>
+      `) : (billingRecords.length ? `
+      <div class="detail-card">
+          <ol class="record-list master-log-list">
+            ${billingRecords.map((item) => {
+              const member = findMember(item.accountMemberId);
+              const state = item.postedToStripeAt ? "Posted" : "Unposted";
+              return `
+                <li>
+                  <div>
+                    <strong>${escapeHtml(item.reason || "Billing item")} · ${escapeHtml(member?.memberName || "Unknown Member")}</strong>
+                    <span>${formatShortDateTime(item.createdAt)}${item.postedToStripeAt ? ` · Posted ${formatShortDateTime(item.postedToStripeAt)}` : ""}</span>
+                  </div>
+                  <b>${escapeHtml(state)} · ${formatCurrency(item.amountCents || 0)}</b>
+                </li>
+              `;
+            }).join("")}
+          </ol>
+      </div>
+      ` : `
+      <section class="empty-state">
+        <p>No billing logs for this filter.</p>
+      </section>
+      `)}
     </section>
   `;
 
@@ -1153,6 +1211,15 @@ function bindMasterLogsActions() {
       const recordId = String(row.dataset.masterLogId || "").trim();
       if (!recordType || !recordId) return;
       openMasterLogEditor(recordType, recordId);
+    });
+  });
+
+  document.querySelectorAll("[data-master-billing-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const filter = String(button.dataset.masterBillingFilter || "all");
+      if (filter === appState.masterLogsBillingFilter) return;
+      appState.masterLogsBillingFilter = filter;
+      renderMasterLogsPage();
     });
   });
 }
@@ -1185,6 +1252,10 @@ function openMasterLogEditor(recordType, recordId) {
 
   const member = findMember(isTimesheet ? (record.memberId || record.memberEnteredWithId) : record.responsibleMemberId);
   const title = isTimesheet ? "Timesheet Log Record" : "Thermostat Log Record";
+  const linkedBillingItems = billingLineItems.filter((item) => (
+    isTimesheet ? item.timesheetEntryId === recordId : item.heaterUseEntryId === recordId
+  ));
+  const linkedBillingTotal = linkedBillingItems.reduce((sum, item) => sum + (item.amountCents || 0), 0);
 
   const overlay = document.createElement("div");
   overlay.className = "master-log-modal-overlay";
@@ -1243,8 +1314,10 @@ function openMasterLogEditor(recordType, recordId) {
           </label>
         `}
       </div>
+      <p class="master-log-subtitle">Billing items: ${linkedBillingItems.length} · ${formatCurrency(linkedBillingTotal)}</p>
       <p id="masterLogEditorResult" class="member-edit-result"></p>
       <footer>
+        <button class="master-log-remove-billing" type="button" ${linkedBillingItems.length ? "" : "disabled"}>Remove Billing</button>
         <button class="master-log-delete" type="button">Delete</button>
         <button class="master-log-cancel" type="button">Cancel</button>
         <button class="master-log-save" type="button">Save</button>
@@ -1270,6 +1343,7 @@ function openMasterLogEditor(recordType, recordId) {
 
   const saveButton = overlay.querySelector(".master-log-save");
   const deleteButton = overlay.querySelector(".master-log-delete");
+  const removeBillingButton = overlay.querySelector(".master-log-remove-billing");
 
   saveButton?.addEventListener("click", async () => {
     const client = await createSupabaseClient();
@@ -1351,6 +1425,42 @@ function openMasterLogEditor(recordType, recordId) {
       setResult(error.message || "Could not delete record.", "error");
       saveButton.disabled = false;
       deleteButton.disabled = false;
+    }
+  });
+
+  removeBillingButton?.addEventListener("click", async () => {
+    if (!linkedBillingItems.length) return;
+
+    const confirmed = window.confirm(`Remove ${linkedBillingItems.length} billing item(s) from this log record?`);
+    if (!confirmed) return;
+
+    const client = await createSupabaseClient();
+    if (!client) {
+      setResult("App data is not available.", "error");
+      return;
+    }
+
+    saveButton.disabled = true;
+    deleteButton.disabled = true;
+    removeBillingButton.disabled = true;
+    setResult("Removing billing...");
+
+    try {
+      let query = client.from("billing_line_items").delete();
+      query = isTimesheet
+        ? query.eq("timesheet_entry_id", recordId)
+        : query.eq("heater_use_entry_id", recordId);
+      const { error } = await query;
+      if (error) throw error;
+
+      await hydrateFromSupabase();
+      renderMasterLogsPage();
+      close();
+    } catch (error) {
+      setResult(error.message || "Could not remove billing.", "error");
+      saveButton.disabled = false;
+      deleteButton.disabled = false;
+      removeBillingButton.disabled = false;
     }
   });
 
@@ -2144,6 +2254,7 @@ function updateNavigationVisibility() {
   const showOtherUsers = hasOtherUsersOnCurrentAccount();
   const showAccountManagerPages = isAccountManager(appUserSession);
   const kioskMode = isKioskModeSession(appUserSession);
+  const alwaysVisibleRoutes = new Set(["notifications", "about", "share", "calendar", "feedback"]);
 
   drawerItems
     .filter((item) => item.dataset.route === "otherUsers")
@@ -2160,9 +2271,16 @@ function updateNavigationVisibility() {
   if (kioskMode) {
     drawerItems.forEach((item) => {
       const routeName = item.dataset.route;
-      item.hidden = !["feedback", "calendar", "notifications"].includes(routeName);
+      item.hidden = !["feedback", "calendar", "notifications", "about", "share"].includes(routeName);
     });
   }
+
+  drawerItems.forEach((item) => {
+    const routeName = item.dataset.route;
+    if (alwaysVisibleRoutes.has(routeName)) {
+      item.hidden = false;
+    }
+  });
 }
 
 function updateDrawerIdentity() {
@@ -3501,6 +3619,7 @@ function renderHeaterRecords() {
   root.innerHTML = `
     <section class="live-record-page">
       <p class="data-source-note">Live data</p>
+      <p class="data-source-note heater-personal-record-note">All your personal records are accessible on your account.</p>
       ${timerStatusNote}
       <div class="detail-card">
         <ol class="record-list heater-record-list">
