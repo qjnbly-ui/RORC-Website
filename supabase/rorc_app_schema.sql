@@ -539,6 +539,24 @@ as $$
   );
 $$;
 
+create or replace function public.is_kiosk()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(
+    exists (
+      select 1
+      from public.account_members
+      where auth_user_id = auth.uid()
+        and account_type = 'Kiosk Account'
+    ),
+    false
+  );
+$$;
+
 create or replace function public.can_read_heater_use_entry(
   heater_entry_id uuid,
   responsible_member uuid
@@ -1240,12 +1258,25 @@ for select using (
       and am.account_id = public.current_account_id()
   )
   or public.is_admin()
+  or public.is_kiosk()
 );
 
 drop policy if exists timesheet_entries_member_insert on public.timesheet_entries;
 create policy timesheet_entries_member_insert on public.timesheet_entries
 for insert with check (
   public.is_admin()
+  or (
+    public.is_kiosk()
+    and member_or_guest = 'Member'
+    and public.is_sign_in_authorized(member_id, signed_in_at)
+  )
+  or (
+    public.is_kiosk()
+    and member_or_guest = 'Guest'
+    and public.is_sign_in_authorized(member_entered_with_id, signed_in_at)
+    and public.member_can_bring_guests(member_entered_with_id)
+    and liability_accepted = true
+  )
   or (
     member_or_guest = 'Member'
     and exists (
@@ -1283,6 +1314,7 @@ for update using (
       and am.account_id = public.current_account_id()
   )
   or public.is_admin()
+  or public.is_kiosk()
 );
 
 drop policy if exists timesheet_entries_admin_delete on public.timesheet_entries;

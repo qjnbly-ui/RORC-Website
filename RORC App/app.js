@@ -161,7 +161,9 @@ const kioskAllowedRoutes = new Set([
   "heaterForm",
   "notifications",
   "feedback",
-  "calendar"
+  "calendar",
+  "about",
+  "share"
 ]);
 
 let frontDoorSession = buildSession("");
@@ -2533,6 +2535,93 @@ function createHttpError(message, statusCode) {
   return error;
 }
 
+function mapTimesheetEntryRow(row) {
+  return {
+    id: row.id,
+    memberId: row.member_id,
+    memberOrGuest: row.member_or_guest,
+    guestName: row.guest_name || "",
+    dayPassOrOpenGym: row.day_pass_or_open_gym || "",
+    memberEnteredWithId: row.member_entered_with_id || "",
+    liabilityAccepted: Boolean(row.liability_accepted),
+    signedInAt: row.signed_in_at,
+    signedOutAt: row.signed_out_at || "",
+    accountTypeAtSignIn: row.account_type_at_sign_in || "",
+    locationLabel: row.location_label || ""
+  };
+}
+
+function canUsePrivilegedTimesheetApi() {
+  return Boolean(isKioskAccount(appUserSession));
+}
+
+async function fetchPrivilegedTimesheetEntries() {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) return [];
+
+  const response = await fetch("/api/timesheet-entries", {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw createHttpError(body.error || "Could not load timesheet entries.", response.status);
+  }
+
+  return (body.entries || []).map(mapTimesheetEntryRow);
+}
+
+async function insertPrivilegedTimesheetEntries(entries) {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) {
+    throw new Error("Missing session token.");
+  }
+
+  const response = await fetch("/api/timesheet-entries", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ entries })
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw createHttpError(body.error || "Could not save timesheet entry.", response.status);
+  }
+
+  return (body.entries || []).map(mapTimesheetEntryRow);
+}
+
+async function signOutPrivilegedTimesheetEntry(entryId, signOutGuestsForMemberId = "") {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) {
+    throw new Error("Missing session token.");
+  }
+
+  const response = await fetch("/api/timesheet-entries", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      entryId,
+      signOutGuestsForMemberId,
+      signedOutAt: new Date().toISOString()
+    })
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw createHttpError(body.error || "Could not sign out.", response.status);
+  }
+}
+
 async function fetchMemberNotifications() {
   const token = currentAuthSession?.access_token || "";
   if (!token) return [];
@@ -2684,34 +2773,27 @@ async function startTimesheetRealtime() {
 async function syncTimesheetEntries({ rerender = false } = {}) {
   if (timesheetSyncInFlight) return;
 
-  const client = await createSupabaseClient();
-  if (!client) return;
-
   timesheetSyncInFlight = true;
   try {
-    const timesheetResult = await client
-      .from("timesheet_entries")
-      .select("*")
-      .order("signed_in_at", { ascending: false })
-      .limit(1000);
+    if (canUsePrivilegedTimesheetApi()) {
+      timesheetEntries = await fetchPrivilegedTimesheetEntries();
+    } else {
+      const client = await createSupabaseClient();
+      if (!client) return;
 
-    if (timesheetResult.error) {
-      throw timesheetResult.error;
+      const timesheetResult = await client
+        .from("timesheet_entries")
+        .select("*")
+        .order("signed_in_at", { ascending: false })
+        .limit(1000);
+
+      if (timesheetResult.error) {
+        throw timesheetResult.error;
+      }
+
+      timesheetEntries = (timesheetResult.data || []).map(mapTimesheetEntryRow);
     }
 
-    const nextEntries = (timesheetResult.data || []).map((row) => ({
-      id: row.id,
-      memberId: row.member_id,
-      memberOrGuest: row.member_or_guest,
-      guestName: row.guest_name || "",
-      memberEnteredWithId: row.member_entered_with_id || "",
-      signedInAt: row.signed_in_at,
-      signedOutAt: row.signed_out_at || "",
-      accountTypeAtSignIn: row.account_type_at_sign_in || "",
-      locationLabel: row.location_label || ""
-    }));
-
-    timesheetEntries = nextEntries;
     refreshSessions(appState.authMemberId);
     if (rerender && appState.currentRoute === "currentlySignedIn") {
       renderCurrentlySignedIn();
@@ -2891,6 +2973,15 @@ async function hydrateFromSupabase() {
     } catch (directoryError) {
       console.warn("Could not load full member directory.", directoryError);
     }
+    if (canUsePrivilegedTimesheetApi()) {
+      try {
+        timesheetEntries = await fetchPrivilegedTimesheetEntries();
+      } catch (timesheetError) {
+        console.warn("Could not load privileged timesheet entries.", timesheetError);
+        appState.dataStatus = "partial";
+        appState.dataError = appState.dataError || "Could not load global timesheet records.";
+      }
+    }
     try {
       await startNotificationRealtime();
       await startTimesheetRealtime();
@@ -2994,17 +3085,7 @@ function applySupabaseData({
     isBillingOwner: Boolean(row.is_billing_owner)
   }));
 
-  timesheetEntries = timesheetRows.map((row) => ({
-    id: row.id,
-    memberOrGuest: row.member_or_guest,
-    memberId: row.member_id,
-    guestName: row.guest_name || "",
-    dayPassOrOpenGym: row.day_pass_or_open_gym || "",
-    memberEnteredWithId: row.member_entered_with_id,
-    liabilityAccepted: Boolean(row.liability_accepted),
-    signedInAt: row.signed_in_at,
-    signedOutAt: row.signed_out_at
-  }));
+  timesheetEntries = timesheetRows.map(mapTimesheetEntryRow);
 
   const heaterGroupMap = heaterGroupRows.reduce((map, row) => {
     const current = map.get(row.heater_use_entry_id) || [];
@@ -3753,13 +3834,6 @@ function renderSignedInCard(entry) {
 }
 
 async function signOutTimesheetEntry(entryId) {
-  const client = await createSupabaseClient();
-
-  if (!client) {
-    showDetailActionMessage("App data is not available.");
-    return;
-  }
-
   const button = document.querySelector(`[data-sign-out-entry="${CSS.escape(entryId)}"]`);
   const entry = timesheetEntries.find((item) => item.id === entryId);
   const wasOneSignedIn = openTimesheetCount() === 1;
@@ -3769,26 +3843,40 @@ async function signOutTimesheetEntry(entryId) {
   }
 
   try {
-    const { error } = await client
-      .from("timesheet_entries")
-      .update({ signed_out_at: new Date().toISOString() })
-      .eq("id", entryId)
-      .is("signed_out_at", null);
+    if (canUsePrivilegedTimesheetApi()) {
+      await signOutPrivilegedTimesheetEntry(
+        entryId,
+        entry?.memberOrGuest === "Member" ? entry.memberId : ""
+      );
+    } else {
+      const client = await createSupabaseClient();
 
-    if (error) {
-      throw error;
-    }
+      if (!client) {
+        throw new Error("App data is not available.");
+      }
 
-    if (entry?.memberOrGuest === "Member" && entry.memberId) {
-      const guestSignOutResult = await client
+      const signedOutAt = new Date().toISOString();
+      const { error } = await client
         .from("timesheet_entries")
-        .update({ signed_out_at: new Date().toISOString() })
-        .eq("member_or_guest", "Guest")
-        .eq("member_entered_with_id", entry.memberId)
+        .update({ signed_out_at: signedOutAt })
+        .eq("id", entryId)
         .is("signed_out_at", null);
 
-      if (guestSignOutResult.error) {
-        throw guestSignOutResult.error;
+      if (error) {
+        throw error;
+      }
+
+      if (entry?.memberOrGuest === "Member" && entry.memberId) {
+        const guestSignOutResult = await client
+          .from("timesheet_entries")
+          .update({ signed_out_at: signedOutAt })
+          .eq("member_or_guest", "Guest")
+          .eq("member_entered_with_id", entry.memberId)
+          .is("signed_out_at", null);
+
+        if (guestSignOutResult.error) {
+          throw guestSignOutResult.error;
+        }
       }
     }
 
@@ -5488,13 +5576,6 @@ async function saveMemberSignIn() {
     return;
   }
 
-  const client = await createSupabaseClient();
-
-  if (!client) {
-    showDetailActionMessage("App data is not available.");
-    return;
-  }
-
   if (saveButton) {
     saveButton.disabled = true;
     saveButton.textContent = "Saving...";
@@ -5507,12 +5588,22 @@ async function saveMemberSignIn() {
       signed_in_at: signedInAtDate.toISOString()
     }));
 
-    const { error } = await client
-      .from("timesheet_entries")
-      .insert(rows);
+    if (canUsePrivilegedTimesheetApi()) {
+      await insertPrivilegedTimesheetEntries(rows);
+    } else {
+      const client = await createSupabaseClient();
 
-    if (error) {
-      throw error;
+      if (!client) {
+        throw new Error("App data is not available.");
+      }
+
+      const { error } = await client
+        .from("timesheet_entries")
+        .insert(rows);
+
+      if (error) {
+        throw error;
+      }
     }
 
     if (firstValidMember) {
@@ -5572,10 +5663,15 @@ async function saveGuestSignIn() {
     return;
   }
 
-  const client = await createSupabaseClient();
+  const sponsorMember = findMember(memberEnteredWithId);
+  const sponsorValidation = canMemberSignInNow(sponsorMember, new Date());
+  if (!sponsorValidation.allowed) {
+    showDetailActionMessage(`${sponsorMember?.memberName || "Selected member"}: ${sponsorValidation.reason}`);
+    return;
+  }
 
-  if (!client) {
-    showDetailActionMessage("App data is not available.");
+  if (!sponsorMember?.allowGuestEntry) {
+    showDetailActionMessage(`${sponsorMember?.memberName || "Selected member"} cannot bring guests.`);
     return;
   }
 
@@ -5591,34 +5687,41 @@ async function saveGuestSignIn() {
       && entry.memberId === memberEnteredWithId
       && !entry.signedOutAt
     ));
+    const rows = [];
 
     if (!sponsorSignedIn) {
-      const { error: sponsorSignInError } = await client
-        .from("timesheet_entries")
-        .insert({
-          member_or_guest: "Member",
-          member_id: memberEnteredWithId,
-          signed_in_at: nowIso
-        });
-
-      if (sponsorSignInError) {
-        throw sponsorSignInError;
-      }
-    }
-
-    const { error } = await client
-      .from("timesheet_entries")
-      .insert({
-        member_or_guest: "Guest",
-        guest_name: guestName,
-        day_pass_or_open_gym: passType,
-        member_entered_with_id: memberEnteredWithId,
-        liability_accepted: true,
+      rows.push({
+        member_or_guest: "Member",
+        member_id: memberEnteredWithId,
         signed_in_at: nowIso
       });
+    }
 
-    if (error) {
-      throw error;
+    rows.push({
+      member_or_guest: "Guest",
+      guest_name: guestName,
+      day_pass_or_open_gym: passType,
+      member_entered_with_id: memberEnteredWithId,
+      liability_accepted: true,
+      signed_in_at: nowIso
+    });
+
+    if (canUsePrivilegedTimesheetApi()) {
+      await insertPrivilegedTimesheetEntries(rows);
+    } else {
+      const client = await createSupabaseClient();
+
+      if (!client) {
+        throw new Error("App data is not available.");
+      }
+
+      const { error } = await client
+        .from("timesheet_entries")
+        .insert(rows);
+
+      if (error) {
+        throw error;
+      }
     }
 
     await hydrateFromSupabase();
