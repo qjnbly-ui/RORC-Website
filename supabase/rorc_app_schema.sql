@@ -338,6 +338,20 @@ create index if not exists idx_timesheet_entries_currently_signed_in
   on public.timesheet_entries (signed_in_at desc)
   where signed_out_at is null;
 
+do $$
+begin
+  if exists (
+    select 1
+    from pg_publication
+    where pubname = 'supabase_realtime'
+  ) then
+    execute 'alter publication supabase_realtime add table public.timesheet_entries';
+  end if;
+exception
+  when duplicate_object then
+    null;
+end $$;
+
 drop trigger if exists trg_timesheet_entries_updated_at on public.timesheet_entries;
 create trigger trg_timesheet_entries_updated_at
 before update on public.timesheet_entries
