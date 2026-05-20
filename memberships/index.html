@@ -56,7 +56,7 @@
       <div class="rorc-actions" style="justify-content:center; margin-top: 18px;">
         <button
           class="rorc-btn rorc-btn-accent"
-          onclick="window.open('https://docs.google.com/forms/d/e/1FAIpQLScl0BSlzIa0CBzw75Exz19dTIAb0fAZvYHz9FVhg-UEBZU7ww/viewform?usp=sf_link', '_blank')">
+          onclick="window.location.href = '/membership-signup/';">
           Start Membership
         </button>
         <button
@@ -74,30 +74,34 @@
       </p>
     </section>
 
-    <section class="membership-grid">
-      <article class="membership-card">
+    <section class="membership-grid" aria-label="Membership plan choices">
+      <a class="membership-card membership-card-link" href="/membership-signup/?plan=open_gym" aria-label="Start Open Gym membership signup">
         <h3>Open Gym</h3>
         <div class="membership-price">$2 one-time sign-up fee</div>
         <p>Open gym nights on Tuesday and Thursday from 6–8 PM.</p>
-      </article>
+        <span class="membership-select">Select Open Gym</span>
+      </a>
 
-      <article class="membership-card">
+      <a class="membership-card membership-card-link" href="/membership-signup/?plan=weight_room" aria-label="Start Weight Room Only membership signup">
         <h3>Weight Room Only</h3>
         <div class="membership-price">$10 / month</div>
         <p>Access to the weight room only.</p>
-      </article>
+        <span class="membership-select">Select Weight Room</span>
+      </a>
 
-      <article class="membership-card">
+      <a class="membership-card membership-card-link" href="/membership-signup/?plan=full_facility" aria-label="Start Full Facility membership signup">
         <h3>Full Facility</h3>
         <div class="membership-price">$20 / month</div>
         <p>Full access daily from 7–9.</p>
-      </article>
+        <span class="membership-select">Select Full Facility</span>
+      </a>
 
-      <article class="membership-card">
+      <a class="membership-card membership-card-link" href="/membership-signup/?plan=full_facility_wifi" aria-label="Start Full Facility plus Wi-Fi membership signup">
         <h3>Full Facility + Wi-Fi</h3>
         <div class="membership-price">$25 / month</div>
         <p>Everything above plus Wi-Fi access.</p>
-      </article>
+        <span class="membership-select">Select Full Facility + Wi-Fi</span>
+      </a>
     </section>
 
     <section class="rorc-card" style="margin-top: 26px;">
@@ -160,7 +164,7 @@
       <details class="faq-item">
         <summary>Can I bring guests?</summary>
         <div class="faq-answer">
-          Guests must be signed in under a member’s account. Guest fees apply.
+          Guests must be signed in under a member’s account. Open Gym guests are free. Day Pass guests are billed only after 10 free guests per account each month.
         </div>
       </details>
 

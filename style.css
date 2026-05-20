@@ -315,6 +315,50 @@ a { color: inherit; }
   margin-bottom: 10px;
 }
 
+.rorc-card-details summary {
+  display: grid;
+  gap: 4px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.rorc-card-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.rorc-card-details summary span {
+  font-family: Georgia, serif;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.rorc-card-details summary small {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.rorc-card-details summary::after {
+  content: "＋";
+  color: var(--muted);
+  font-size: 22px;
+  line-height: 1;
+  position: absolute;
+  right: 18px;
+  top: 18px;
+}
+
+.rorc-card-details[open] summary::after {
+  content: "–";
+}
+
+.rorc-card-details {
+  position: relative;
+}
+
+.rorc-card-details .rorc-password-form {
+  margin-top: 16px;
+}
+
 .rorc-actions {
   display: flex;
   flex-wrap: wrap;
@@ -339,6 +383,10 @@ a { color: inherit; }
   text-transform: uppercase;
   cursor: pointer;
   transition: 0.15s ease;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 .rorc-btn:hover {
@@ -590,6 +638,21 @@ a { color: inherit; }
   text-align: left;
 }
 
+.membership-card-link {
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.membership-card-link:hover,
+.membership-card-link:focus-visible {
+  border-color: rgba(231,210,160,0.72);
+  box-shadow: 0 22px 65px rgba(0,0,0,0.82), inset 0 0 0 1px rgba(231,210,160,0.22);
+  outline: none;
+  transform: translateY(-2px);
+}
+
 .membership-card h3 {
   margin: 0 0 6px;
   font-family: var(--font-display);
@@ -607,6 +670,17 @@ a { color: inherit; }
   margin-bottom: 8px;
 }
 
+.membership-select {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 6px;
+  color: #e7d2a0;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 .membership-cta {
   margin: 14px 0 10px;
   text-align: center;
@@ -617,6 +691,337 @@ a { color: inherit; }
   color: #b6c9ff;
   margin-top: 8px;
   text-align: center;
+}
+
+.signup-hero .eyebrow {
+  color: #e7d2a0;
+}
+
+.signup-shell {
+  max-width: 980px;
+  margin: 0 auto;
+  text-align: left;
+}
+
+.signup-progress {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0;
+  margin: 0 0 18px;
+  list-style: none;
+}
+
+.signup-progress li {
+  border: 1px solid rgba(231,210,160,0.18);
+  border-radius: 999px;
+  padding: 9px 8px;
+  color: var(--muted);
+  cursor: default;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.signup-progress li.is-available {
+  cursor: pointer;
+}
+
+.signup-progress li.is-available:hover,
+.signup-progress li.is-available:focus-visible {
+  border-color: rgba(231,210,160,0.72);
+  outline: none;
+}
+
+.signup-progress li.is-active {
+  background: #f23a36;
+  border-color: #f23a36;
+  color: #fff;
+}
+
+.signup-progress li.is-complete {
+  border-color: rgba(231,210,160,0.55);
+  color: #e7d2a0;
+}
+
+.signup-progress li.is-locked {
+  opacity: 0.48;
+}
+
+.signup-step {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(242,58,54,0.22), transparent 32%),
+    rgba(10,10,10,0.96);
+  border: 1px solid rgba(231,210,160,0.25);
+  border-radius: 22px;
+  box-shadow: 0 18px 55px rgba(0,0,0,0.75);
+  padding: 22px;
+}
+
+.signup-step h2 {
+  margin-top: 0;
+  font-family: var(--font-display);
+}
+
+.signup-plan-grid,
+.signup-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.signup-plan-card {
+  display: grid;
+  gap: 7px;
+  min-height: 142px;
+  padding: 18px;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 18px;
+  background: rgba(255,255,255,0.04);
+  color: #f7f7f7;
+  text-align: left;
+  cursor: pointer;
+}
+
+.signup-plan-card span,
+.signup-member-card h3 {
+  font-family: var(--font-display);
+  font-size: 18px;
+}
+
+.signup-plan-card strong {
+  color: #e7d2a0;
+  font-size: 21px;
+}
+
+.signup-plan-card small {
+  color: var(--muted);
+}
+
+.signup-plan-card.is-selected {
+  border-color: #f23a36;
+  box-shadow: inset 0 0 0 2px rgba(242,58,54,0.3);
+}
+
+.signup-field-grid label,
+.signup-check-list label,
+.signup-contract-list label {
+  display: grid;
+  gap: 7px;
+}
+
+.signup-field-grid label span,
+.signup-check-list label span,
+.signup-contract-list label span {
+  color: #d9dde5;
+  font-size: 13px;
+}
+
+.signup-field-grid input {
+  width: 100%;
+  padding: 12px 13px;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 13px;
+  background: #090d12;
+  color: #f7f7f7;
+}
+
+.signup-field-wide {
+  grid-column: 1 / -1;
+}
+
+.signup-check-list,
+.signup-contract-list,
+.signup-member-list {
+  display: grid;
+  gap: 12px;
+}
+
+.signup-read-status {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(231,210,160,0.28);
+  border-radius: 12px;
+  background: rgba(231,210,160,0.08);
+  color: #e7d2a0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.signup-read-status.is-complete {
+  border-color: rgba(155,226,155,0.46);
+  background: rgba(155,226,155,0.09);
+  color: #9be29b;
+}
+
+.signup-contract-note {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(231,210,160,0.22);
+  border-radius: 12px;
+  background: rgba(231,210,160,0.07);
+  color: #e7d2a0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.signup-contract-scroll {
+  max-height: min(68vh, 720px);
+  overflow: auto;
+  margin: 16px 0;
+  padding: 18px;
+  border: 1px solid rgba(255,255,255,0.13);
+  border-radius: 18px;
+  background: rgba(3,5,8,0.72);
+  color: #e9edf5;
+  line-height: 1.65;
+  scroll-behavior: smooth;
+}
+
+.signup-contract-scroll:focus-visible {
+  outline: 2px solid rgba(231,210,160,0.72);
+  outline-offset: 3px;
+}
+
+.signup-contract-section + .signup-contract-section {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(255,255,255,0.11);
+}
+
+.signup-contract-section h3 {
+  margin: 0 0 12px;
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 22px;
+}
+
+.signup-contract-section h4 {
+  margin: 18px 0 8px;
+  color: #e7d2a0;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.signup-contract-section p,
+.signup-contract-section li {
+  color: #d9dde5;
+  font-size: 14px;
+}
+
+.signup-contract-section .signup-contract-note {
+  color: #e7d2a0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.signup-contract-section ul,
+.signup-contract-section ol {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding-left: 22px;
+}
+
+.signup-contract-photos {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px 0;
+}
+
+.signup-contract-photos figure {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 16px;
+  background: rgba(255,255,255,0.045);
+}
+
+.signup-contract-photos img {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  background: #111;
+}
+
+.signup-contract-photos figcaption {
+  padding: 10px 12px 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.signup-check-list label,
+.signup-contract-list label,
+.signup-checkbox-field {
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  padding: 13px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.035);
+}
+
+.signup-contract-list input:disabled + span {
+  opacity: 0.54;
+}
+
+.signup-contract-ack {
+  margin-top: 14px;
+}
+
+.signup-member-card {
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 18px;
+  padding: 16px;
+  background: rgba(255,255,255,0.035);
+}
+
+.signup-member-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.signup-member-card h3 {
+  margin: 0;
+}
+
+.signup-remove-member {
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: transparent;
+  color: #f7f7f7;
+  cursor: pointer;
+}
+
+.signup-fine-print,
+.signup-result {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.signup-result[data-tone="error"] {
+  color: #ff8d8d;
+}
+
+.signup-result[data-tone="success"] {
+  color: #9be29b;
+}
+
+.signup-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
 }
 
 .faq-section {
@@ -701,6 +1106,26 @@ a { color: inherit; }
 @media (min-width: 900px) {
   .membership-card {
     grid-column: span 6;
+  }
+}
+
+@media (max-width: 760px) {
+  .signup-progress {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .signup-plan-grid,
+  .signup-field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .signup-contract-scroll {
+    max-height: 62vh;
+    padding: 14px;
+  }
+
+  .signup-contract-photos {
+    grid-template-columns: 1fr;
   }
 }
 

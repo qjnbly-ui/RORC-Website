@@ -138,6 +138,22 @@
     }
   }
 
+  function clearInviteForm() {
+    ["inviteMemberName", "inviteMemberEmail", "inviteMemberDob", "inviteMemberPhone"].forEach((id) => {
+      const input = byId(id);
+      if (input) input.value = "";
+    });
+  }
+
+  function isUnder13(dateOfBirth) {
+    const birth = new Date(`${dateOfBirth}T00:00:00Z`);
+    if (Number.isNaN(birth.getTime())) return false;
+
+    const today = new Date();
+    const thirteenthBirthday = new Date(Date.UTC(birth.getUTCFullYear() + 13, birth.getUTCMonth(), birth.getUTCDate()));
+    return today.getTime() < thirteenthBirthday.getTime();
+  }
+
   function configureBillingButton() {
     const billingButton = byId("billingBtn");
     if (!billingButton || !currentProfile) return;
@@ -191,6 +207,93 @@
       } finally {
         billingButton.disabled = false;
         billingButton.textContent = originalText;
+      }
+    });
+  }
+
+  function bindAccountInvite() {
+    const card = byId("accountInviteCard");
+    const inviteButton = byId("inviteAccountUserBtn");
+    const result = byId("inviteAccountResult");
+
+    if (!card || !inviteButton || !currentProfile) return;
+
+    if (!canManageBilling(currentProfile)) {
+      card.hidden = true;
+      return;
+    }
+
+    card.hidden = false;
+
+    inviteButton.addEventListener("click", async () => {
+      const memberName = String(byId("inviteMemberName")?.value || "").trim();
+      const email = String(byId("inviteMemberEmail")?.value || "").trim().toLowerCase();
+      const dateOfBirth = String(byId("inviteMemberDob")?.value || "").trim();
+      const phoneNumber = String(byId("inviteMemberPhone")?.value || "").trim();
+
+      if (!dateOfBirth) {
+        setMessage(result, "Date of birth is required.", "error");
+        return;
+      }
+
+      if (!email && !phoneNumber && !isUnder13(dateOfBirth)) {
+        setMessage(result, "Email or phone number is required for anyone 13 or older.", "error");
+        return;
+      }
+
+      if (!email && !memberName) {
+        setMessage(result, "Name is required for under-13 users without an email.", "error");
+        return;
+      }
+
+      inviteButton.disabled = true;
+      setMessage(result, "Adding user to your account...");
+
+      try {
+        const { data } = await supabaseClient.auth.getSession();
+        const token = data.session?.access_token;
+
+        if (!token) {
+          window.location.href = LOGIN_PATH;
+          return;
+        }
+
+        const response = await fetch("/api/account-invite", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            memberName,
+            email,
+            dateOfBirth,
+            phoneNumber
+          })
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || payload.success === false) {
+          throw new Error(payload.error || "Could not invite account user.");
+        }
+
+        clearInviteForm();
+        await refreshProfile();
+        const deliveryErrors = Array.isArray(payload.deliveryErrors) && payload.deliveryErrors.length
+          ? ` Delivery issue: ${payload.deliveryErrors.join(" ")}`
+          : "";
+        setMessage(result, payload.inviteUrl
+          ? `${payload.message || "Contract invite created."} ${payload.inviteUrl}`
+          : payload.message || "User added.",
+          "success"
+        );
+        if (deliveryErrors) {
+          result.textContent = `${result.textContent}${deliveryErrors}`;
+        }
+      } catch (error) {
+        setMessage(result, error.message || "Could not invite account user.", "error");
+      } finally {
+        inviteButton.disabled = false;
       }
     });
   }
@@ -379,6 +482,7 @@
       revealPrivateAppCard();
       hydrateAccountForm();
       configureBillingButton();
+      bindAccountInvite();
       bindAccountInfoModal();
       bindPasswordModal();
       bindGlobalKeys();

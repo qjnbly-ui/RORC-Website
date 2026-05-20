@@ -2188,6 +2188,25 @@ h1 {
   color: var(--muted);
 }
 
+.heater-state-action.is-paid {
+  border-color: #9be29b;
+  color: #9be29b;
+}
+
+.heater-state-action.is-overdue {
+  border-color: #f87171;
+  color: #f87171;
+}
+
+.contract-review-actions {
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.contract-review-history-heading {
+  margin-top: 24px;
+}
+
 .detail-empty {
   align-items: center;
   display: flex;

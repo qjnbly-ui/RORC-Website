@@ -108,6 +108,17 @@
   }
 
   async function init() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("signup") === "success") {
+      setResult("Membership signup complete. Use Email Login Link with your signup email to open your account.", "success");
+    } else if (params.get("signup") === "invite") {
+      setResult("Contract accepted. Use Email Login Link with your invited email to open your account.", "success");
+    } else if (params.get("signup") === "pending_review") {
+      setResult("Contract received. Your account is pending RORC admin approval before facility access is enabled.", "success");
+    } else if (params.get("signup") === "error") {
+      setResult(params.get("message") || "Signup payment was received, but account activation could not be verified automatically.", "error");
+    }
+
     try {
       await redirectIfSignedIn();
     } catch (error) {

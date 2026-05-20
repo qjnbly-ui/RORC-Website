@@ -194,6 +194,7 @@ function defaultAccountTypePolicies() {
     "Kiosk Account": { canSignIn: true, bypassTimeWindows: true, allowedDays: [], allowedStartTime: null, allowedEndTime: null },
     "Special Access Account": { canSignIn: true, bypassTimeWindows: true, allowedDays: [], allowedStartTime: null, allowedEndTime: null },
     "Active Membership": { canSignIn: true, bypassTimeWindows: false, allowedDays: [0, 1, 2, 3, 4, 5, 6], allowedStartTime: "07:00", allowedEndTime: "21:00" },
+    "Weight Room Only": { canSignIn: true, bypassTimeWindows: false, allowedDays: [0, 1, 2, 3, 4, 5, 6], allowedStartTime: "07:00", allowedEndTime: "21:00" },
     "Open Gym Only": { canSignIn: true, bypassTimeWindows: false, allowedDays: [2, 4], allowedStartTime: "18:00", allowedEndTime: "20:00" },
     "RESTRICTED ACCOUNT": { canSignIn: false, bypassTimeWindows: false, allowedDays: [], allowedStartTime: null, allowedEndTime: null }
   };
@@ -250,6 +251,7 @@ function canonicalAccountType(accountType) {
   if (normalized === "kiosk account") return "Kiosk Account";
   if (normalized === "special access account") return "Special Access Account";
   if (normalized === "active membership") return "Active Membership";
+  if (normalized === "weight room only") return "Weight Room Only";
   if (normalized === "open gym only") return "Open Gym Only";
   if (normalized === "restricted account") return "RESTRICTED ACCOUNT";
   return String(accountType || "").trim() || "Active Membership";

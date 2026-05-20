@@ -48,6 +48,7 @@ const statusOrder = [
   "Kiosk Account",
   "Special Access Account",
   "Active Membership",
+  "Weight Room Only",
   "Open Gym Only",
   "RESTRICTED ACCOUNT"
 ];
@@ -57,6 +58,7 @@ const accountTypeOptions = [
   "Kiosk Account",
   "Special Access Account",
   "Active Membership",
+  "Weight Room Only",
   "Open Gym Only",
   "RESTRICTED ACCOUNT"
 ];
@@ -95,6 +97,14 @@ function defaultAccountTypePolicies() {
       allowedStartTime: "06:50:00",
       allowedEndTime: "21:10:00"
     },
+    "Weight Room Only": {
+      accountType: "Weight Room Only",
+      canSignIn: true,
+      bypassTimeWindows: false,
+      allowedDays: [0, 1, 2, 3, 4, 5, 6],
+      allowedStartTime: "06:50:00",
+      allowedEndTime: "21:10:00"
+    },
     "Open Gym Only": {
       accountType: "Open Gym Only",
       canSignIn: true,
@@ -122,6 +132,7 @@ function canonicalAccountType(accountType) {
   if (normalized === "account manager") return "Account Manager";
   if (normalized === "kiosk account") return "Kiosk Account";
   if (normalized === "active membership") return "Active Membership";
+  if (normalized === "weight room only") return "Weight Room Only";
   if (normalized === "open gym only") return "Open Gym Only";
   if (normalized === "special access account") return "Special Access Account";
   if (normalized === "restricted account") return "RESTRICTED ACCOUNT";
@@ -267,8 +278,9 @@ const routes = {
     afterRender: renderMessageComposerPage
   },
   contracts: {
-    title: "Contracts",
-    template: "placeholderTemplate"
+    title: "Account Reviews",
+    template: "feedbackTemplate",
+    afterRender: renderContractReviewsPage
   },
   about: {
     title: "About",
@@ -387,6 +399,11 @@ function appUrl() {
   url.search = "";
   url.hash = "";
   return url.toString();
+}
+
+function requestedInitialRoute() {
+  const routeName = new URLSearchParams(window.location.search).get("route");
+  return routes[routeName] ? routeName : "";
 }
 
 function dashboardUrl() {
@@ -570,6 +587,87 @@ function emailAppLink() {
   setShareStatus("Opening your email app.");
 }
 
+async function inviteAccountUser(event) {
+  event.preventDefault();
+
+  const form = document.getElementById("shareInviteForm");
+  const submitButton = form?.querySelector("button[type='submit']");
+  const token = currentAuthSession?.access_token || "";
+
+  if (!form || !token) {
+    setShareStatus("Log in again before inviting an account user.");
+    return;
+  }
+
+  const email = String(document.getElementById("shareInviteEmail")?.value || "").trim().toLowerCase();
+  const memberName = String(document.getElementById("shareInviteName")?.value || "").trim();
+  const dateOfBirth = String(document.getElementById("shareInviteDob")?.value || "").trim();
+  const phoneNumber = String(document.getElementById("shareInvitePhone")?.value || "").trim();
+
+  if (!dateOfBirth) {
+    setShareStatus("Enter a date of birth.");
+    return;
+  }
+
+  const age = Number(ageFromDateOfBirth(dateOfBirth));
+  if (!email && !phoneNumber && !(age >= 0 && age < 13)) {
+    setShareStatus("Enter an email or phone number for anyone 13 or older.");
+    return;
+  }
+
+  if (!email && !memberName) {
+    setShareStatus("Enter a name for under-13 users without an email.");
+    return;
+  }
+
+  if (submitButton) {
+    submitButton.disabled = true;
+    submitButton.textContent = "Inviting...";
+  }
+  setShareStatus("Creating account user...");
+
+  try {
+    const response = await fetch("/api/account-invite", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        email,
+        memberName,
+        dateOfBirth,
+        phoneNumber
+      })
+    });
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok || body.success === false) {
+      throw new Error(body.error || "Could not invite account user.");
+    }
+
+    form.reset();
+    const deliveryErrors = Array.isArray(body.deliveryErrors) && body.deliveryErrors.length
+      ? ` Delivery issue: ${body.deliveryErrors.join(" ")}`
+      : "";
+    setShareStatus(body.inviteUrl
+      ? `${body.message || "Contract invite created."} ${body.inviteUrl}`
+      : body.message || "Account user added."
+    );
+    if (deliveryErrors) {
+      setShareStatus(`${document.getElementById("shareStatus")?.textContent || ""}${deliveryErrors}`);
+    }
+    hydrateFromSupabase().catch((error) => console.warn("Refresh after invite failed.", error));
+  } catch (error) {
+    setShareStatus(error.message || "Could not invite account user.");
+  } finally {
+    if (submitButton) {
+      submitButton.disabled = false;
+      submitButton.textContent = "Create Invite";
+    }
+  }
+}
+
 function setShareStatus(message) {
   const status = document.getElementById("shareStatus");
 
@@ -589,7 +687,7 @@ function renderSharePage() {
 
   const inviteAllowed = canInviteAccountUsers();
   const inviteCopy = inviteAllowed
-    ? "Account invites will connect the new user to your shared account number. This needs backend account-linking before it is enabled."
+    ? "Users 13 or older receive a contract link first. Under-13 users are added as supervised users without separate login access."
     : "Only account managers or billing owners will be able to invite users to a shared account.";
 
   content.innerHTML = `
@@ -630,14 +728,17 @@ function renderSharePage() {
 
       <section class="share-invite-card">
         <div>
-          <p class="eyebrow">Coming Soon</p>
+          <p class="eyebrow">Account Access</p>
           <h3>Invite User To My Account</h3>
           <p>${escapeHtml(inviteCopy)}</p>
         </div>
-        <div class="share-invite-form" aria-disabled="true">
-          <input type="email" placeholder="Email address" disabled />
-          <button type="button" disabled>${inviteAllowed ? "Invite by Email" : "Locked"}</button>
-        </div>
+        <form id="shareInviteForm" class="share-invite-form" ${inviteAllowed ? "" : 'aria-disabled="true"'}>
+          <input id="shareInviteName" type="text" placeholder="Name required for under 13" ${inviteAllowed ? "" : "disabled"} />
+          <input id="shareInviteEmail" type="email" placeholder="Email optional if phone is provided" ${inviteAllowed ? "" : "disabled"} />
+          <input id="shareInviteDob" type="date" aria-label="Date of birth" ${inviteAllowed ? "required" : "disabled"} />
+          <input id="shareInvitePhone" type="tel" placeholder="Phone optional if email is provided" ${inviteAllowed ? "" : "disabled"} />
+          <button type="submit" ${inviteAllowed ? "" : "disabled"}>${inviteAllowed ? "Create Invite" : "Locked"}</button>
+        </form>
       </section>
 
       <p id="shareStatus" class="share-status" aria-live="polite"></p>
@@ -948,7 +1049,7 @@ function renderAutomationSettingsPage() {
 }
 
 function renderAccountTypePolicyFields() {
-  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Open Gym Only", "RESTRICTED ACCOUNT"];
+  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Weight Room Only", "Open Gym Only", "RESTRICTED ACCOUNT"];
   return `
     <section class="account-type-policy-grid">
       ${orderedTypes.map((type) => {
@@ -981,6 +1082,180 @@ function renderAccountTypePolicyFields() {
   }).join("")}
     </section>
   `;
+}
+
+async function renderContractReviewsPage() {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+
+  root.innerHTML = `
+    <section class="live-record-page">
+      <header class="account-page-heading">
+        <div>
+          <p class="eyebrow">Admin Approval</p>
+          <h2>Account Reviews</h2>
+          <p>Approve or reject new membership contracts and invited account users before facility access is enabled.</p>
+        </div>
+      </header>
+      <section class="empty-state">
+        <p>Loading account reviews...</p>
+      </section>
+    </section>
+  `;
+
+  try {
+    const token = currentAuthSession?.access_token || "";
+    if (!token) throw new Error("Log in again before loading reviews.");
+
+    const response = await fetch("/api/signup-reviews", {
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.success === false) {
+      throw new Error(body.error || "Could not load account reviews.");
+    }
+
+    renderContractReviewList(body.reviews || []);
+  } catch (error) {
+    root.innerHTML = `
+      <section class="empty-state">
+        <p>${escapeHtml(error.message || "Could not load account reviews.")}</p>
+      </section>
+    `;
+  }
+}
+
+function renderContractReviewList(reviews) {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+
+  const pending = reviews.filter((review) => review.adminReviewStatus === "pending");
+  const reviewed = reviews.filter((review) => review.adminReviewStatus !== "pending").slice(0, 50);
+
+  root.innerHTML = `
+    <section class="live-record-page">
+      <header class="account-page-heading">
+        <div>
+          <p class="eyebrow">Admin Approval</p>
+          <h2>Account Reviews</h2>
+          <p>Pending accounts stay restricted until approved.</p>
+        </div>
+        <div class="account-summary-strip">
+          <span><strong>${pending.length}</strong> pending</span>
+          <span><strong>${reviewed.length}</strong> reviewed</span>
+        </div>
+      </header>
+      <p id="contractReviewResult" class="auth-message" aria-live="polite"></p>
+      ${pending.length ? `
+        <div class="detail-card">
+          <ol class="record-list heater-record-list">
+            ${pending.map(renderContractReviewCard).join("")}
+          </ol>
+        </div>
+      ` : `
+        <section class="empty-state">
+          <p>No pending account reviews.</p>
+        </section>
+      `}
+      ${reviewed.length ? `
+        <header class="account-page-heading contract-review-history-heading">
+          <div>
+            <p class="eyebrow">History</p>
+            <h2>Recent Reviews</h2>
+          </div>
+        </header>
+        <div class="detail-card">
+          <ol class="record-list heater-record-list">
+            ${reviewed.map(renderContractReviewCard).join("")}
+          </ol>
+        </div>
+      ` : ""}
+    </section>
+  `;
+
+  bindContractReviewActions();
+}
+
+function renderContractReviewCard(review) {
+  const pending = review.adminReviewStatus === "pending";
+  const statusLabel = pending ? "Pending" : review.adminReviewStatus === "approved" ? "Approved" : "Rejected";
+  const statusClass = pending ? "currently-on" : review.adminReviewStatus === "approved" ? "paid" : "overdue";
+  const meta = [
+    review.source,
+    review.accountNumber ? `Acct ${review.accountNumber}` : "",
+    review.contractSignedAt ? `Signed ${formatShortDateTime(review.contractSignedAt)}` : `Created ${formatShortDateTime(review.createdAt)}`
+  ].filter(Boolean).join(" · ");
+
+  return `
+    <li data-contract-review-id="${escapeAttribute(review.id)}">
+      <strong class="heater-record-event">${escapeHtml(review.applicantName || "Unknown applicant")}</strong>
+      <span class="heater-record-meta">${escapeHtml(meta)}</span>
+      <button class="heater-state-action is-${escapeAttribute(statusClass)}" type="button" disabled>${escapeHtml(statusLabel)}</button>
+      <p class="heater-record-message">
+        ${escapeHtml(review.applicantEmail || "No email")} · ${escapeHtml(review.applicantPhone || "No phone")}<br />
+        Requested: ${escapeHtml(review.requestedAccountType || "Not set")} · Current: ${escapeHtml(review.currentAccountType || "Not set")}<br />
+        Billing: ${escapeHtml(review.billingStatus || "none")} · Plan: ${escapeHtml(review.planLabel || "Not set")} · Children: ${review.householdCount || 0}
+        ${review.adminReviewNotes ? `<br />Notes: ${escapeHtml(review.adminReviewNotes)}` : ""}
+      </p>
+      ${pending ? `
+        <div class="form-actions contract-review-actions">
+          <button class="text-action" data-contract-review-action="reject" data-contract-review-id="${escapeAttribute(review.id)}" type="button">Reject</button>
+          <button class="save-action" data-contract-review-action="approve" data-contract-review-id="${escapeAttribute(review.id)}" type="button">Approve</button>
+        </div>
+      ` : ""}
+    </li>
+  `;
+}
+
+function bindContractReviewActions() {
+  document.querySelectorAll("[data-contract-review-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      submitContractReview(button.dataset.contractReviewId, button.dataset.contractReviewAction);
+    });
+  });
+}
+
+async function submitContractReview(contractId, action) {
+  const result = document.getElementById("contractReviewResult");
+  const notes = action === "reject"
+    ? String(window.prompt("Reason for rejection?") || "").trim()
+    : String(window.prompt("Approval notes? Optional.") || "").trim();
+
+  if (action === "reject" && !notes) {
+    if (result) result.textContent = "Rejection notes are required.";
+    return;
+  }
+
+  if (result) result.textContent = `${action === "approve" ? "Approving" : "Rejecting"} account review...`;
+
+  try {
+    const token = currentAuthSession?.access_token || "";
+    if (!token) throw new Error("Log in again before reviewing accounts.");
+
+    const response = await fetch("/api/signup-reviews", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        contractId,
+        action,
+        notes
+      })
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.success === false) {
+      throw new Error(body.error || "Could not update account review.");
+    }
+
+    if (result) result.textContent = action === "approve" ? "Account approved." : "Account rejected.";
+    window.setTimeout(() => renderContractReviewsPage(), 250);
+  } catch (error) {
+    if (result) result.textContent = error.message || "Could not update account review.";
+  }
 }
 
 function renderNotificationsPage() {
@@ -2254,7 +2529,7 @@ function formatPolicyTimeForInput(value) {
 
 function applyAccountTypePoliciesToForm(policies) {
   const defaults = defaultAccountTypePolicies();
-  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Open Gym Only", "RESTRICTED ACCOUNT"];
+  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Weight Room Only", "Open Gym Only", "RESTRICTED ACCOUNT"];
 
   orderedTypes.forEach((type) => {
     const policy = policies[type] || defaults[type];
@@ -2300,7 +2575,7 @@ function collectAutomationSettingsFromForm() {
 }
 
 function collectAccountTypePoliciesFromForm() {
-  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Open Gym Only", "RESTRICTED ACCOUNT"];
+  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Weight Room Only", "Open Gym Only", "RESTRICTED ACCOUNT"];
   const policies = {};
 
   orderedTypes.forEach((type) => {
@@ -2394,6 +2669,8 @@ function bindSharePageActions() {
       }
     });
   });
+
+  document.getElementById("shareInviteForm")?.addEventListener("submit", inviteAccountUser);
 }
 
 function bindAboutPageActions() {
@@ -3018,6 +3295,11 @@ async function hydrateFromSupabase() {
 
   if (window.RORC_SUPABASE?.getInitialAuthParams?.().type) {
     window.RORC_SUPABASE.cleanAuthUrl?.();
+  }
+
+  const initialRoute = requestedInitialRoute();
+  if (initialRoute) {
+    appState.currentRoute = initialRoute;
   }
 
   showAppShell();
@@ -3792,6 +4074,7 @@ function accountTypeTone(accountType) {
   if (normalizedType === "Account Manager") return "gray";
   if (normalizedType === "Kiosk Account") return "gray";
   if (normalizedType === "Open Gym Only") return "blue";
+  if (normalizedType === "Weight Room Only") return "green";
   if (normalizedType === "RESTRICTED ACCOUNT") return "red";
   if (normalizedType === "Special Access Account") return "purple";
   return "green";
@@ -3856,7 +4139,7 @@ function configuredTimerMinutes(entry) {
 }
 
 function sortMembers(a, b) {
-  const pickerOrder = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Open Gym Only", "RESTRICTED ACCOUNT"];
+  const pickerOrder = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Weight Room Only", "Open Gym Only", "RESTRICTED ACCOUNT"];
   const resolveTypeIndex = (accountType) => {
     const pickerIndex = pickerOrder.indexOf(accountType);
     if (pickerIndex >= 0) return pickerIndex;
@@ -3911,10 +4194,11 @@ function billingStatusLabel(item) {
 function accessCopy(accountType) {
   const normalizedType = canonicalAccountType(accountType);
   if (normalizedType === "Open Gym Only") return "Open Gym access Tuesday and Thursday nights from 6pm - 8pm.";
+  if (normalizedType === "Weight Room Only") return "Weight room access during member hours.";
   if (normalizedType === "Account Manager") return "Account Manager access with full administrative permissions.";
   if (normalizedType === "Kiosk Account") return "Kiosk account access for member sign-in, guest sign-in, currently signed in, heater records, feedback, and calendar.";
   if (normalizedType === "Special Access Account") return "Custom contract access for approved organizations and special-use accounts.";
-  if (normalizedType === "RESTRICTED ACCOUNT") return "Access is blocked until the account is restored.";
+  if (normalizedType === "RESTRICTED ACCOUNT") return "Access is blocked until the account is approved or restored.";
   return "Basic Membership Access From 7am - 9pm. Follow calendar events for times closed.";
 }
 

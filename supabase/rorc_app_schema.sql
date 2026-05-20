@@ -27,9 +27,11 @@ begin
   if not exists (select 1 from pg_type where typname = 'membership_account_type') then
     create type public.membership_account_type as enum (
       'Active Membership',
+      'Weight Room Only',
       'Open Gym Only',
       'Billed Monthly',
       'Account Manager',
+      'RESTRICTED ACCOUNT',
       'Account Past Due NO ACCESS ALLOWED'
     );
   end if;
@@ -120,6 +122,7 @@ create table if not exists public.accounts (
   notes_on_account text,
   expiration_date date,
   billing_id_heater text,
+  heater_pin text,
   marks_against_account text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -221,9 +224,11 @@ insert into public.account_type_permissions (
   notes
 ) values
   ('Active Membership', true, false, false, array[0,1,2,3,4,5,6]::smallint[], time '06:50', time '21:10', 'Member access safety window for nominal 7am-9pm hours.'),
+  ('Weight Room Only', true, false, false, array[0,1,2,3,4,5,6]::smallint[], time '06:50', time '21:10', 'Weight room membership access during member hours.'),
   ('Open Gym Only', true, false, false, array[2,4]::smallint[], time '17:50', time '20:10', 'Open Gym Only access on Tuesdays and Thursdays from 6pm-8pm, with a 10-minute safety window.'),
   ('Billed Monthly', true, false, false, array[0,1,2,3,4,5,6]::smallint[], time '06:50', time '21:10', 'Billed monthly access safety window for nominal 7am-9pm hours.'),
   ('Account Manager', true, true, true, '{}'::smallint[], null, null, 'Admin role with unrestricted access.'),
+  ('RESTRICTED ACCOUNT', false, false, false, '{}'::smallint[], null, null, 'Restricted account pending approval or restoration.'),
   ('Account Past Due NO ACCESS ALLOWED', false, false, false, '{}'::smallint[], null, null, 'Past-due account with no access.')
 on conflict (account_type) do update set
   can_sign_in = excluded.can_sign_in,
@@ -290,12 +295,21 @@ create table if not exists public.signup_contracts (
   contract_signed_at timestamptz,
   stripe_checkout_session_id text,
   signup_status public.signup_status not null default 'submitted',
+  admin_review_status text not null default 'pending',
+  admin_reviewed_at timestamptz,
+  admin_reviewed_by_member_id uuid references public.account_members(id) on delete set null,
+  admin_review_notes text,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint signup_contracts_admin_review_status_check
+    check (admin_review_status in ('pending', 'approved', 'rejected'))
 );
 
 create index if not exists idx_signup_contracts_signup_status
   on public.signup_contracts (signup_status, created_at desc);
+
+create index if not exists idx_signup_contracts_admin_review
+  on public.signup_contracts (admin_review_status, created_at desc);
 
 create index if not exists idx_signup_contracts_account_id
   on public.signup_contracts (account_id);
@@ -303,6 +317,38 @@ create index if not exists idx_signup_contracts_account_id
 drop trigger if exists trg_signup_contracts_updated_at on public.signup_contracts;
 create trigger trg_signup_contracts_updated_at
 before update on public.signup_contracts
+for each row
+execute function public.set_updated_at();
+
+create table if not exists public.account_invitations (
+  id uuid primary key default gen_random_uuid(),
+  account_id uuid not null references public.accounts(id) on delete cascade,
+  invited_by_member_id uuid references public.account_members(id) on delete set null,
+  invited_email citext,
+  invited_name text not null,
+  invited_phone text,
+  invited_date_of_birth date not null,
+  account_type public.membership_account_type not null default 'Active Membership',
+  token_hash text not null unique,
+  invitation_status text not null default 'pending',
+  expires_at timestamptz not null default (now() + interval '30 days'),
+  accepted_at timestamptz,
+  accepted_member_id uuid references public.account_members(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint account_invitations_status_check
+    check (invitation_status in ('pending', 'accepted', 'expired', 'canceled'))
+);
+
+create index if not exists idx_account_invitations_account_status
+  on public.account_invitations (account_id, invitation_status);
+
+create index if not exists idx_account_invitations_email_status
+  on public.account_invitations (invited_email, invitation_status);
+
+drop trigger if exists trg_account_invitations_updated_at on public.account_invitations;
+create trigger trg_account_invitations_updated_at
+before update on public.account_invitations
 for each row
 execute function public.set_updated_at();
 
@@ -1198,6 +1244,7 @@ alter table public.account_type_permissions enable row level security;
 alter table public.member_credentials enable row level security;
 alter table public.account_billing enable row level security;
 alter table public.signup_contracts enable row level security;
+alter table public.account_invitations enable row level security;
 alter table public.timesheet_entries enable row level security;
 alter table public.heater_use_entries enable row level security;
 alter table public.heater_use_group_members enable row level security;
@@ -1269,6 +1316,11 @@ with check (public.is_admin());
 
 drop policy if exists signup_contracts_admin_only on public.signup_contracts;
 create policy signup_contracts_admin_only on public.signup_contracts
+for all using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists account_invitations_admin_only on public.account_invitations;
+create policy account_invitations_admin_only on public.account_invitations
 for all using (public.is_admin())
 with check (public.is_admin());
 
@@ -1437,7 +1489,7 @@ alter table public.account_members
 update public.account_members
 set allow_heater_use = true
 where allow_heater_use = false
-  and account_type in ('Account Manager', 'Kiosk Account', 'Special Access Account', 'Active Membership');
+  and account_type in ('Account Manager', 'Kiosk Account', 'Special Access Account', 'Active Membership', 'Weight Room Only');
 
 update public.account_members
 set allow_guest_entry = true
@@ -1462,6 +1514,7 @@ select
   a.notes_on_account,
   a.expiration_date,
   a.billing_id_heater,
+  a.heater_pin,
   a.marks_against_account,
   ab.stripe_status,
   ab.billing_status,

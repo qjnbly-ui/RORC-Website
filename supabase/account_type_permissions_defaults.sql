@@ -1,3 +1,9 @@
+alter type public.membership_account_type
+  add value if not exists 'Weight Room Only';
+
+alter type public.membership_account_type
+  add value if not exists 'RESTRICTED ACCOUNT';
+
 insert into public.account_type_permissions (
   account_type,
   can_sign_in,
@@ -11,6 +17,7 @@ insert into public.account_type_permissions (
   ('Kiosk Account', true, true, '{}', null, null, '24/7 kiosk access'),
   ('Special Access Account', true, true, '{}', null, null, '24/7 contract access'),
   ('Active Membership', true, false, '{0,1,2,3,4,5,6}', '06:50:00', '21:10:00', 'Daily member hours'),
+  ('Weight Room Only', true, false, '{0,1,2,3,4,5,6}', '06:50:00', '21:10:00', 'Weight room membership access during member hours'),
   ('Open Gym Only', true, false, '{2,4}', '17:50:00', '20:10:00', 'Tue/Thu open gym hours'),
   ('RESTRICTED ACCOUNT', false, false, '{}', null, null, 'No access')
 on conflict (account_type)

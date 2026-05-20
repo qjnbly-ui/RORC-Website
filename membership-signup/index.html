@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Start Membership | RORC</title>
+  <link rel="stylesheet" href="../style.css" />
+  <script src="/scripts/rorc-auth-nav.js" defer></script>
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-EGC30XZVXV"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-EGC30XZVXV');
+  </script>
+</head>
+<body>
+  <div class="site-menu">
+    <input type="checkbox" id="site-menu-toggle" class="site-menu-toggle" />
+    <div class="site-menu-bar">
+      <a class="site-menu-brand" href="/">RORC</a>
+      <div class="site-menu-actions">
+        <a class="site-menu-login" href="/membership-login/">Login</a>
+        <label class="site-menu-button" for="site-menu-toggle">Menu</label>
+      </div>
+    </div>
+    <label class="site-menu-backdrop" for="site-menu-toggle" aria-hidden="true"></label>
+    <div class="site-menu-panel" role="dialog" aria-label="Site menu">
+      <label class="site-menu-close" for="site-menu-toggle">Close</label>
+      <div>
+        <nav class="site-menu-links" aria-label="Site">
+          <a href="/">Home</a>
+          <a href="/about-rorc/">About</a>
+          <a href="/memberships/">Memberships</a>
+          <a href="/rentals/">Rentals</a>
+          <a href="/sponsors/">Sponsors</a>
+          <a href="/projects/">Projects</a>
+          <a href="/news-updates/">News & Updates</a>
+        </nav>
+      </div>
+      <div class="site-menu-legal" aria-label="Legal">
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </div>
+    </div>
+  </div>
+
+  <main class="page-content membership-page">
+    <header class="membership-hero signup-hero">
+      <p class="eyebrow">Internal Signup</p>
+      <h1>Start Membership</h1>
+      <p>
+        Complete the membership contract one section at a time. After signing, the app creates your RORC account,
+        creates a Stripe customer, and sends you to checkout for the selected tier.
+      </p>
+    </header>
+
+    <form id="membershipSignupForm" class="signup-shell">
+      <ol class="signup-progress" aria-label="Signup progress">
+        <li class="is-active" data-progress-step="0">Plan</li>
+        <li data-progress-step="1">Member</li>
+        <li data-progress-step="2">Account Users</li>
+        <li data-progress-step="3">Contract</li>
+        <li data-progress-step="4">Signature</li>
+      </ol>
+
+      <section class="signup-step is-active" data-step="0">
+        <h2>Select Membership</h2>
+        <p>Choose the membership tier. This controls the account type created in the RORC app.</p>
+        <input id="membershipPlan" type="hidden" value="full_facility" />
+        <div class="signup-plan-grid">
+          <button class="signup-plan-card" data-plan="open_gym" type="button">
+            <span>Open Gym</span>
+            <strong>$2 one-time</strong>
+            <small>Tuesday and Thursday open gym access.</small>
+          </button>
+          <button class="signup-plan-card" data-plan="weight_room" type="button">
+            <span>Weight Room Only</span>
+            <strong>$10 / month</strong>
+            <small>Weight room access.</small>
+          </button>
+          <button class="signup-plan-card is-selected" data-plan="full_facility" type="button">
+            <span>Full Facility</span>
+            <strong>$20 / month</strong>
+            <small>Daily member access from 7 AM to 9 PM.</small>
+          </button>
+          <button class="signup-plan-card" data-plan="full_facility_wifi" type="button">
+            <span>Full Facility + Wi-Fi</span>
+            <strong>$25 / month</strong>
+            <small>Full facility access plus Wi-Fi.</small>
+          </button>
+        </div>
+      </section>
+
+      <section class="signup-step" data-step="1" hidden>
+        <h2>Primary Member</h2>
+        <p>This person is the billing owner and contract signer.</p>
+        <div class="signup-field-grid">
+          <label>
+            <span>Full Legal Name</span>
+            <input id="primaryName" name="primaryName" type="text" autocomplete="name" required />
+          </label>
+          <label>
+            <span>Email</span>
+            <input id="primaryEmail" name="primaryEmail" type="email" autocomplete="email" required />
+          </label>
+          <label>
+            <span>Phone</span>
+            <input id="primaryPhone" name="primaryPhone" type="tel" autocomplete="tel" required />
+          </label>
+          <label>
+            <span>Date of Birth</span>
+            <input id="primaryDob" name="primaryDob" type="date" required />
+          </label>
+          <label class="signup-field-wide">
+            <span>Primary Address</span>
+            <input id="primaryAddress" name="primaryAddress" type="text" autocomplete="street-address" />
+          </label>
+          <label>
+            <span>Four Digit Account Password</span>
+            <input id="primaryPin" name="primaryPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" minlength="4" />
+          </label>
+        </div>
+      </section>
+
+      <section class="signup-step" data-step="2" hidden>
+        <h2>Account Users</h2>
+        <p>
+          Add everyone who should be connected to this account. Users under 13 are added as supervised users.
+          Users 13 or older automatically receive a contract invite after this account is created.
+        </p>
+        <div id="householdMembers" class="signup-member-list"></div>
+        <button id="addHouseholdMember" class="rorc-btn rorc-btn-neutral" type="button">Add Account User</button>
+      </section>
+
+      <section class="signup-step" data-step="3" hidden>
+        <h2>Membership Contract</h2>
+        <p>Read the full contract and complete each acknowledgement in its section. You must scroll to the bottom before continuing.</p>
+        <div id="contractReadStatus" class="signup-read-status" aria-live="polite">
+          Scroll to the bottom of the contract before continuing.
+        </div>
+        <article id="contractScrollBox" class="signup-contract-scroll" tabindex="0" aria-label="RORC membership contract">
+          <section class="signup-contract-section">
+            <h3>Updated Contract Terms</h3>
+            <p>This contract must be filled out prior to scheduling a meeting to get your key to the facility.</p>
+            <ul>
+              <li>Every individual aged 13 and older who intends to use the facility independently must complete their own individual contract.</li>
+              <li>Children under the age of 13 may have a sign-in account for attendance tracking but must be accompanied by an adult at all times and may not access the facility independently.</li>
+              <li>Parents or guardians remain fully responsible for all minors associated with their membership and for ensuring they receive all communications related to the account.</li>
+              <li>Membership fees are due monthly. If payment is more than fourteen (14) days past due, the membership will be automatically canceled and facility access revoked. A $20 reinstatement fee will apply to restore access.</li>
+              <li>The standard penalty related to improper heater use is $50.</li>
+              <li>A $5 fee will be associated with all incorrect use of group pay.</li>
+              <li>All memberships must maintain a valid and active email address and phone number on file at all times. Failure to maintain accurate contact information renders the membership inactive and invalid.</li>
+              <li>Family Memberships are limited to two (2) adults age 18 or older per household. Additional adults may be added only with RORC management approval and are subject to a $15 monthly fee per adult.</li>
+              <li>App accounts are limited to five (5) total users unless RORC management approves an exception.</li>
+              <li>If a membership becomes past due, all access privileges are immediately revoked, including independent entry, Open Gym participation, guest entry, and signing in under another member.</li>
+            </ul>
+          </section>
+
+          <section class="signup-contract-section">
+            <h3>Introduction</h3>
+            <p>This contract is entered into by and between the Ruth Obenchain Recreation Center, operated under the nonprofit Bly Community Action Team, located at 19140 Edler Street, hereinafter referred to as "the Center," and the undersigned member or renter, hereinafter referred to as "Member" or "Renter."</p>
+            <p><strong>Effective Date:</strong> This contract shall become effective as of the date of signing.</p>
+            <p><strong>Purpose:</strong> The Ruth Obenchain Recreation Center is more than just a facility; it is a vibrant community hub that fosters connections, unity, and well-being among its members. We are dedicated to providing a safe, welcoming, and versatile space for various activities, ranging from fitness and recreation to community events and emergency shelter services. This contract outlines the terms and conditions of use to ensure a beneficial, enjoyable, and safe experience for all members and users of the Center.</p>
+          </section>
+
+          <section class="signup-contract-section">
+            <h3>Membership Terms</h3>
+            <h4>Membership Options</h4>
+            <ol>
+              <li>Family Membership: Provides full access to the facility for family members on the same household account. The fee is $20 per month.</li>
+              <li>Individual Membership: Provides full access to the facility for one person. The fee is $20 per month.</li>
+              <li>Weight Room Only Membership: Provides access specifically to the weight room for a fee of $10 per month.</li>
+            </ol>
+            <h4>Family Membership Definition</h4>
+            <p>A Family Membership covers members of a single household and is limited to two (2) adults, age 18 or older, plus minor children under 18 residing at the same primary address. Additional adults residing in the same household may be added to a Family Membership only with approval from RORC management and are subject to an additional $15 monthly fee per adult.</p>
+            <p>RORC reserves the right to verify household residency and deny or revoke additional adult access if eligibility requirements are not met.</p>
+            <p id="familyMembershipApplicability" class="signup-contract-note">No additional account users are currently listed, so this household/family membership section is informational unless users are added later.</p>
+            <h4>Fees and Payment Terms</h4>
+            <ul>
+              <li>A one-time fee of $2 is required for a key card upon sign-up.</li>
+              <li>Membership fees are due monthly and are non-refundable.</li>
+              <li>Additional services, such as Wi-Fi, can be purchased for an extra $5 per month.</li>
+              <li>Heat is billed at $13 an hour, billed monthly. Sign-up is required.</li>
+              <li>Day Pass guest entry outside Open Gym is free for the first ten (10) Day Pass guest entries per account per month. After ten free entries, additional Day Pass guest entries are billed at $0.25 per person per day and billed monthly.</li>
+              <li>Private Group Use Rental is available for $10 an hour.</li>
+              <li>Non-Private Group Use Rental is available for $5 an hour.</li>
+              <li>Whole Day Rental is available. Prices vary.</li>
+            </ul>
+            <h4>Payment and Delinquency Policy</h4>
+            <p>Membership fees are billed monthly and are due on the renewal date associated with the member's account.</p>
+            <p>If payment is more than fourteen (14) days past due, the membership will be automatically canceled and all access privileges immediately revoked. This includes independent entry, Open Gym participation, guest entry, and signing in under another member. Access will not be restored until all outstanding balances are paid in full and a $20 reinstatement fee is applied.</p>
+            <p>No refunds will be issued for cancellations due to nonpayment.</p>
+            <h4>Account and Contact Information Requirements</h4>
+            <p>All memberships require a valid and active email address and phone number on file at all times. Failure to maintain valid and active contact information renders the membership inactive and invalid. Inactive accounts may not access the facility or use any facility systems.</p>
+            <h4>Renewal and Cancellation Policy</h4>
+            <ul>
+              <li>Memberships are automatically renewed each month.</li>
+              <li>Members can cancel their membership at any time without penalty. Notice of cancellation shall be communicated to the Center's management to ensure proper processing.</li>
+            </ul>
+            <div class="signup-contract-list signup-contract-ack">
+              <label>
+                <input data-ack="membershipTerms" type="checkbox" required />
+                <span>I have read and understand all terms in "Membership Terms."</span>
+              </label>
+            </div>
+          </section>
+
+          <section class="signup-contract-section">
+            <h3>Facility Access</h3>
+            <h4>Availability and Exceptions</h4>
+            <ul>
+              <li>While members generally have daily access, the facility may be unavailable during times when it is rented out for private events. Members are notified in advance of such events.</li>
+              <li>The gym may also be closed occasionally for maintenance, or in instances where Wi-Fi is offline. Members will be informed of such closures as promptly as possible.</li>
+            </ul>
+            <h4>Key Card Usage and Entry</h4>
+            <ul>
+              <li><strong>Most important:</strong> Every person must be signed in and out with each entry and exit, either as a Member, a registered Open Gym Member, or as a guest. If your account shows yellow there is an issue; if it shows red you are not allowed to enter.</li>
+              <li>Each member is provided with a key card upon sign-up, allowing access to the facility.</li>
+              <li>Members must swipe their own key card upon entry every time. There are no exceptions to this rule.</li>
+              <li>The only exception to not swiping your own key is if you are a guest to another member.</li>
+              <li>If a key card is lost or forgotten, members must contact the Center's management before entering the facility.</li>
+            </ul>
+            <h4>Independent Access and Minor Policy</h4>
+            <p>Individuals aged 13 or older who intend to access the facility independently must complete their own individual contract and maintain an active membership in good standing.</p>
+            <p>Children under the age of 13 may have a sign-in account for attendance tracking but must be accompanied by an adult at all times and may not access the facility independently. Parents or guardians remain fully responsible for all minors associated with their membership.</p>
+            <div class="signup-contract-photos" aria-label="Independent access and sign-in policy reference">
+              <figure>
+                <img src="/Images/Contract%20Photos/contract1.jpg" alt="Contract photo 1 showing independent access and sign-in policy reference" loading="lazy" />
+                <figcaption>All listed account users and contract holders must sign in and sign out every time they enter or leave the gym.</figcaption>
+              </figure>
+            </div>
+            <div class="signup-contract-list signup-contract-ack">
+              <label>
+                <input data-ack="facilityAccess" type="checkbox" required />
+                <span>I acknowledge all persons entering the gym must sign in, accounts will be created for every person listed on accounts or contracts. Sign out is mandatory when leaving.</span>
+              </label>
+            </div>
+            <h4>Open Gym Nights</h4>
+            <ul>
+              <li>Family Open Gym Night: Every Tuesday night from 6-8 PM, the facility opens for free to families who have signed up for this program. A one-time sign-up fee of $2 is required, and a personal key will be issued that only works during these hours.</li>
+              <li>Adult Open Gym Night: Focused on adult members, this occurs every Thursday from 6-8 PM. A one-time sign-up fee of $2 is required for a key that grants access during these hours.</li>
+              <li>All prior members' keys will always work for Open Gym Nights. All members can bring guests on these nights. Entry and sign-in allowed time is 5:50 PM - 8:00 PM.</li>
+            </ul>
+            <h4>Conditions for Open Gym Nights</h4>
+            <ul>
+              <li>While these nights are not restricted, they are designed to encourage group activities and foster a sense of community.</li>
+              <li>Members are allowed to bring guests but must sign each guest in under Open Gym. There is no charge for Open Gym guests.</li>
+            </ul>
+            <h4>Guest Entry Outside Open Gym</h4>
+            <ul>
+              <li>Members are allowed to bring in guests outside Open Gym only if guest entry permission is enabled on the account.</li>
+              <li>Guest entry outside Open Gym is handled as Day Pass guest entry.</li>
+              <li>Day Pass guest entry outside Open Gym is free for the first ten (10) Day Pass guest entries per account per month. After ten free entries, additional Day Pass guest entries are billed at $0.25 per person per day.</li>
+              <li>If the same guest is signed in multiple times within a 24-hour period, the guest should only count once for billing. Payments are linked to the member's account. Cash is not accepted.</li>
+              <li>No guests can be left unattended by the member who signed them in.</li>
+            </ul>
+            <div id="guestEntryChoice" class="signup-contract-list signup-contract-ack">
+              <label>
+                <input id="allowGuestEntryYes" name="allowGuestEntry" type="radio" value="yes" required />
+                <span>Yes, allow Day Pass guest entry outside Open Gym and automatic billing after the first ten (10) free Day Pass guest entries each month.</span>
+              </label>
+              <label>
+                <input id="allowGuestEntryNo" name="allowGuestEntry" type="radio" value="no" required />
+                <span>No, do not allow Day Pass guest entry outside Open Gym on this account.</span>
+              </label>
+            </div>
+          </section>
+
+          <section class="signup-contract-section">
+            <h3>Rules and Regulations</h3>
+            <h4>Safety and Supervision</h4>
+            <ul>
+              <li>Children under the age of 13 must be accompanied by an adult.</li>
+              <li>The middle door of the weight room must remain closed at all times, while the exterior door can be left open for ventilation under the member's responsibility but must be closed upon leaving.</li>
+            </ul>
+            <h4>General Conduct</h4>
+            <ul>
+              <li>Members must respect the rights and safety of others and maintain a courteous and respectful demeanor at all times.</li>
+              <li>Loud or disruptive behavior is not permitted.</li>
+            </ul>
+            <h4>Equipment Use and Cleanliness</h4>
+            <ul>
+              <li>All gym equipment must be used in a safe and appropriate manner.</li>
+              <li>Members are required to clean equipment after each use.</li>
+              <li>Equipment must be returned to its designated spot after use.</li>
+            </ul>
+            <div class="signup-contract-photos" aria-label="Contract photo references">
+              <figure>
+                <img src="/Images/Contract%20Photos/contract2.jpg" alt="Contract photo 2 showing mop and cleaning equipment placement" loading="lazy" />
+                <figcaption>All mops / cleaning equipment must be returned exactly as shown.</figcaption>
+              </figure>
+              <figure>
+                <img src="/Images/Contract%20Photos/contract3.jpg" alt="Contract photo 3 showing ball and cart placement" loading="lazy" />
+                <figcaption>All balls and carts must be returned to this exact spot prior to leaving.</figcaption>
+              </figure>
+              <figure>
+                <img src="/Images/Contract%20Photos/contract4.jpg" alt="Contract photo 4 showing weight storage standards" loading="lazy" />
+                <figcaption>All weights must be returned to its designated location. Weights should not be left on bars like shown in this photo.</figcaption>
+              </figure>
+              <figure>
+                <img src="/Images/Contract%20Photos/contract5.jpg" alt="Contract photo 5 showing weight room standards" loading="lazy" />
+                <figcaption>Weight room standards.</figcaption>
+              </figure>
+              <figure>
+                <img src="/Images/Contract%20Photos/contract6.jpg" alt="Contract photo 6 showing cleaning cart trash can guidance" loading="lazy" />
+                <figcaption>Try to not use the cleaning cart trash can.</figcaption>
+              </figure>
+            </div>
+            <div class="signup-contract-list signup-contract-ack">
+              <label>
+                <input data-ack="photoStandards" type="checkbox" required />
+                <span>I have viewed and acknowledge all info related to the prior photos.</span>
+              </label>
+            </div>
+            <h4>Facility Care and Maintenance</h4>
+            <p>Although there should never be anything out of order upon entry, consider leaving the facility better than you found it when possible. All things mentioned below pertain to the area used.</p>
+            <ul>
+              <li>Members are responsible for maintaining cleanliness and order in the gym.</li>
+              <li>Members must sweep and clean before leaving.</li>
+              <li>If the dust mop is dirty, vacuum it off.</li>
+              <li>All dust must be swept up, preferably vacuumed.</li>
+              <li>All cleaning equipment used must be put back in its proper place.</li>
+            </ul>
+            <h4>Dress Code</h4>
+            <ul>
+              <li>Members are required to wear appropriate clothing while using the gym facilities.</li>
+              <li>Closed-toe, non-marking athletic shoes are mandatory on the gym floor. No street shoes.</li>
+            </ul>
+            <h4>Prohibited Activities</h4>
+            <ul>
+              <li>Skateboards, bikes, rollerblades, and similar items are not allowed on the gym floor.</li>
+              <li>Climbing on backboards, heater guards, or ropes is prohibited.</li>
+              <li>Food and drinks are only allowed on the bleachers and the stage.</li>
+              <li>Smoking, alcoholic beverages, and pets are not allowed in the gym.</li>
+            </ul>
+            <h4>Heating System Policy</h4>
+            <ul>
+              <li>Heater use is only available through the application where it is automatically documented and billed to your account.</li>
+              <li>The use of the gym's heating system incurs a cost of $13 per hour.</li>
+              <li>Members wishing to use the heating system must acknowledge this cost, to be billed at the end of the month.</li>
+              <li>The actual thermostat located beneath the heater may not be used in any case. It should be locked up.</li>
+              <li>Unauthorized use or improper use of the heating system may result in penalties, including membership termination.</li>
+              <li>You may never select any account other than your own to be billed.</li>
+              <li>The standard penalty related to improper heater use of the above terms is $50.</li>
+            </ul>
+            <div id="heaterAccessChoice" class="signup-contract-list signup-contract-ack">
+              <label>
+                <input id="allowHeaterUseYes" name="allowHeaterUse" type="radio" value="yes" required />
+                <span>Yes, allow heater use on account and automatic billing at $13 per hour used.</span>
+              </label>
+              <label>
+                <input id="allowHeaterUseNo" name="allowHeaterUse" type="radio" value="no" required />
+                <span>No, do not allow heater use on this account.</span>
+              </label>
+            </div>
+            <div class="signup-contract-photos" aria-label="Heater use form example">
+              <figure>
+                <img src="/Images/Contract%20Photos/contract7.jpg" alt="Contract photo 7 showing heater use form example" loading="lazy" />
+                <figcaption>Example of "Heater Use Form"</figcaption>
+              </figure>
+            </div>
+            <p>Group pay is usually "No" unless you plan to split the bill between account owners and pay after use is complete.</p>
+            <p>A $5 fee will be associated with all incorrect use of group pay.</p>
+            <p>As with everything, you are required to put thought into what you are doing. Do not assume. Call if you have questions.</p>
+            <div class="signup-contract-list signup-contract-ack">
+              <label data-heater-dependent-ack="groupPayFee">
+                <input data-ack="groupPayFee" type="checkbox" required />
+                <span data-heater-dependent-copy="groupPayFee">I acknowledge the group pay instructions and the $5 fee associated with incorrect use of group pay.</span>
+              </label>
+              <label data-heater-dependent-ack="heaterPenalty">
+                <input data-ack="heaterPenalty" type="checkbox" required />
+                <span data-heater-dependent-copy="heaterPenalty">I acknowledge the standard penalty related to improper heater use is $50.</span>
+              </label>
+            </div>
+            <h4>PA System and Alexa Devices</h4>
+            <ul>
+              <li>The PA system should never be adjusted by members. Please use Alexa for music or volume control.</li>
+              <li>Alexa devices are available for communication.</li>
+              <li>All devices shall never be unplugged or moved.</li>
+            </ul>
+            <h4>Emergency Procedures</h4>
+            <p>Follow posted emergency signs and instructions. In case of an emergency, contact Quentin Nichols at 541.904.0428 or quentin.nichols@ruthobenchainrc.com.</p>
+            <h4>Reporting Damage or Issues</h4>
+            <p>Members should report any equipment damage or facility issues to Quentin Nichols.</p>
+            <div class="signup-contract-list signup-contract-ack">
+              <label>
+                <input data-ack="rules" type="checkbox" required />
+                <span>I have read and understand all terms in "Rules and Regulations."</span>
+              </label>
+            </div>
+          </section>
+
+          <section class="signup-contract-section">
+            <h3>Liability and Insurance</h3>
+            <h4>General Waiver</h4>
+            <p>Members acknowledge that participation in gym activities carries inherent risks and voluntarily agree to assume these risks. The Ruth Obenchain Recreation Center, operated under the nonprofit Bly Community Action Team, shall not be held liable for any injuries or damages resulting from gym use.</p>
+            <h4>Minors</h4>
+            <p>Parents or legal guardians must sign this waiver on behalf of all minors participating in activities at the Center.</p>
+            <h4>Insurance for Private Events (If Renting the Facility)</h4>
+            <p>This does not apply to normal membership use. When renting the facility for private events, especially those involving alcohol, the renter is required to purchase additional insurance through a specified provider. The policy must name the Bly Community Action Team Inc. as an additional insured, with a minimum coverage amount of $2,000,000.00. This requirement ensures the Center's ability to remain open and serve the public.</p>
+            <div class="signup-contract-list signup-contract-ack">
+              <label>
+                <input data-ack="liability" type="checkbox" required />
+                <span>I have read and understand all terms in "Liability and Insurance."</span>
+              </label>
+            </div>
+          </section>
+
+          <section class="signup-contract-section">
+            <h3>Privacy Policy</h3>
+            <h4>Data Collection and Usage</h4>
+            <ul>
+              <li>The Ruth Obenchain Recreation Center collects contact information and usage data from members for operational purposes, including membership management and event scheduling.</li>
+              <li>Usage data includes monitoring attendance at Open Gym Nights and general facility use, which helps in planning and improving services.</li>
+              <li>Data is managed through secure applications such as the RORC app, Supabase, Stripe, and other approved operational systems.</li>
+            </ul>
+            <h4>Surveillance and Security Cameras</h4>
+            <ul>
+              <li>The Center employs interior cameras as part of its smart home system, primarily for security and operational efficiency.</li>
+              <li>Cameras are used to monitor gym usage, check if lights or the heating system are left on, and ensure overall security.</li>
+              <li>The footage may be reviewed in case of incidents like lost items or other security concerns.</li>
+              <li>All camera feeds are secured with robust security software, ensuring the privacy and protection of members.</li>
+            </ul>
+            <h4>Protection of Personal Information</h4>
+            <ul>
+              <li>The Center is committed to protecting the privacy and security of members' personal information.</li>
+              <li>Measures are in place to prevent unauthorized access, disclosure, alteration, or destruction of personal data.</li>
+            </ul>
+            <div class="signup-contract-list signup-contract-ack">
+              <label>
+                <input data-ack="privacy" type="checkbox" required />
+                <span>I have read and understand all terms in "Privacy Policy."</span>
+              </label>
+            </div>
+          </section>
+
+          <section class="signup-contract-section">
+            <h3>Termination of Membership</h3>
+            <h4>Conditions for Termination</h4>
+            <ul>
+              <li>Membership may be terminated for any breach of contract terms, including but not limited to failing to sign in and out, not wearing clean, appropriate gym shoes, and leaving doors open.</li>
+              <li>Such violations are taken seriously and may result in immediate termination without prior warning.</li>
+              <li>Members are expected to be thoroughly familiar with and adhere to all contract terms to maintain their membership status.</li>
+            </ul>
+            <h4>Warning and Enforcement Process</h4>
+            <ul>
+              <li>For minor or inadvertent infractions, the Center may issue a warning at its discretion.</li>
+              <li>Repeated minor infractions or serious breaches, like leaving the facility unsecured, will result in automatic termination of membership.</li>
+              <li>Open Gym Nights are considered locked events requiring mandatory sign-up and adherence to all facility rules.</li>
+            </ul>
+            <h4>Membership Violation Policy and Reinstatement Terms</h4>
+            <p>By signing this contract, you acknowledge and agree to the following terms regarding membership violations and reinstatement:</p>
+            <ol>
+              <li><strong>Membership Reinstatement and Fees:</strong> Depending on the nature and severity of the violation, your membership may be eligible for reinstatement with or without a delay, subject to a $20 reinstatement fee. Management reserves the sole discretion to determine whether reinstatement is permitted, whether a suspension period applies, or if the violation warrants permanent membership revocation.</li>
+              <li><strong>Automatic Termination:</strong> Certain violations, as outlined in the terms above, are considered serious infractions and may result in immediate and permanent termination of your membership without prior warning. No refunds will be issued in the event of a suspension or termination due to a violation.</li>
+              <li><strong>Notification of Suspension:</strong> If your membership is suspended or revoked, a statement outlining the violation and suspension terms will be sent to the phone number and email address on file. It is your responsibility to monitor and stay informed through the contact methods you have provided.</li>
+              <li><strong>Unauthorized Entry and Legal Consequences:</strong> Any attempt to enter the facility after receiving a violation notification may result in criminal charges, regardless of whether you have seen or acknowledged the message. By signing this contract, you accept full responsibility for staying up to date with all communications regarding your membership status.</li>
+            </ol>
+            <div class="signup-contract-list signup-contract-ack">
+              <label>
+                <input data-ack="termination" type="checkbox" required />
+                <span>I have read and understand all terms in "Termination of Membership."</span>
+              </label>
+            </div>
+          </section>
+
+          <section class="signup-contract-section">
+            <h3>Miscellaneous Provisions</h3>
+            <h4>Gym Closure Policy</h4>
+            <ul>
+              <li><strong>Scheduled Events:</strong> The gym may be closed to members during privately rented events. These events are scheduled in advance and can be found on the Center's calendar, accessible via our application and website.</li>
+              <li><strong>Maintenance Closures:</strong> Occasionally, parts of the gym may be temporarily closed for maintenance. When this happens, a notice will be placed on the front door, and members will be informed via text or email if possible.</li>
+              <li><strong>Unplanned Closures:</strong> In rare cases of unplanned closures, such as emergency repairs, members will be notified as promptly as possible through text or email.</li>
+            </ul>
+            <h4>Changes to the Contract</h4>
+            <ul>
+              <li><strong>Notification of Changes:</strong> Any changes to this contract will be communicated to members through email and/or posted updates on the Center's application and website.</li>
+              <li><strong>Member Responsibility:</strong> Members are responsible for staying informed about any changes to the contract and gym policies by regularly checking these platforms, especially email.</li>
+            </ul>
+            <div class="signup-contract-list signup-contract-ack">
+              <label>
+                <input data-ack="accountOwnerResponsibility" type="checkbox" required />
+                <span>As an account owner, I must share and enforce all contract information and updates with all other account users under my name.</span>
+              </label>
+              <label>
+                <input data-ack="miscellaneous" type="checkbox" required />
+                <span>I have read and understand all terms in "Miscellaneous Provisions."</span>
+              </label>
+            </div>
+          </section>
+
+          <section class="signup-contract-section">
+            <h3>Acknowledgment and Signature</h3>
+            <h4>Part 1</h4>
+            <p>I, the member listed in this signup, hereby acknowledge that I have read, fully understand, and agree to the terms and conditions outlined in this contract for the use of the Ruth Obenchain Recreation Center. I understand that failure to adhere to these terms may result in termination of my membership and/or additional penalties as outlined in the contract.</p>
+            <h4>Part 2: Parental Acknowledgment of Responsibility and Fee Agreement</h4>
+            <p id="minorResponsibilityApplicability" class="signup-contract-note">No children under 13 are currently listed, so this parental acknowledgement is informational unless under-13 users are added later.</p>
+            <p>I, the member listed in this signup, in my capacity as the parent or legal guardian, hereby acknowledge and affirm the following to all minors associated with the account named in the first part of this contract:</p>
+            <ul>
+              <li><strong>Understanding of Contract Terms:</strong> I have read, fully understand, and agree to the terms and conditions outlined in the contract associated with the use of the Ruth Obenchain Recreation Center.</li>
+              <li><strong>Assumption of Responsibility:</strong> I accept full responsibility for the behavior and actions of the minor(s) under my guardianship while they are participating in activities or using facilities at the Ruth Obenchain Recreation Center. I understand that any failure by the minor(s) to adhere to the terms of the contract may result in termination of their access to the Center and/or additional penalties as outlined in the contract.</li>
+              <li><strong>Acknowledgment of Potential Fees:</strong> I acknowledge that real fees may be incurred as a result of the use of the Ruth Obenchain Recreation Center's facilities or services by the minor(s) under my guardianship. I agree to be financially responsible for any such fees and understand that these fees are in addition to any standard membership dues.</li>
+            </ul>
+          </section>
+        </article>
+        <p class="signup-fine-print">
+          By continuing, you agree this digital acknowledgment is part of your RORC membership contract.
+        </p>
+      </section>
+
+      <section class="signup-step" data-step="4" hidden>
+        <h2>Signature</h2>
+        <p>Type your legal name exactly as entered above to sign the contract.</p>
+        <div class="signup-field-grid">
+          <label>
+            <span>Typed Legal Signature</span>
+            <input id="signatureName" name="signatureName" type="text" required />
+          </label>
+          <label>
+            <span>Today's Date</span>
+            <input id="signatureDate" name="signatureDate" type="date" required />
+          </label>
+        </div>
+        <div class="signup-check-list">
+          <label>
+            <input id="questionsOrConcerns" type="checkbox" />
+            <span>I have questions or concerns and will not be accepting this contract.</span>
+          </label>
+        </div>
+      </section>
+
+      <p id="signupResult" class="signup-result" aria-live="polite"></p>
+
+      <footer class="signup-actions">
+        <button id="signupBack" class="rorc-btn rorc-btn-ghost" type="button" disabled>Back</button>
+        <button id="signupNext" class="rorc-btn rorc-btn-accent" type="button">Next</button>
+        <button id="signupSubmit" class="rorc-btn rorc-btn-accent" type="submit" hidden>Submit & Continue To Checkout</button>
+      </footer>
+    </form>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <div>© 2026 Ruth Obenchain Recreation Center</div>
+      <div class="site-footer-links">
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </div>
+      <div>Operated by Bly Community Action Team</div>
+      <div>Designed &amp; Built by <a href="https://n3xra.com"><strong>N3XRA</strong></a></div>
+    </div>
+  </footer>
+
+  <script src="/scripts/rorc-membership-signup.js" defer></script>
+</body>
+</html>

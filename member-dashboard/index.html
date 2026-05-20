@@ -62,6 +62,49 @@
       </div>
     </section>
 
+    <section id="accountInviteCard" class="rorc-card" style="max-width: 720px; margin: 18px auto 0;" hidden>
+      <details class="rorc-card-details">
+        <summary>
+          <span>Invite User To My Account</span>
+          <small>13+ users sign the contract first; under-13 users are added as supervised users.</small>
+        </summary>
+
+        <div class="rorc-password-form">
+          <p class="rorc-card-text">
+            Enter their birth date. Users 13 or older receive a contract link before login access is created. Under-13 users are added to your account without their own login.
+          </p>
+
+          <label class="rorc-auth-label">
+            <span>Name</span>
+            <input id="inviteMemberName" class="rorc-auth-input" type="text" autocomplete="name" placeholder="Required for under 13" />
+          </label>
+
+          <label class="rorc-auth-label">
+            <span>Email Address</span>
+            <input id="inviteMemberEmail" class="rorc-auth-input" type="email" inputmode="email" autocomplete="email" placeholder="Optional if phone is provided" />
+          </label>
+
+          <label class="rorc-auth-label">
+            <span>Date of Birth</span>
+            <input id="inviteMemberDob" class="rorc-auth-input" type="date" />
+          </label>
+
+          <label class="rorc-auth-label">
+            <span>Phone Number</span>
+            <input id="inviteMemberPhone" class="rorc-auth-input" type="text" inputmode="tel" autocomplete="tel" placeholder="Optional if email is provided" />
+          </label>
+
+          <div class="rorc-actions" style="justify-content:flex-start;">
+            <button id="inviteAccountUserBtn" class="rorc-btn rorc-btn-neutral" type="button">
+              Invite User
+            </button>
+          </div>
+
+          <p id="inviteAccountResult" class="rorc-card-text" style="min-height:1.5em;"></p>
+        </div>
+      </details>
+    </section>
+
     <section id="rorcAppCard" class="rorc-card" style="max-width: 720px; margin: 18px auto 0;" hidden>
       <h2 class="rorc-card-title">RORC Application</h2>
       <p class="rorc-card-text">
