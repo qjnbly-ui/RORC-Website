@@ -524,6 +524,58 @@
       color: #e7d2a0;
       font-weight: 600;
     }
+    .rorc-heatmap {
+      max-width: 980px;
+      margin: 0 auto 14px;
+      padding: 14px 20px 4px;
+      text-align: center;
+    }
+    .rorc-heatmap h3 {
+      margin: 0 0 8px;
+      font: 600 20px/1.2 Georgia, "Times New Roman", serif;
+      color: #f6f6f6;
+    }
+    .rorc-heatmap-summary {
+      margin: 0 0 10px;
+      color: #d7d7d7;
+      font: 400 13px/1.5 var(--font-body);
+    }
+    .rorc-heatmap-reco {
+      margin: 0 0 10px;
+      color: #e7d2a0;
+      font: 600 12.5px/1.5 var(--font-body);
+      letter-spacing: 0.02em;
+    }
+    .rorc-heatmap-grid {
+      display: grid;
+      grid-template-columns: 44px repeat(14, minmax(10px, 1fr));
+      gap: 3px;
+      max-width: 980px;
+      margin: 0 auto;
+    }
+    .rorc-heatmap-label,
+    .rorc-heatmap-cell {
+      border-radius: 4px;
+      min-height: 20px;
+    }
+    .rorc-heatmap-label {
+      font-size: 10px;
+      color: #bbbbbb;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .rorc-heatmap-day {
+      justify-content: flex-start;
+      padding-left: 4px;
+    }
+    .rorc-heatmap-cell {
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .rorc-heatmap-loading {
+      color: #9a9a9a;
+      font-size: 12px;
+    }
 
     .merch-gallery {
       grid-column: span 12;
@@ -797,6 +849,15 @@
     <h3>What’s happening at RORC now?</h3>
     <img id="rorc-open-badge" class="rorc-live-badge" src="Images/RORC Homepage/OPEN.png" alt="Open" loading="lazy" />
     <p id="rorc-live-text">Loading current status…</p>
+  </section>
+
+  <section class="rorc-heatmap" aria-label="Weekly busy trends">
+    <h3>Weekly busy trends</h3>
+    <p id="rorc-heatmap-summary" class="rorc-heatmap-summary">Loading trend data…</p>
+    <p id="rorc-heatmap-reco" class="rorc-heatmap-reco"></p>
+    <div id="rorc-heatmap-grid" class="rorc-heatmap-grid">
+      <p class="rorc-heatmap-loading">Loading…</p>
+    </div>
   </section>
 
   <!-- ===== RORC Homepage Carousel ===== -->
@@ -1147,6 +1208,89 @@
       if (mTotalMembers) {
         mTotalMembers.textContent = data.totalAccountHolders ?? "–";
       }
+      rorcRenderHeatmap(data.weeklyTrends);
+    }
+
+    function rorcHeatColor(level) {
+      const clamped = Math.max(0, Math.min(1, Number(level) || 0));
+      const lightness = 10 + (clamped * 45);
+      return `hsl(43 80% ${lightness}%)`;
+    }
+
+    function rorcRenderHeatmap(trends) {
+      const summary = document.getElementById("rorc-heatmap-summary");
+      const reco = document.getElementById("rorc-heatmap-reco");
+      const grid = document.getElementById("rorc-heatmap-grid");
+      if (!summary || !reco || !grid) return;
+
+      if (!trends || !Array.isArray(trends.dayLabels) || !Array.isArray(trends.hourLabels) || !Array.isArray(trends.matrix)) {
+        summary.textContent = "Trend data is temporarily unavailable.";
+        reco.textContent = "";
+        grid.innerHTML = "";
+        return;
+      }
+
+      const busiest = trends.busiest || {};
+      const quietest = trends.quietest || {};
+      summary.textContent = `Busiest: ${busiest.day || "–"} ${busiest.hour || "–"} (${busiest.count ?? "–"} check-ins). Quietest: ${quietest.day || "–"} ${quietest.hour || "–"} (${quietest.count ?? "–"} check-ins). Last ${trends.weeksAnalyzed || 0} weeks.`;
+
+      const max = Number(trends.max || 0);
+      grid.innerHTML = "";
+      reco.textContent = rorcBuildLowTrafficRecommendation(trends);
+
+      const corner = document.createElement("div");
+      corner.className = "rorc-heatmap-label";
+      grid.appendChild(corner);
+
+      trends.hourLabels.forEach((hourLabel) => {
+        const header = document.createElement("div");
+        header.className = "rorc-heatmap-label";
+        header.textContent = hourLabel.replace(":00", "");
+        grid.appendChild(header);
+      });
+
+      trends.dayLabels.forEach((dayLabel, dayIndex) => {
+        const day = document.createElement("div");
+        day.className = "rorc-heatmap-label rorc-heatmap-day";
+        day.textContent = dayLabel;
+        grid.appendChild(day);
+
+        (trends.matrix[dayIndex] || []).forEach((count, hourIndex) => {
+          const cell = document.createElement("div");
+          cell.className = "rorc-heatmap-cell";
+          const level = max > 0 ? (Number(count || 0) / max) : 0;
+          cell.style.backgroundColor = rorcHeatColor(level);
+          cell.title = `${dayLabel} ${trends.hourLabels[hourIndex]}: ${count} check-ins`;
+          grid.appendChild(cell);
+        });
+      });
+    }
+
+    function rorcBuildLowTrafficRecommendation(trends) {
+      const slots = [];
+      (trends.dayLabels || []).forEach((dayLabel, dayIndex) => {
+        const row = trends.matrix?.[dayIndex] || [];
+        row.forEach((count, hourIndex) => {
+          slots.push({
+            dayLabel,
+            hourLabel: trends.hourLabels?.[hourIndex] || "",
+            count: Number(count || 0)
+          });
+        });
+      });
+
+      if (!slots.length) return "";
+
+      const sorted = slots
+        .slice()
+        .sort((a, b) => (a.count - b.count) || a.dayLabel.localeCompare(b.dayLabel));
+
+      const picks = sorted.slice(0, 3);
+      const label = picks
+        .map((slot) => `${slot.dayLabel} ${slot.hourLabel} (${slot.count})`)
+        .join("  |  ");
+
+      return `Best low-traffic windows: ${label}`;
     }
 
     function rorcLiveLoaded(data) {

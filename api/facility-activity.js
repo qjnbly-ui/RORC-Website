@@ -1,6 +1,9 @@
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
+const HEATMAP_START_HOUR = 7;
+const HEATMAP_END_HOUR = 20;
+const HEATMAP_WEEKS = 8;
 
 module.exports = async (req, res) => {
   if (req.method !== "GET") {
@@ -16,7 +19,8 @@ module.exports = async (req, res) => {
   try {
     const now = new Date();
     const range = getFacilityRanges(now);
-    const [occupancyRows, todayCount, weekCount, monthCount, members] = await Promise.all([
+    const trendStart = addFacilityDays(range.tomorrowStart, -(HEATMAP_WEEKS * 7));
+    const [occupancyRows, todayCount, weekCount, monthCount, members, trendRows] = await Promise.all([
       supabaseRest("timesheet_entries?select=id&signed_out_at=is.null&limit=10000"),
       countRows("timesheet_entries", {
         signed_in_at: [`gte.${range.todayStart.toISOString()}`, `lt.${range.tomorrowStart.toISOString()}`]
@@ -27,11 +31,13 @@ module.exports = async (req, res) => {
       countRows("timesheet_entries", {
         signed_in_at: [`gte.${range.monthStart.toISOString()}`, `lt.${range.nextMonthStart.toISOString()}`]
       }),
-      supabaseRest("account_member_profiles?select=account_member_id,account_id,account_type&limit=10000")
+      supabaseRest("account_member_profiles?select=account_member_id,account_id,account_type&limit=10000"),
+      supabaseRest(`timesheet_entries?select=signed_in_at&signed_in_at=gte.${encodeURIComponent(trendStart.toISOString())}&order=signed_in_at.desc&limit=10000`)
     ]);
 
     const membership = summarizeMembership(members || []);
     const occupancyCount = Array.isArray(occupancyRows) ? occupancyRows.length : 0;
+    const weeklyTrends = buildWeeklyTrendHeatmap(trendRows || []);
 
     return res.status(200).json({
       success: true,
@@ -43,6 +49,7 @@ module.exports = async (req, res) => {
         checkinsThisMonth: monthCount,
         avgPerDayThisMonth: averagePerDay(monthCount, range.dayOfMonth),
         lastUpdated: formatFacilityTimestamp(now),
+        weeklyTrends,
         ...membership
       }
     });
@@ -171,6 +178,75 @@ function canonicalAccountType(accountType) {
   if (normalized === "active membership") return "Active Membership";
   if (normalized === "open gym only") return "Open Gym Only";
   return String(accountType || "").trim();
+}
+
+function buildWeeklyTrendHeatmap(rows) {
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const hours = [];
+  for (let hour = HEATMAP_START_HOUR; hour <= HEATMAP_END_HOUR; hour += 1) {
+    hours.push(hour);
+  }
+
+  const matrix = days.map(() => hours.map(() => 0));
+  rows.forEach((row) => {
+    const signedInAt = row?.signed_in_at;
+    if (!signedInAt) return;
+    const parts = getFacilityDateTimeParts(new Date(signedInAt));
+    const dayIndex = weekdayIndex(parts.weekday);
+    const hourIndex = parts.hour - HEATMAP_START_HOUR;
+    if (dayIndex < 0 || hourIndex < 0 || hourIndex >= hours.length) return;
+    matrix[dayIndex][hourIndex] += 1;
+  });
+
+  const flat = [];
+  matrix.forEach((row, dayIndex) => {
+    row.forEach((count, hourIndex) => {
+      flat.push({ dayIndex, hourIndex, count });
+    });
+  });
+
+  const max = flat.reduce((best, cell) => Math.max(best, cell.count), 0);
+  const busiest = flat.reduce((best, cell) => (cell.count > best.count ? cell : best), flat[0] || { dayIndex: 0, hourIndex: 0, count: 0 });
+  const quietest = flat.reduce((best, cell) => (cell.count < best.count ? cell : best), flat[0] || { dayIndex: 0, hourIndex: 0, count: 0 });
+
+  return {
+    weeksAnalyzed: HEATMAP_WEEKS,
+    dayLabels: days,
+    hourLabels: hours.map(formatHourLabel),
+    matrix,
+    max,
+    busiest: {
+      day: days[busiest.dayIndex],
+      hour: formatHourLabel(hours[busiest.hourIndex]),
+      count: busiest.count
+    },
+    quietest: {
+      day: days[quietest.dayIndex],
+      hour: formatHourLabel(hours[quietest.hourIndex]),
+      count: quietest.count
+    }
+  };
+}
+
+function getFacilityDateTimeParts(date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: FACILITY_TIME_ZONE,
+    weekday: "short",
+    hour: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    weekday: value.weekday,
+    hour: Number(value.hour)
+  };
+}
+
+function formatHourLabel(hour24) {
+  if (!Number.isInteger(hour24)) return "";
+  const suffix = hour24 >= 12 ? "PM" : "AM";
+  const hour12 = ((hour24 + 11) % 12) + 1;
+  return `${hour12}:00 ${suffix}`;
 }
 
 async function countRows(table, filters) {
