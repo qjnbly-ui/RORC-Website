@@ -143,6 +143,9 @@ create table if not exists public.account_members (
   phone_number text,
   email_address citext,
   image_path text,
+  date_of_birth date,
+  guardian_member_id uuid references public.account_members(id) on delete set null,
+  can_access_independently boolean not null default true,
   allow_guest_entry boolean not null default false,
   is_billing_owner boolean not null default false,
   auth_user_id uuid references auth.users(id) on delete set null,
@@ -155,7 +158,10 @@ create table if not exists public.account_members (
 );
 
 alter table public.account_members
-  add column if not exists allow_heater_use boolean not null default false;
+  add column if not exists allow_heater_use boolean not null default false,
+  add column if not exists date_of_birth date,
+  add column if not exists guardian_member_id uuid references public.account_members(id) on delete set null,
+  add column if not exists can_access_independently boolean not null default true;
 
 create index if not exists idx_account_members_account_id
   on public.account_members (account_id);
@@ -168,6 +174,12 @@ create index if not exists idx_account_members_account_type
 
 create index if not exists idx_account_members_allow_heater_use
   on public.account_members (allow_heater_use);
+
+create index if not exists idx_account_members_date_of_birth
+  on public.account_members (date_of_birth);
+
+create index if not exists idx_account_members_guardian_member_id
+  on public.account_members (guardian_member_id);
 
 create unique index if not exists idx_account_members_auth_user_id_unique
   on public.account_members (auth_user_id)
@@ -856,7 +868,10 @@ begin
   elsif new.member_or_guest = 'Guest'
         and not (
           public.is_sign_in_authorized(new.member_entered_with_id, new.signed_in_at)
-          and public.member_can_bring_guests(new.member_entered_with_id)
+          and (
+            new.day_pass_or_open_gym = 'Open Gym'
+            or public.member_can_bring_guests(new.member_entered_with_id)
+          )
         ) then
     insert into public.admin_alerts (alert_kind, account_member_id, context)
     values (
@@ -968,7 +983,10 @@ begin
     job_kind := 'voice_monkey_sign_in';
   elsif new.member_or_guest = 'Guest'
         and public.is_sign_in_authorized(new.member_entered_with_id, new.signed_in_at)
-        and public.member_can_bring_guests(new.member_entered_with_id) then
+        and (
+          new.day_pass_or_open_gym = 'Open Gym'
+          or public.member_can_bring_guests(new.member_entered_with_id)
+        ) then
     job_kind := 'voice_monkey_sign_in';
   else
     job_kind := 'admin_sms';
@@ -1288,7 +1306,10 @@ for insert with check (
     public.is_kiosk()
     and member_or_guest = 'Guest'
     and public.is_sign_in_authorized(member_entered_with_id, signed_in_at)
-    and public.member_can_bring_guests(member_entered_with_id)
+    and (
+      day_pass_or_open_gym = 'Open Gym'
+      or public.member_can_bring_guests(member_entered_with_id)
+    )
     and liability_accepted = true
   )
   or (
@@ -1305,7 +1326,10 @@ for insert with check (
     member_or_guest = 'Guest'
     and member_entered_with_id = public.current_account_member_id()
     and public.is_sign_in_authorized(member_entered_with_id, signed_in_at)
-    and public.member_can_bring_guests(member_entered_with_id)
+    and (
+      day_pass_or_open_gym = 'Open Gym'
+      or public.member_can_bring_guests(member_entered_with_id)
+    )
     and liability_accepted = true
   )
 );
@@ -1445,7 +1469,10 @@ select
   ab.last_sync,
   am.allow_heater_use,
   am.created_at,
-  am.updated_at
+  am.updated_at,
+  am.date_of_birth,
+  am.guardian_member_id,
+  am.can_access_independently
 from public.account_members am
 join public.accounts a
   on a.id = am.account_id

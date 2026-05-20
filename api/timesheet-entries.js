@@ -163,8 +163,8 @@ async function validateEntries(entries) {
       throw httpError(400, `${member.member_name || "Selected member"}: ${validation.reason}`);
     }
 
-    if (entry.member_or_guest === "Guest" && !member.allow_guest_entry) {
-      throw httpError(400, `${member.member_name || "Selected member"} cannot bring guests.`);
+    if (entry.member_or_guest === "Guest" && entry.day_pass_or_open_gym !== "Open Gym" && !member.allow_guest_entry) {
+      throw httpError(400, `${member.member_name || "Selected member"} cannot bring Day Pass guests outside Open Gym.`);
     }
   });
 }

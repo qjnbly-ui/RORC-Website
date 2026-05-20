@@ -41,6 +41,7 @@ const pendingHeaterAutoOffIds = new Set();
 let notifiedIds = new Set();
 let notificationUnreadCount = 0;
 let accountTypePolicies = defaultAccountTypePolicies();
+let supportsMinorMemberFields = false;
 
 const statusOrder = [
   "Account Manager",
@@ -305,6 +306,28 @@ function accountForMember(member) {
 function displayAccountNumberForMember(member) {
   if (!member) return "";
   return String(accountForMember(member)?.accountNumber || member.accountNumber || "").trim();
+}
+
+function guardianNameForMember(member) {
+  if (!member?.guardianMemberId) return "Not set";
+  return findMember(member.guardianMemberId)?.memberName || "Not set";
+}
+
+function ageFromDateOfBirth(value) {
+  if (!value) return "";
+
+  const birthDate = parseDateValue(value);
+  if (Number.isNaN(birthDate.getTime())) return "";
+
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const birthdayThisYear = new Date(today.getFullYear(), birthDate.getMonth(), birthDate.getDate());
+
+  if (today < birthdayThisYear) {
+    age -= 1;
+  }
+
+  return age >= 0 ? String(age) : "";
 }
 
 function isAccountManager(memberOrSession) {
@@ -2499,6 +2522,7 @@ function clearLiveData() {
   memberNotifications = [];
   notifiedIds = new Set();
   accountTypePolicies = defaultAccountTypePolicies();
+  supportsMinorMemberFields = false;
 }
 
 function initialForSession(session) {
@@ -3151,7 +3175,10 @@ async function loadGlobalMemberDirectory() {
     imagePath: "",
     allowGuestEntry: Boolean(row.allow_guest_entry),
     allowHeaterUse: Boolean(row.allow_heater_use),
-    isBillingOwner: Boolean(row.is_billing_owner)
+    isBillingOwner: Boolean(row.is_billing_owner),
+    dateOfBirth: row.date_of_birth || "",
+    guardianMemberId: row.guardian_member_id || "",
+    canAccessIndependently: row.can_access_independently !== false
   }));
 }
 
@@ -3163,6 +3190,12 @@ function applySupabaseData({
   billingRows,
   permissionsRows
 }) {
+  supportsMinorMemberFields = profiles.some((row) => (
+    Object.prototype.hasOwnProperty.call(row, "date_of_birth")
+    || Object.prototype.hasOwnProperty.call(row, "guardian_member_id")
+    || Object.prototype.hasOwnProperty.call(row, "can_access_independently")
+  ));
+
   const accountsById = new Map();
 
   profiles.forEach((row) => {
@@ -3198,7 +3231,10 @@ function applySupabaseData({
     imagePath: row.image_path || "",
     allowGuestEntry: Boolean(row.allow_guest_entry),
     allowHeaterUse: Boolean(row.allow_heater_use),
-    isBillingOwner: Boolean(row.is_billing_owner)
+    isBillingOwner: Boolean(row.is_billing_owner),
+    dateOfBirth: row.date_of_birth || "",
+    guardianMemberId: row.guardian_member_id || "",
+    canAccessIndependently: row.can_access_independently !== false
   }));
 
   timesheetEntries = timesheetRows.map(mapTimesheetEntryRow);
@@ -3347,9 +3383,8 @@ function visibleMembersForSession(session) {
 }
 
 function guestSponsorsForSession(session) {
-  const visibleMembers = visibleMembersForSession(session);
-
-  return visibleMembers.filter((member) => member.allowGuestEntry);
+  return visibleMembersForSession(session)
+    .filter((member) => !isKioskAccount(member));
 }
 
 function memberPickerOptions(source) {
@@ -4510,20 +4545,32 @@ function renderAccountDetail(memberId) {
 
 function renderOverviewPanel(member, account) {
   const memberAccountNumber = displayAccountNumberForMember(member);
+  const memberDetails = [
+    ["Member Name", member.memberName],
+    ["Account Number", memberAccountNumber],
+    ["Account Type", member.accountType],
+    ["Phone Number", member.phoneNumber || "Not set"],
+    ["Email Address", member.emailAddress || "Not set"],
+    ["Billing Owner", member.isBillingOwner ? "Yes" : "No"],
+    ["Day Pass Guest Entry", member.allowGuestEntry ? "Allowed" : "Not allowed"],
+    ["Heater Use", member.allowHeaterUse ? "Allowed" : "Not allowed"]
+  ];
+
+  if (supportsMinorMemberFields) {
+    memberDetails.push(
+      ["Date of Birth", member.dateOfBirth ? formatShortDate(member.dateOfBirth) : "Not set"],
+      ["Age", ageFromDateOfBirth(member.dateOfBirth) || "Not set"],
+      ["Guardian", guardianNameForMember(member)],
+      ["Independent Access", member.canAccessIndependently ? "Yes" : "No"]
+    );
+  }
+
+  memberDetails.push(["Notes On Account", account?.notesOnAccount || "None"]);
+
   return `
     <div class="detail-card">
       <h3>Member</h3>
-      ${renderDefinitionGrid([
-        ["Member Name", member.memberName],
-        ["Account Number", memberAccountNumber],
-        ["Account Type", member.accountType],
-        ["Phone Number", member.phoneNumber || "Not set"],
-        ["Email Address", member.emailAddress || "Not set"],
-        ["Billing Owner", member.isBillingOwner ? "Yes" : "No"],
-        ["Guest Entry", member.allowGuestEntry ? "Allowed" : "Not allowed"],
-        ["Heater Use", member.allowHeaterUse ? "Allowed" : "Not allowed"],
-        ["Notes On Account", account?.notesOnAccount || "None"]
-      ])}
+      ${renderDefinitionGrid(memberDetails)}
     </div>
   `;
 }
@@ -4596,7 +4643,7 @@ function renderGuestPanel(items) {
               <strong>${escapeHtml(item.guestName)}</strong>
               <span>${formatShortDateTime(item.signedInAt)} · ${escapeHtml(item.dayPassOrOpenGym || "Day Pass")} · Liability ${item.liabilityAccepted ? "accepted" : "not accepted"}</span>
             </div>
-            <b>${item.dayPassOrOpenGym === "Open Gym" ? "Free" : "$0.25"}</b>
+            <b>${item.dayPassOrOpenGym === "Open Gym" ? "Free" : "10 free/mo"}</b>
           </li>
         `).join("")}
       </ol>
@@ -4715,6 +4762,20 @@ async function updateMemberContact(member, updates) {
     dbUpdates.account_type = updates.accountType || member.accountType;
     dbUpdates.allow_guest_entry = Boolean(updates.allowGuestEntry);
     dbUpdates.allow_heater_use = Boolean(updates.allowHeaterUse);
+
+    if (supportsMinorMemberFields) {
+      if (Object.prototype.hasOwnProperty.call(updates, "dateOfBirth")) {
+        dbUpdates.date_of_birth = updates.dateOfBirth || null;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(updates, "guardianMemberId")) {
+        dbUpdates.guardian_member_id = updates.guardianMemberId || null;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(updates, "canAccessIndependently")) {
+        dbUpdates.can_access_independently = Boolean(updates.canAccessIndependently);
+      }
+    }
   }
 
   const { error } = await client
@@ -4875,6 +4936,20 @@ async function updateMemberContact(member, updates) {
       allowGuestEntry: Boolean(updates.allowGuestEntry),
       allowHeaterUse: Boolean(updates.allowHeaterUse)
     });
+
+    if (supportsMinorMemberFields) {
+      if (Object.prototype.hasOwnProperty.call(updates, "dateOfBirth")) {
+        localMemberUpdates.dateOfBirth = updates.dateOfBirth || "";
+      }
+
+      if (Object.prototype.hasOwnProperty.call(updates, "guardianMemberId")) {
+        localMemberUpdates.guardianMemberId = updates.guardianMemberId || "";
+      }
+
+      if (Object.prototype.hasOwnProperty.call(updates, "canAccessIndependently")) {
+        localMemberUpdates.canAccessIndependently = Boolean(updates.canAccessIndependently);
+      }
+    }
   }
 
   syncLocalMember(member.id, localMemberUpdates);
@@ -5055,6 +5130,13 @@ function openMemberEditDialog(member) {
   const canEditName = canUseAdminTools;
   const canDeleteMember = canUseAdminTools && member.id !== appUserSession.memberId;
   const account = accountForMember(member);
+  const guardianOptions = accountMembers
+    .filter((candidate) => candidate.accountId === member.accountId && candidate.id !== member.id)
+    .sort(sortMembers)
+    .map((candidate) => `
+      <option value="${escapeAttribute(candidate.id)}" ${candidate.id === member.guardianMemberId ? "selected" : ""}>${escapeHtml(candidate.memberName)}</option>
+    `)
+    .join("");
   const overlay = document.createElement("div");
   overlay.className = "member-edit-overlay";
   overlay.innerHTML = `
@@ -5101,12 +5183,32 @@ function openMemberEditDialog(member) {
         </select>
       </label>
       <label>
-        <span>Guest Entry Permission</span>
+        <span>Day Pass Guest Permission</span>
         <select id="editAllowGuestEntry">
           <option value="yes" ${member.allowGuestEntry ? "selected" : ""}>Yes</option>
           <option value="no" ${member.allowGuestEntry ? "" : "selected"}>No</option>
         </select>
       </label>
+      ${supportsMinorMemberFields ? `
+      <label>
+        <span>Date of Birth</span>
+        <input id="editDateOfBirth" type="date" value="${escapeAttribute(member.dateOfBirth || "")}" />
+      </label>
+      <label>
+        <span>Guardian / Responsible Adult</span>
+        <select id="editGuardianMemberId">
+          <option value="" ${member.guardianMemberId ? "" : "selected"}>No guardian linked</option>
+          ${guardianOptions}
+        </select>
+      </label>
+      <label>
+        <span>Can Access Independently</span>
+        <select id="editCanAccessIndependently">
+          <option value="yes" ${member.canAccessIndependently ? "selected" : ""}>Yes</option>
+          <option value="no" ${member.canAccessIndependently ? "" : "selected"}>No</option>
+        </select>
+      </label>
+      ` : ""}
       <label>
         <span>Heater Permission</span>
         <select id="editAllowHeaterUse">
@@ -5191,6 +5293,9 @@ function openMemberEditDialog(member) {
     const accountType = String(overlay.querySelector("#editMemberAccountType")?.value || member.accountType);
     const allowGuestEntry = String(overlay.querySelector("#editAllowGuestEntry")?.value || "no") === "yes";
     const allowHeaterUse = String(overlay.querySelector("#editAllowHeaterUse")?.value || "no") === "yes";
+    const dateOfBirth = String(overlay.querySelector("#editDateOfBirth")?.value || "").trim();
+    const guardianMemberId = String(overlay.querySelector("#editGuardianMemberId")?.value || "").trim();
+    const canAccessIndependently = String(overlay.querySelector("#editCanAccessIndependently")?.value || "yes") === "yes";
     const stripeCustomerId = String(overlay.querySelector("#editStripeCustomerId")?.value || account?.stripeCustomerId || "").trim();
     const heaterPin = String(overlay.querySelector("#editAccountHeaterPin")?.value || "").trim();
 
@@ -5220,6 +5325,11 @@ function openMemberEditDialog(member) {
         accountType,
         allowGuestEntry,
         allowHeaterUse,
+        ...(supportsMinorMemberFields && canEditName ? {
+          dateOfBirth,
+          guardianMemberId,
+          canAccessIndependently
+        } : {}),
         accountNumber,
         stripeCustomerId,
         heaterPin
@@ -5786,8 +5896,8 @@ async function saveGuestSignIn() {
     return;
   }
 
-  if (!sponsorMember?.allowGuestEntry) {
-    showDetailActionMessage(`${sponsorMember?.memberName || "Selected member"} cannot bring guests.`);
+  if (passType !== "Open Gym" && !sponsorMember?.allowGuestEntry) {
+    showDetailActionMessage(`${sponsorMember?.memberName || "Selected member"} cannot bring Day Pass guests outside Open Gym.`);
     return;
   }
 
