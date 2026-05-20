@@ -21,6 +21,7 @@ let supabaseClient = null;
 let currentAuthSession = null;
 let deferredInstallPrompt = null;
 let installFallbackTimer = null;
+let appReloadingForUpdate = false;
 
 let accounts = [];
 let accountMembers = [];
@@ -964,7 +965,7 @@ function renderNotificationsPage() {
   if (!root) return;
 
   const historyFilter = String(appState.notificationsHistoryFilter || "all");
-  const allRecords = [...memberNotifications]
+  const allRecords = [...notificationDispatchRecords]
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 100);
   const records = allRecords.filter((record) => {
@@ -978,6 +979,12 @@ function renderNotificationsPage() {
 
   root.innerHTML = `
     <section class="live-record-page">
+      <header class="account-page-heading">
+        <div>
+          <p class="eyebrow">Sent Messages</p>
+          <h2>Message History</h2>
+        </div>
+      </header>
       <div class="detail-card">
         <div class="notification-history-tabs master-logs-tabs" role="tablist" aria-label="Message history channels">
           <button class="notification-history-tab master-logs-tab ${historyFilter === "all" ? "is-active" : ""}" data-notification-history-filter="all" type="button">All</button>
@@ -1001,10 +1008,10 @@ function renderNotificationsPage() {
       </div>
       ` : `
       <section class="empty-state">
-        <p>No notifications yet.</p>
+        <p>No messages sent yet.</p>
       </section>
       `}
-      <button class="heater-fab message-fab" type="button" aria-label="Create new notification">
+      <button class="heater-fab message-fab" type="button" aria-label="Create new message">
         <span class="heater-fab-label">New</span>
         <span class="heater-fab-icon" aria-hidden="true">+</span>
       </button>
@@ -1076,6 +1083,7 @@ function formatNotificationMeta(record) {
 function formatNotificationHistoryMeta(record) {
   return [
     record.channelsLabel,
+    record.recipientsLabel,
     formatShortDateTime(record.createdAt)
   ].filter((value) => String(value || "").trim()).join(" · ");
 }
@@ -1701,14 +1709,17 @@ function bindNotificationOpenActions() {
     row.addEventListener("click", () => {
       const notificationId = String(row.dataset.notificationItem || "").trim();
       if (!notificationId) return;
-      const notification = memberNotifications.find((row) => row.id === notificationId);
+      const notification = notificationDispatchRecords.find((row) => row.id === notificationId)
+        || memberNotifications.find((row) => row.id === notificationId);
       if (!notification) return;
 
-      const title = notification.title || "Notification";
+      const title = notification.title || "Message";
       const details = [
         formatShortDateTime(notification.createdAt),
         notification.channelsLabel || "",
         notification.recipientsLabel || "",
+        notification.statusLabel || "",
+        notification.warningsLabel || "",
         "",
         notification.message || "(No message)"
       ].join("\n");
@@ -2094,14 +2105,28 @@ function bindMessageComposerActions() {
       );
       addNotificationDispatchRecord({
         title,
+        message,
         includeText,
         includeEmail,
         includeInApp,
         selectedCount: memberIds.length,
         sentTextCount: response.sentTextCount || 0,
         sentEmailCount: response.sentEmailCount || 0,
-        sentInAppCount: response.sentInAppCount || 0
+        sentInAppCount: response.sentInAppCount || 0,
+        warnings: response.warnings || [],
+        historyRecord: response.historyRecord || null
       });
+      const historySaveFailed = (response.warnings || []).some((warning) => (
+        String(warning || "").includes("Message history failed")
+        || String(warning || "").includes("In-app notifications failed")
+      ));
+      if (!historySaveFailed) {
+        try {
+          await refreshMessageHistory();
+        } catch (historyError) {
+          console.warn("Could not refresh message history.", historyError);
+        }
+      }
       window.setTimeout(() => render("notificationsEmail"), 220);
     } catch (error) {
       setResult(error.message || "Could not send message.", "error");
@@ -2113,29 +2138,50 @@ function bindMessageComposerActions() {
 
 function addNotificationDispatchRecord({
   title,
+  message,
   includeText,
   includeEmail,
   includeInApp,
   selectedCount,
   sentTextCount,
   sentEmailCount,
-  sentInAppCount
+  sentInAppCount,
+  warnings,
+  historyRecord
 }) {
+  if (historyRecord) {
+    const record = normalizeMessageHistoryRecord(historyRecord);
+    notificationDispatchRecords = [
+      record,
+      ...notificationDispatchRecords.filter((item) => item.id !== record.id)
+    ];
+    return;
+  }
+
   const channels = [];
   if (includeText) channels.push("Text");
   if (includeEmail) channels.push("Email");
   if (includeInApp) channels.push("In-App");
+  const rawChannels = {
+    text: includeText,
+    email: includeEmail,
+    inApp: includeInApp
+  };
+  const warningList = Array.isArray(warnings) ? warnings : [];
 
   const record = {
     id: `msg-${Date.now()}`,
     title: String(title || "").trim() || "Message",
+    message: String(message || ""),
     channelsLabel: channels.join(" + ") || "Unspecified",
     recipientsLabel: `${selectedCount || 0} members`,
-    statusLabel: `SMS ${sentTextCount || 0} · Email ${sentEmailCount || 0} · In-App ${sentInAppCount || 0}`,
-    createdAt: new Date().toISOString()
+    statusLabel: `Text ${sentTextCount || 0} · Email ${sentEmailCount || 0} · In-App ${sentInAppCount || 0}`,
+    warningsLabel: warningList.length ? `Warnings: ${warningList.join("; ")}` : "",
+    createdAt: new Date().toISOString(),
+    rawChannels,
+    warnings: warningList
   };
   notificationDispatchRecords.unshift(record);
-  memberNotifications.unshift(record);
 }
 
 function automationResult(message, tone = "default") {
@@ -2449,6 +2495,7 @@ function clearLiveData() {
   timesheetEntries = [];
   heaterUseEntries = [];
   billingLineItems = [];
+  notificationDispatchRecords = [];
   memberNotifications = [];
   notifiedIds = new Set();
   accountTypePolicies = defaultAccountTypePolicies();
@@ -2660,6 +2707,64 @@ async function fetchMemberNotifications() {
   }));
 }
 
+async function fetchMessageHistory() {
+  const token = currentAuthSession?.access_token || "";
+  if (!token || !isAccountManager(appUserSession)) return [];
+
+  const response = await fetch("/api/message-history", {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw createHttpError(body.error || "Could not load message history.", response.status);
+  }
+
+  return (body.history || []).map(normalizeMessageHistoryRecord);
+}
+
+async function refreshMessageHistory() {
+  notificationDispatchRecords = await fetchMessageHistory();
+}
+
+function normalizeMessageHistoryRecord(row) {
+  const channels = row.channels || {};
+  const activeChannels = [
+    channels.inApp ? "In-App" : "",
+    channels.text ? "Text" : "",
+    channels.email ? "Email" : ""
+  ].filter(Boolean);
+  const recipientCount = Number(row.recipientCount ?? row.recipient_count ?? 0) || 0;
+  const sentTextCount = Number(row.sentTextCount ?? row.sent_text_count ?? 0) || 0;
+  const sentEmailCount = Number(row.sentEmailCount ?? row.sent_email_count ?? 0) || 0;
+  const sentInAppCount = Number(row.sentInAppCount ?? row.sent_in_app_count ?? 0) || 0;
+  const warnings = Array.isArray(row.warnings)
+    ? row.warnings
+    : Array.isArray(row.errorMessages)
+      ? row.errorMessages
+      : [];
+
+  return {
+    id: row.id || `msg-${Date.now()}`,
+    title: row.title || "Message",
+    message: row.message || "",
+    channelsLabel: activeChannels.join(" + ") || "Unspecified",
+    recipientsLabel: `${recipientCount} ${recipientCount === 1 ? "member" : "members"}`,
+    statusLabel: `Text ${sentTextCount} · Email ${sentEmailCount} · In-App ${sentInAppCount}`,
+    warningsLabel: warnings.length ? `Warnings: ${warnings.join("; ")}` : "",
+    createdAt: row.createdAt || row.created_at || new Date().toISOString(),
+    rawChannels: {
+      text: Boolean(channels.text),
+      email: Boolean(channels.email),
+      inApp: Boolean(channels.inApp)
+    },
+    warnings
+  };
+}
+
 async function refreshMemberNotifications({ announceNew = false } = {}) {
   const rows = await fetchMemberNotifications();
   memberNotifications = rows;
@@ -2814,8 +2919,12 @@ function scheduleNotificationRealtimeReconnect() {
 
 async function refreshNotificationsForCurrentRoute(announceNew = true) {
   await refreshMemberNotifications({ announceNew });
-  if (appState.currentRoute === "notificationsEmail" || appState.currentRoute === "notifications") {
-    render(appState.currentRoute);
+  if (appState.currentRoute === "notifications") {
+    render("notifications");
+  }
+  if (appState.currentRoute === "notificationsEmail" && isAccountManager(appUserSession)) {
+    await refreshMessageHistory();
+    render("notificationsEmail");
   }
 }
 
@@ -2972,6 +3081,13 @@ async function hydrateFromSupabase() {
       await loadGlobalMemberDirectory();
     } catch (directoryError) {
       console.warn("Could not load full member directory.", directoryError);
+    }
+    if (isAccountManager(appUserSession)) {
+      try {
+        await refreshMessageHistory();
+      } catch (messageHistoryError) {
+        console.warn("Could not load message history.", messageHistoryError);
+      }
     }
     if (canUsePrivilegedTimesheetApi()) {
       try {
@@ -6206,9 +6322,37 @@ function registerAppServiceWorker() {
     return;
   }
 
+  const reloadForAppUpdate = () => {
+    if (appReloadingForUpdate) return;
+    appReloadingForUpdate = true;
+    window.location.reload();
+  };
+
+  navigator.serviceWorker.addEventListener("controllerchange", reloadForAppUpdate);
+  navigator.serviceWorker.addEventListener("message", (event) => {
+    if (event.data?.type === "RORC_APP_UPDATED") {
+      reloadForAppUpdate();
+    }
+  });
+
   window.addEventListener("load", () => {
     navigator.serviceWorker
-      .register("./sw.js", { scope: "./" })
+      .register("./sw.js", { scope: "./", updateViaCache: "none" })
+      .then((registration) => {
+        const checkForUpdate = () => {
+          registration.update().catch((error) => {
+            console.warn("RORC app update check failed.", error);
+          });
+        };
+
+        checkForUpdate();
+        window.setInterval(checkForUpdate, 5 * 60 * 1000);
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") {
+            checkForUpdate();
+          }
+        });
+      })
       .catch((error) => {
         console.warn("RORC app service worker registration failed.", error);
       })

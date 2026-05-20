@@ -25,7 +25,11 @@ module.exports = async (req, res) => {
       const rows = await supabaseRest(
         `member_notifications?select=id,title,message,channels,created_at,read_at,recipient_member_id,created_by_member_id&recipient_member_id=in.(${encodeURIComponent(idList)})&order=created_at.desc&limit=200`
       );
-      return res.status(200).json({ success: true, notifications: rows || [] });
+      const visibleRows = (rows || []).filter((row) => {
+        const channels = row.channels || {};
+        return !channels.dispatchHistory || Boolean(channels.inApp || channels.browser);
+      });
+      return res.status(200).json({ success: true, notifications: visibleRows });
     }
 
     if (req.method === "POST") {

@@ -1,3 +1,5 @@
+const crypto = require("crypto");
+
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
@@ -33,6 +35,8 @@ module.exports = async (req, res) => {
     const sendText = Boolean(req.body?.channels?.text);
     const sendEmail = Boolean(req.body?.channels?.email);
     const sendInApp = Boolean(req.body?.channels?.inApp);
+    const requestedSendAt = String(req.body?.sendAt || "").trim();
+    const dispatchId = crypto.randomUUID();
 
     if (!title) {
       return res.status(400).json({ success: false, error: "Title is required." });
@@ -94,21 +98,33 @@ module.exports = async (req, res) => {
       }
     }
 
-    if (sendInApp) {
-      try {
-        await createInAppNotifications({
-          memberIds: members.map((member) => member.id),
-          title,
-          message,
-          createdByMemberId: manager.id,
-          channels: {
-            inApp: sendInApp
-          }
-        });
+    try {
+      await createMessageHistoryRows({
+        memberIds: members.map((member) => member.id),
+        title,
+        message,
+        createdByMemberId: manager.id,
+        channels: {
+          text: sendText,
+          email: sendEmail,
+          inApp: sendInApp,
+          dispatchHistory: true,
+          dispatchId,
+          recipientCount: members.length,
+          sentTextCount,
+          sentEmailCount,
+          sentInAppCount: sendInApp ? members.length : 0,
+          requestedSendAt,
+          errorMessages: errors
+        }
+      });
+      if (sendInApp) {
         sentInAppCount = members.length;
-      } catch (error) {
-        errors.push(`In-app notifications failed: ${error.message}`);
       }
+    } catch (error) {
+      errors.push(sendInApp
+        ? `In-app notifications failed: ${error.message}`
+        : `Message history failed: ${error.message}`);
     }
 
     if (errors.length && sentTextCount === 0 && sentEmailCount === 0 && sentInAppCount === 0) {
@@ -120,6 +136,22 @@ module.exports = async (req, res) => {
       sentTextCount,
       sentEmailCount,
       sentInAppCount,
+      historyRecord: {
+        id: dispatchId,
+        title,
+        message,
+        channels: {
+          text: sendText,
+          email: sendEmail,
+          inApp: sendInApp
+        },
+        recipientCount: members.length,
+        sentTextCount,
+        sentEmailCount,
+        sentInAppCount,
+        warnings: errors,
+        createdAt: new Date().toISOString()
+      },
       warnings: errors
     });
   } catch (error) {
@@ -288,7 +320,7 @@ async function supabaseRest(path) {
   return response.json();
 }
 
-async function createInAppNotifications({
+async function createMessageHistoryRows({
   memberIds,
   title,
   message,

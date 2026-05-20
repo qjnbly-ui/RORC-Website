@@ -1,4 +1,4 @@
-const CACHE_VERSION = "rorc-app-v2";
+const CACHE_VERSION = "rorc-app-v3";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -23,11 +23,26 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((key) => key !== CACHE_VERSION).map((key) => caches.delete(key)))
-    )
+    (async () => {
+      const keys = await caches.keys();
+      const staleAppCaches = keys.filter((key) => key.startsWith("rorc-app-") && key !== CACHE_VERSION);
+      await Promise.all(staleAppCaches.map((key) => caches.delete(key)));
+      await self.clients.claim();
+
+      if (staleAppCaches.length > 0) {
+        const appClients = await self.clients.matchAll({
+          type: "window",
+          includeUncontrolled: true
+        });
+        await Promise.all(appClients
+          .filter((client) => client.url.startsWith(self.registration.scope))
+          .map((client) => {
+            client.postMessage({ type: "RORC_APP_UPDATED", cacheVersion: CACHE_VERSION });
+            return "navigate" in client ? client.navigate(client.url) : undefined;
+          }));
+      }
+    })()
   );
-  self.clients.claim();
 });
 
 self.addEventListener("fetch", (event) => {
@@ -38,6 +53,7 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
 
   if (url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith("/api/")) return;
 
   if (request.mode === "navigate") {
     event.respondWith(
