@@ -553,6 +553,32 @@
       max-width: 980px;
       margin: 0 auto;
     }
+    .rorc-heatmap-legend {
+      margin: 0 auto 10px;
+      max-width: 980px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: #b8beca;
+      font: 500 11px/1.2 var(--font-body);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .rorc-heatmap-legend-bar {
+      width: min(280px, 45vw);
+      height: 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: linear-gradient(
+        90deg,
+        #171717 0%,
+        #3a2a00 35%,
+        #9b7413 68%,
+        #c44744 100%
+      );
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05);
+    }
     .rorc-heatmap-label,
     .rorc-heatmap-cell {
       border-radius: 4px;
@@ -855,6 +881,11 @@
     <h3>Weekly busy trends</h3>
     <p id="rorc-heatmap-summary" class="rorc-heatmap-summary">Loading trend data…</p>
     <p id="rorc-heatmap-reco" class="rorc-heatmap-reco"></p>
+    <div class="rorc-heatmap-legend" aria-hidden="true">
+      <span>Low</span>
+      <div class="rorc-heatmap-legend-bar"></div>
+      <span>High</span>
+    </div>
     <div id="rorc-heatmap-grid" class="rorc-heatmap-grid">
       <p class="rorc-heatmap-loading">Loading…</p>
     </div>
@@ -1213,8 +1244,29 @@
 
     function rorcHeatColor(level) {
       const clamped = Math.max(0, Math.min(1, Number(level) || 0));
-      const lightness = 10 + (clamped * 45);
-      return `hsl(43 80% ${lightness}%)`;
+      if (clamped < 0.25) {
+        return rorcBlendHex("#171717", "#2b2b2b", clamped / 0.25);
+      }
+      if (clamped < 0.65) {
+        return rorcBlendHex("#2b2b2b", "#9b7413", (clamped - 0.25) / 0.4);
+      }
+      return rorcBlendHex("#9b7413", "#c44744", (clamped - 0.65) / 0.35);
+    }
+
+    function rorcBlendHex(startHex, endHex, amount) {
+      const t = Math.max(0, Math.min(1, Number(amount) || 0));
+      const start = startHex.replace("#", "");
+      const end = endHex.replace("#", "");
+      const sr = Number.parseInt(start.slice(0, 2), 16);
+      const sg = Number.parseInt(start.slice(2, 4), 16);
+      const sb = Number.parseInt(start.slice(4, 6), 16);
+      const er = Number.parseInt(end.slice(0, 2), 16);
+      const eg = Number.parseInt(end.slice(2, 4), 16);
+      const eb = Number.parseInt(end.slice(4, 6), 16);
+      const r = Math.round(sr + ((er - sr) * t));
+      const g = Math.round(sg + ((eg - sg) * t));
+      const b = Math.round(sb + ((eb - sb) * t));
+      return `rgb(${r} ${g} ${b})`;
     }
 
     function rorcRenderHeatmap(trends) {
