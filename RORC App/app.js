@@ -198,7 +198,7 @@ const routes = {
     afterRender: populateHeaterForm
   },
   accountInfo: {
-    title: "Account & Info",
+    title: "Account Administration",
     template: "accountInfoTemplate",
     afterRender: renderAccountInfo
   },
@@ -306,6 +306,23 @@ function displayAccountNumberForMember(member) {
 
 function isAccountManager(memberOrSession) {
   return canonicalAccountType(memberOrSession?.accountType) === "Account Manager";
+}
+
+function isAccountAdministrationContext() {
+  return appState.currentRoute === "accountInfo"
+    || (appState.currentRoute === "accountDetails" && appState.detailReturnRoute === "accountInfo");
+}
+
+function canUseAccountAdminTools() {
+  return Boolean(isAccountManager(appUserSession) && isAccountAdministrationContext());
+}
+
+function canUseRecordAdminTools() {
+  return Boolean(isAccountManager(appUserSession) && (
+    appState.currentRoute === "masterLogs"
+    || appState.currentRoute === "heaterRecords"
+    || isAccountAdministrationContext()
+  ));
 }
 
 function isKioskAccount(memberOrSession) {
@@ -1171,14 +1188,13 @@ function renderMasterLogsPage() {
           <ol class="record-list master-log-list">
             ${billingRecords.map((item) => {
               const member = findMember(item.accountMemberId);
-              const state = item.postedToStripeAt ? "Posted" : "Unposted";
               return `
-                <li>
+                <li data-master-log-type="billing" data-master-log-id="${escapeAttribute(item.id)}">
                   <div>
                     <strong>${escapeHtml(item.reason || "Billing item")} · ${escapeHtml(member?.memberName || "Unknown Member")}</strong>
                     <span>${formatShortDateTime(item.createdAt)}${item.postedToStripeAt ? ` · Posted ${formatShortDateTime(item.postedToStripeAt)}` : ""}</span>
                   </div>
-                  <b>${escapeHtml(state)} · ${formatCurrency(item.amountCents || 0)}</b>
+                  <b>${escapeHtml(billingStatusLabel(item))} · ${formatCurrency(item.amountCents || 0)}</b>
                 </li>
               `;
             }).join("")}
@@ -1210,7 +1226,7 @@ function bindMasterLogsActions() {
       const recordType = String(row.dataset.masterLogType || "").trim();
       const recordId = String(row.dataset.masterLogId || "").trim();
       if (!recordType || !recordId) return;
-      openMasterLogEditor(recordType, recordId);
+      openRecordDetail(recordType, recordId);
     });
   });
 
@@ -1239,7 +1255,34 @@ function fromDatetimeLocalValue(localValue) {
   return value.toISOString();
 }
 
-function openMasterLogEditor(recordType, recordId) {
+function refreshAfterRecordMutation() {
+  if (appState.currentRoute === "masterLogs") {
+    renderMasterLogsPage();
+    return;
+  }
+
+  if (appState.currentRoute === "accountDetails") {
+    render("accountDetails");
+    return;
+  }
+
+  render(appState.currentRoute);
+}
+
+function openRecordDetail(recordType, recordId) {
+  if (recordType === "billing") {
+    openBillingLogEditor(recordId);
+    return;
+  }
+
+  openMasterLogEditor(recordType, recordId);
+}
+
+function openMasterLogEditor(recordType, recordId, options = {}) {
+  const adminControls = Object.prototype.hasOwnProperty.call(options, "adminControls")
+    ? Boolean(options.adminControls)
+    : canUseRecordAdminTools();
+  const readonlyAttribute = adminControls ? "" : "disabled";
   const isTimesheet = recordType === "timesheet";
   const record = isTimesheet
     ? timesheetEntries.find((entry) => entry.id === recordId)
@@ -1267,60 +1310,64 @@ function openMasterLogEditor(recordType, recordId) {
         ${isTimesheet ? `
           <label>
             <span>Type</span>
-            <select id="masterLogTimesheetType">
+            <select id="masterLogTimesheetType" ${readonlyAttribute}>
               <option value="Member" ${record.memberOrGuest === "Member" ? "selected" : ""}>Member</option>
               <option value="Guest" ${record.memberOrGuest === "Guest" ? "selected" : ""}>Guest</option>
             </select>
           </label>
           <label>
             <span>Guest Name</span>
-            <input id="masterLogGuestName" type="text" value="${escapeAttribute(record.guestName || "")}" />
+            <input id="masterLogGuestName" type="text" value="${escapeAttribute(record.guestName || "")}" ${readonlyAttribute} />
           </label>
           <label>
             <span>Pass Type</span>
-            <input id="masterLogPassType" type="text" value="${escapeAttribute(record.dayPassOrOpenGym || "")}" />
+            <input id="masterLogPassType" type="text" value="${escapeAttribute(record.dayPassOrOpenGym || "")}" ${readonlyAttribute} />
           </label>
           <label>
             <span>Signed In At</span>
-            <input id="masterLogSignedInAt" type="datetime-local" value="${escapeAttribute(toDatetimeLocalValue(record.signedInAt))}" />
+            <input id="masterLogSignedInAt" type="datetime-local" value="${escapeAttribute(toDatetimeLocalValue(record.signedInAt))}" ${readonlyAttribute} />
           </label>
           <label>
             <span>Signed Out At</span>
-            <input id="masterLogSignedOutAt" type="datetime-local" value="${escapeAttribute(toDatetimeLocalValue(record.signedOutAt))}" />
+            <input id="masterLogSignedOutAt" type="datetime-local" value="${escapeAttribute(toDatetimeLocalValue(record.signedOutAt))}" ${readonlyAttribute} />
           </label>
         ` : `
           <label>
             <span>Event</span>
-            <input id="masterLogHeaterEvent" type="text" value="${escapeAttribute(record.event || "")}" />
+            <input id="masterLogHeaterEvent" type="text" value="${escapeAttribute(record.event || "")}" ${readonlyAttribute} />
           </label>
           <label>
             <span>Heater State</span>
-            <select id="masterLogHeaterState">
+            <select id="masterLogHeaterState" ${readonlyAttribute}>
               <option value="On" ${(record.turnHeaterOn || "On") === "On" ? "selected" : ""}>On</option>
               <option value="Off" ${(record.turnHeaterOn || "On") === "Off" ? "selected" : ""}>Off</option>
             </select>
           </label>
           <label>
             <span>Start At</span>
-            <input id="masterLogHeaterStartAt" type="datetime-local" value="${escapeAttribute(toDatetimeLocalValue(record.startAt))}" />
+            <input id="masterLogHeaterStartAt" type="datetime-local" value="${escapeAttribute(toDatetimeLocalValue(record.startAt))}" ${readonlyAttribute} />
           </label>
           <label>
             <span>End At</span>
-            <input id="masterLogHeaterEndAt" type="datetime-local" value="${escapeAttribute(toDatetimeLocalValue(record.endAt))}" />
+            <input id="masterLogHeaterEndAt" type="datetime-local" value="${escapeAttribute(toDatetimeLocalValue(record.endAt))}" ${readonlyAttribute} />
           </label>
           <label>
             <span>Note</span>
-            <textarea id="masterLogHeaterNote" rows="4">${escapeHtml(record.note || "")}</textarea>
+            <textarea id="masterLogHeaterNote" rows="4" ${readonlyAttribute}>${escapeHtml(record.note || "")}</textarea>
           </label>
         `}
       </div>
       <p class="master-log-subtitle">Billing items: ${linkedBillingItems.length} · ${formatCurrency(linkedBillingTotal)}</p>
       <p id="masterLogEditorResult" class="member-edit-result"></p>
       <footer>
+        ${adminControls ? `
         <button class="master-log-remove-billing" type="button" ${linkedBillingItems.length ? "" : "disabled"}>Remove Billing</button>
         <button class="master-log-delete" type="button">Delete</button>
-        <button class="master-log-cancel" type="button">Cancel</button>
+        ` : ""}
+        <button class="master-log-cancel" type="button">${adminControls ? "Cancel" : "Close"}</button>
+        ${adminControls ? `
         <button class="master-log-save" type="button">Save</button>
+        ` : ""}
       </footer>
     </section>
   `;
@@ -1386,7 +1433,7 @@ function openMasterLogEditor(recordType, recordId) {
       }
 
       await hydrateFromSupabase();
-      renderMasterLogsPage();
+      refreshAfterRecordMutation();
       close();
     } catch (error) {
       setResult(error.message || "Could not save record.", "error");
@@ -1419,7 +1466,7 @@ function openMasterLogEditor(recordType, recordId) {
       }
 
       await hydrateFromSupabase();
-      renderMasterLogsPage();
+      refreshAfterRecordMutation();
       close();
     } catch (error) {
       setResult(error.message || "Could not delete record.", "error");
@@ -1454,13 +1501,188 @@ function openMasterLogEditor(recordType, recordId) {
       if (error) throw error;
 
       await hydrateFromSupabase();
-      renderMasterLogsPage();
+      refreshAfterRecordMutation();
       close();
     } catch (error) {
       setResult(error.message || "Could not remove billing.", "error");
       saveButton.disabled = false;
       deleteButton.disabled = false;
       removeBillingButton.disabled = false;
+    }
+  });
+
+  overlay.querySelector(".master-log-cancel")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  document.addEventListener("keydown", onKeydown);
+  document.body.appendChild(overlay);
+}
+
+function openBillingLogEditor(recordId, options = {}) {
+  const adminControls = Object.prototype.hasOwnProperty.call(options, "adminControls")
+    ? Boolean(options.adminControls)
+    : canUseRecordAdminTools();
+  const readonlyAttribute = adminControls ? "" : "disabled";
+  const item = billingLineItems.find((billingItem) => billingItem.id === recordId);
+
+  if (!item) {
+    showDetailActionMessage("Billing item not found.");
+    return;
+  }
+
+  const member = findMember(item.accountMemberId);
+  const account = accountForMember(member);
+  const timesheetRecord = item.timesheetEntryId
+    ? timesheetEntries.find((entry) => entry.id === item.timesheetEntryId)
+    : null;
+  const heaterRecord = item.heaterUseEntryId
+    ? heaterUseEntries.find((entry) => entry.id === item.heaterUseEntryId)
+    : null;
+  const sourceLabel = timesheetRecord
+    ? `Guest sign-in · ${timesheetRecord.guestName || timesheetRecord.memberOrGuest || "Timesheet"}`
+    : heaterRecord
+      ? `Heater use · ${heaterRecord.event || "Member Use"}`
+      : "Manual billing item";
+  const amountValue = ((item.amountCents || 0) / 100).toFixed(2);
+  const overlay = document.createElement("div");
+  overlay.className = "master-log-modal-overlay";
+  overlay.innerHTML = `
+    <section class="master-log-modal" role="dialog" aria-modal="true" aria-label="Billing log record">
+      <h3>Billing Log Record</h3>
+      <p class="master-log-subtitle">${escapeHtml(member?.memberName || "Unknown Member")} · ${escapeHtml(account?.accountNumber || "No account")} · ${escapeHtml(item.id)}</p>
+      <div class="master-log-form">
+        <label>
+          <span>Reason</span>
+          <input id="billingLogReason" type="text" value="${escapeAttribute(item.reason || "Billing item")}" ${readonlyAttribute} />
+        </label>
+        <label>
+          <span>Amount</span>
+          <input id="billingLogAmount" type="number" min="0" step="0.01" value="${escapeAttribute(amountValue)}" ${readonlyAttribute} />
+        </label>
+        <label>
+          <span>Status</span>
+          <input type="text" value="${escapeAttribute(billingStatusLabel(item))}" disabled />
+        </label>
+        <label>
+          <span>Created At</span>
+          <input type="text" value="${escapeAttribute(formatShortDateTime(item.createdAt))}" disabled />
+        </label>
+        <label>
+          <span>Posted To Stripe At</span>
+          <input id="billingLogPostedAt" type="datetime-local" value="${escapeAttribute(toDatetimeLocalValue(item.postedToStripeAt))}" ${readonlyAttribute} />
+        </label>
+        <label>
+          <span>Source</span>
+          <input type="text" value="${escapeAttribute(sourceLabel)}" disabled />
+        </label>
+      </div>
+      <p id="billingLogEditorResult" class="member-edit-result"></p>
+      <footer>
+        ${adminControls ? '<button class="master-log-delete" type="button">Delete</button>' : ""}
+        <button class="master-log-cancel" type="button">${adminControls ? "Cancel" : "Close"}</button>
+        ${adminControls ? '<button class="master-log-save" type="button">Save</button>' : ""}
+      </footer>
+    </section>
+  `;
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener("keydown", onKeydown);
+  };
+
+  const onKeydown = (event) => {
+    if (event.key === "Escape") close();
+  };
+
+  const setResult = (message, tone = "default") => {
+    const result = overlay.querySelector("#billingLogEditorResult");
+    if (!result) return;
+    result.textContent = message;
+    result.dataset.tone = tone;
+  };
+
+  const saveButton = overlay.querySelector(".master-log-save");
+  const deleteButton = overlay.querySelector(".master-log-delete");
+
+  saveButton?.addEventListener("click", async () => {
+    const reason = String(overlay.querySelector("#billingLogReason")?.value || "").trim();
+    const amount = Number(String(overlay.querySelector("#billingLogAmount")?.value || "").replace(/[$,]/g, ""));
+    const postedInput = String(overlay.querySelector("#billingLogPostedAt")?.value || "").trim();
+    const postedAt = fromDatetimeLocalValue(postedInput);
+
+    if (!reason) {
+      setResult("Reason is required.", "error");
+      return;
+    }
+
+    if (!Number.isFinite(amount) || amount < 0) {
+      setResult("Amount must be zero or more.", "error");
+      return;
+    }
+
+    if (postedInput && !postedAt) {
+      setResult("Posted date is invalid.", "error");
+      return;
+    }
+
+    const client = await createSupabaseClient();
+    if (!client) {
+      setResult("App data is not available.", "error");
+      return;
+    }
+
+    saveButton.disabled = true;
+    deleteButton.disabled = true;
+    setResult("Saving...");
+
+    try {
+      const { error } = await client
+        .from("billing_line_items")
+        .update({
+          reason,
+          amount_cents: Math.round(amount * 100),
+          posted_to_stripe_at: postedAt
+        })
+        .eq("id", recordId);
+
+      if (error) throw error;
+
+      await hydrateFromSupabase();
+      refreshAfterRecordMutation();
+      close();
+    } catch (error) {
+      setResult(error.message || "Could not save billing item.", "error");
+      saveButton.disabled = false;
+      deleteButton.disabled = false;
+    }
+  });
+
+  deleteButton?.addEventListener("click", async () => {
+    const confirmed = window.confirm("Delete this billing item?");
+    if (!confirmed) return;
+
+    const client = await createSupabaseClient();
+    if (!client) {
+      setResult("App data is not available.", "error");
+      return;
+    }
+
+    saveButton.disabled = true;
+    deleteButton.disabled = true;
+    setResult("Deleting...");
+
+    try {
+      const { error } = await client.from("billing_line_items").delete().eq("id", recordId);
+      if (error) throw error;
+
+      await hydrateFromSupabase();
+      refreshAfterRecordMutation();
+      close();
+    } catch (error) {
+      setResult(error.message || "Could not delete billing item.", "error");
+      saveButton.disabled = false;
+      deleteButton.disabled = false;
     }
   });
 
@@ -3450,6 +3672,10 @@ function currentMonthRecords(records, dateField) {
   });
 }
 
+function billingStatusLabel(item) {
+  return item?.postedToStripeAt ? "Posted" : "Pending Billing";
+}
+
 function accessCopy(accountType) {
   const normalizedType = canonicalAccountType(accountType);
   if (normalizedType === "Open Gym Only") return "Open Gym access Tuesday and Thursday nights from 6pm - 8pm.";
@@ -3592,10 +3818,23 @@ function renderHeaterRecords() {
     return;
   }
 
-  const records = [...heaterUseEntries]
+  const allRecords = [...heaterUseEntries]
     .sort((a, b) => new Date(b.startAt || b.usedOn) - new Date(a.startAt || a.usedOn))
     .slice(0, 50);
-  const activeTimerEntry = records.find((entry) => !entry.endAt && entry.setATimer && entry.timerStop);
+  const canSeeAllRecords = isAccountManager(appUserSession) || isKioskAccount(appUserSession);
+  const canSelectRecords = !isKioskAccount(appUserSession);
+  const records = canSeeAllRecords
+    ? allRecords
+    : allRecords.filter((entry) => (
+      entry.responsibleMemberId === appUserSession.memberId
+      || entry.groupMemberIds.includes(appUserSession.memberId)
+    ));
+  const recordsNote = isKioskAccount(appUserSession)
+    ? "Kiosk view shows all thermostat records. Records are view-only."
+    : isAccountManager(appUserSession)
+      ? "Admin view shows all thermostat records. Select a record to manage it."
+      : "Showing your thermostat records. Select a record to view details.";
+  const activeTimerEntry = allRecords.find((entry) => !entry.endAt && entry.setATimer && entry.timerStop);
   const activeTimerCountdown = activeTimerEntry ? heaterCountdownText(activeTimerEntry) : "";
   const timerStatusNote = activeTimerEntry
     ? `
@@ -3619,7 +3858,7 @@ function renderHeaterRecords() {
   root.innerHTML = `
     <section class="live-record-page">
       <p class="data-source-note">Live data</p>
-      <p class="data-source-note heater-personal-record-note">All your personal records are accessible on your account.</p>
+      <p class="data-source-note heater-personal-record-note">${escapeHtml(recordsNote)}</p>
       ${timerStatusNote}
       <div class="detail-card">
         <ol class="record-list heater-record-list">
@@ -3627,8 +3866,11 @@ function renderHeaterRecords() {
             const member = findMember(entry.responsibleMemberId);
             const heaterState = heaterRecordStatus(entry);
             const timerCountdown = heaterCountdownText(entry);
+            const rowAttributes = canSelectRecords
+              ? ` data-detail-log-type="heater" data-detail-log-id="${escapeAttribute(entry.id)}" role="button" tabindex="0"`
+              : "";
             return `
-              <li>
+              <li${rowAttributes}>
                 <strong class="heater-record-event">${escapeHtml(entry.event || "Heater Use")}</strong>
                 <span class="heater-record-meta">${formatShortDate(entry.usedOn)} · ${escapeHtml(member?.memberName || "No responsible member")}${timerCountdown ? ` <span class="heater-row-timer">· ${escapeHtml(timerCountdown)}</span>` : ""}</span>
                 <button class="heater-state-action is-${escapeHtml(heaterState.key)}" data-heater-state="${escapeHtml(heaterState.key)}" type="button">${escapeHtml(heaterState.label)}</button>
@@ -3640,7 +3882,7 @@ function renderHeaterRecords() {
     </section>
   `;
 
-  const hasOpenHeater = records.some((entry) => heaterRecordStatus(entry).key === "currently-on");
+  const hasOpenHeater = allRecords.some((entry) => heaterRecordStatus(entry).key === "currently-on");
   const fab = document.querySelector(".heater-fab");
   const fabLabel = fab?.querySelector(".heater-fab-label");
   const confirmMessage = document.querySelector("#heaterConfirm .confirm-dialog p");
@@ -3657,7 +3899,7 @@ function renderHeaterRecords() {
 
   bindHeaterRecordsActions();
 
-  const expiredTimers = records.filter((entry) => {
+  const expiredTimers = allRecords.filter((entry) => {
     if (entry.endAt || !entry.setATimer || (entry.turnHeaterOn || "On") !== "On") return false;
     const target = heaterTimerTarget(entry);
     return Boolean(target && target.getTime() <= Date.now());
@@ -3672,7 +3914,7 @@ function renderHeaterRecords() {
     heaterCountdownTimer = null;
   }
 
-  const hasActiveTimer = records.some((entry) => !entry.endAt && entry.setATimer && entry.timerStop);
+  const hasActiveTimer = allRecords.some((entry) => !entry.endAt && entry.setATimer && entry.timerStop);
   if (hasActiveTimer && appState.currentRoute === "heaterRecords") {
     heaterCountdownTimer = window.setTimeout(() => {
       if (appState.currentRoute === "heaterRecords") {
@@ -3778,8 +4020,8 @@ function renderAccountInfo() {
   if (!isAccountManager(appUserSession)) {
     root.innerHTML = `
       <div class="restricted-card">
-        <p class="eyebrow">Account Manager Only</p>
-        <h2>Account &amp; Info is restricted.</h2>
+        <p class="eyebrow">Admin Only</p>
+        <h2>Account Administration is restricted.</h2>
         <p>Use My Account to view your own membership information.</p>
       </div>
     `;
@@ -3797,7 +4039,7 @@ function renderAccountInfo() {
   root.innerHTML = `
     <div class="account-page-heading">
       <div>
-        <p class="eyebrow">Account Manager View</p>
+        <p class="eyebrow">Admin View</p>
         <h2>Membership Accounts</h2>
         <p>Search, review, and open member accounts. Details use a shared-account model: account data is shared, member data is per person.</p>
         ${dataSourceNotice()}
@@ -3969,7 +4211,7 @@ function renderAccountDetail(memberId) {
 
   const account = accountForMember(member);
   const memberAccountNumber = displayAccountNumberForMember(member);
-  const canView = isAccountManager(appUserSession)
+  const canView = canUseAccountAdminTools()
     || member.id === appUserSession.memberId
     || member.accountId === appUserSession.accountId;
 
@@ -3992,6 +4234,7 @@ function renderAccountDetail(memberId) {
     const minutes = durationMinutes(entry.startAt, entry.endAt);
     return total + (minutes || 0);
   }, 0);
+  const canEditDetails = canEditMember(member);
 
   root.innerHTML = `
     <div class="member-detail-shell">
@@ -4008,7 +4251,7 @@ function renderAccountDetail(memberId) {
           <button data-detail-action="phone" data-member-id="${escapeAttribute(member.id)}" type="button">Phone Call</button>
           <button data-detail-action="text" data-member-id="${escapeAttribute(member.id)}" type="button">Text Message</button>
           <button data-detail-action="email" data-member-id="${escapeAttribute(member.id)}" type="button">Email</button>
-          <button class="edit-chip" data-detail-action="edit" data-member-id="${escapeAttribute(member.id)}" type="button">Edit</button>
+          ${canEditDetails ? `<button class="edit-chip" data-detail-action="edit" data-member-id="${escapeAttribute(member.id)}" type="button">Edit</button>` : ""}
         </div>
         <div class="detail-stat-grid">
           <article>
@@ -4102,10 +4345,10 @@ function renderBillingPanel(items) {
       <h3>Billing Line Items</h3>
       <ol class="record-list">
         ${items.map((item) => `
-          <li>
+          <li data-detail-log-type="billing" data-detail-log-id="${escapeAttribute(item.id)}" role="button" tabindex="0">
             <div>
               <strong>${escapeHtml(item.reason)}</strong>
-              <span>${formatShortDateTime(item.createdAt)} · ${item.postedToStripeAt ? "Posted to Stripe" : "Pending monthly billing"}</span>
+              <span>${formatShortDateTime(item.createdAt)} · ${escapeHtml(billingStatusLabel(item))}</span>
             </div>
             <b>${formatCurrency(item.amountCents)}</b>
           </li>
@@ -4123,7 +4366,7 @@ function renderTimesheetPanel(items) {
       <h3>Timesheet History</h3>
       <ol class="record-list">
         ${items.map((item) => `
-          <li>
+          <li data-detail-log-type="timesheet" data-detail-log-id="${escapeAttribute(item.id)}" role="button" tabindex="0">
             <div>
               <strong>${formatShortDateTime(item.signedInAt)}</strong>
               <span>${formatDuration(item.signedInAt, item.signedOutAt)} · ${item.signedOutAt ? `Out ${formatShortDateTime(item.signedOutAt)}` : "Currently signed in"}</span>
@@ -4144,7 +4387,7 @@ function renderGuestPanel(items) {
       <h3>Guest Entries</h3>
       <ol class="record-list">
         ${items.map((item) => `
-          <li>
+          <li data-detail-log-type="timesheet" data-detail-log-id="${escapeAttribute(item.id)}" role="button" tabindex="0">
             <div>
               <strong>${escapeHtml(item.guestName)}</strong>
               <span>${formatShortDateTime(item.signedInAt)} · ${escapeHtml(item.dayPassOrOpenGym || "Day Pass")} · Liability ${item.liabilityAccepted ? "accepted" : "not accepted"}</span>
@@ -4165,7 +4408,7 @@ function renderHeaterPanel(items) {
       <h3>Heater Use</h3>
       <ol class="record-list">
         ${items.map((item) => `
-          <li>
+          <li data-detail-log-type="heater" data-detail-log-id="${escapeAttribute(item.id)}" role="button" tabindex="0">
             <div>
               <strong>${escapeHtml(item.event || "Member Use")}</strong>
               <span>${formatShortDate(item.usedOn)} · ${formatDuration(item.startAt, item.endAt)}</span>
@@ -4206,7 +4449,7 @@ function removeLocalMember(memberId) {
 }
 
 function canEditMember(member) {
-  return Boolean(isAccountManager(appUserSession) || member?.id === appUserSession.memberId);
+  return Boolean(canUseAccountAdminTools() || member?.id === appUserSession.memberId);
 }
 
 function showDetailActionMessage(message) {
@@ -4252,6 +4495,7 @@ function showAppNotice(message, title = "Notice") {
 
 async function updateMemberContact(member, updates) {
   const client = await createSupabaseClient();
+  const canUseAdminTools = canUseAccountAdminTools();
 
   if (!client) {
     throw new Error("App data is not available.");
@@ -4262,7 +4506,7 @@ async function updateMemberContact(member, updates) {
     email_address: updates.emailAddress
   };
 
-  if (isAccountManager(appUserSession)) {
+  if (canUseAdminTools) {
     dbUpdates.member_name = updates.memberName;
     dbUpdates.account_type = updates.accountType || member.accountType;
     dbUpdates.allow_guest_entry = Boolean(updates.allowGuestEntry);
@@ -4285,7 +4529,7 @@ async function updateMemberContact(member, updates) {
     throw error;
   }
 
-  if (isAccountManager(appUserSession)) {
+  if (canUseAdminTools) {
     const { error: accountTypeError } = await client
       .from("account_members")
       .update({ account_type: updates.accountType || member.accountType })
@@ -4303,7 +4547,7 @@ async function updateMemberContact(member, updates) {
     }
   }
 
-  if (isAccountManager(appUserSession) && updates.accountNumber) {
+  if (canUseAdminTools && updates.accountNumber) {
     const currentAccountNumber = displayAccountNumberForMember(member);
     const targetAccountNumber = String(updates.accountNumber || "").trim();
 
@@ -4353,7 +4597,7 @@ async function updateMemberContact(member, updates) {
     }
   }
 
-  if (isAccountManager(appUserSession) && Object.prototype.hasOwnProperty.call(updates, "stripeCustomerId")) {
+  if (canUseAdminTools && Object.prototype.hasOwnProperty.call(updates, "stripeCustomerId")) {
     const nextStripeCustomerId = String(updates.stripeCustomerId || "").trim();
     const currentStripeCustomerId = String(accountForMember(member)?.stripeCustomerId || "").trim();
 
@@ -4415,12 +4659,23 @@ async function updateMemberContact(member, updates) {
     appState.currentUserEmail = currentAuthSession?.user?.email || updates.emailAddress;
   }
 
-  syncLocalMember(member.id, {
-    ...updates,
-    accountType: updates.accountType || member.accountType
-  });
+  const localMemberUpdates = {
+    phoneNumber: updates.phoneNumber,
+    emailAddress: updates.emailAddress
+  };
 
-  if (isAccountManager(appUserSession)) {
+  if (canUseAdminTools) {
+    Object.assign(localMemberUpdates, {
+      memberName: updates.memberName,
+      accountType: updates.accountType || member.accountType,
+      allowGuestEntry: Boolean(updates.allowGuestEntry),
+      allowHeaterUse: Boolean(updates.allowHeaterUse)
+    });
+  }
+
+  syncLocalMember(member.id, localMemberUpdates);
+
+  if (canUseAdminTools) {
     accountMembers.forEach((accountMember) => {
       if (accountMember.accountId === member.accountId) {
         syncLocalMember(accountMember.id, {
@@ -4553,8 +4808,8 @@ async function moveMemberToAccountClientFallback(member, targetAccountNumber) {
 }
 
 async function deleteMemberRecord(member) {
-  if (!isAccountManager(appUserSession)) {
-    throw new Error("Only account managers can delete members.");
+  if (!canUseAccountAdminTools()) {
+    throw new Error("Only admins can delete members from Account Administration.");
   }
 
   if (!member?.id) {
@@ -4592,8 +4847,9 @@ function openMemberEditDialog(member) {
     return;
   }
 
-  const canEditName = isAccountManager(appUserSession);
-  const canDeleteMember = isAccountManager(appUserSession) && member.id !== appUserSession.memberId;
+  const canUseAdminTools = canUseAccountAdminTools();
+  const canEditName = canUseAdminTools;
+  const canDeleteMember = canUseAdminTools && member.id !== appUserSession.memberId;
   const account = accountForMember(member);
   const overlay = document.createElement("div");
   overlay.className = "member-edit-overlay";
@@ -4781,7 +5037,7 @@ function openMemberEditDialog(member) {
   saveButton?.addEventListener("click", save);
   deleteButton?.addEventListener("click", async () => {
     if (!canDeleteMember) {
-      setResult("Only account managers can delete members.", "error");
+      setResult("Only admins can delete members from Account Administration.", "error");
       return;
     }
 
@@ -4876,6 +5132,8 @@ function bindAccountDetailActions() {
     button.addEventListener("click", () => handleDetailQuickAction(button));
   });
 
+  bindDetailLogOpenActions();
+
   document.querySelectorAll(".detail-tab").forEach((button) => {
     button.addEventListener("click", () => {
       const panelName = button.dataset.detailPanel;
@@ -4891,7 +5149,28 @@ function bindAccountDetailActions() {
   });
 }
 
+function bindDetailLogOpenActions() {
+  document.querySelectorAll("[data-detail-log-id]").forEach((row) => {
+    const open = () => {
+      const recordType = String(row.dataset.detailLogType || "").trim();
+      const recordId = String(row.dataset.detailLogId || "").trim();
+      if (!recordType || !recordId) return;
+      openRecordDetail(recordType, recordId);
+    };
+
+    row.addEventListener("click", open);
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        open();
+      }
+    });
+  });
+}
+
 function bindHeaterRecordsActions() {
+  bindDetailLogOpenActions();
+
   const confirm = document.getElementById("heaterConfirm");
   const openButton = document.querySelector("[data-open-heater-confirm]");
   const closeButton = document.querySelector("[data-heater-confirm-close]");
