@@ -199,9 +199,23 @@
       document.getElementById("gym-status").textContent =
         (data.gymOccupied === "Yes") ? "Open & In Use" : "Not in use";
     }
-  </script>
 
-  <script src="https://script.google.com/macros/s/AKfycbzaObDgkBen2S8yQPZzNKEyj4t-4p2Itge37e-ot8tVT7nqDH6NO5-jEIY9SnwWpHhlJA/exec?callback=rorcStatsLoaded"></script>
+    async function rorcLoadFacilityStats() {
+      try {
+        const response = await fetch("/api/facility-activity", { cache: "no-store" });
+        const body = await response.json();
+        if (!response.ok || body.success === false) {
+          throw new Error(body.error || "Could not load facility activity.");
+        }
+        rorcStatsLoaded(body.activity || body);
+      } catch (error) {
+        console.warn("RORC facility stats failed:", error);
+        rorcStatsLoaded({});
+      }
+    }
+
+    rorcLoadFacilityStats();
+  </script>
 
   <footer class="site-footer">
     <div class="site-footer-inner">

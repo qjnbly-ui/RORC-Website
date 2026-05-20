@@ -1115,9 +1115,12 @@
         }
       }
       const noun = (occupancy === "1") ? "member" : "members";
-      const countLine = (occupancy === "0" || occupancy === 0 || occupancy === "–")
-        ? "No members are signed in right now."
-        : `Currently <span class=\"rorc-live-count\">${occupancy}</span> ${noun} signed in.`;
+      let countLine = `Currently <span class=\"rorc-live-count\">${occupancy}</span> ${noun} signed in.`;
+      if (occupancy === "–") {
+        countLine = "Live sign-in count is temporarily unavailable.";
+      } else if (occupancy === "0" || occupancy === 0) {
+        countLine = "No members are signed in right now.";
+      }
 
       const lines = [status.text];
       if (status.nextEvent) {
@@ -1148,6 +1151,20 @@
 
     function rorcLiveLoaded(data) {
       rorcRenderLiveStatus(data);
+    }
+
+    async function rorcLoadLiveStatus() {
+      try {
+        const response = await fetch("/api/facility-activity", { cache: "no-store" });
+        const body = await response.json();
+        if (!response.ok || body.success === false) {
+          throw new Error(body.error || "Could not load facility activity.");
+        }
+        rorcLiveLoaded(body.activity || body);
+      } catch (error) {
+        console.warn("RORC live status failed:", error);
+        rorcLiveLoaded({});
+      }
     }
 
     const rorcCarouselImages = [
@@ -1254,7 +1271,7 @@
 
     renderRorcCarousel();
     startRorcCarousel();
+    rorcLoadLiveStatus();
   </script>
-  <script src="https://script.google.com/macros/s/AKfycbzaObDgkBen2S8yQPZzNKEyj4t-4p2Itge37e-ot8tVT7nqDH6NO5-jEIY9SnwWpHhlJA/exec?callback=rorcLiveLoaded"></script>
 </body>
 </html>
