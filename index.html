@@ -1245,28 +1245,15 @@
     function rorcHeatColor(level) {
       const clamped = Math.max(0, Math.min(1, Number(level) || 0));
       if (clamped < 0.25) {
-        return rorcBlendHex("#171717", "#2b2b2b", clamped / 0.25);
+        const t = clamped / 0.25;
+        return `hsl(0 0% ${10 + (8 * t)}%)`;
       }
       if (clamped < 0.65) {
-        return rorcBlendHex("#2b2b2b", "#9b7413", (clamped - 0.25) / 0.4);
+        const t = (clamped - 0.25) / 0.4;
+        return `hsl(${40 - (2 * t)} ${78 + (8 * t)}% ${20 + (24 * t)}%)`;
       }
-      return rorcBlendHex("#9b7413", "#c44744", (clamped - 0.65) / 0.35);
-    }
-
-    function rorcBlendHex(startHex, endHex, amount) {
-      const t = Math.max(0, Math.min(1, Number(amount) || 0));
-      const start = startHex.replace("#", "");
-      const end = endHex.replace("#", "");
-      const sr = Number.parseInt(start.slice(0, 2), 16);
-      const sg = Number.parseInt(start.slice(2, 4), 16);
-      const sb = Number.parseInt(start.slice(4, 6), 16);
-      const er = Number.parseInt(end.slice(0, 2), 16);
-      const eg = Number.parseInt(end.slice(2, 4), 16);
-      const eb = Number.parseInt(end.slice(4, 6), 16);
-      const r = Math.round(sr + ((er - sr) * t));
-      const g = Math.round(sg + ((eg - sg) * t));
-      const b = Math.round(sb + ((eb - sb) * t));
-      return `rgb(${r} ${g} ${b})`;
+      const t = (clamped - 0.65) / 0.35;
+      return `hsl(${42 - (38 * t)} ${86 - (4 * t)}% ${44 + (12 * t)}%)`;
     }
 
     function rorcRenderHeatmap(trends) {

@@ -38,6 +38,9 @@ let timesheetRealtimeChannel = null;
 let timesheetRealtimeRetryTimer = null;
 let timesheetSyncInFlight = false;
 let heaterCountdownTimer = null;
+let thermostatStatus = null;
+let thermostatStatusFetchedAt = 0;
+const THERMOSTAT_STATUS_CACHE_MS = 3 * 60 * 1000;
 const pendingHeaterAutoOffIds = new Set();
 let notifiedIds = new Set();
 let notificationUnreadCount = 0;
@@ -154,7 +157,8 @@ const appState = {
   dataStatus: "loading",
   dataError: "",
   authMemberId: "",
-  currentUserEmail: ""
+  currentUserEmail: "",
+  pendingThermostatSystem: "heat"
 };
 
 const accountManagerOnlyRoutes = new Set([
@@ -1658,6 +1662,13 @@ function openMasterLogEditor(recordType, recordId, options = {}) {
           </label>
         ` : `
           <label>
+            <span>System</span>
+            <select id="masterLogThermostatSystem" ${readonlyAttribute}>
+              <option value="heat" ${(record.systemType || "heat") === "heat" ? "selected" : ""}>Heat</option>
+              <option value="ac" ${(record.systemType || "heat") === "ac" ? "selected" : ""}>AC</option>
+            </select>
+          </label>
+          <label>
             <span>Event</span>
             <input id="masterLogHeaterEvent" type="text" value="${escapeAttribute(record.event || "")}" ${readonlyAttribute} />
           </label>
@@ -1667,6 +1678,10 @@ function openMasterLogEditor(recordType, recordId, options = {}) {
               <option value="On" ${(record.turnHeaterOn || "On") === "On" ? "selected" : ""}>On</option>
               <option value="Off" ${(record.turnHeaterOn || "On") === "Off" ? "selected" : ""}>Off</option>
             </select>
+          </label>
+          <label>
+            <span>Target Temperature</span>
+            <input id="masterLogTargetTemp" type="number" min="45" max="92" value="${escapeAttribute(record.targetTemperatureF || "")}" ${readonlyAttribute} />
           </label>
           <label>
             <span>Start At</span>
@@ -1746,8 +1761,10 @@ function openMasterLogEditor(recordType, recordId, options = {}) {
         const startAt = fromDatetimeLocalValue(String(overlay.querySelector("#masterLogHeaterStartAt")?.value || ""));
         const endAt = fromDatetimeLocalValue(String(overlay.querySelector("#masterLogHeaterEndAt")?.value || ""));
         const payload = {
+          system_type: String(overlay.querySelector("#masterLogThermostatSystem")?.value || record.systemType || "heat"),
           event: String(overlay.querySelector("#masterLogHeaterEvent")?.value || "").trim() || null,
           turn_heater_on: String(overlay.querySelector("#masterLogHeaterState")?.value || "On"),
+          target_temperature_f: Number(overlay.querySelector("#masterLogTargetTemp")?.value || 0) || null,
           start_at: startAt || record.startAt,
           end_at: endAt,
           note: String(overlay.querySelector("#masterLogHeaterNote")?.value || "").trim() || null
@@ -2253,7 +2270,7 @@ async function sendMemberMessage(payload) {
   return body;
 }
 
-async function triggerHeaterOnSequence(memberIds) {
+async function triggerHeaterOnSequence(memberIds, options = {}) {
   const token = currentAuthSession?.access_token || "";
   if (!token || !Array.isArray(memberIds) || memberIds.length === 0) return;
 
@@ -2264,7 +2281,9 @@ async function triggerHeaterOnSequence(memberIds) {
       Authorization: `Bearer ${token}`
     },
     body: JSON.stringify({
-      memberIds: [...new Set(memberIds)]
+      memberIds: [...new Set(memberIds)],
+      systemType: options.systemType || "heat",
+      targetTemperatureF: options.targetTemperatureF || null
     })
   });
 
@@ -2272,6 +2291,31 @@ async function triggerHeaterOnSequence(memberIds) {
   if (!response.ok || body.success === false) {
     throw new Error(body.error || "Heater-on sequence failed.");
   }
+}
+
+async function fetchThermostatStatus({ force = false } = {}) {
+  const token = currentAuthSession?.access_token || "";
+  const cacheAge = Date.now() - thermostatStatusFetchedAt;
+
+  if (!force && thermostatStatus && cacheAge < THERMOSTAT_STATUS_CACHE_MS) {
+    return thermostatStatus;
+  }
+
+  if (!token) return thermostatStatus;
+
+  const response = await fetch(`/api/thermostat-status${force ? "?refresh=1" : ""}`, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not load thermostat status.");
+  }
+
+  thermostatStatus = body;
+  thermostatStatusFetchedAt = Date.now();
+  return thermostatStatus;
 }
 
 async function triggerHeaterOffSequence(memberIds = [], options = {}) {
@@ -2286,6 +2330,7 @@ async function triggerHeaterOffSequence(memberIds = [], options = {}) {
     },
     body: JSON.stringify({
       memberIds: [...new Set((memberIds || []).filter(Boolean))],
+      systemType: options.systemType || "heat",
       heaterUseEntryId: options.heaterUseEntryId || null,
       timerTriggered: Boolean(options.timerTriggered),
       timerMinutes: Number(options.timerMinutes || 0) || null
@@ -3485,6 +3530,11 @@ async function hydrateFromSupabase() {
       }
     }
     try {
+      await fetchThermostatStatus();
+    } catch (thermostatError) {
+      console.warn("Could not load thermostat status.", thermostatError);
+    }
+    try {
       await startNotificationRealtime();
       await startTimesheetRealtime();
     } catch (notificationError) {
@@ -3611,11 +3661,13 @@ function applySupabaseData({
   heaterUseEntries = heaterRows.map((row) => ({
     id: row.id,
     usedOn: row.used_on,
+    systemType: row.system_type || "heat",
     event: row.event,
     responsibleMemberId: row.responsible_member_id,
     groupMemberIds: heaterGroupMap.get(row.id) || [],
     groupPay: Boolean(row.group_pay),
     turnHeaterOn: row.turn_heater_on || "On",
+    targetTemperatureF: Number(row.target_temperature_f || 0) || null,
     setATimer: Boolean(row.set_a_timer),
     timerStart: row.timer_start || null,
     timerStop: row.timer_stop || null,
@@ -4170,6 +4222,131 @@ function heaterDisplayState(entry) {
   return heaterRecordStatus(entry).label;
 }
 
+function thermostatSystemLabel(systemType) {
+  return String(systemType || "").toLowerCase() === "ac" ? "AC" : "Heat";
+}
+
+function thermostatTempLabel(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? `${Math.round(numeric)}°F` : "Not set";
+}
+
+function thermostatPercentLabel(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? `${Math.round(numeric)}%` : "Not set";
+}
+
+function thermostatModeLabel(value) {
+  const raw = String(value || "").trim();
+  return raw ? raw.toUpperCase() : "UNKNOWN";
+}
+
+function thermostatActivityLabel(item) {
+  return String(item?.currentActivity || "").trim()
+    || (String(item?.equipmentStatus || "").trim() || "Idle");
+}
+
+function thermostatFanLabel(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "Auto";
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
+
+function thermostatAirQualityLabel(item) {
+  const air = item?.airQuality || {};
+  const value = Number(air.value);
+  const co2 = Number(air.co2);
+
+  if (Number.isFinite(value)) return `Air ${Math.round(value)}`;
+  if (Number.isFinite(co2)) return `CO2 ${Math.round(co2)} ppm`;
+  if (air.displayEnabled === true) return "Air display on";
+  if (air.displayEnabled === false) return "Air unavailable";
+  return "Air not reported";
+}
+
+function thermostatWeatherLabel(weather) {
+  if (!weather) return "Weather unavailable";
+  const pieces = [];
+  if (Number.isFinite(Number(weather.temperatureF))) {
+    pieces.push(`Outside ${Math.round(Number(weather.temperatureF))}°F`);
+  }
+  if (Number.isFinite(Number(weather.humidity))) {
+    pieces.push(`${Math.round(Number(weather.humidity))}% out`);
+  }
+  if (weather.condition) {
+    pieces.push(String(weather.condition));
+  }
+  return pieces.length ? pieces.join(" · ") : "Weather unavailable";
+}
+
+function thermostatSensorLabel(item) {
+  const sensors = Array.isArray(item?.sensors) ? item.sensors : [];
+  if (!sensors.length) return "No sensors";
+
+  const occupied = sensors.filter((sensor) => sensor.occupancy === "occupied").length;
+  const inUse = Number(item?.activeSensorCount || 0);
+  if (occupied > 0) return `${occupied} occupied`;
+  if (inUse > 0) return `${inUse} active sensor${inUse === 1 ? "" : "s"}`;
+  return `${sensors.length} sensor${sensors.length === 1 ? "" : "s"}`;
+}
+
+function renderThermostatStatusPanel() {
+  const status = thermostatStatus?.thermostats || {};
+  const cards = [
+    ["Heat", status.heat],
+    ["AC", status.ac]
+  ].map(([label, item]) => {
+    if (!item?.configured) {
+      return `
+        <article>
+          <span>${escapeHtml(label)}</span>
+          <strong>Not configured</strong>
+          <small>Thermostat ID not set</small>
+        </article>
+      `;
+    }
+
+    if (item.error) {
+      return `
+        <article>
+          <span>${escapeHtml(label)}</span>
+          <strong>Status unavailable</strong>
+          <small>${escapeHtml(item.error)}</small>
+        </article>
+      `;
+    }
+
+    const mode = thermostatModeLabel(item.hvacMode);
+    const setpoint = label === "AC" ? item.desiredCoolF : item.desiredHeatF;
+    const activity = thermostatActivityLabel(item);
+
+    return `
+      <article>
+        <span>${escapeHtml(label)} · ${escapeHtml(mode)}</span>
+        <strong>${thermostatTempLabel(item.temperatureF)}</strong>
+        <b class="thermostat-activity">${escapeHtml(activity)}</b>
+        <div class="thermostat-metric-grid">
+          <small>Set ${thermostatTempLabel(setpoint)}</small>
+          <small>Humidity ${thermostatPercentLabel(item.humidity)}</small>
+          <small>Fan ${escapeHtml(thermostatFanLabel(item.desiredFanMode))}</small>
+          <small>${escapeHtml(thermostatAirQualityLabel(item))}</small>
+          <small>${escapeHtml(thermostatSensorLabel(item))}</small>
+          <small>${escapeHtml(thermostatWeatherLabel(item.weather))}</small>
+        </div>
+      </article>
+    `;
+  }).join("");
+
+  const refreshed = thermostatStatus?.fetchedAt ? `Updated ${formatShortDateTime(thermostatStatus.fetchedAt)}` : "";
+
+  return `
+    <div class="thermostat-live-grid" aria-label="Live thermostat status">
+      ${cards}
+    </div>
+    ${refreshed ? `<p class="data-source-note thermostat-refresh-note">${escapeHtml(refreshed)}</p>` : ""}
+  `;
+}
+
 function heaterRecordStatus(entry) {
   const isCurrentlyOn = !entry?.endAt && (entry?.turnHeaterOn || "On") === "On";
 
@@ -4444,6 +4621,7 @@ function renderHeaterRecords() {
       ? "Admin view shows all thermostat records. Select a record to manage it."
       : "Showing your thermostat records. Select a record to view details.";
   const activeTimerEntry = allRecords.find((entry) => !entry.endAt && entry.setATimer && entry.timerStop);
+  const activeThermostat = activeHeaterEntry();
   const activeTimerCountdown = activeTimerEntry ? heaterCountdownText(activeTimerEntry) : "";
   const timerStatusNote = activeTimerEntry
     ? `
@@ -4453,23 +4631,38 @@ function renderHeaterRecords() {
       </p>
     `
     : "";
+  const activeThermostatTools = activeThermostat
+    ? `
+      <p class="data-source-note heater-timer-note">
+        ${escapeHtml(thermostatSystemLabel(activeThermostat.systemType))} is active at ${thermostatTempLabel(activeThermostat.targetTemperatureF)}.
+        <button class="inline-action-button" data-change-thermostat-temp type="button">Change Temp</button>
+      </p>
+    `
+    : "";
 
-  if (records.length === 0) {
-    root.innerHTML = `
-      <section class="empty-state">
-        <p>No items</p>
-      </section>
-    `;
-    bindHeaterRecordsActions();
-    return;
+  if (!thermostatStatus || (Date.now() - thermostatStatusFetchedAt) > THERMOSTAT_STATUS_CACHE_MS) {
+    fetchThermostatStatus({ force: true }).then(() => {
+      if (appState.currentRoute === "heaterRecords") {
+        render("heaterRecords");
+      }
+    }).catch((error) => {
+      console.warn("Could not refresh thermostat status.", error);
+    });
   }
 
   root.innerHTML = `
     <section class="live-record-page">
       <p class="data-source-note">Live data</p>
-      <p class="data-source-note heater-personal-record-note">${escapeHtml(recordsNote)}</p>
+      ${renderThermostatStatusPanel()}
+      <p class="heater-personal-record-note">${escapeHtml(recordsNote)}</p>
       ${timerStatusNote}
-      <div class="detail-card">
+      ${activeThermostatTools}
+      ${records.length === 0 ? `
+        <section class="empty-state">
+          <p>No thermostat records yet.</p>
+        </section>
+      ` : `
+      <div class="detail-card thermostat-record-card">
         <ol class="record-list heater-record-list">
           ${records.map((entry) => {
             const member = findMember(entry.responsibleMemberId);
@@ -4480,14 +4673,15 @@ function renderHeaterRecords() {
               : "";
             return `
               <li${rowAttributes}>
-                <strong class="heater-record-event">${escapeHtml(entry.event || "Heater Use")}</strong>
-                <span class="heater-record-meta">${formatShortDate(entry.usedOn)} · ${escapeHtml(member?.memberName || "No responsible member")}${timerCountdown ? ` <span class="heater-row-timer">· ${escapeHtml(timerCountdown)}</span>` : ""}</span>
+                <strong class="heater-record-event">${escapeHtml(thermostatSystemLabel(entry.systemType))} · ${escapeHtml(entry.event || "Thermostat Use")}</strong>
+                <span class="heater-record-meta">${formatShortDate(entry.usedOn)} · ${escapeHtml(member?.memberName || "No responsible member")} · Set ${thermostatTempLabel(entry.targetTemperatureF)}${timerCountdown ? ` <span class="heater-row-timer">· ${escapeHtml(timerCountdown)}</span>` : ""}</span>
                 <button class="heater-state-action is-${escapeHtml(heaterState.key)}" data-heater-state="${escapeHtml(heaterState.key)}" type="button">${escapeHtml(heaterState.label)}</button>
               </li>
             `;
           }).join("")}
         </ol>
       </div>
+      `}
     </section>
   `;
 
@@ -4496,14 +4690,18 @@ function renderHeaterRecords() {
   const fabLabel = fab?.querySelector(".heater-fab-label");
   const confirmMessage = document.querySelector("#heaterConfirm .confirm-dialog p");
   const confirmAccept = document.querySelector("[data-heater-confirm-accept]");
+  const confirmSystem = document.querySelector("[data-confirm-thermostat-system]");
 
   if (fab && fabLabel && confirmMessage && confirmAccept) {
-    fabLabel.textContent = hasOpenHeater ? "Heater Off" : "Heater On";
-    fab.setAttribute("aria-label", hasOpenHeater ? "Open heater off confirm" : "Open heater use form");
-    confirmAccept.textContent = hasOpenHeater ? "HEATER OFF" : "HEATER ON";
+    fabLabel.textContent = hasOpenHeater ? "Thermostat Off" : "Thermostat On";
+    fab.setAttribute("aria-label", hasOpenHeater ? "Open thermostat off confirm" : "Open thermostat use form");
+    confirmAccept.textContent = hasOpenHeater ? "THERMOSTAT OFF" : "THERMOSTAT ON";
     confirmMessage.innerHTML = hasOpenHeater
-      ? "Turn Heater Off<br /><span>(Ends current heater billing record)</span>"
-      : "Open Heater Use Form<br /><span>(Heater costs $13 per hour)</span>";
+      ? "Turn Thermostat Off<br /><span>(Ends the current thermostat record)</span>"
+      : "Turn Thermostat On<br /><span>Select heat or AC before starting</span>";
+    if (confirmSystem) {
+      confirmSystem.hidden = hasOpenHeater;
+    }
   }
 
   bindHeaterRecordsActions();
@@ -4572,12 +4770,14 @@ async function turnHeaterOffActiveEntry() {
     : [activeEntry.responsibleMemberId];
 
   triggerHeaterOffSequence(offRecipients, {
+    systemType: activeEntry.systemType || "heat",
     heaterUseEntryId: activeEntry.id,
     timerTriggered: false
   }).catch((sequenceError) => {
     console.warn("Heater off sequence failed.", sequenceError);
   });
 
+  thermostatStatusFetchedAt = 0;
   await hydrateFromSupabase();
   render("heaterRecords");
 }
@@ -4603,6 +4803,7 @@ async function turnHeaterOffEntry(entry, { timerTriggered = false } = {}) {
 
     const offRecipients = entry.groupPay ? entry.groupMemberIds : [entry.responsibleMemberId];
     triggerHeaterOffSequence(offRecipients, {
+      systemType: entry.systemType || "heat",
       heaterUseEntryId: entry.id,
       timerTriggered,
       timerMinutes: timerTriggered ? configuredTimerMinutes(entry) : null
@@ -4610,6 +4811,7 @@ async function turnHeaterOffEntry(entry, { timerTriggered = false } = {}) {
       console.warn("Heater off sequence failed.", sequenceError);
     });
 
+    thermostatStatusFetchedAt = 0;
     await hydrateFromSupabase();
     if (appState.currentRoute === "heaterRecords") {
       render("heaterRecords");
@@ -4619,6 +4821,51 @@ async function turnHeaterOffEntry(entry, { timerTriggered = false } = {}) {
   } finally {
     pendingHeaterAutoOffIds.delete(entry.id);
   }
+}
+
+async function changeActiveThermostatTemperature() {
+  const activeEntry = activeHeaterEntry();
+
+  if (!activeEntry) {
+    showDetailActionMessage("No active thermostat record found.");
+    return;
+  }
+
+  const currentTemp = activeEntry.targetTemperatureF || (activeEntry.systemType === "ac" ? 66 : 74);
+  const raw = window.prompt(`Set ${thermostatSystemLabel(activeEntry.systemType)} temperature`, String(currentTemp));
+  if (raw === null) return;
+
+  const nextTemp = Number(String(raw).replace(/[^\d.]/g, ""));
+  if (!Number.isFinite(nextTemp) || nextTemp < 45 || nextTemp > 92) {
+    showDetailActionMessage("Enter a temperature between 45 and 92.");
+    return;
+  }
+
+  const client = await createSupabaseClient();
+  if (!client) {
+    showDetailActionMessage("App data is not available.");
+    return;
+  }
+
+  const { error } = await client
+    .from("heater_use_entries")
+    .update({ target_temperature_f: Math.round(nextTemp) })
+    .eq("id", activeEntry.id)
+    .is("end_at", null);
+
+  if (error) {
+    throw error;
+  }
+
+  const recipients = activeEntry.groupPay ? activeEntry.groupMemberIds : [activeEntry.responsibleMemberId];
+  await triggerHeaterOnSequence(recipients, {
+    systemType: activeEntry.systemType || "heat",
+    targetTemperatureF: Math.round(nextTemp)
+  });
+
+  thermostatStatusFetchedAt = 0;
+  await hydrateFromSupabase();
+  render("heaterRecords");
 }
 
 function renderAccountInfo() {
@@ -5024,17 +5271,17 @@ function renderGuestPanel(items) {
 }
 
 function renderHeaterPanel(items) {
-  if (items.length === 0) return renderPanelEmpty("No heater use records for this member.");
+  if (items.length === 0) return renderPanelEmpty("No thermostat use records for this member.");
 
   return `
     <div class="detail-card">
-      <h3>Heater Use</h3>
+      <h3>Thermostat Use</h3>
       <ol class="record-list">
         ${items.map((item) => `
           <li data-detail-log-type="heater" data-detail-log-id="${escapeAttribute(item.id)}" role="button" tabindex="0">
             <div>
-              <strong>${escapeHtml(item.event || "Member Use")}</strong>
-              <span>${formatShortDate(item.usedOn)} · ${formatDuration(item.startAt, item.endAt)}</span>
+              <strong>${escapeHtml(thermostatSystemLabel(item.systemType))} · ${escapeHtml(item.event || "Member Use")}</strong>
+              <span>${formatShortDate(item.usedOn)} · ${formatDuration(item.startAt, item.endAt)} · Set ${thermostatTempLabel(item.targetTemperatureF)}</span>
             </div>
             <b>${escapeHtml(heaterDisplayState(item))}</b>
           </li>
@@ -5952,15 +6199,34 @@ function bindDetailLogOpenActions() {
 function bindHeaterRecordsActions() {
   bindDetailLogOpenActions();
 
+  document.querySelector("[data-change-thermostat-temp]")?.addEventListener("click", () => {
+    changeActiveThermostatTemperature().catch((error) => {
+      showDetailActionMessage(error.message || "Could not change thermostat temperature.");
+    });
+  });
+
   const confirm = document.getElementById("heaterConfirm");
   const openButton = document.querySelector("[data-open-heater-confirm]");
   const closeButton = document.querySelector("[data-heater-confirm-close]");
   const acceptButton = document.querySelector("[data-heater-confirm-accept]");
+  const confirmSystem = document.querySelector("[data-confirm-thermostat-system]");
 
   if (!confirm || !openButton || !closeButton || !acceptButton) return;
 
   openButton.addEventListener("click", () => {
+    confirmSystem?.querySelectorAll("[data-confirm-system]").forEach((button) => {
+      button.classList.toggle("is-selected", button.dataset.confirmSystem === appState.pendingThermostatSystem);
+    });
     confirm.hidden = false;
+  });
+
+  confirmSystem?.querySelectorAll("[data-confirm-system]").forEach((button) => {
+    button.addEventListener("click", () => {
+      appState.pendingThermostatSystem = button.dataset.confirmSystem === "ac" ? "ac" : "heat";
+      confirmSystem.querySelectorAll("[data-confirm-system]").forEach((segment) => {
+        segment.classList.toggle("is-selected", segment === button);
+      });
+    });
   });
 
   closeButton.addEventListener("click", () => {
@@ -5969,7 +6235,7 @@ function bindHeaterRecordsActions() {
 
   acceptButton.addEventListener("click", () => {
     confirm.hidden = true;
-    const isHeaterOffAction = String(openButton.querySelector(".heater-fab-label")?.textContent || "").trim() === "Heater Off";
+    const isHeaterOffAction = String(openButton.querySelector(".heater-fab-label")?.textContent || "").trim() === "Thermostat Off";
 
     if (isHeaterOffAction) {
       turnHeaterOffActiveEntry().catch((error) => {
@@ -5978,6 +6244,9 @@ function bindHeaterRecordsActions() {
       return;
     }
 
+    appState.pendingThermostatSystem = confirmSystem?.querySelector("[data-confirm-system].is-selected")?.dataset.confirmSystem === "ac"
+      ? "ac"
+      : "heat";
     render("heaterForm");
   });
 
@@ -5995,9 +6264,21 @@ function populateHeaterForm() {
     heaterDate.value = formatDateOnly(new Date());
   }
 
-  const turnHeaterSegments = document.querySelectorAll('.heater-use-screen [aria-label="Turn heater on"] .segment');
+  const systemSegments = document.querySelectorAll('.heater-use-screen [aria-label="Thermostat system"] .segment');
+  const selectedSystem = appState.pendingThermostatSystem === "ac" ? "ac" : "heat";
+
+  systemSegments.forEach((segment) => {
+    segment.classList.toggle("is-selected", segment.dataset.thermostatSystem === selectedSystem);
+  });
+
+  const turnHeaterSegments = document.querySelectorAll('.heater-use-screen [aria-label="Turn thermostat on"] .segment');
   turnHeaterSegments.forEach((segment, index) => {
     segment.classList.toggle("is-selected", index === 0);
+  });
+
+  const costSegments = document.querySelectorAll('.heater-use-screen [aria-label="Thermostat cost accepted"] .segment');
+  costSegments.forEach((segment) => {
+    segment.classList.toggle("is-selected", segment.dataset.thermostatCostAccepted === "N");
   });
 
   const groupPaySegments = document.querySelectorAll('.heater-use-screen [aria-label="Group pay"] .segment');
@@ -6033,6 +6314,7 @@ function populateHeaterForm() {
 
   updateHeaterGroupPayFields();
   updateHeaterTimerFields();
+  updateThermostatSystemFields();
 }
 
 function populateMemberSignIn() {
@@ -6083,6 +6365,8 @@ function updateOpenGymWarning(selectedButton) {
 }
 
 function updateHeaterGroupPayFields(selectedButton) {
+  const systemType = document.querySelector("[data-thermostat-system].is-selected")?.dataset.thermostatSystem || "heat";
+  const forceSingleResponsible = systemType === "ac";
   const selectedValue = selectedButton?.dataset.heaterGroupPay
     || document.querySelector("[data-heater-group-pay].is-selected")?.dataset.heaterGroupPay
     || "";
@@ -6091,10 +6375,12 @@ function updateHeaterGroupPayFields(selectedButton) {
 
   if (!singleField || !multiField) return;
 
-  singleField.hidden = selectedValue !== "N";
-  multiField.hidden = selectedValue !== "Y";
+  singleField.hidden = forceSingleResponsible ? false : selectedValue !== "N";
+  multiField.hidden = forceSingleResponsible ? true : selectedValue !== "Y";
 
-  if (selectedButton && selectedValue === "N") {
+  if (forceSingleResponsible) {
+    setMultiMemberPickerValue("heaterResponsibleMembers", []);
+  } else if (selectedButton && selectedValue === "N") {
     setMultiMemberPickerValue("heaterResponsibleMembers", []);
   } else if (selectedButton && selectedValue === "Y") {
     setMemberPickerValue("heaterResponsibleMember", "");
@@ -6103,6 +6389,43 @@ function updateHeaterGroupPayFields(selectedButton) {
       heaterPin.value = "";
     }
   }
+}
+
+function updateThermostatSystemFields(selectedButton) {
+  const systemType = selectedButton?.dataset.thermostatSystem
+    || document.querySelector("[data-thermostat-system].is-selected")?.dataset.thermostatSystem
+    || "heat";
+  const isAc = systemType === "ac";
+  const targetTemp = document.getElementById("thermostatTargetTemp");
+  const costCopy = document.getElementById("thermostatCostCopy");
+  const groupPayField = document.querySelector('.heater-use-screen [aria-label="Group pay"]')?.closest(".segmented-field");
+  const heaterPinField = document.querySelector(".heater-pin-field");
+
+  if (targetTemp && (!selectedButton || selectedButton.dataset.thermostatSystem)) {
+    targetTemp.value = isAc ? "66" : "74";
+  }
+
+  if (costCopy) {
+    costCopy.innerHTML = isAc
+      ? "AC cost is not billed yet while we learn operating cost. Use still must be logged and turned off when leaving.<mark>*</mark>"
+      : "Heat costs $13 per hour and is billed monthly.<mark>*</mark>";
+  }
+
+  if (groupPayField) {
+    groupPayField.hidden = isAc;
+  }
+
+  if (heaterPinField) {
+    heaterPinField.hidden = isAc;
+  }
+
+  if (isAc) {
+    document.querySelectorAll("[data-heater-group-pay]").forEach((segment) => {
+      segment.classList.toggle("is-selected", segment.dataset.heaterGroupPay === "N");
+    });
+  }
+
+  updateHeaterGroupPayFields();
 }
 
 function updateHeaterTimerFields(selectedButton) {
@@ -6435,9 +6758,14 @@ async function saveHeaterUse() {
 
   if (!form) return;
 
-  const turnHeaterOn = String(form.querySelector('[aria-label="Turn heater on"] .segment.is-selected')?.textContent || "").trim();
-  const eventName = String(form.querySelector('[aria-label="Heater event"] .choice-segment.is-selected')?.textContent || "").trim();
-  const groupPayValue = String(form.querySelector('[aria-label="Group pay"] .segment.is-selected')?.dataset.heaterGroupPay || "").trim();
+  const systemType = String(form.querySelector('[aria-label="Thermostat system"] .segment.is-selected')?.dataset.thermostatSystem || "heat").trim();
+  const turnHeaterOn = "On";
+  const targetTemperatureF = Number(document.getElementById("thermostatTargetTemp")?.value || 0);
+  const costAccepted = String(form.querySelector('[aria-label="Thermostat cost accepted"] .segment.is-selected')?.dataset.thermostatCostAccepted || "N").trim() === "Y";
+  const eventName = String(form.querySelector('[aria-label="Thermostat event"] .choice-segment.is-selected')?.textContent || "").trim();
+  const groupPayValue = systemType === "ac"
+    ? "N"
+    : String(form.querySelector('[aria-label="Group pay"] .segment.is-selected')?.dataset.heaterGroupPay || "").trim();
   const timerEnabledValue = String(form.querySelector('[aria-label="Add timer"] .segment.is-selected')?.dataset.heaterTimerEnabled || "N").trim();
   const timerMode = String(form.querySelector('[aria-label="Timer type"] .segment.is-selected')?.dataset.heaterTimerMode || "duration").trim();
   const timerDurationMinutes = Number(document.getElementById("heaterTimerDuration")?.value || 0);
@@ -6447,8 +6775,20 @@ async function saveHeaterUse() {
   const multiResponsibleMemberIds = selectedMemberIdsFromInput(document.getElementById("heaterResponsibleMembers"));
   const heaterPin = String(document.getElementById("heaterPin")?.value || "").trim();
 
-  if (!["On", "Off"].includes(turnHeaterOn)) {
-    showDetailActionMessage("Select heater state: On or Off.");
+  if (!["heat", "ac"].includes(systemType)) {
+    showDetailActionMessage("Select Heat or AC.");
+    return;
+  }
+
+  if (turnHeaterOn === "On" && (!Number.isFinite(targetTemperatureF) || targetTemperatureF < 45 || targetTemperatureF > 92)) {
+    showDetailActionMessage("Select a desired temperature.");
+    return;
+  }
+
+  if (turnHeaterOn === "On" && !costAccepted) {
+    showDetailActionMessage(systemType === "ac"
+      ? "Accept the AC use acknowledgement before turning it on."
+      : "Accept the heat cost acknowledgement before turning it on.");
     return;
   }
 
@@ -6484,7 +6824,7 @@ async function saveHeaterUse() {
     }
   }
 
-  if (groupPayValue === "N" && !/^\d{4}$/.test(heaterPin)) {
+  if (systemType === "heat" && groupPayValue === "N" && !/^\d{4}$/.test(heaterPin)) {
     showDetailActionMessage("Enter the 4-digit heater PIN.");
     return;
   }
@@ -6516,7 +6856,7 @@ async function saveHeaterUse() {
       timerStop = `${timerUntilValue}:00`;
     }
 
-    if (!groupPay && responsibleMemberId) {
+    if (systemType === "heat" && !groupPay && responsibleMemberId) {
       await verifyHeaterPin(responsibleMemberId, heaterPin);
     }
 
@@ -6524,10 +6864,12 @@ async function saveHeaterUse() {
       .from("heater_use_entries")
       .insert({
         used_on: usedOn,
+        system_type: systemType,
         event: eventName,
         responsible_member_id: responsibleMemberId,
         group_pay: groupPay,
         turn_heater_on: turnHeaterOn,
+        target_temperature_f: turnHeaterOn === "On" ? targetTemperatureF : null,
         set_a_timer: timerEnabled,
         timer_start: timerEnabled ? timerStart : null,
         timer_stop: timerEnabled ? timerStop : null,
@@ -6558,12 +6900,16 @@ async function saveHeaterUse() {
 
     if (turnHeaterOn === "On") {
       const smsRecipients = groupPay ? multiResponsibleMemberIds : [singleResponsibleMemberId];
-      triggerHeaterOnSequence(smsRecipients).catch((sequenceError) => {
+      triggerHeaterOnSequence(smsRecipients, {
+        systemType,
+        targetTemperatureF
+      }).catch((sequenceError) => {
         console.warn("Heater on sequence failed.", sequenceError);
       });
     } else if (turnHeaterOn === "Off") {
       const smsRecipients = groupPay ? multiResponsibleMemberIds : [singleResponsibleMemberId];
       triggerHeaterOffSequence(smsRecipients, {
+        systemType,
         heaterUseEntryId: createdEntry?.id || null,
         timerTriggered: false
       }).catch((sequenceError) => {
@@ -6571,6 +6917,7 @@ async function saveHeaterUse() {
       });
     }
 
+    thermostatStatusFetchedAt = 0;
     await hydrateFromSupabase();
     render("heaterRecords");
   } catch (error) {
@@ -6601,6 +6948,7 @@ function bindRouteActions() {
         updateOpenGymWarning(button);
         updateHeaterGroupPayFields(button);
         updateHeaterTimerFields(button);
+        updateThermostatSystemFields(button);
       });
     });
   });

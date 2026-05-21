@@ -6,6 +6,8 @@ const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "+15416526065";
 const GYM_OFF_TO_NUMBER = "+15418916772";
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const { resumeEcobeeProgram } = require("./_ecobee-client");
+const ECOBEE_AC_THERMOSTAT_ID = process.env.ECOBEE_AC_THERMOSTAT_ID || "";
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -25,6 +27,7 @@ module.exports = async (req, res) => {
     const step1Url = String(settings.step1_url || STEP_1_URL);
     const step2Url = String(settings.step2_url || STEP_2_URL);
     const smsTo = String(settings.sms_to || GYM_OFF_TO_NUMBER).trim() || GYM_OFF_TO_NUMBER;
+    const warnings = [];
 
     const step1 = await fetch(step1Url, { method: "GET" });
     if (!step1.ok) {
@@ -67,8 +70,19 @@ module.exports = async (req, res) => {
       throw new Error(`Step 3 failed: ${step3Body?.message || "Twilio SMS request failed."}`);
     }
 
+    if (settings.ac_fan_enabled !== false) {
+      try {
+        await resumeEcobeeProgram({
+          thermostatId: String(settings.ac_thermostat_id || ECOBEE_AC_THERMOSTAT_ID).trim()
+        });
+      } catch (error) {
+        warnings.push(`AC fan off failed: ${error.message || "Ecobee request failed."}`);
+      }
+    }
+
     return res.status(200).json({
-      success: true
+      success: true,
+      warnings
     });
   } catch (error) {
     return res.status(500).json({

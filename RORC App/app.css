@@ -1098,11 +1098,100 @@ h1 {
 }
 
 .live-record-page {
+  align-items: center;
   display: grid;
   gap: 16px;
   margin: 0 auto;
   max-width: 1180px;
   width: 100%;
+}
+
+.thermostat-live-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0 auto;
+  max-width: 940px;
+  place-content: center;
+  width: min(100%, 940px);
+}
+
+.thermostat-live-grid article {
+  align-items: center;
+  background:
+    linear-gradient(135deg, rgba(242, 58, 54, 0.18), rgba(15, 18, 20, 0.92) 45%),
+    #161616;
+  border: 1px solid rgba(156, 163, 175, 0.28);
+  border-radius: 22px;
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  padding: 18px 20px;
+  text-align: center;
+}
+
+.thermostat-live-grid span,
+.thermostat-live-grid small {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.thermostat-live-grid strong {
+  color: var(--text);
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  line-height: 1;
+}
+
+.thermostat-activity {
+  align-self: start;
+  background: rgba(242, 58, 54, 0.16);
+  border: 1px solid rgba(242, 58, 54, 0.32);
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 900;
+  justify-self: center;
+  letter-spacing: 0.02em;
+  padding: 6px 10px;
+}
+
+.thermostat-metric-grid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.thermostat-metric-grid small {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(156, 163, 175, 0.16);
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+
+.thermostat-refresh-note {
+  color: var(--muted) !important;
+  margin-top: 0 !important;
+}
+
+.heater-personal-record-note {
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 900;
+  margin: 12px 0 0;
+  text-align: center;
+}
+
+.inline-action-button {
+  appearance: none;
+  background: rgba(242, 58, 54, 0.94);
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 900;
+  margin-left: 10px;
+  padding: 8px 14px;
 }
 
 .data-source-note {
@@ -2352,6 +2441,37 @@ h1 {
   margin-top: 8px;
 }
 
+.confirm-thermostat-system {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 0 32px 12px;
+}
+
+.confirm-thermostat-system[hidden] {
+  display: none;
+}
+
+.confirm-thermostat-system button {
+  appearance: none;
+  background: #181818;
+  border: 1px solid #555;
+  border-radius: 18px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: clamp(1.2rem, 3vw, 2rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  padding: 18px 22px;
+  text-transform: uppercase;
+}
+
+.confirm-thermostat-system button.is-selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .confirm-actions {
   display: flex;
   gap: 42px;
@@ -3114,6 +3234,14 @@ textarea:focus-visible,
     grid-template-columns: minmax(54px, 0.62fr) minmax(0, 1fr) auto;
   }
 
+  .thermostat-live-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .thermostat-metric-grid {
+    grid-template-columns: 1fr;
+  }
+
   .heater-record-event {
     font-size: 0.72rem;
   }
@@ -3164,9 +3292,14 @@ textarea:focus-visible,
 
   .confirm-dialog h2,
   .confirm-dialog p,
+  .confirm-thermostat-system,
   .confirm-actions {
     padding-left: 22px;
     padding-right: 22px;
+  }
+
+  .confirm-thermostat-system {
+    grid-template-columns: 1fr;
   }
 
   .confirm-actions {

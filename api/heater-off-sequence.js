@@ -3,10 +3,9 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "+15416526065";
-
-const ECOBEE_CLIENT_ID = process.env.ECOBEE_CLIENT_ID || "";
-const ECOBEE_ACCESS_TOKEN = process.env.ECOBEE_ACCESS_TOKEN || "";
-const ECOBEE_REFRESH_TOKEN = process.env.ECOBEE_REFRESH_TOKEN || "";
+const { resumeEcobeeProgram, setEcobeeHvacMode } = require("./_ecobee-client");
+const ECOBEE_HEATER_THERMOSTAT_ID = process.env.ECOBEE_HEATER_THERMOSTAT_ID || process.env.ECOBEE_THERMOSTAT_ID || "";
+const ECOBEE_AC_THERMOSTAT_ID = process.env.ECOBEE_AC_THERMOSTAT_ID || "";
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -34,7 +33,9 @@ module.exports = async (req, res) => {
       return res.status(200).json({ success: true, skipped: true });
     }
 
-    await setEcobeeMode("off");
+    const systemType = normalizeSystemType(req.body?.systemType);
+
+    await turnThermostatOff(systemType);
 
     const requestedIds = Array.isArray(req.body?.memberIds)
       ? req.body.memberIds.map((v) => String(v || "").trim()).filter(Boolean)
@@ -67,6 +68,7 @@ module.exports = async (req, res) => {
           const billedCents = billedByMember.get(member.id) || 0;
           const openBillingCents = openBillingByMember.get(member.id) || 0;
           const message = buildHeaterOffMessage({
+            systemType,
             timerTriggered,
             timerMinutes,
             addedCents: billedCents,
@@ -191,6 +193,7 @@ async function loadOpenBillingTotalsByMember(memberIds) {
 }
 
 function buildHeaterOffMessage({
+  systemType,
   timerTriggered,
   timerMinutes,
   addedCents,
@@ -198,6 +201,20 @@ function buildHeaterOffMessage({
   isGroupPay,
   recipientCount
 }) {
+  if (systemType === "ac") {
+    if (timerTriggered) {
+      return [
+        `Your ${Math.max(1, Math.round(timerMinutes))} min AC thermostat timer finished and the AC was returned to schedule.`,
+        "No AC billing was added."
+      ].join(" ");
+    }
+
+    return [
+      "Your AC thermostat event has been completed and the AC was returned to schedule.",
+      "No AC billing was added."
+    ].join(" ");
+  }
+
   const addedText = formatCurrencyFromCents(addedCents);
   const totalText = formatCurrencyFromCents(openTotalCents);
 
@@ -236,32 +253,23 @@ function formatCurrencyFromCents(cents) {
   return `$${(Number(cents || 0) / 100).toFixed(2)}`;
 }
 
-async function setEcobeeMode(mode) {
-  if (!ECOBEE_CLIENT_ID || !ECOBEE_ACCESS_TOKEN || !ECOBEE_REFRESH_TOKEN) {
-    throw new Error("Ecobee credentials are not configured.");
+async function turnThermostatOff(systemType) {
+  const thermostatId = thermostatIdForSystem(systemType);
+
+  if (systemType === "ac") {
+    return resumeEcobeeProgram({ thermostatId });
   }
 
-  let token = ECOBEE_ACCESS_TOKEN;
-  let result = await postEcobeeMode(mode, token);
+  await resumeEcobeeProgram({ thermostatId });
+  return setEcobeeHvacMode({ thermostatId, mode: "off" });
+}
 
-  if (result.ok) return;
+function thermostatIdForSystem(systemType) {
+  return systemType === "ac" ? ECOBEE_AC_THERMOSTAT_ID : ECOBEE_HEATER_THERMOSTAT_ID;
+}
 
-  const bodyText = result.text || "";
-  const expired = result.status === 401
-    || bodyText.includes('"code":14')
-    || bodyText.toLowerCase().includes("authentication token has expired");
-
-  if (!expired) {
-    throw new Error(`Ecobee request failed: ${result.status} ${bodyText}`);
-  }
-
-  const refreshed = await refreshEcobeeToken();
-  token = refreshed.access_token;
-  result = await postEcobeeMode(mode, token);
-
-  if (!result.ok) {
-    throw new Error(`Ecobee retry failed: ${result.status} ${result.text || ""}`);
-  }
+function normalizeSystemType(value) {
+  return String(value || "").trim().toLowerCase() === "ac" ? "ac" : "heat";
 }
 
 function normalizePhone(value) {
@@ -291,58 +299,6 @@ async function sendTwilioText(to, body) {
   if (!response.ok) {
     throw new Error(result?.message || "Twilio request failed.");
   }
-}
-
-async function postEcobeeMode(mode, token) {
-  const response = await fetch("https://api.ecobee.com/1/thermostat?format=json", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json;charset=UTF-8",
-      Authorization: `Bearer ${token}`
-    },
-    body: JSON.stringify({
-      selection: {
-        selectionType: "registered",
-        selectionMatch: ""
-      },
-      thermostat: {
-        settings: {
-          hvacMode: mode
-        }
-      }
-    })
-  });
-
-  const text = await response.text();
-  return { ok: response.ok, status: response.status, text };
-}
-
-async function refreshEcobeeToken() {
-  const payload = new URLSearchParams({
-    grant_type: "refresh_token",
-    refresh_token: ECOBEE_REFRESH_TOKEN,
-    client_id: ECOBEE_CLIENT_ID
-  });
-
-  const response = await fetch("https://api.ecobee.com/token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded"
-    },
-    body: payload.toString()
-  });
-
-  const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`Ecobee token refresh failed: ${response.status} ${text}`);
-  }
-
-  const body = JSON.parse(text || "{}");
-  if (!body.access_token) {
-    throw new Error("Ecobee token refresh did not return access_token.");
-  }
-
-  return body;
 }
 
 async function supabaseRest(path) {

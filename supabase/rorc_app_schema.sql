@@ -419,10 +419,12 @@ execute function public.set_updated_at();
 create table if not exists public.heater_use_entries (
   id uuid primary key default gen_random_uuid(),
   used_on date not null default current_date,
+  system_type text not null default 'heat',
   event public.heater_event,
   responsible_member_id uuid references public.account_members(id) on delete set null,
   group_pay boolean not null default false,
   turn_heater_on public.heater_state not null default 'On',
+  target_temperature_f integer,
   start_at timestamptz,
   end_at timestamptz,
   paid boolean not null default false,
@@ -435,13 +437,27 @@ create table if not exists public.heater_use_entries (
   constraint heater_non_group_requires_responsible_member check (
     group_pay = true or responsible_member_id is not null
   ),
+  constraint heater_use_entries_system_type_check check (
+    system_type in ('heat', 'ac')
+  ),
   constraint heater_end_after_start check (
     start_at is null or end_at is null or end_at >= start_at
   )
 );
 
+alter table public.heater_use_entries
+  add column if not exists system_type text not null default 'heat',
+  add column if not exists target_temperature_f integer;
+
+alter table public.heater_use_entries
+  drop constraint if exists heater_use_entries_system_type_check,
+  add constraint heater_use_entries_system_type_check check (system_type in ('heat', 'ac'));
+
 create index if not exists idx_heater_use_entries_used_on
   on public.heater_use_entries (used_on desc);
+
+create index if not exists idx_heater_use_entries_system_type
+  on public.heater_use_entries (system_type, start_at desc);
 
 create index if not exists idx_heater_use_entries_responsible_member_id
   on public.heater_use_entries (responsible_member_id);
@@ -1160,6 +1176,10 @@ declare
   extra_cents integer;
   participant record;
 begin
+  if coalesce(new.system_type, 'heat') <> 'heat' then
+    return new;
+  end if;
+
   if new.start_at is null or new.end_at is null then
     return new;
   end if;

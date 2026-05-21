@@ -2,6 +2,8 @@ const STEP_1_URL = "https://api-v2.voicemonkey.io/announcement?token=1f3e0ed4c44
 const STEP_2_URL = "https://api-v2.voicemonkey.io/trigger?token=1f3e0ed4c447604419dfed7d277cda79_90cb39a4dfc7ff4c222a54e3e93f4e80&device=all-lights-on";
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const { setEcobeeFanHold } = require("./_ecobee-client");
+const ECOBEE_AC_THERMOSTAT_ID = process.env.ECOBEE_AC_THERMOSTAT_ID || "";
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -19,6 +21,7 @@ module.exports = async (req, res) => {
     }
     const step1Url = String(settings.step1_url || STEP_1_URL);
     const step2Url = String(settings.step2_url || STEP_2_URL);
+    const warnings = [];
 
     const step1 = await fetch(step1Url, { method: "GET" });
     if (!step1.ok) {
@@ -46,8 +49,21 @@ module.exports = async (req, res) => {
       throw new Error(step3Body.error || "Step 3 failed.");
     }
 
+    if (settings.ac_fan_enabled !== false) {
+      try {
+        await setEcobeeFanHold({
+          thermostatId: String(settings.ac_thermostat_id || ECOBEE_AC_THERMOSTAT_ID).trim(),
+          fan: "on",
+          holdType: "indefinite"
+        });
+      } catch (error) {
+        warnings.push(`AC fan on failed: ${error.message || "Ecobee request failed."}`);
+      }
+    }
+
     return res.status(200).json({
-      success: true
+      success: true,
+      warnings
     });
   } catch (error) {
     return res.status(500).json({

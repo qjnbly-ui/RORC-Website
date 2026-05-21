@@ -326,6 +326,10 @@
           <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="heaterConfirmTitle">
             <h2 id="heaterConfirmTitle">Confirm</h2>
             <p>Open Heater Use Form<br /><span>(Heater costs $13 per hour)</span></p>
+            <div class="confirm-thermostat-system" data-confirm-thermostat-system>
+              <button class="is-selected" data-confirm-system="heat" type="button">Heat</button>
+              <button data-confirm-system="ac" type="button">AC</button>
+            </div>
             <div class="confirm-actions">
               <button data-heater-confirm-close type="button">NO</button>
               <button data-heater-confirm-accept type="button">HEATER ON</button>
@@ -338,21 +342,52 @@
     <template id="heaterFormTemplate">
       <form class="form-screen heater-use-screen">
         <div class="form-card heater-form-card">
-          <div class="segmented-field">
-            <span>Turn Heater On</span>
-            <div class="segmented-control" role="group" aria-label="Turn heater on">
-              <button class="segment icon-segment" type="button">
+          <div class="segmented-field thermostat-system-field" hidden>
+            <span>Thermostat System<mark>*</mark></span>
+            <div class="segmented-control" role="group" aria-label="Thermostat system">
+              <button class="segment icon-segment" data-thermostat-system="heat" type="button">
                 <svg class="flame-icon" viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M12.4 2.4c.4 4.4-3.8 6.3-6.2 9.8-2.2 3.2-1.5 7.5 2.1 9.4-1-3.8 1.2-6.6 3.9-8.7 2.4 2.2 3.8 4.9 2.7 8.7 3.4-1.5 5.3-4.4 4.7-7.9-.4-2.3-1.8-4.1-3.4-5.8.3 2-.5 3.7-2 5 .6-3.8-.7-7.1-1.8-10.5Z"></path>
                 </svg>
-                On
+                Heat
               </button>
+              <button class="segment" data-thermostat-system="ac" type="button">AC</button>
+            </div>
+          </div>
+          <div class="segmented-field thermostat-state-field" hidden>
+            <span>Turn Thermostat On</span>
+            <div class="segmented-control" role="group" aria-label="Turn thermostat on">
+              <button class="segment" type="button">On</button>
               <button class="segment" type="button">Off</button>
+            </div>
+          </div>
+          <label id="thermostatTargetTempField">
+            <span>Desired Temperature<mark>*</mark></span>
+            <select id="thermostatTargetTemp">
+              <option value="60">60°F</option>
+              <option value="62">62°F</option>
+              <option value="64">64°F</option>
+              <option value="66">66°F</option>
+              <option value="68">68°F</option>
+              <option value="70">70°F</option>
+              <option value="72">72°F</option>
+              <option value="74">74°F</option>
+              <option value="76">76°F</option>
+              <option value="78">78°F</option>
+              <option value="80">80°F</option>
+              <option value="82">82°F</option>
+            </select>
+          </label>
+          <div class="segmented-field thermostat-cost-ack">
+            <p id="thermostatCostCopy">Heat costs $13 per hour and is billed monthly.<mark>*</mark></p>
+            <div class="segmented-control" role="group" aria-label="Thermostat cost accepted">
+              <button class="segment" data-thermostat-cost-accepted="Y" type="button">Accept</button>
+              <button class="segment" data-thermostat-cost-accepted="N" type="button">No</button>
             </div>
           </div>
           <div class="segmented-field">
             <span>Event<mark>*</mark></span>
-            <div class="event-choice-grid" role="group" aria-label="Heater event">
+            <div class="event-choice-grid" role="group" aria-label="Thermostat event">
               <button class="choice-segment" type="button">RORC</button>
               <button class="choice-segment" type="button">KBYD</button>
               <button class="choice-segment" type="button">MEMBER USE</button>
