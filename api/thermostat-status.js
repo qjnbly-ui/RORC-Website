@@ -204,7 +204,8 @@ function normalizeRemoteSensors(sensors) {
       humidity: normalizedNumber(capabilityMap.humidity),
       occupancy: normalizeOccupancy(capabilityMap.occupancy),
       co2: normalizedNumber(capabilityMap.co2),
-      airQuality: normalizedNumber(capabilityMap.airquality ?? capabilityMap.air_quality)
+      airQuality: normalizedNumber(capabilityMap.airquality ?? capabilityMap.air_quality),
+      airQualityStatus: normalizedText(capabilityMap.airquality ?? capabilityMap.air_quality)
     };
   });
 }
@@ -224,6 +225,15 @@ function normalizeWeather(weather) {
 }
 
 function normalizeAirQuality(thermostat, sensors) {
+  const directStatus = firstText(
+    thermostat?.airQuality,
+    thermostat?.indoorAirQuality,
+    thermostat?.runtime?.airQuality,
+    thermostat?.runtime?.actualAirQuality,
+    thermostat?.settings?.airQuality,
+    thermostat?.settings?.indoorAirQuality,
+    ...sensors.map((sensor) => sensor.airQualityStatus)
+  );
   const directValue = firstNumber(
     thermostat?.airQuality,
     thermostat?.indoorAirQuality,
@@ -236,6 +246,7 @@ function normalizeAirQuality(thermostat, sensors) {
   const co2 = firstNumber(...sensors.map((sensor) => sensor.co2));
 
   return {
+    status: directStatus,
     value: directValue ?? sensorAirQuality ?? null,
     co2,
     displayEnabled: thermostat?.settings?.displayAirQuality ?? null
@@ -255,12 +266,26 @@ function normalizedNumber(value) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function normalizedText(value) {
+  if (typeof value !== "string") return "";
+  const text = value.trim();
+  return text && Number.isNaN(Number(text)) ? text : "";
+}
+
 function firstNumber(...values) {
   for (const value of values) {
     const numeric = normalizedNumber(value);
     if (numeric !== null) return numeric;
   }
   return null;
+}
+
+function firstText(...values) {
+  for (const value of values) {
+    const text = normalizedText(value);
+    if (text) return text;
+  }
+  return "";
 }
 
 function bearerToken(req) {

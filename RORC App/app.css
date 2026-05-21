@@ -1205,6 +1205,28 @@ h1 {
   padding: 8px 10px;
 }
 
+.thermostat-metric-grid small.is-good {
+  background: rgba(38, 152, 91, 0.18);
+  border-color: rgba(64, 203, 129, 0.42);
+  color: #9be6b5;
+}
+
+.thermostat-metric-grid small.is-fair {
+  background: rgba(190, 139, 30, 0.18);
+  border-color: rgba(240, 190, 77, 0.42);
+  color: #f4d18a;
+}
+
+.thermostat-metric-grid small.is-bad {
+  background: rgba(190, 42, 38, 0.22);
+  border-color: rgba(242, 58, 54, 0.48);
+  color: #ffaaa5;
+}
+
+.thermostat-metric-grid small.is-unknown {
+  color: var(--muted);
+}
+
 .thermostat-refresh-note {
   color: var(--muted) !important;
   margin-top: 0 !important;

@@ -4266,16 +4266,42 @@ function thermostatFanLabel(value) {
   return raw.charAt(0).toUpperCase() + raw.slice(1);
 }
 
-function thermostatAirQualityLabel(item) {
+function thermostatAirQualityMetric(item) {
   const air = item?.airQuality || {};
+  const status = String(air.status || "").trim().toLowerCase();
   const value = Number(air.value);
   const co2 = Number(air.co2);
 
-  if (Number.isFinite(value)) return `Air ${Math.round(value)}`;
-  if (Number.isFinite(co2)) return `CO2 ${Math.round(co2)} ppm`;
-  if (air.displayEnabled === true) return "Air display on";
-  if (air.displayEnabled === false) return "Air unavailable";
-  return "Air not reported";
+  if (["clean", "good", "excellent"].includes(status)) {
+    return { label: "Air quality clean", tone: "good" };
+  }
+  if (["fair", "moderate", "average"].includes(status)) {
+    return { label: "Air quality fair", tone: "fair" };
+  }
+  if (["poor", "bad", "unhealthy"].includes(status)) {
+    return { label: "Air quality poor", tone: "bad" };
+  }
+
+  if (Number.isFinite(co2) && co2 > 0) {
+    if (co2 <= 800) return { label: `CO2 good · ${Math.round(co2)} ppm`, tone: "good" };
+    if (co2 <= 1000) return { label: `CO2 fair · ${Math.round(co2)} ppm`, tone: "fair" };
+    return { label: `CO2 high · ${Math.round(co2)} ppm`, tone: "bad" };
+  }
+
+  if (Number.isFinite(value) && value >= 0) {
+    if (value <= 50) return { label: "Air quality clean", tone: "good" };
+    if (value <= 100) return { label: "Air quality fair", tone: "fair" };
+    return { label: "Air quality poor", tone: "bad" };
+  }
+
+  return { label: "Air quality -", tone: "unknown" };
+}
+
+function renderThermostatMetric(metric) {
+  const resolved = typeof metric === "string" ? { label: metric, tone: "" } : (metric || {});
+  const tone = String(resolved.tone || "").trim();
+  const className = tone ? ` class="is-${escapeAttribute(tone)}"` : "";
+  return `<small${className}>${escapeHtml(resolved.label || "-")}</small>`;
 }
 
 function thermostatWeatherLabel(weather) {
@@ -4341,15 +4367,13 @@ function renderThermostatSystemStatus(label, item) {
     `;
   }
 
-  const mode = thermostatModeLabel(item.hvacMode);
-  const setpoint = label === "AC" ? item.desiredCoolF : item.desiredHeatF;
   const activity = thermostatSystemActivityLabel(systemType, item);
 
   return `
     <article data-open-thermostat-system="${escapeAttribute(systemType)}" role="button" tabindex="0">
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(activity)}</strong>
-      <small>${escapeHtml(mode)} · Set ${thermostatTempLabel(setpoint)} · Tap to turn on</small>
+      <small>Tap to turn on</small>
     </article>
   `;
 }
@@ -4364,10 +4388,9 @@ function renderThermostatStatusPanel() {
     ? `Humidity ${thermostatPercentLabel(room.humidity)}`
     : "-";
   const roomMetrics = hasRoomData ? [
-    thermostatAirQualityLabel(room),
-    thermostatSensorLabel(room),
+    thermostatAirQualityMetric(room),
     thermostatWeatherLabel(room)
-  ] : ["-", "-", "-"];
+  ].filter(Boolean) : ["Air quality -", "-"];
 
   const refreshed = thermostatStatus?.fetchedAt ? `Updated ${formatShortDateTime(thermostatStatus.fetchedAt)}` : "";
 
@@ -4377,7 +4400,7 @@ function renderThermostatStatusPanel() {
       <strong>${escapeHtml(roomTitle)}</strong>
       <b class="thermostat-activity">${escapeHtml(roomSubtitle)}</b>
       <div class="thermostat-metric-grid">
-        ${roomMetrics.map((metric) => `<small>${escapeHtml(metric)}</small>`).join("")}
+        ${roomMetrics.map(renderThermostatMetric).join("")}
       </div>
     </div>
     <div class="thermostat-system-grid" aria-label="Heat and AC status">
@@ -6260,6 +6283,18 @@ function bindHeaterRecordsActions() {
     confirmSystem?.querySelectorAll("[data-confirm-system]").forEach((button) => {
       button.classList.toggle("is-selected", button.dataset.confirmSystem === appState.pendingThermostatSystem);
     });
+    const confirmMessage = confirm.querySelector(".confirm-dialog p");
+    const selectedLabel = appState.pendingThermostatSystem === "ac" ? "AC" : "Heat";
+    const costCopy = appState.pendingThermostatSystem === "ac"
+      ? "No AC billing yet. Use still must be logged and turned off when leaving."
+      : "Heat costs $13 per hour and is billed monthly.";
+    if (confirmMessage) {
+      confirmMessage.innerHTML = `Confirm ${selectedLabel}<br /><span>${escapeHtml(costCopy)}</span>`;
+    }
+    if (confirmSystem) {
+      confirmSystem.hidden = systemType === "heat" || systemType === "ac";
+    }
+    acceptButton.textContent = "CONFIRM";
     confirm.hidden = false;
   };
 
@@ -6288,7 +6323,9 @@ function bindHeaterRecordsActions() {
   });
 
   acceptButton.addEventListener("click", () => {
-    const selectedSystem = confirmSystem?.querySelector("[data-confirm-system].is-selected")?.dataset.confirmSystem || "";
+    const selectedSystem = appState.pendingThermostatSystem
+      || confirmSystem?.querySelector("[data-confirm-system].is-selected")?.dataset.confirmSystem
+      || "";
     if (!["heat", "ac"].includes(selectedSystem)) {
       showDetailActionMessage("Select Heat or AC before starting.");
       return;
