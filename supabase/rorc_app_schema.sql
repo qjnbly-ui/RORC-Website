@@ -1514,7 +1514,6 @@ select
   a.notes_on_account,
   a.expiration_date,
   a.billing_id_heater,
-  a.heater_pin,
   a.marks_against_account,
   ab.stripe_status,
   ab.billing_status,
@@ -1525,7 +1524,8 @@ select
   am.updated_at,
   am.date_of_birth,
   am.guardian_member_id,
-  am.can_access_independently
+  am.can_access_independently,
+  a.heater_pin
 from public.account_members am
 join public.accounts a
   on a.id = am.account_id
