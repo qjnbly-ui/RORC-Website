@@ -97,6 +97,19 @@
         setResult("Questions or concerns must be resolved before accepting the contract.", "error");
         return false;
       }
+
+      const password = stringValue(byId("primaryPassword")?.value);
+      const passwordConfirm = stringValue(byId("primaryPasswordConfirm")?.value);
+      if (password.length < 8) {
+        setResult("Create a login password with at least 8 characters.", "error");
+        byId("primaryPassword")?.focus();
+        return false;
+      }
+      if (password !== passwordConfirm) {
+        setResult("Login passwords do not match.", "error");
+        byId("primaryPasswordConfirm")?.focus();
+        return false;
+      }
     }
 
     return true;
@@ -308,6 +321,7 @@
         dateOfBirth: stringValue(byId("primaryDob")?.value),
         address: stringValue(byId("primaryAddress")?.value),
         accessPin: stringValue(byId("primaryPin")?.value),
+        password: stringValue(byId("primaryPassword")?.value),
         canAccessIndependently: true
       },
       householdMembers: collectHouseholdMembers(),
@@ -328,6 +342,25 @@
         contractPhotosDisplayed: true
       }
     };
+  }
+
+  async function signInCreatedUser() {
+    if (!window.RORC_SUPABASE?.getClient) {
+      return false;
+    }
+
+    const email = stringValue(byId("primaryEmail")?.value).toLowerCase();
+    const password = stringValue(byId("primaryPassword")?.value);
+    if (!email || !password) return false;
+
+    const client = await window.RORC_SUPABASE.getClient();
+    const { error } = await client.auth.signInWithPassword({ email, password });
+    if (error) {
+      console.warn("Could not sign in new member before redirect.", error);
+      return false;
+    }
+
+    return true;
   }
 
   function syncContractReadState() {
@@ -385,13 +418,15 @@
 
       if (body.checkoutUrl) {
         setResult("Opening secure Stripe checkout...", "success");
+        await signInCreatedUser();
         window.location.href = body.checkoutUrl;
         return;
       }
 
       if (body.loginUrl) {
-        setResult("Contract accepted. Opening member login...", "success");
-        window.location.href = body.loginUrl;
+        setResult("Contract accepted. Opening dashboard...", "success");
+        const signedIn = await signInCreatedUser();
+        window.location.href = signedIn ? "/member-dashboard/?signup=pending_review" : body.loginUrl;
         return;
       }
 

@@ -522,6 +522,14 @@
             <span>Today's Date</span>
             <input id="signatureDate" name="signatureDate" type="date" required />
           </label>
+          <label>
+            <span>Create Login Password</span>
+            <input id="primaryPassword" name="primaryPassword" type="password" autocomplete="new-password" minlength="8" required />
+          </label>
+          <label>
+            <span>Confirm Login Password</span>
+            <input id="primaryPasswordConfirm" name="primaryPasswordConfirm" type="password" autocomplete="new-password" minlength="8" required />
+          </label>
         </div>
         <div class="signup-check-list">
           <label>
@@ -554,6 +562,7 @@
     </div>
   </footer>
 
+  <script src="/scripts/rorc-supabase-client.js" defer></script>
   <script src="/scripts/rorc-membership-signup.js" defer></script>
 </body>
 </html>

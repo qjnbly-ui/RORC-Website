@@ -114,7 +114,7 @@
     } else if (params.get("signup") === "invite") {
       setResult("Contract accepted. Use Email Login Link with your invited email to open your account.", "success");
     } else if (params.get("signup") === "pending_review") {
-      setResult("Contract received. Your account is pending RORC admin approval before facility access is enabled.", "success");
+      setResult("Contract received. Log in with the password you created. Your account is pending RORC admin approval before facility access is enabled.", "success");
     } else if (params.get("signup") === "error") {
       setResult(params.get("message") || "Signup payment was received, but account activation could not be verified automatically.", "error");
     }

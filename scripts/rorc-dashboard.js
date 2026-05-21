@@ -80,7 +80,11 @@
     const result = await window.RORC_SUPABASE.getCurrentMemberProfile();
 
     if (!result.session) {
-      window.location.href = LOGIN_PATH;
+      const params = new URLSearchParams(window.location.search);
+      const signupStatus = params.get("signup");
+      window.location.href = signupStatus
+        ? `${LOGIN_PATH}?signup=${encodeURIComponent(signupStatus)}`
+        : LOGIN_PATH;
       return false;
     }
 
@@ -99,12 +103,16 @@
     const container = byId("memberDashboard");
     if (!container || !currentProfile) return;
 
+    const signupStatus = new URLSearchParams(window.location.search).get("signup");
     const sameAccountMembers = visibleProfiles
       .filter((profile) => profile.account_id === currentProfile.account_id)
       .map((profile) => profile.member_name)
       .filter(Boolean);
 
     container.innerHTML = `
+      ${signupStatus === "pending_review" ? `
+        <p><strong>Signup received:</strong> your account is pending RORC admin approval before facility access is enabled.</p>
+      ` : ""}
       <h3>Welcome, ${escapeHtml(currentProfile.member_name)}</h3>
       <p><strong>Account Type:</strong> ${profileValue(currentProfile.account_type)}</p>
       <p><strong>Account Number:</strong> ${profileValue(currentProfile.account_number)}</p>

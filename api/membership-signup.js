@@ -18,26 +18,30 @@ const PLAN_CONFIG = {
   open_gym: {
     label: "Open Gym",
     accountType: "Open Gym Only",
-    mode: "payment",
-    priceEnv: "STRIPE_PRICE_OPEN_GYM_SIGNUP"
+    mode: "subscription",
+    priceEnv: "STRIPE_PRICE_OPEN_GYM_MONTHLY",
+    oneTimePriceEnv: "STRIPE_PRICE_KEY_CARD"
   },
   weight_room: {
     label: "Weight Room Only",
     accountType: "Weight Room Only",
     mode: "subscription",
-    priceEnv: "STRIPE_PRICE_WEIGHT_ROOM_MONTHLY"
+    priceEnv: "STRIPE_PRICE_WEIGHT_ROOM_MONTHLY",
+    oneTimePriceEnv: "STRIPE_PRICE_KEY_CARD"
   },
   full_facility: {
     label: "Full Facility",
     accountType: "Active Membership",
     mode: "subscription",
-    priceEnv: "STRIPE_PRICE_FULL_FACILITY_MONTHLY"
+    priceEnv: "STRIPE_PRICE_FULL_FACILITY_MONTHLY",
+    oneTimePriceEnv: "STRIPE_PRICE_KEY_CARD"
   },
   full_facility_wifi: {
     label: "Full Facility + Wi-Fi",
     accountType: "Active Membership",
     mode: "subscription",
-    priceEnv: "STRIPE_PRICE_FULL_FACILITY_WIFI_MONTHLY"
+    priceEnv: "STRIPE_PRICE_FULL_FACILITY_WIFI_MONTHLY",
+    oneTimePriceEnv: "STRIPE_PRICE_KEY_CARD"
   }
 };
 
@@ -69,6 +73,7 @@ module.exports = async (req, res) => {
     }
 
     validateSignupPayload(payload);
+    const checkoutPrices = await resolveCheckoutPrices(plan);
     const existingMember = await findAccountMemberByEmail(payload.primary.email);
     if (existingMember) {
       throw httpError(409, "This email is already linked to a RORC account. Use member login or a different email.");
@@ -151,7 +156,7 @@ module.exports = async (req, res) => {
       applicant_phone: payload.primary.phone || null,
       requested_account_type: plan.accountType,
       contract_payload: {
-        ...payload,
+        ...contractPayloadFromSignup(payload),
         planLabel: plan.label,
         accountNumber: account.account_number,
         householdMemberIds: householdMembers.map((member) => member.id),
@@ -176,6 +181,7 @@ module.exports = async (req, res) => {
 
     const authUser = await createAuthUser({
       email: payload.primary.email,
+      password: payload.primary.password,
       name: payload.primary.name,
       accountId: account.id,
       accountMemberId: primaryMember.id
@@ -195,7 +201,8 @@ module.exports = async (req, res) => {
       account,
       primaryMember,
       contract,
-      customerId: customer.id
+      customerId: customer.id,
+      checkoutPrices
     });
 
     if (checkout?.id) {
@@ -254,6 +261,7 @@ function normalizeSignupPayload(body) {
       dateOfBirth: dateValue(body.primary?.dateOfBirth),
       address: stringValue(body.primary?.address),
       accessPin: stringValue(body.primary?.accessPin),
+      password: stringValue(body.primary?.password),
       canAccessIndependently: body.primary?.canAccessIndependently !== false
     },
     householdMembers: householdMembers
@@ -307,6 +315,9 @@ function validateSignupPayload(payload) {
   if (payload.primary.accessPin && !/^\d{4}$/.test(payload.primary.accessPin)) {
     throw httpError(400, "Four digit account password must be exactly 4 numbers.");
   }
+  if (!payload.primary.password || payload.primary.password.length < 8) {
+    throw httpError(400, "Login password must be at least 8 characters.");
+  }
   if (payload.signature.questionsOrConcerns) {
     throw httpError(400, "Questions or concerns must be resolved before accepting the contract.");
   }
@@ -358,6 +369,17 @@ function validateSignupPayload(payload) {
   if (!payload.inviteToken && over18Count > 2) {
     throw httpError(400, "Accounts can have a maximum of 2 users over 18, including pending invites.");
   }
+}
+
+function contractPayloadFromSignup(payload) {
+  return {
+    ...payload,
+    inviteToken: undefined,
+    primary: {
+      ...payload.primary,
+      password: undefined
+    }
+  };
 }
 
 async function completeAccountInvite(req, res, payload) {
@@ -416,8 +438,7 @@ async function completeAccountInvite(req, res, payload) {
     applicant_phone: payload.primary.phone || null,
     requested_account_type: invitation.account_type || "Active Membership",
     contract_payload: {
-      ...payload,
-      inviteToken: undefined,
+      ...contractPayloadFromSignup(payload),
       invitedAccountNumber: account.account_number,
       invitationId: invitation.id,
       submittedFrom: {
@@ -431,6 +452,7 @@ async function completeAccountInvite(req, res, payload) {
 
   const authUser = await createAuthUser({
     email: payload.primary.email,
+    password: payload.primary.password,
     name: payload.primary.name,
     accountId: invitation.account_id,
     accountMemberId: member.id
@@ -475,16 +497,51 @@ async function completeAccountInvite(req, res, payload) {
   });
 }
 
-async function createCheckoutSession({ req, plan, payload, account, primaryMember, contract, customerId }) {
+async function resolveCheckoutPrices(plan) {
   const priceId = process.env[plan.priceEnv];
   if (!priceId) {
+    throw httpError(500, `${plan.priceEnv} is required for ${plan.label} checkout.`);
+  }
+
+  const primaryPrice = await stripe.prices.retrieve(priceId);
+  const isPrimaryRecurring = Boolean(primaryPrice.recurring);
+  if (plan.mode === "payment" && isPrimaryRecurring) {
+    throw httpError(
+      500,
+      `${plan.priceEnv} must be a one-time Stripe Price for ${plan.label}. The current price is recurring, so Stripe rejects payment-mode checkout.`
+    );
+  }
+  if (plan.mode === "subscription" && !isPrimaryRecurring) {
+    throw httpError(
+      500,
+      `${plan.priceEnv} must be a recurring Stripe Price for ${plan.label}. The current price is one-time, so Stripe rejects subscription-mode checkout.`
+    );
+  }
+
+  let oneTimePriceId = "";
+  if (plan.oneTimePriceEnv) {
+    const configuredOneTimePriceId = process.env[plan.oneTimePriceEnv];
+    if (!configuredOneTimePriceId) {
+      throw httpError(500, `${plan.oneTimePriceEnv} is required for ${plan.label} checkout.`);
+    }
+    const oneTimePrice = await stripe.prices.retrieve(configuredOneTimePriceId);
+    if (oneTimePrice.recurring) {
+      throw httpError(500, `${plan.oneTimePriceEnv} must be a one-time Stripe Price. The current price is recurring.`);
+    }
+    oneTimePriceId = configuredOneTimePriceId;
+  }
+
+  return { primaryPriceId: priceId, oneTimePriceId };
+}
+
+async function createCheckoutSession({ req, plan, payload, account, primaryMember, contract, customerId, checkoutPrices }) {
+  if (!checkoutPrices?.primaryPriceId) {
     return null;
   }
 
-  const lineItems = [{ price: priceId, quantity: 1 }];
-  const keyCardPrice = process.env.STRIPE_PRICE_KEY_CARD;
-  if (keyCardPrice && plan.mode === "subscription") {
-    lineItems.push({ price: keyCardPrice, quantity: 1 });
+  const lineItems = [{ price: checkoutPrices.primaryPriceId, quantity: 1 }];
+  if (checkoutPrices.oneTimePriceId) {
+    lineItems.push({ price: checkoutPrices.oneTimePriceId, quantity: 1 });
   }
 
   const metadata = {
@@ -746,7 +803,7 @@ async function sendAdminReviewEmail({ req, contract, account, applicantName, app
   }
 }
 
-async function createAuthUser({ email, name, accountId, accountMemberId }) {
+async function createAuthUser({ email, password, name, accountId, accountMemberId }) {
   const response = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
     method: "POST",
     headers: {
@@ -756,6 +813,7 @@ async function createAuthUser({ email, name, accountId, accountMemberId }) {
     },
     body: JSON.stringify({
       email,
+      password,
       email_confirm: true,
       user_metadata: {
         display_name: name,

@@ -51,7 +51,7 @@ module.exports = async (req, res) => {
     }
 
     res.writeHead(302, {
-      Location: "/membership-login/?signup=pending_review"
+      Location: "/member-dashboard/?signup=pending_review"
     });
     return res.end();
   } catch (error) {
