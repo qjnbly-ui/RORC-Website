@@ -158,7 +158,7 @@ const appState = {
   dataError: "",
   authMemberId: "",
   currentUserEmail: "",
-  pendingThermostatSystem: "heat"
+  pendingThermostatSystem: ""
 };
 
 const accountManagerOnlyRoutes = new Set([
@@ -4246,6 +4246,20 @@ function thermostatActivityLabel(item) {
     || (String(item?.equipmentStatus || "").trim() || "Idle");
 }
 
+function thermostatSystemActivityLabel(systemType, item) {
+  if (systemType === "ac") {
+    if (item?.isCooling) return "AC Cooling";
+    if (item?.isFanRunning) return "Fan Running";
+  }
+
+  if (systemType === "heat") {
+    if (item?.isHeating) return "Heating";
+    if (item?.isFanRunning) return "Fan Running";
+  }
+
+  return thermostatActivityLabel(item);
+}
+
 function thermostatFanLabel(value) {
   const raw = String(value || "").trim();
   if (!raw) return "Auto";
@@ -4290,58 +4304,85 @@ function thermostatSensorLabel(item) {
   return `${sensors.length} sensor${sensors.length === 1 ? "" : "s"}`;
 }
 
-function renderThermostatStatusPanel() {
-  const status = thermostatStatus?.thermostats || {};
-  const cards = [
-    ["Heat", status.heat],
-    ["AC", status.ac]
-  ].map(([label, item]) => {
-    if (!item?.configured) {
-      return `
-        <article>
-          <span>${escapeHtml(label)}</span>
-          <strong>Not configured</strong>
-          <small>Thermostat ID not set</small>
-        </article>
-      `;
-    }
+function firstConfiguredThermostat(...items) {
+  return items.find((item) => item?.configured && !item.error) || null;
+}
 
-    if (item.error) {
-      return `
-        <article>
-          <span>${escapeHtml(label)}</span>
-          <strong>Status unavailable</strong>
-          <small>${escapeHtml(item.error)}</small>
-        </article>
-      `;
-    }
+function renderThermostatSystemStatus(label, item) {
+  const systemType = label === "AC" ? "ac" : "heat";
 
-    const mode = thermostatModeLabel(item.hvacMode);
-    const setpoint = label === "AC" ? item.desiredCoolF : item.desiredHeatF;
-    const activity = thermostatActivityLabel(item);
-
+  if (!thermostatStatus) {
     return `
-      <article>
-        <span>${escapeHtml(label)} · ${escapeHtml(mode)}</span>
-        <strong>${thermostatTempLabel(item.temperatureF)}</strong>
-        <b class="thermostat-activity">${escapeHtml(activity)}</b>
-        <div class="thermostat-metric-grid">
-          <small>Set ${thermostatTempLabel(setpoint)}</small>
-          <small>Humidity ${thermostatPercentLabel(item.humidity)}</small>
-          <small>Fan ${escapeHtml(thermostatFanLabel(item.desiredFanMode))}</small>
-          <small>${escapeHtml(thermostatAirQualityLabel(item))}</small>
-          <small>${escapeHtml(thermostatSensorLabel(item))}</small>
-          <small>${escapeHtml(thermostatWeatherLabel(item.weather))}</small>
-        </div>
+      <article data-open-thermostat-system="${escapeAttribute(systemType)}" role="button" tabindex="0">
+        <span>${escapeHtml(label)}</span>
+        <strong>-</strong>
+        <small>Tap to turn on</small>
       </article>
     `;
-  }).join("");
+  }
+
+  if (!item?.configured) {
+    return `
+      <article data-open-thermostat-system="${escapeAttribute(systemType)}" role="button" tabindex="0">
+        <span>${escapeHtml(label)}</span>
+        <strong>Not configured</strong>
+        <small>Tap to turn on</small>
+      </article>
+    `;
+  }
+
+  if (item.error) {
+    return `
+      <article data-open-thermostat-system="${escapeAttribute(systemType)}" role="button" tabindex="0">
+        <span>${escapeHtml(label)}</span>
+        <strong>Status unavailable</strong>
+        <small>Tap to turn on</small>
+      </article>
+    `;
+  }
+
+  const mode = thermostatModeLabel(item.hvacMode);
+  const setpoint = label === "AC" ? item.desiredCoolF : item.desiredHeatF;
+  const activity = thermostatSystemActivityLabel(systemType, item);
+
+  return `
+    <article data-open-thermostat-system="${escapeAttribute(systemType)}" role="button" tabindex="0">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(activity)}</strong>
+      <small>${escapeHtml(mode)} · Set ${thermostatTempLabel(setpoint)} · Tap to turn on</small>
+    </article>
+  `;
+}
+
+function renderThermostatStatusPanel() {
+  const status = thermostatStatus?.thermostats || {};
+  const room = firstConfiguredThermostat(status.heat, status.ac) || status.heat || status.ac || {};
+  const isLoading = !thermostatStatus;
+  const hasRoomData = Boolean(!isLoading && room?.configured && !room.error);
+  const roomTitle = hasRoomData ? thermostatTempLabel(room.temperatureF) : "Room status";
+  const roomSubtitle = hasRoomData
+    ? `Humidity ${thermostatPercentLabel(room.humidity)}`
+    : "-";
+  const roomMetrics = hasRoomData ? [
+    thermostatAirQualityLabel(room),
+    thermostatSensorLabel(room),
+    thermostatWeatherLabel(room)
+  ] : ["-", "-", "-"];
 
   const refreshed = thermostatStatus?.fetchedAt ? `Updated ${formatShortDateTime(thermostatStatus.fetchedAt)}` : "";
 
   return `
-    <div class="thermostat-live-grid" aria-label="Live thermostat status">
-      ${cards}
+    <div class="thermostat-room-card" aria-label="Live room thermostat data">
+      <span>Room</span>
+      <strong>${escapeHtml(roomTitle)}</strong>
+      <b class="thermostat-activity">${escapeHtml(roomSubtitle)}</b>
+      <div class="thermostat-metric-grid">
+        ${roomMetrics.map((metric) => `<small>${escapeHtml(metric)}</small>`).join("")}
+      </div>
+    </div>
+    <div class="thermostat-system-grid" aria-label="Heat and AC status">
+      ${renderThermostatSystemStatus("Heat", status.heat)}
+      ${renderThermostatSystemStatus("AC", status.ac)}
     </div>
     ${refreshed ? `<p class="data-source-note thermostat-refresh-note">${escapeHtml(refreshed)}</p>` : ""}
   `;
@@ -4636,6 +4677,7 @@ function renderHeaterRecords() {
       <p class="data-source-note heater-timer-note">
         ${escapeHtml(thermostatSystemLabel(activeThermostat.systemType))} is active at ${thermostatTempLabel(activeThermostat.targetTemperatureF)}.
         <button class="inline-action-button" data-change-thermostat-temp type="button">Change Temp</button>
+        <button class="inline-action-button" data-turn-thermostat-off type="button">Turn Off</button>
       </p>
     `
     : "";
@@ -4685,22 +4727,15 @@ function renderHeaterRecords() {
     </section>
   `;
 
-  const hasOpenHeater = allRecords.some((entry) => heaterRecordStatus(entry).key === "currently-on");
-  const fab = document.querySelector(".heater-fab");
-  const fabLabel = fab?.querySelector(".heater-fab-label");
   const confirmMessage = document.querySelector("#heaterConfirm .confirm-dialog p");
   const confirmAccept = document.querySelector("[data-heater-confirm-accept]");
   const confirmSystem = document.querySelector("[data-confirm-thermostat-system]");
 
-  if (fab && fabLabel && confirmMessage && confirmAccept) {
-    fabLabel.textContent = hasOpenHeater ? "Thermostat Off" : "Thermostat On";
-    fab.setAttribute("aria-label", hasOpenHeater ? "Open thermostat off confirm" : "Open thermostat use form");
-    confirmAccept.textContent = hasOpenHeater ? "THERMOSTAT OFF" : "THERMOSTAT ON";
-    confirmMessage.innerHTML = hasOpenHeater
-      ? "Turn Thermostat Off<br /><span>(Ends the current thermostat record)</span>"
-      : "Turn Thermostat On<br /><span>Select heat or AC before starting</span>";
+  if (confirmMessage && confirmAccept) {
+    confirmAccept.textContent = "THERMOSTAT ON";
+    confirmMessage.innerHTML = "Turn Thermostat On<br /><span>Select heat or AC before starting</span>";
     if (confirmSystem) {
-      confirmSystem.hidden = hasOpenHeater;
+      confirmSystem.hidden = false;
     }
   }
 
@@ -6205,19 +6240,38 @@ function bindHeaterRecordsActions() {
     });
   });
 
+  document.querySelector("[data-turn-thermostat-off]")?.addEventListener("click", () => {
+    turnHeaterOffActiveEntry().catch((error) => {
+      showDetailActionMessage(error.message || "Could not turn thermostat off.");
+    });
+  });
+
   const confirm = document.getElementById("heaterConfirm");
-  const openButton = document.querySelector("[data-open-heater-confirm]");
   const closeButton = document.querySelector("[data-heater-confirm-close]");
   const acceptButton = document.querySelector("[data-heater-confirm-accept]");
   const confirmSystem = document.querySelector("[data-confirm-thermostat-system]");
 
-  if (!confirm || !openButton || !closeButton || !acceptButton) return;
+  if (!confirm || !closeButton || !acceptButton) return;
 
-  openButton.addEventListener("click", () => {
+  const openConfirm = (systemType = "") => {
+    if (systemType === "heat" || systemType === "ac") {
+      appState.pendingThermostatSystem = systemType;
+    }
     confirmSystem?.querySelectorAll("[data-confirm-system]").forEach((button) => {
       button.classList.toggle("is-selected", button.dataset.confirmSystem === appState.pendingThermostatSystem);
     });
     confirm.hidden = false;
+  };
+
+  document.querySelectorAll("[data-open-thermostat-system]").forEach((card) => {
+    const openFromCard = () => openConfirm(card.dataset.openThermostatSystem);
+    card.addEventListener("click", openFromCard);
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openFromCard();
+      }
+    });
   });
 
   confirmSystem?.querySelectorAll("[data-confirm-system]").forEach((button) => {
@@ -6234,19 +6288,14 @@ function bindHeaterRecordsActions() {
   });
 
   acceptButton.addEventListener("click", () => {
-    confirm.hidden = true;
-    const isHeaterOffAction = String(openButton.querySelector(".heater-fab-label")?.textContent || "").trim() === "Thermostat Off";
-
-    if (isHeaterOffAction) {
-      turnHeaterOffActiveEntry().catch((error) => {
-        showDetailActionMessage(error.message || "Could not turn heater off.");
-      });
+    const selectedSystem = confirmSystem?.querySelector("[data-confirm-system].is-selected")?.dataset.confirmSystem || "";
+    if (!["heat", "ac"].includes(selectedSystem)) {
+      showDetailActionMessage("Select Heat or AC before starting.");
       return;
     }
 
-    appState.pendingThermostatSystem = confirmSystem?.querySelector("[data-confirm-system].is-selected")?.dataset.confirmSystem === "ac"
-      ? "ac"
-      : "heat";
+    confirm.hidden = true;
+    appState.pendingThermostatSystem = selectedSystem;
     render("heaterForm");
   });
 

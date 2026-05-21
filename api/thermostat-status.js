@@ -86,6 +86,9 @@ async function loadThermostatStatus(systemType, thermostatId) {
       hvacMode,
       equipmentStatus,
       currentActivity: describeEquipmentStatus(equipmentStatus, hvacMode, desiredFanMode),
+      isCooling: isCoolingEquipmentActive(equipmentStatus, hvacMode),
+      isHeating: isHeatingEquipmentActive(equipmentStatus, hvacMode),
+      isFanRunning: isFanActive(equipmentStatus, desiredFanMode),
       temperatureF: fromEcobeeTemp(runtime.actualTemperature),
       humidity: runtime.actualHumidity ?? null,
       desiredHeatF: fromEcobeeTemp(runtime.desiredHeat),
@@ -121,27 +124,18 @@ function fromWeatherTemp(value) {
 }
 
 function describeEquipmentStatus(equipmentStatus, hvacMode, desiredFanMode) {
-  const mode = String(hvacMode || "").toLowerCase();
-  const parts = String(equipmentStatus || "")
-    .split(",")
-    .map((part) => part.trim().toLowerCase())
-    .filter(Boolean);
   const states = [];
-  const compressorRunning = parts.some((part) => part.includes("comp"));
-  const heatPumpRunning = parts.some((part) => part.includes("heatpump"));
 
-  if (parts.some((part) => part.includes("cool")) || (mode === "cool" && (compressorRunning || heatPumpRunning))) {
+  if (isCoolingEquipmentActive(equipmentStatus, hvacMode)) {
     states.push("Cooling");
   }
-  if (
-    parts.some((part) => part.includes("aux") || (part.includes("heat") && !part.includes("heatpump")))
-    || (mode === "heat" && (compressorRunning || heatPumpRunning))
-  ) {
+  if (isHeatingEquipmentActive(equipmentStatus, hvacMode)) {
     states.push("Heating");
   }
-  if (parts.some((part) => part.includes("fan") || part.includes("blower"))) {
+  if (isFanActive(equipmentStatus, desiredFanMode)) {
     states.push("Fan running");
   }
+  const parts = equipmentParts(equipmentStatus);
   if (parts.some((part) => part.includes("humidifier"))) {
     states.push("Humidifying");
   }
@@ -156,6 +150,36 @@ function describeEquipmentStatus(equipmentStatus, hvacMode, desiredFanMode) {
   if (String(hvacMode || "").toLowerCase() === "off") return "Off";
   if (String(desiredFanMode || "").toLowerCase() === "on") return "Fan circulating";
   return "Idle";
+}
+
+function equipmentParts(equipmentStatus) {
+  return String(equipmentStatus || "")
+    .split(",")
+    .map((part) => part.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isCoolingEquipmentActive(equipmentStatus, hvacMode) {
+  const mode = String(hvacMode || "").toLowerCase();
+  const parts = equipmentParts(equipmentStatus);
+  const compressorRunning = parts.some((part) => part.includes("comp"));
+  const heatPumpRunning = parts.some((part) => part.includes("heatpump"));
+  return parts.some((part) => part.includes("cool")) || (mode === "cool" && (compressorRunning || heatPumpRunning));
+}
+
+function isHeatingEquipmentActive(equipmentStatus, hvacMode) {
+  const mode = String(hvacMode || "").toLowerCase();
+  const parts = equipmentParts(equipmentStatus);
+  const compressorRunning = parts.some((part) => part.includes("comp"));
+  const heatPumpRunning = parts.some((part) => part.includes("heatpump"));
+  return parts.some((part) => part.includes("aux") || (part.includes("heat") && !part.includes("heatpump")))
+    || (mode === "heat" && (compressorRunning || heatPumpRunning));
+}
+
+function isFanActive(equipmentStatus, desiredFanMode) {
+  const parts = equipmentParts(equipmentStatus);
+  return parts.some((part) => part.includes("fan") || part.includes("blower"))
+    || String(desiredFanMode || "").toLowerCase() === "on";
 }
 
 function normalizeRemoteSensors(sensors) {

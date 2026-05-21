@@ -1106,17 +1106,36 @@ h1 {
   width: 100%;
 }
 
-.thermostat-live-grid {
-  display: grid;
-  gap: 14px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.thermostat-room-card,
+.thermostat-system-grid {
   margin: 0 auto;
-  max-width: 940px;
-  place-content: center;
   width: min(100%, 940px);
 }
 
-.thermostat-live-grid article {
+.thermostat-room-card {
+  align-items: center;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(242, 58, 54, 0.24), transparent 34%),
+    linear-gradient(135deg, rgba(242, 58, 54, 0.14), rgba(15, 18, 20, 0.94) 46%),
+    #161616;
+  border: 1px solid rgba(156, 163, 175, 0.28);
+  border-radius: 26px;
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  max-width: 720px;
+  padding: 22px;
+  text-align: center;
+}
+
+.thermostat-system-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  place-content: center;
+}
+
+.thermostat-system-grid article {
   align-items: center;
   background:
     linear-gradient(135deg, rgba(242, 58, 54, 0.18), rgba(15, 18, 20, 0.92) 45%),
@@ -1130,16 +1149,34 @@ h1 {
   text-align: center;
 }
 
-.thermostat-live-grid span,
-.thermostat-live-grid small {
+.thermostat-system-grid article[data-open-thermostat-system] {
+  cursor: pointer;
+}
+
+.thermostat-system-grid article[data-open-thermostat-system]:hover {
+  border-color: rgba(242, 58, 54, 0.7);
+}
+
+.thermostat-room-card span,
+.thermostat-room-card small,
+.thermostat-system-grid span,
+.thermostat-system-grid small {
   color: var(--muted);
   font-weight: 800;
 }
 
-.thermostat-live-grid strong {
+.thermostat-room-card strong,
+.thermostat-system-grid strong {
   color: var(--text);
-  font-size: clamp(2rem, 4vw, 3.4rem);
   line-height: 1;
+}
+
+.thermostat-room-card strong {
+  font-size: clamp(2rem, 4vw, 3.4rem);
+}
+
+.thermostat-system-grid strong {
+  font-size: clamp(1.25rem, 2vw, 1.8rem);
 }
 
 .thermostat-activity {
@@ -2359,6 +2396,14 @@ h1 {
   transform: translateY(-50%);
 }
 
+.heater-fab.is-icon-only .heater-fab-label {
+  display: none;
+}
+
+.heater-fab.is-icon-only .heater-fab-icon {
+  margin-left: 0;
+}
+
 .heater-fab-icon {
   align-items: center;
   background: #b22a27;
@@ -3232,10 +3277,6 @@ textarea:focus-visible,
     align-items: center;
     gap: 8px;
     grid-template-columns: minmax(54px, 0.62fr) minmax(0, 1fr) auto;
-  }
-
-  .thermostat-live-grid {
-    grid-template-columns: 1fr;
   }
 
   .thermostat-metric-grid {
