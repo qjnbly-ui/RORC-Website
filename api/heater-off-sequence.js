@@ -139,7 +139,7 @@ async function getAutomationConfig(id) {
 
 async function loadHeaterUseEntryMeta(heaterUseEntryId) {
   const rows = await supabaseRest(
-    `heater_use_entries?select=id,group_pay,set_a_timer,event&id=eq.${encodeURIComponent(heaterUseEntryId)}&limit=1`
+    `heater_use_entries?select=id,group_pay,set_a_timer&id=eq.${encodeURIComponent(heaterUseEntryId)}&limit=1`
   );
   const row = rows[0] || null;
   if (!row) return null;
@@ -147,8 +147,7 @@ async function loadHeaterUseEntryMeta(heaterUseEntryId) {
   return {
     id: row.id,
     groupPay: Boolean(row.group_pay),
-    setATimer: Boolean(row.set_a_timer),
-    event: String(row.event || "")
+    setATimer: Boolean(row.set_a_timer)
   };
 }
 
@@ -210,7 +209,7 @@ function buildHeaterOffMessage({
     }
 
     return [
-      "Your AC thermostat event has been completed and the AC was returned to schedule.",
+      "Your AC thermostat use record has been completed and the AC was returned to schedule.",
       "No AC billing was added."
     ].join(" ");
   }
@@ -228,7 +227,7 @@ function buildHeaterOffMessage({
 
   if (isGroupPay || recipientCount > 1) {
     return [
-      "The shared/group heater event has been completed and the heater was turned off.",
+      "The shared/group heater use record has been completed and the heater was turned off.",
       `${addedText} was added to your monthly bill.`,
       `Your current open billing total is ${totalText}.`
     ].join(" ");
@@ -236,7 +235,7 @@ function buildHeaterOffMessage({
 
   if (addedCents > 0) {
     return [
-      "Your heater use event has been completed and the heater was turned off.",
+      "Your heater use record has been completed and the heater was turned off.",
       `${addedText} was added to your monthly bill.`,
       `Your current open billing total is ${totalText}.`
     ].join(" ");

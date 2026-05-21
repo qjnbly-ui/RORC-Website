@@ -524,6 +524,11 @@
       color: #e7d2a0;
       font-weight: 600;
     }
+    .rorc-room-temp {
+      margin-top: 4px !important;
+      color: #e7d2a0 !important;
+      font-weight: 600 !important;
+    }
     .rorc-heatmap {
       max-width: 980px;
       margin: 0 auto 14px;
@@ -858,8 +863,8 @@
           <a class="rorc-btn rorc-btn-main" href="/about-rorc/">
             Learn About Our Story
           </a>
-          <a class="rorc-btn rorc-btn-ghost" href="/sponsors/">
-            View RORC Sponsors
+          <a class="rorc-btn rorc-btn-ghost" href="/memberships/">
+            Sign Up For Membership
           </a>
         </div>
       </header>
@@ -875,6 +880,7 @@
     <h3>What’s happening at RORC now?</h3>
     <img id="rorc-open-badge" class="rorc-live-badge" src="Images/RORC Homepage/OPEN.png" alt="Open" loading="lazy" />
     <p id="rorc-live-text">Loading current status…</p>
+    <p id="rorc-room-temp" class="rorc-room-temp" hidden>Room temperature: <strong>–</strong></p>
   </section>
 
   <section class="rorc-heatmap" aria-label="Weekly busy trends">
@@ -1175,6 +1181,7 @@
       const rawOccupancy = data.occupancyCount ?? "–";
       const occupancy = (rawOccupancy === 1 || rawOccupancy === "1") ? "1" : rawOccupancy;
       const liveText = document.getElementById("rorc-live-text");
+      const roomTemp = document.getElementById("rorc-room-temp");
       const openBadge = document.getElementById("rorc-open-badge");
       if (!liveText) return;
       const status = rorcGetStatusMessage();
@@ -1223,6 +1230,18 @@
       }
       liveText.innerHTML = lines.join("<br>");
 
+      if (roomTemp) {
+        const temperature = parseFiniteValue(data.roomTemperatureF);
+        const humidity = parseFiniteValue(data.roomHumidity);
+        if (temperature !== null) {
+          const humidityText = humidity !== null ? ` · Humidity ${Math.round(humidity)}%` : "";
+          roomTemp.innerHTML = `Room temperature: <strong>${Math.round(temperature)}°F</strong>${humidityText}`;
+          roomTemp.hidden = false;
+        } else {
+          roomTemp.hidden = true;
+        }
+      }
+
       const mActive = document.getElementById("m-active");
       if (mActive) {
         mActive.textContent = data.activeMembers ?? "–";
@@ -1240,6 +1259,12 @@
         mTotalMembers.textContent = data.totalAccountHolders ?? "–";
       }
       rorcRenderHeatmap(data.weeklyTrends);
+    }
+
+    function parseFiniteValue(value) {
+      if (value === null || value === undefined || value === "") return null;
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : null;
     }
 
     function rorcHeatColor(level) {

@@ -158,7 +158,7 @@ function formatCurrencyFromCents(cents) {
 function buildThermostatOnMessage({ systemType, targetTemperatureF, openBillingCents }) {
   if (systemType === "ac") {
     return [
-      "A new AC thermostat event was created under your name.",
+      "A new AC thermostat use record was created under your name.",
       targetTemperatureF ? `Desired temperature: ${Math.round(targetTemperatureF)} degrees.` : "",
       "Do not forget to turn the thermostat off before leaving.",
       "AC billing is not active yet."
@@ -166,7 +166,7 @@ function buildThermostatOnMessage({ systemType, targetTemperatureF, openBillingC
   }
 
   return [
-    "A new heater use event was created under your name.",
+    "A new heater use record was created under your name.",
     targetTemperatureF ? `Desired temperature: ${Math.round(targetTemperatureF)} degrees.` : "",
     "Do not forget to turn heater off before leaving.",
     `Current open billing total: ${formatCurrencyFromCents(openBillingCents)}.`,

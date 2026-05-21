@@ -1499,7 +1499,7 @@ function renderMasterLogsPage() {
               return `
                 <li data-master-log-type="heater" data-master-log-id="${escapeAttribute(entry.id)}">
                   <div>
-                    <strong>${escapeHtml(entry.event || "Heater Use")} · ${escapeHtml(member?.memberName || "Unknown Member")}</strong>
+                    <strong>${escapeHtml(thermostatSystemLabel(entry.systemType))} · ${escapeHtml(member?.memberName || "Unknown Member")}</strong>
                     <span>${formatShortDate(entry.usedOn)} · Start ${formatShortDateTime(entry.startAt)}${entry.endAt ? ` · End ${formatShortDateTime(entry.endAt)}` : " · End pending"} · ${escapeHtml(payerLabel)}</span>
                   </div>
                   <b>${escapeHtml(stateLabel)}</b>
@@ -1669,10 +1669,6 @@ function openMasterLogEditor(recordType, recordId, options = {}) {
             </select>
           </label>
           <label>
-            <span>Event</span>
-            <input id="masterLogHeaterEvent" type="text" value="${escapeAttribute(record.event || "")}" ${readonlyAttribute} />
-          </label>
-          <label>
             <span>Heater State</span>
             <select id="masterLogHeaterState" ${readonlyAttribute}>
               <option value="On" ${(record.turnHeaterOn || "On") === "On" ? "selected" : ""}>On</option>
@@ -1762,7 +1758,6 @@ function openMasterLogEditor(recordType, recordId, options = {}) {
         const endAt = fromDatetimeLocalValue(String(overlay.querySelector("#masterLogHeaterEndAt")?.value || ""));
         const payload = {
           system_type: String(overlay.querySelector("#masterLogThermostatSystem")?.value || record.systemType || "heat"),
-          event: String(overlay.querySelector("#masterLogHeaterEvent")?.value || "").trim() || null,
           turn_heater_on: String(overlay.querySelector("#masterLogHeaterState")?.value || "On"),
           target_temperature_f: Number(overlay.querySelector("#masterLogTargetTemp")?.value || 0) || null,
           start_at: startAt || record.startAt,
@@ -1884,7 +1879,7 @@ function openBillingLogEditor(recordId, options = {}) {
   const sourceLabel = timesheetRecord
     ? `Guest sign-in · ${timesheetRecord.guestName || timesheetRecord.memberOrGuest || "Timesheet"}`
     : heaterRecord
-      ? `Heater use · ${heaterRecord.event || "Member Use"}`
+      ? `Thermostat use · ${thermostatSystemLabel(heaterRecord.systemType)}`
       : "Manual billing item";
   const amountValue = ((item.amountCents || 0) / 100).toFixed(2);
   const overlay = document.createElement("div");
@@ -3000,6 +2995,40 @@ function mapTimesheetEntryRow(row) {
   };
 }
 
+function upsertLocalTimesheetEntries(rows) {
+  const nextRows = (Array.isArray(rows) ? rows : [rows])
+    .filter(Boolean)
+    .map((row) => (
+      Object.prototype.hasOwnProperty.call(row, "memberOrGuest")
+        ? row
+        : mapTimesheetEntryRow(row)
+    ))
+    .filter((entry) => entry.id);
+
+  if (!nextRows.length) return;
+
+  const byId = new Map(timesheetEntries.map((entry) => [entry.id, entry]));
+  nextRows.forEach((entry) => byId.set(entry.id, entry));
+  timesheetEntries = [...byId.values()]
+    .sort((a, b) => new Date(b.signedInAt || 0) - new Date(a.signedInAt || 0));
+  refreshSessions(appState.authMemberId);
+}
+
+function markLocalTimesheetSignedOut(entryId, signedOutAt, signOutGuestsForMemberId = "") {
+  timesheetEntries = timesheetEntries.map((entry) => {
+    const isTargetEntry = entry.id === entryId;
+    const isLinkedGuest = Boolean(signOutGuestsForMemberId)
+      && entry.memberOrGuest === "Guest"
+      && entry.memberEnteredWithId === signOutGuestsForMemberId
+      && !entry.signedOutAt;
+
+    return isTargetEntry || isLinkedGuest
+      ? { ...entry, signedOutAt }
+      : entry;
+  });
+  refreshSessions(appState.authMemberId);
+}
+
 function canUsePrivilegedTimesheetApi() {
   return Boolean(isKioskAccount(appUserSession));
 }
@@ -3046,7 +3075,7 @@ async function insertPrivilegedTimesheetEntries(entries) {
   return (body.entries || []).map(mapTimesheetEntryRow);
 }
 
-async function signOutPrivilegedTimesheetEntry(entryId, signOutGuestsForMemberId = "") {
+async function signOutPrivilegedTimesheetEntry(entryId, signOutGuestsForMemberId = "", signedOutAt = new Date().toISOString()) {
   const token = currentAuthSession?.access_token || "";
   if (!token) {
     throw new Error("Missing session token.");
@@ -3061,7 +3090,7 @@ async function signOutPrivilegedTimesheetEntry(entryId, signOutGuestsForMemberId
     body: JSON.stringify({
       entryId,
       signOutGuestsForMemberId,
-      signedOutAt: new Date().toISOString()
+      signedOutAt
     })
   });
 
@@ -4598,7 +4627,9 @@ function renderSignedInCard(entry) {
 async function signOutTimesheetEntry(entryId) {
   const button = document.querySelector(`[data-sign-out-entry="${CSS.escape(entryId)}"]`);
   const entry = timesheetEntries.find((item) => item.id === entryId);
-  const wasOneSignedIn = openTimesheetCount() === 1;
+  const openCountBefore = openTimesheetCount();
+  const signedOutAt = new Date().toISOString();
+  const linkedGuestMemberId = entry?.memberOrGuest === "Member" ? entry.memberId : "";
   if (button) {
     button.disabled = true;
     button.textContent = "Signing Out...";
@@ -4608,7 +4639,8 @@ async function signOutTimesheetEntry(entryId) {
     if (canUsePrivilegedTimesheetApi()) {
       await signOutPrivilegedTimesheetEntry(
         entryId,
-        entry?.memberOrGuest === "Member" ? entry.memberId : ""
+        linkedGuestMemberId,
+        signedOutAt
       );
     } else {
       const client = await createSupabaseClient();
@@ -4617,7 +4649,6 @@ async function signOutTimesheetEntry(entryId) {
         throw new Error("App data is not available.");
       }
 
-      const signedOutAt = new Date().toISOString();
       const { error } = await client
         .from("timesheet_entries")
         .update({ signed_out_at: signedOutAt })
@@ -4642,15 +4673,21 @@ async function signOutTimesheetEntry(entryId) {
       }
     }
 
-    await hydrateFromSupabase();
-    if (wasOneSignedIn && openTimesheetCount() === 0) {
-      const memberName = entry?.memberId ? (findMember(entry.memberId)?.memberName || "Unknown") : "Unknown";
-      const visitDurationMinutes = durationMinutes(entry?.signedInAt, new Date().toISOString()) || 0;
+    markLocalTimesheetSignedOut(entryId, signedOutAt, linkedGuestMemberId);
+    render("currentlySignedIn");
+
+    if (openCountBefore > 0 && openTimesheetCount() === 0) {
+      const member = entry?.memberOrGuest === "Guest"
+        ? findMember(entry.memberEnteredWithId)
+        : findMember(entry?.memberId);
+      const memberName = entry?.memberOrGuest === "Guest"
+        ? (entry.guestName || member?.memberName || "Unknown")
+        : (member?.memberName || "Unknown");
+      const visitDurationMinutes = durationMinutes(entry?.signedInAt, signedOutAt) || 0;
       triggerGymLightsOffSequence(memberName, visitDurationMinutes).catch((sequenceError) => {
         console.warn("Gym lights off sequence failed.", sequenceError);
       });
     }
-    render("currentlySignedIn");
   } catch (error) {
     showDetailActionMessage(error.message || "Could not sign out.");
     if (button) {
@@ -4738,7 +4775,7 @@ function renderHeaterRecords() {
               : "";
             return `
               <li${rowAttributes}>
-                <strong class="heater-record-event">${escapeHtml(thermostatSystemLabel(entry.systemType))} · ${escapeHtml(entry.event || "Thermostat Use")}</strong>
+                <strong class="heater-record-event">${escapeHtml(thermostatSystemLabel(entry.systemType))}</strong>
                 <span class="heater-record-meta">${formatShortDate(entry.usedOn)} · ${escapeHtml(member?.memberName || "No responsible member")} · Set ${thermostatTempLabel(entry.targetTemperatureF)}${timerCountdown ? ` <span class="heater-row-timer">· ${escapeHtml(timerCountdown)}</span>` : ""}</span>
                 <button class="heater-state-action is-${escapeHtml(heaterState.key)}" data-heater-state="${escapeHtml(heaterState.key)}" type="button">${escapeHtml(heaterState.label)}</button>
               </li>
@@ -5338,7 +5375,7 @@ function renderHeaterPanel(items) {
         ${items.map((item) => `
           <li data-detail-log-type="heater" data-detail-log-id="${escapeAttribute(item.id)}" role="button" tabindex="0">
             <div>
-              <strong>${escapeHtml(thermostatSystemLabel(item.systemType))} · ${escapeHtml(item.event || "Member Use")}</strong>
+              <strong>${escapeHtml(thermostatSystemLabel(item.systemType))}</strong>
               <span>${formatShortDate(item.usedOn)} · ${formatDuration(item.startAt, item.endAt)} · Set ${thermostatTempLabel(item.targetTemperatureF)}</span>
             </div>
             <b>${escapeHtml(heaterDisplayState(item))}</b>
@@ -6689,9 +6726,10 @@ async function saveMemberSignIn() {
       member_id: memberId,
       signed_in_at: signedInAtDate.toISOString()
     }));
+    let createdEntries = [];
 
     if (canUsePrivilegedTimesheetApi()) {
-      await insertPrivilegedTimesheetEntries(rows);
+      createdEntries = await insertPrivilegedTimesheetEntries(rows);
     } else {
       const client = await createSupabaseClient();
 
@@ -6699,23 +6737,26 @@ async function saveMemberSignIn() {
         throw new Error("App data is not available.");
       }
 
-      const { error } = await client
+      const { data, error } = await client
         .from("timesheet_entries")
-        .insert(rows);
+        .insert(rows)
+        .select("*");
 
       if (error) {
         throw error;
       }
+
+      createdEntries = data || [];
     }
+
+    upsertLocalTimesheetEntries(createdEntries);
+    render("currentlySignedIn");
 
     if (firstValidMember) {
       triggerGymLightsOnSequence(firstValidMember.memberName).catch((sequenceError) => {
         console.warn("Gym lights on sequence failed.", sequenceError);
       });
     }
-
-    await hydrateFromSupabase();
-    render("currentlySignedIn");
   } catch (error) {
     showDetailActionMessage(error.message || "Could not save member sign-in.");
   } finally {
@@ -6784,6 +6825,7 @@ async function saveGuestSignIn() {
 
   try {
     const nowIso = new Date().toISOString();
+    const wasNoOneSignedIn = openTimesheetCount() === 0;
     const sponsorSignedIn = timesheetEntries.some((entry) => (
       entry.memberOrGuest === "Member"
       && entry.memberId === memberEnteredWithId
@@ -6807,9 +6849,10 @@ async function saveGuestSignIn() {
       liability_accepted: true,
       signed_in_at: nowIso
     });
+    let createdEntries = [];
 
     if (canUsePrivilegedTimesheetApi()) {
-      await insertPrivilegedTimesheetEntries(rows);
+      createdEntries = await insertPrivilegedTimesheetEntries(rows);
     } else {
       const client = await createSupabaseClient();
 
@@ -6817,17 +6860,26 @@ async function saveGuestSignIn() {
         throw new Error("App data is not available.");
       }
 
-      const { error } = await client
+      const { data, error } = await client
         .from("timesheet_entries")
-        .insert(rows);
+        .insert(rows)
+        .select("*");
 
       if (error) {
         throw error;
       }
+
+      createdEntries = data || [];
     }
 
-    await hydrateFromSupabase();
+    upsertLocalTimesheetEntries(createdEntries);
     render("currentlySignedIn");
+
+    if (wasNoOneSignedIn && !sponsorSignedIn && sponsorMember) {
+      triggerGymLightsOnSequence(sponsorMember.memberName).catch((sequenceError) => {
+        console.warn("Gym lights on sequence failed.", sequenceError);
+      });
+    }
   } catch (error) {
     showDetailActionMessage(error.message || "Could not save guest sign-in.");
   } finally {
@@ -7030,16 +7082,6 @@ function bindRouteActions() {
         updateHeaterGroupPayFields(button);
         updateHeaterTimerFields(button);
         updateThermostatSystemFields(button);
-      });
-    });
-  });
-
-  document.querySelectorAll(".event-choice-grid").forEach((group) => {
-    group.querySelectorAll(".choice-segment").forEach((button) => {
-      button.addEventListener("click", () => {
-        group.querySelectorAll(".choice-segment").forEach((segment) => {
-          segment.classList.toggle("is-selected", segment === button);
-        });
       });
     });
   });

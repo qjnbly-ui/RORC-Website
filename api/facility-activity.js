@@ -1,9 +1,19 @@
+const { getEcobeeThermostat } = require("./_ecobee-client");
+
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
 const HEATMAP_START_HOUR = 7;
 const HEATMAP_END_HOUR = 20;
 const HEATMAP_WEEKS = 8;
+const ECOBEE_ROOM_THERMOSTAT_ID = process.env.ECOBEE_ROOM_THERMOSTAT_ID
+  || process.env.ECOBEE_HEATER_THERMOSTAT_ID
+  || process.env.ECOBEE_THERMOSTAT_ID
+  || process.env.ECOBEE_AC_THERMOSTAT_ID
+  || "";
+const ROOM_CLIMATE_CACHE_MS = 3 * 60 * 1000;
+let roomClimateCache = null;
+let roomClimateCacheAt = 0;
 
 module.exports = async (req, res) => {
   if (req.method !== "GET") {
@@ -20,7 +30,7 @@ module.exports = async (req, res) => {
     const now = new Date();
     const range = getFacilityRanges(now);
     const trendStart = addFacilityDays(range.tomorrowStart, -(HEATMAP_WEEKS * 7));
-    const [occupancyRows, todayCount, weekCount, monthCount, members, trendRows] = await Promise.all([
+    const [occupancyRows, todayCount, weekCount, monthCount, members, trendRows, roomClimate] = await Promise.all([
       supabaseRest("timesheet_entries?select=id&signed_out_at=is.null&limit=10000"),
       countRows("timesheet_entries", {
         signed_in_at: [`gte.${range.todayStart.toISOString()}`, `lt.${range.tomorrowStart.toISOString()}`]
@@ -32,7 +42,8 @@ module.exports = async (req, res) => {
         signed_in_at: [`gte.${range.monthStart.toISOString()}`, `lt.${range.nextMonthStart.toISOString()}`]
       }),
       supabaseRest("account_member_profiles?select=account_member_id,account_id,account_type&limit=10000"),
-      supabaseRest(`timesheet_entries?select=signed_in_at&signed_in_at=gte.${encodeURIComponent(trendStart.toISOString())}&order=signed_in_at.desc&limit=10000`)
+      supabaseRest(`timesheet_entries?select=signed_in_at&signed_in_at=gte.${encodeURIComponent(trendStart.toISOString())}&order=signed_in_at.desc&limit=10000`),
+      loadRoomClimate()
     ]);
 
     const membership = summarizeMembership(members || []);
@@ -49,6 +60,9 @@ module.exports = async (req, res) => {
         checkinsThisMonth: monthCount,
         avgPerDayThisMonth: averagePerDay(monthCount, range.dayOfMonth),
         lastUpdated: formatFacilityTimestamp(now),
+        roomTemperatureF: roomClimate.temperatureF,
+        roomHumidity: roomClimate.humidity,
+        roomClimateUpdatedAt: roomClimate.updatedAt,
         weeklyTrends,
         ...membership
       }
@@ -60,6 +74,47 @@ module.exports = async (req, res) => {
     });
   }
 };
+
+async function loadRoomClimate() {
+  const fallback = { temperatureF: null, humidity: null, updatedAt: null };
+  const now = Date.now();
+  if (roomClimateCache && now - roomClimateCacheAt < ROOM_CLIMATE_CACHE_MS) {
+    return roomClimateCache;
+  }
+
+  if (!ECOBEE_ROOM_THERMOSTAT_ID) {
+    roomClimateCache = fallback;
+    roomClimateCacheAt = now;
+    return roomClimateCache;
+  }
+
+  try {
+    const thermostat = await getEcobeeThermostat({ thermostatId: ECOBEE_ROOM_THERMOSTAT_ID });
+    const runtime = thermostat?.runtime || {};
+    const result = {
+      temperatureF: parseEcobeeTemperature(runtime.actualTemperature),
+      humidity: parseOptionalNumber(runtime.actualHumidity),
+      updatedAt: runtime.lastStatusModified || thermostat?.lastModified || null
+    };
+    roomClimateCache = result;
+    roomClimateCacheAt = now;
+    return result;
+  } catch (error) {
+    console.warn("Room climate unavailable:", error?.message || error);
+    return roomClimateCache || fallback;
+  }
+}
+
+function parseEcobeeTemperature(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  return Math.round(numeric / 10);
+}
+
+function parseOptionalNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
 
 function summarizeMembership(rows) {
   const activeRows = rows.filter((row) => ["Active Membership", "Weight Room Only"].includes(canonicalAccountType(row.account_type)));
