@@ -6900,7 +6900,6 @@ async function saveHeaterUse() {
   const turnHeaterOn = "On";
   const targetTemperatureF = Number(document.getElementById("thermostatTargetTemp")?.value || 0);
   const costAccepted = String(form.querySelector('[aria-label="Thermostat cost accepted"] .segment.is-selected')?.dataset.thermostatCostAccepted || "N").trim() === "Y";
-  const eventName = "Member Use";
   const groupPayValue = systemType === "ac"
     ? "N"
     : String(form.querySelector('[aria-label="Group pay"] .segment.is-selected')?.dataset.heaterGroupPay || "").trim();
@@ -6998,7 +6997,6 @@ async function saveHeaterUse() {
       .insert({
         used_on: usedOn,
         system_type: systemType,
-        event: eventName,
         responsible_member_id: responsibleMemberId,
         group_pay: groupPay,
         turn_heater_on: turnHeaterOn,

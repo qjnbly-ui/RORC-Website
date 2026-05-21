@@ -1,4 +1,4 @@
-const CACHE_VERSION = "rorc-app-v4";
+const CACHE_VERSION = "rorc-app-v5";
 const APP_SHELL = [
   "./",
   "./index.html",
