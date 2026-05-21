@@ -4311,7 +4311,7 @@ function thermostatWeatherLabel(weather) {
     pieces.push(`Outside ${Math.round(Number(weather.temperatureF))}°F`);
   }
   if (Number.isFinite(Number(weather.humidity))) {
-    pieces.push(`${Math.round(Number(weather.humidity))}% out`);
+    pieces.push(`Humidity ${Math.round(Number(weather.humidity))}%`);
   }
   if (weather.condition) {
     pieces.push(String(weather.condition));
@@ -6364,7 +6364,7 @@ function populateHeaterForm() {
 
   const costSegments = document.querySelectorAll('.heater-use-screen [aria-label="Thermostat cost accepted"] .segment');
   costSegments.forEach((segment) => {
-    segment.classList.toggle("is-selected", segment.dataset.thermostatCostAccepted === "N");
+    segment.classList.remove("is-selected");
   });
 
   const groupPaySegments = document.querySelectorAll('.heater-use-screen [aria-label="Group pay"] .segment');
@@ -6848,7 +6848,7 @@ async function saveHeaterUse() {
   const turnHeaterOn = "On";
   const targetTemperatureF = Number(document.getElementById("thermostatTargetTemp")?.value || 0);
   const costAccepted = String(form.querySelector('[aria-label="Thermostat cost accepted"] .segment.is-selected')?.dataset.thermostatCostAccepted || "N").trim() === "Y";
-  const eventName = String(form.querySelector('[aria-label="Thermostat event"] .choice-segment.is-selected')?.textContent || "").trim();
+  const eventName = "Member Use";
   const groupPayValue = systemType === "ac"
     ? "N"
     : String(form.querySelector('[aria-label="Group pay"] .segment.is-selected')?.dataset.heaterGroupPay || "").trim();
@@ -6875,11 +6875,6 @@ async function saveHeaterUse() {
     showDetailActionMessage(systemType === "ac"
       ? "Accept the AC use acknowledgement before turning it on."
       : "Accept the heat cost acknowledgement before turning it on.");
-    return;
-  }
-
-  if (!eventName) {
-    showDetailActionMessage("Select an event.");
     return;
   }
 
