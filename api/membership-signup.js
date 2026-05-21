@@ -9,6 +9,7 @@ const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "+15416526065";
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@ruthobenchainrc.com>";
 const ADMIN_REVIEW_EMAIL = process.env.ADMIN_REVIEW_EMAIL || "qjnbly@hotmail.com";
+const ADMIN_REVIEW_PHONE = process.env.ADMIN_REVIEW_PHONE || "5418916772";
 const PENDING_ACCOUNT_TYPE = "RESTRICTED ACCOUNT";
 const stripe = process.env.STRIPE_SECRET_KEY
   ? Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2026-02-25.clover" })
@@ -215,16 +216,17 @@ module.exports = async (req, res) => {
       );
     }
 
-    await sendAdminReviewEmail({
+    await sendReviewCreatedNotifications({
       req,
       contract,
       account,
       applicantName: payload.primary.name,
       applicantEmail: payload.primary.email,
+      applicantPhone: payload.primary.phone,
       requestedAccountType: plan.accountType,
       sourceLabel: "New membership signup"
-    }).catch((emailError) => {
-      console.warn("Admin review email failed.", emailError);
+    }).catch((notificationError) => {
+      console.warn("Review notification failed.", notificationError);
     });
 
     return res.status(200).json({
@@ -474,16 +476,17 @@ async function completeAccountInvite(req, res, payload) {
     }
   );
 
-  await sendAdminReviewEmail({
+  await sendReviewCreatedNotifications({
     req,
     contract,
     account,
     applicantName: payload.primary.name,
     applicantEmail: payload.primary.email,
+    applicantPhone: payload.primary.phone,
     requestedAccountType: invitation.account_type || "Active Membership",
     sourceLabel: "Account invite contract"
-  }).catch((emailError) => {
-    console.warn("Admin review email failed.", emailError);
+  }).catch((notificationError) => {
+    console.warn("Review notification failed.", notificationError);
   });
 
   return res.status(200).json({
@@ -743,6 +746,42 @@ async function sendTwilioText(to, body) {
   }
 }
 
+async function sendEmail({ to, subject, text, html }) {
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from: RESEND_FROM_EMAIL,
+      to: [to],
+      subject,
+      text,
+      html
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Resend request failed: ${response.status} ${errorText}`);
+  }
+}
+
+async function sendReviewCreatedNotifications(args) {
+  await Promise.all([
+    sendAdminReviewEmail(args).catch((error) => {
+      console.warn("Admin review email failed.", error);
+    }),
+    sendAdminReviewText(args).catch((error) => {
+      console.warn("Admin review text failed.", error);
+    }),
+    sendApplicantPendingReviewNotifications(args).catch((error) => {
+      console.warn("Applicant pending-review notification failed.", error);
+    })
+  ]);
+}
+
 async function sendAdminReviewEmail({ req, contract, account, applicantName, applicantEmail, requestedAccountType, sourceLabel }) {
   if (!RESEND_API_KEY) {
     return;
@@ -800,6 +839,75 @@ async function sendAdminReviewEmail({ req, contract, account, applicantName, app
   if (!response.ok) {
     const errorText = await response.text();
     throw new Error(`Resend request failed: ${response.status} ${errorText}`);
+  }
+}
+
+async function sendAdminReviewText({ req, contract, account, applicantName, requestedAccountType, sourceLabel }) {
+  const to = normalizePhone(ADMIN_REVIEW_PHONE);
+  if (!to || !TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
+    return;
+  }
+
+  const reviewUrl = `${siteOrigin(req)}/RORC%20App/?route=contracts`;
+  const message = [
+    `RORC review needed: ${applicantName}`,
+    `${sourceLabel}`,
+    `Account: ${account?.account_number || contract?.requested_account_number || "pending"}`,
+    `Type: ${requestedAccountType}`,
+    reviewUrl
+  ].join("\n");
+
+  await sendTwilioText(to, message);
+}
+
+async function sendApplicantPendingReviewNotifications({ req, account, applicantName, applicantEmail, applicantPhone }) {
+  const loginUrl = `${siteOrigin(req)}/member-dashboard/?signup=pending_review`;
+  const accountNumber = account?.account_number || "";
+  const subject = "RORC account pending review";
+  const text = [
+    `Hi ${applicantName || "there"},`,
+    "",
+    "Your RORC account contract was received and is waiting for admin approval.",
+    "Your dashboard may show RESTRICTED ACCOUNT until approval is complete.",
+    accountNumber ? `Account: ${accountNumber}` : "",
+    "",
+    `Open your dashboard: ${loginUrl}`
+  ].filter(Boolean).join("\n");
+
+  if (applicantEmail && RESEND_API_KEY) {
+    const html = buildEmailTemplate({
+      title: "RORC Account Pending Review",
+      bodyHtml: `
+        <p style="margin:0 0 14px;color:#d1d5db;line-height:1.65;font-size:16px;text-align:center;">
+          ${applicantName ? `Hi ${escapeHtml(applicantName)},<br />` : ""}
+          Your RORC account contract was received and is waiting for admin approval.
+        </p>
+        <p style="margin:0 0 20px;color:#d1d5db;line-height:1.65;font-size:16px;text-align:center;">
+          Your dashboard may show <strong>RESTRICTED ACCOUNT</strong> until approval is complete.
+        </p>
+        ${accountNumber ? `<p style="margin:0 0 20px;color:#d1d5db;text-align:center;"><strong>Account:</strong> ${escapeHtml(accountNumber)}</p>` : ""}
+        <p style="margin:0;text-align:center;">
+          <a href="${escapeHtml(loginUrl)}" style="display:inline-block;background:#f23a36;color:#fff;text-decoration:none;border-radius:999px;padding:13px 22px;font-weight:700;">
+            Open Dashboard
+          </a>
+        </p>
+      `
+    });
+
+    await sendEmail({
+      to: applicantEmail,
+      subject,
+      text,
+      html
+    });
+  }
+
+  const phone = normalizePhone(applicantPhone);
+  if (phone && TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN) {
+    await sendTwilioText(
+      phone,
+      `RORC account received. Your dashboard may show RESTRICTED ACCOUNT until admin approval is complete. ${loginUrl}`
+    );
   }
 }
 

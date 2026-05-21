@@ -1,4 +1,5 @@
 const Stripe = require("stripe");
+const { syncAccountMembershipPlan } = require("./_stripe-membership-sync");
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -22,8 +23,10 @@ module.exports = async (req, res) => {
 
     if (event.type === "checkout.session.completed") {
       await handleCheckoutCompleted(event.data.object);
-    } else if (event.type === "customer.subscription.updated" || event.type === "customer.subscription.deleted") {
-      await handleSubscriptionChanged(event.data.object);
+    } else if (event.type === "customer.subscription.updated") {
+      await handleSubscriptionChanged(event.data.object, { syncPlan: true });
+    } else if (event.type === "customer.subscription.deleted") {
+      await handleSubscriptionChanged(event.data.object, { syncPlan: false });
     }
 
     return res.status(200).json({ received: true });
@@ -56,6 +59,12 @@ async function handleCheckoutCompleted(session) {
     currentPeriodEnd = subscription.current_period_end
       ? new Date(subscription.current_period_end * 1000).toISOString()
       : null;
+    await syncAccountMembershipPlan({
+      accountId,
+      subscription,
+      supabaseRest,
+      updateSupabaseRows
+    });
   }
 
   await upsertAccountBilling({
@@ -74,9 +83,8 @@ async function handleCheckoutCompleted(session) {
   }
 }
 
-async function handleSubscriptionChanged(subscription) {
-  const metadata = subscription.metadata || {};
-  const accountId = metadata.rorc_account_id;
+async function handleSubscriptionChanged(subscription, { syncPlan }) {
+  const accountId = await resolveAccountIdForSubscription(subscription);
   if (!accountId) return;
 
   await upsertAccountBilling({
@@ -88,6 +96,43 @@ async function handleSubscriptionChanged(subscription) {
       ? new Date(subscription.current_period_end * 1000).toISOString()
       : null
   });
+
+  if (syncPlan) {
+    await syncAccountMembershipPlan({
+      accountId,
+      subscription,
+      supabaseRest,
+      updateSupabaseRows
+    });
+  }
+}
+
+async function resolveAccountIdForSubscription(subscription) {
+  const metadata = subscription.metadata || {};
+  if (metadata.rorc_account_id) return metadata.rorc_account_id;
+
+  if (subscription.id) {
+    const subscriptionMatches = await supabaseRest(
+      `account_billing?select=account_id&stripe_subscription_id=eq.${encodeURIComponent(subscription.id)}&limit=1`
+    );
+
+    if (subscriptionMatches[0]?.account_id) {
+      return subscriptionMatches[0].account_id;
+    }
+  }
+
+  const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer?.id || "";
+  if (customerId) {
+    const customerMatches = await supabaseRest(
+      `account_billing?select=account_id&stripe_customer_id=eq.${encodeURIComponent(customerId)}&limit=1`
+    );
+
+    if (customerMatches[0]?.account_id) {
+      return customerMatches[0].account_id;
+    }
+  }
+
+  return "";
 }
 
 async function upsertAccountBilling({ accountId, customerId, subscriptionId, billingStatus, currentPeriodEnd }) {

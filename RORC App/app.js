@@ -17,6 +17,7 @@ const appLogoutButton = document.getElementById("appLogoutButton");
 const drawerAvatar = document.getElementById("drawerAvatar");
 const drawerUserEmail = document.getElementById("drawerUserEmail");
 const supabaseSettings = window.RORC_SUPABASE_CONFIG || {};
+const STRIPE_FALLBACK_PORTAL = "https://payments.ruthobenchainrc.com/p/login/eVaeWh2tN0vxgSs288";
 let supabaseClient = null;
 let currentAuthSession = null;
 let deferredInstallPrompt = null;
@@ -40,6 +41,7 @@ let heaterCountdownTimer = null;
 const pendingHeaterAutoOffIds = new Set();
 let notifiedIds = new Set();
 let notificationUnreadCount = 0;
+let contractReviewPendingCount = 0;
 let accountTypePolicies = defaultAccountTypePolicies();
 let supportsMinorMemberFields = false;
 
@@ -681,6 +683,18 @@ function canInviteAccountUsers() {
   return Boolean(isAccountManager(appUserSession) || currentMember?.isBillingOwner);
 }
 
+function canManageBillingForMember(member) {
+  const currentMember = findMember(appUserSession.memberId);
+
+  return Boolean(
+    member?.accountId
+    && (
+      isAccountManager(appUserSession)
+      || (currentMember?.isBillingOwner && currentMember.accountId === member.accountId)
+    )
+  );
+}
+
 function renderSharePage() {
   const content = document.getElementById("shareContent");
   if (!content) return;
@@ -1133,6 +1147,8 @@ function renderContractReviewList(reviews) {
 
   const pending = reviews.filter((review) => review.adminReviewStatus === "pending");
   const reviewed = reviews.filter((review) => review.adminReviewStatus !== "pending").slice(0, 50);
+  contractReviewPendingCount = pending.length;
+  updateContractReviewBadge();
 
   root.innerHTML = `
     <section class="live-record-page">
@@ -1252,6 +1268,7 @@ async function submitContractReview(contractId, action) {
     }
 
     if (result) result.textContent = action === "approve" ? "Account approved." : "Account rejected.";
+    await refreshContractReviewBadge();
     window.setTimeout(() => renderContractReviewsPage(), 250);
   } catch (error) {
     if (result) result.textContent = error.message || "Could not update account review.";
@@ -2715,6 +2732,9 @@ function setAuthButtonBusy(button, busy, busyText) {
 }
 
 function showAuthGate(message = "Log in to open the RORC app.", tone = "default") {
+  contractReviewPendingCount = 0;
+  updateContractReviewBadge();
+
   if (authGate) {
     authGate.hidden = false;
   }
@@ -2866,6 +2886,7 @@ function updateDrawerIdentity() {
 
   updateNavigationVisibility();
   updateNotificationBadge();
+  updateContractReviewBadge();
 }
 
 function updateNotificationBadge() {
@@ -2875,6 +2896,41 @@ function updateNotificationBadge() {
   const hasUnread = notificationUnreadCount > 0;
   badge.hidden = !hasUnread;
   badge.textContent = hasUnread ? `New ${notificationUnreadCount}` : "New";
+}
+
+function updateContractReviewBadge() {
+  const badge = document.getElementById("drawerContractReviewsBadge");
+  if (!badge) return;
+
+  const hasPending = isAccountManager(appUserSession) && contractReviewPendingCount > 0;
+  badge.hidden = !hasPending;
+  badge.textContent = hasPending ? `Review ${contractReviewPendingCount}` : "Review";
+}
+
+async function refreshContractReviewBadge() {
+  if (!isAccountManager(appUserSession)) {
+    contractReviewPendingCount = 0;
+    updateContractReviewBadge();
+    return;
+  }
+
+  const token = currentAuthSession?.access_token || "";
+  if (!token) return;
+
+  const response = await fetch("/api/signup-reviews", {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not load account review count.");
+  }
+
+  contractReviewPendingCount = (body.reviews || [])
+    .filter((review) => review.adminReviewStatus === "pending")
+    .length;
+  updateContractReviewBadge();
 }
 
 function createHttpError(message, statusCode) {
@@ -3317,8 +3373,8 @@ async function hydrateFromSupabase() {
       throw profilesResult.error;
     }
 
-    const profiles = profilesResult.data || [];
-    const currentProfile = findProfileForSession(currentAuthSession, profiles);
+    let profiles = profilesResult.data || [];
+    let currentProfile = findProfileForSession(currentAuthSession, profiles);
 
     if (!profiles.length) {
       throw new Error("No member profiles were returned for this login.");
@@ -3326,6 +3382,25 @@ async function hydrateFromSupabase() {
 
     if (!currentProfile) {
       throw new Error("This signed-in user is not linked to a RORC member profile.");
+    }
+
+    if (await syncStripeMembershipForProfile(currentProfile)) {
+      const refreshedProfilesResult = await client
+        .from("account_member_profiles")
+        .select("*")
+        .order("account_number", { ascending: true })
+        .order("member_name", { ascending: true });
+
+      if (refreshedProfilesResult.error) {
+        throw refreshedProfilesResult.error;
+      }
+
+      profiles = refreshedProfilesResult.data || [];
+      currentProfile = findProfileForSession(currentAuthSession, profiles);
+
+      if (!currentProfile) {
+        throw new Error("This signed-in user is not linked to a RORC member profile.");
+      }
     }
 
     const [
@@ -3393,6 +3468,11 @@ async function hydrateFromSupabase() {
         await refreshMessageHistory();
       } catch (messageHistoryError) {
         console.warn("Could not load message history.", messageHistoryError);
+      }
+      try {
+        await refreshContractReviewBadge();
+      } catch (reviewBadgeError) {
+        console.warn("Could not load account review count.", reviewBadgeError);
       }
     }
     if (canUsePrivilegedTimesheetApi()) {
@@ -3635,6 +3715,12 @@ function openDrawer() {
   drawerOverlay.hidden = false;
   navControl.setAttribute("aria-expanded", "true");
   document.body.classList.add("drawer-open");
+
+  if (isAccountManager(appUserSession)) {
+    refreshContractReviewBadge().catch((error) => {
+      console.warn("Could not refresh account review badge.", error);
+    });
+  }
 }
 
 function closeDrawer() {
@@ -4758,6 +4844,7 @@ function renderAccountDetail(memberId) {
     return total + (minutes || 0);
   }, 0);
   const canEditDetails = canEditMember(member);
+  const canManageBilling = canManageBillingForMember(member);
 
   root.innerHTML = `
     <div class="member-detail-shell">
@@ -4774,6 +4861,7 @@ function renderAccountDetail(memberId) {
           <button data-detail-action="phone" data-member-id="${escapeAttribute(member.id)}" type="button">Phone Call</button>
           <button data-detail-action="text" data-member-id="${escapeAttribute(member.id)}" type="button">Text Message</button>
           <button data-detail-action="email" data-member-id="${escapeAttribute(member.id)}" type="button">Email</button>
+          ${canManageBilling ? `<button data-detail-action="billing" data-member-id="${escapeAttribute(member.id)}" type="button">Manage Billing</button>` : ""}
           ${canEditDetails ? `<button class="edit-chip" data-detail-action="edit" data-member-id="${escapeAttribute(member.id)}" type="button">Edit</button>` : ""}
         </div>
         <div class="detail-stat-grid">
@@ -5026,6 +5114,99 @@ function showAppNotice(message, title = "Notice") {
   overlay.querySelector(".app-notice-ok")?.addEventListener("click", close);
   document.addEventListener("keydown", onKeydown);
   document.body.appendChild(overlay);
+}
+
+async function syncStripeMembershipForProfile(profile) {
+  const canSync = profile?.is_billing_owner || profile?.account_type === "Account Manager";
+  const token = currentAuthSession?.access_token || "";
+
+  if (!canSync || !token) {
+    return false;
+  }
+
+  try {
+    const response = await fetch("/api/sync-stripe-membership", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        accountId: profile.account_id
+      })
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (response.status === 403 || response.status === 404) {
+      return false;
+    }
+
+    if (!response.ok || payload.success === false) {
+      console.warn("Stripe membership sync failed.", payload.error || response.status);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.warn("Stripe membership sync failed.", error);
+    return false;
+  }
+}
+
+async function openBillingPortalForMember(member, triggerButton) {
+  if (!canManageBillingForMember(member)) {
+    showDetailActionMessage("Billing is managed by the account owner.");
+    return;
+  }
+
+  const token = currentAuthSession?.access_token || "";
+
+  if (!token) {
+    showAuthGate("Please sign in to manage billing.", "error");
+    return;
+  }
+
+  const originalText = triggerButton?.textContent || "";
+
+  if (triggerButton) {
+    triggerButton.disabled = true;
+    triggerButton.textContent = "Opening...";
+  }
+
+  try {
+    const response = await fetch("/api/member-portal", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        accountId: member.accountId,
+        returnPath: `${window.location.pathname}${window.location.search}`
+      })
+    });
+
+    const payload = await response.json().catch(() => ({}));
+
+    if (response.ok && payload.success && payload.url) {
+      window.location.href = payload.url;
+      return;
+    }
+
+    if (response.status === 404) {
+      window.open(STRIPE_FALLBACK_PORTAL, "_blank", "noopener");
+      return;
+    }
+
+    throw new Error(payload.error || "Could not open billing portal.");
+  } catch (error) {
+    showDetailActionMessage(error.message || "Could not open billing portal.");
+  } finally {
+    if (triggerButton) {
+      triggerButton.disabled = false;
+      triggerButton.textContent = originalText;
+    }
+  }
 }
 
 async function updateMemberContact(member, updates) {
@@ -5403,8 +5584,7 @@ function openMemberEditDialog(member) {
 
   const canUseAdminTools = canUseAccountAdminTools();
   const canEditName = canUseAdminTools;
-  const canDeleteUserAccount = Boolean(member.id) && (canUseAdminTools || member.id === appUserSession.memberId);
-  const deletingOwnUserAccount = member.id === appUserSession.memberId;
+  const canDeleteUserAccount = Boolean(member.id) && canUseAdminTools && member.id !== appUserSession.memberId;
   const account = accountForMember(member);
   const guardianOptions = accountMembers
     .filter((candidate) => candidate.accountId === member.accountId && candidate.id !== member.id)
@@ -5501,7 +5681,7 @@ function openMemberEditDialog(member) {
       <p id="editMemberResult" class="member-edit-result"></p>
 
       <footer>
-        ${canDeleteUserAccount ? `<button class="member-edit-delete-user" type="button">${deletingOwnUserAccount ? "Delete My User Account" : "Delete User Account"}</button>` : ""}
+        ${canDeleteUserAccount ? `<button class="member-edit-delete-user" type="button">Delete User Account</button>` : ""}
         <button class="member-edit-cancel" type="button">Cancel</button>
         <button class="member-edit-save" type="button">Save</button>
       </footer>
@@ -5631,7 +5811,7 @@ function openMemberEditDialog(member) {
   saveButton?.addEventListener("click", save);
   deleteUserAccountButton?.addEventListener("click", async () => {
     const confirmed = await openDeleteConfirmDialog({
-      title: deletingOwnUserAccount ? "Delete your user account?" : `Delete ${member.memberName}'s user account?`,
+      title: `Delete ${member.memberName}'s user account?`,
       message: "This permanently removes the member profile, the linked Supabase Auth user, and related account data.",
       confirmLabel: "Delete User Account"
     });
@@ -5644,15 +5824,10 @@ function openMemberEditDialog(member) {
     try {
       await deleteSupabaseUserAccount(member);
       close();
-      if (deletingOwnUserAccount) {
-        await handleLogout();
-        showAuthGate("Your user account and related data were deleted.", "success");
-      } else {
-        render(appState.detailReturnRoute || "accountInfo");
-        window.setTimeout(() => {
-          hydrateFromSupabase();
-        }, 180);
-      }
+      render(appState.detailReturnRoute || "accountInfo");
+      window.setTimeout(() => {
+        hydrateFromSupabase();
+      }, 180);
     } catch (error) {
       setResult(error.message || "Could not delete the full user account.", "error");
       deleteUserAccountButton.disabled = false;
@@ -5720,6 +5895,11 @@ function handleDetailQuickAction(button) {
     }
 
     window.location.href = href;
+    return;
+  }
+
+  if (button.dataset.detailAction === "billing") {
+    openBillingPortalForMember(member, button);
     return;
   }
 

@@ -35,10 +35,17 @@ module.exports = async (req, res) => {
     const deletingSelf = requesterMember.id === targetMember.id;
     const requesterIsManager = requesterMember.account_type === "Account Manager";
 
-    if (!deletingSelf && !requesterIsManager) {
+    if (deletingSelf) {
       return res.status(403).json({
         success: false,
-        error: "Only account managers can delete another member's full user account."
+        error: "You cannot delete your own user account from the app. Ask another account manager to make that change."
+      });
+    }
+
+    if (!requesterIsManager) {
+      return res.status(403).json({
+        success: false,
+        error: "Only account managers can delete user accounts."
       });
     }
 

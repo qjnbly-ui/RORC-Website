@@ -2,6 +2,7 @@ const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const PUBLIC_SITE_URL = (process.env.PUBLIC_SITE_URL || "https://www.ruthobenchainrc.com").replace(/\/+$/, "");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -44,7 +45,11 @@ module.exports = async (req, res) => {
       });
     }
 
-    const billing = await getAccountBilling(member.account_id);
+    const requestedAccountId = String(req.body?.accountId || "").trim();
+    const targetAccountId = member.account_type === "Account Manager" && requestedAccountId
+      ? requestedAccountId
+      : member.account_id;
+    const billing = await getAccountBilling(targetAccountId);
     const customerId = String(billing?.stripe_customer_id || "").trim();
 
     if (!customerId) {
@@ -56,7 +61,7 @@ module.exports = async (req, res) => {
 
     const session = await stripe.billingPortal.sessions.create({
       customer: customerId,
-      return_url: "https://www.ruthobenchainrc.com/member-dashboard/"
+      return_url: safeReturnUrl(req)
     });
 
     return res.status(200).json({
@@ -113,6 +118,16 @@ async function getAccountBilling(accountId) {
 
   const rows = await supabaseRest(`account_billing?${params.toString()}`);
   return rows[0] || null;
+}
+
+function safeReturnUrl(req) {
+  const returnPath = String(req.body?.returnPath || "").trim();
+
+  if (returnPath.startsWith("/") && !returnPath.startsWith("//")) {
+    return `${PUBLIC_SITE_URL}${returnPath}`;
+  }
+
+  return `${PUBLIC_SITE_URL}/member-dashboard/`;
 }
 
 async function supabaseRest(path) {

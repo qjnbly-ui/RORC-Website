@@ -52,6 +52,40 @@
     return Boolean(profile?.is_billing_owner || isAccountManager(profile));
   }
 
+  async function syncStripeMembershipIfAllowed() {
+    if (!currentSession || !canManageBilling(currentProfile)) {
+      return false;
+    }
+
+    try {
+      const response = await fetch("/api/sync-stripe-membership", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${currentSession.access_token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          accountId: currentProfile.account_id
+        })
+      });
+
+      const payload = await response.json().catch(() => ({}));
+      if (response.status === 403 || response.status === 404) {
+        return false;
+      }
+
+      if (!response.ok || payload.success === false) {
+        console.warn("Stripe membership sync failed.", payload.error || response.status);
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.warn("Stripe membership sync failed.", error);
+      return false;
+    }
+  }
+
   function openPasswordModal(message = "") {
     const modal = byId("updatePasswordModal");
     const result = byId("passwordResult");
@@ -95,6 +129,13 @@
     currentSession = result.session;
     currentProfile = result.profile;
     visibleProfiles = result.profiles || [];
+
+    if (await syncStripeMembershipIfAllowed()) {
+      const refreshed = await window.RORC_SUPABASE.getCurrentMemberProfile();
+      currentSession = refreshed.session;
+      currentProfile = refreshed.profile;
+      visibleProfiles = refreshed.profiles || [];
+    }
 
     return true;
   }
@@ -194,7 +235,11 @@
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json"
-          }
+          },
+          body: JSON.stringify({
+            accountId: currentProfile.account_id,
+            returnPath: "/member-dashboard/"
+          })
         });
 
         const payload = await response.json();
