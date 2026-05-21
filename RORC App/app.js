@@ -31,6 +31,7 @@ let heaterUseEntries = [];
 let billingLineItems = [];
 let notificationDispatchRecords = [];
 let memberNotifications = [];
+let contractReviewRecords = [];
 let notificationRealtimeChannel = null;
 let notificationRealtimeRetryTimer = null;
 let timesheetRealtimeChannel = null;
@@ -149,6 +150,8 @@ const appState = {
   masterLogsTab: "timesheet",
   masterLogsBillingFilter: "all",
   notificationsHistoryFilter: "all",
+  contractReviewFilter: "pending",
+  contractReviewQuery: "",
   dataStatus: "loading",
   dataError: "",
   authMemberId: "",
@@ -1131,8 +1134,8 @@ function renderContractReviewList(reviews) {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
 
-  const pending = reviews.filter((review) => review.adminReviewStatus === "pending");
-  const reviewed = reviews.filter((review) => review.adminReviewStatus !== "pending").slice(0, 50);
+  contractReviewRecords = [...reviews];
+  const counts = contractReviewCounts(contractReviewRecords);
 
   root.innerHTML = `
     <section class="live-record-page">
@@ -1143,91 +1146,280 @@ function renderContractReviewList(reviews) {
           <p>Pending accounts stay restricted until approved.</p>
         </div>
         <div class="account-summary-strip">
-          <span><strong>${pending.length}</strong> pending</span>
-          <span><strong>${reviewed.length}</strong> reviewed</span>
+          <span><strong>${counts.pending}</strong> pending</span>
+          <span><strong>${counts.approved}</strong> approved</span>
+          <span><strong>${counts.rejected}</strong> rejected</span>
         </div>
       </header>
-      <p id="contractReviewResult" class="auth-message" aria-live="polite"></p>
-      ${pending.length ? `
-        <div class="detail-card">
-          <ol class="record-list heater-record-list">
-            ${pending.map(renderContractReviewCard).join("")}
-          </ol>
+      <div class="contract-review-tools">
+        <div class="master-logs-tabs contract-review-tabs" aria-label="Review filters">
+          ${["pending", "all", "approved", "rejected"].map((filter) => `
+            <button
+              class="master-logs-tab contract-review-tab ${appState.contractReviewFilter === filter ? "is-active" : ""}"
+              data-contract-review-filter="${escapeAttribute(filter)}"
+              type="button">
+              ${escapeHtml(filter === "all" ? `All ${counts.all}` : `${capitalizeLabel(filter)} ${counts[filter] || 0}`)}
+            </button>
+          `).join("")}
         </div>
-      ` : `
-        <section class="empty-state">
-          <p>No pending account reviews.</p>
-        </section>
-      `}
-      ${reviewed.length ? `
-        <header class="account-page-heading contract-review-history-heading">
-          <div>
-            <p class="eyebrow">History</p>
-            <h2>Recent Reviews</h2>
+        <div class="contract-review-search-row">
+          <input id="contractReviewSearch" class="contract-review-search" type="search" placeholder="Search name, email, account, phone, plan" value="${escapeAttribute(appState.contractReviewQuery || "")}" />
+          <div class="contract-review-tool-actions">
+            <button class="text-action contract-review-refresh" data-contract-review-expand type="button">Open All</button>
+            <button class="text-action contract-review-refresh" data-contract-review-collapse type="button">Close All</button>
+            <button class="text-action contract-review-refresh" data-contract-review-refresh type="button">Refresh</button>
           </div>
-        </header>
-        <div class="detail-card">
-          <ol class="record-list heater-record-list">
-            ${reviewed.map(renderContractReviewCard).join("")}
-          </ol>
         </div>
-      ` : ""}
+      </div>
+      <p id="contractReviewResult" class="auth-message" aria-live="polite"></p>
+      <div class="detail-card contract-review-list-card">
+        <ol class="record-list heater-record-list contract-review-list">
+          ${contractReviewRecords.map(renderContractReviewCard).join("")}
+        </ol>
+        <section id="contractReviewEmpty" class="empty-state" hidden>
+          <p>No account reviews match this filter.</p>
+        </section>
+      </div>
     </section>
   `;
 
   bindContractReviewActions();
+  updateContractReviewVisibility();
 }
 
 function renderContractReviewCard(review) {
   const pending = review.adminReviewStatus === "pending";
   const statusLabel = pending ? "Pending" : review.adminReviewStatus === "approved" ? "Approved" : "Rejected";
-  const statusClass = pending ? "currently-on" : review.adminReviewStatus === "approved" ? "paid" : "overdue";
+  const statusClass = pending ? "pending" : review.adminReviewStatus === "approved" ? "paid" : "overdue";
+  const primaryDate = review.primaryDetails?.dateOfBirth ? formatShortDate(review.primaryDetails.dateOfBirth) : "Not set";
+  const signedDate = review.signature?.signedDate ? formatShortDate(review.signature.signedDate) : "Not set";
+  const acknowledgementLabel = `${review.acknowledgements?.accepted || 0}/${review.acknowledgements?.total || 0}`;
+  const userCount = Number(review.householdCount || 0) + Number(review.invitedAccountUsers?.length || 0);
   const meta = [
     review.source,
     review.accountNumber ? `Acct ${review.accountNumber}` : "",
     review.contractSignedAt ? `Signed ${formatShortDateTime(review.contractSignedAt)}` : `Created ${formatShortDateTime(review.createdAt)}`
   ].filter(Boolean).join(" · ");
+  const linkedUserSearch = [
+    ...(Array.isArray(review.accountUsers) ? review.accountUsers.map((user) => [
+      user.name,
+      user.relationship,
+      user.email,
+      user.phone,
+      user.dateOfBirth
+    ].filter(Boolean).join(" ")) : []),
+    ...(Array.isArray(review.invitedAccountUsers) ? review.invitedAccountUsers.map((invite) => [
+      invite.invitedName,
+      invite.invitedEmail,
+      invite.invitedPhone
+    ].filter(Boolean).join(" ")) : [])
+  ];
+  const searchable = [
+    review.applicantName,
+    review.applicantEmail,
+    review.applicantPhone,
+    review.accountNumber,
+    review.requestedAccountType,
+    review.currentAccountType,
+    review.planLabel,
+    review.billingStatus,
+    review.source,
+    review.adminReviewNotes,
+    ...linkedUserSearch
+  ].filter(Boolean).join(" ").toLowerCase();
 
   return `
-    <li data-contract-review-id="${escapeAttribute(review.id)}">
-      <strong class="heater-record-event">${escapeHtml(review.applicantName || "Unknown applicant")}</strong>
-      <span class="heater-record-meta">${escapeHtml(meta)}</span>
-      <button class="heater-state-action is-${escapeAttribute(statusClass)}" type="button" disabled>${escapeHtml(statusLabel)}</button>
-      <p class="heater-record-message">
-        ${escapeHtml(review.applicantEmail || "No email")} · ${escapeHtml(review.applicantPhone || "No phone")}<br />
-        Requested: ${escapeHtml(review.requestedAccountType || "Not set")} · Current: ${escapeHtml(review.currentAccountType || "Not set")}<br />
-        Billing: ${escapeHtml(review.billingStatus || "none")} · Plan: ${escapeHtml(review.planLabel || "Not set")} · Children: ${review.householdCount || 0}
-        ${review.adminReviewNotes ? `<br />Notes: ${escapeHtml(review.adminReviewNotes)}` : ""}
-      </p>
-      ${pending ? `
-        <div class="form-actions contract-review-actions">
-          <button class="text-action" data-contract-review-action="reject" data-contract-review-id="${escapeAttribute(review.id)}" type="button">Reject</button>
-          <button class="save-action" data-contract-review-action="approve" data-contract-review-id="${escapeAttribute(review.id)}" type="button">Approve</button>
+    <li
+      class="contract-review-card"
+      data-contract-review-id="${escapeAttribute(review.id)}"
+      data-contract-review-status="${escapeAttribute(review.adminReviewStatus || "pending")}"
+      data-contract-review-search="${escapeAttribute(searchable)}">
+      <details class="contract-review-details" ${pending ? "open" : ""}>
+        <summary>
+          <span class="contract-review-summary-main">
+            <strong class="heater-record-event">${escapeHtml(review.applicantName || "Unknown applicant")}</strong>
+            <span class="heater-record-meta">${escapeHtml(meta)}</span>
+          </span>
+          <span class="contract-review-summary-stats">
+            <span>${escapeHtml(review.planLabel || "No plan")}</span>
+            <span>${escapeHtml(review.billingStatus || "No billing")}</span>
+            <span>${userCount} users</span>
+          </span>
+          <span class="heater-state-action is-${escapeAttribute(statusClass)}">${escapeHtml(statusLabel)}</span>
+        </summary>
+        <div class="contract-review-body">
+          <dl class="contract-review-grid">
+            <div><dt>Email</dt><dd>${escapeHtml(review.applicantEmail || "No email")}</dd></div>
+            <div><dt>Phone</dt><dd>${escapeHtml(review.applicantPhone || "No phone")}</dd></div>
+            <div><dt>Date of birth</dt><dd>${escapeHtml(primaryDate)}</dd></div>
+            <div><dt>Address</dt><dd>${escapeHtml(review.primaryDetails?.address || "Not set")}</dd></div>
+            <div><dt>Requested type</dt><dd>${escapeHtml(review.requestedAccountType || "Not set")}</dd></div>
+            <div><dt>Current type</dt><dd>${escapeHtml(review.currentAccountType || "Not set")}</dd></div>
+            <div><dt>Reviewed</dt><dd>${escapeHtml(review.adminReviewedAt ? formatShortDateTime(review.adminReviewedAt) : "Not reviewed")}</dd></div>
+            <div><dt>Billing synced</dt><dd>${escapeHtml(review.billingLastSync ? formatShortDateTime(review.billingLastSync) : "Not synced")}</dd></div>
+            <div><dt>Billing period ends</dt><dd>${escapeHtml(review.currentPeriodEnd ? formatShortDate(review.currentPeriodEnd) : "Not set")}</dd></div>
+            <div><dt>Signed date</dt><dd>${escapeHtml(signedDate)}</dd></div>
+            <div><dt>Acknowledgements</dt><dd>${escapeHtml(acknowledgementLabel)}</dd></div>
+            <div><dt>Guest entry</dt><dd>${yesNo(review.permissions?.allowGuestEntry)}</dd></div>
+            <div><dt>Heater use</dt><dd>${yesNo(review.permissions?.allowHeaterUse)}</dd></div>
+          </dl>
+          <div class="contract-review-panels">
+            <section>
+              <h3>Account Users</h3>
+              ${renderContractReviewUserList(review)}
+            </section>
+            <section>
+              <h3>Contract</h3>
+              <p>Version: ${escapeHtml(review.contract?.version || "Not set")}</p>
+              <p>Full contract displayed: ${yesNo(review.contract?.fullContractDisplayed)} · Photos displayed: ${yesNo(review.contract?.contractPhotosDisplayed)}</p>
+              ${review.adminReviewNotes ? `<p><strong>Review notes:</strong> ${escapeHtml(review.adminReviewNotes)}</p>` : ""}
+            </section>
+          </div>
+          ${pending ? `
+            <div class="contract-review-decision">
+              <label>
+                <span>Review notes ${pending ? "(required for rejection)" : ""}</span>
+                <textarea data-contract-review-notes="${escapeAttribute(review.id)}" rows="3" placeholder="Type approval notes or rejection reason"></textarea>
+              </label>
+              <div class="contract-review-actions">
+                <button class="text-action" data-contract-review-action="reject" data-contract-review-id="${escapeAttribute(review.id)}" type="button">Reject</button>
+                <button class="save-action" data-contract-review-action="approve" data-contract-review-id="${escapeAttribute(review.id)}" type="button">Approve</button>
+              </div>
+            </div>
+          ` : ""}
         </div>
-      ` : ""}
+      </details>
     </li>
   `;
 }
 
 function bindContractReviewActions() {
+  document.querySelectorAll("[data-contract-review-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      appState.contractReviewFilter = button.dataset.contractReviewFilter || "pending";
+      updateContractReviewVisibility();
+    });
+  });
+
+  const search = document.getElementById("contractReviewSearch");
+  if (search) {
+    search.addEventListener("input", () => {
+      appState.contractReviewQuery = search.value.trim().toLowerCase();
+      updateContractReviewVisibility();
+    });
+  }
+
+  document.querySelector("[data-contract-review-refresh]")?.addEventListener("click", renderContractReviewsPage);
+  document.querySelector("[data-contract-review-expand]")?.addEventListener("click", () => {
+    setVisibleContractReviewsOpen(true);
+  });
+  document.querySelector("[data-contract-review-collapse]")?.addEventListener("click", () => {
+    setVisibleContractReviewsOpen(false);
+  });
+
   document.querySelectorAll("[data-contract-review-action]").forEach((button) => {
     button.addEventListener("click", () => {
-      submitContractReview(button.dataset.contractReviewId, button.dataset.contractReviewAction);
+      submitContractReview(button.dataset.contractReviewId, button.dataset.contractReviewAction, button);
     });
   });
 }
 
-async function submitContractReview(contractId, action) {
+function updateContractReviewVisibility() {
+  const filter = appState.contractReviewFilter || "pending";
+  const query = String(appState.contractReviewQuery || "").trim().toLowerCase();
+  const cards = [...document.querySelectorAll("[data-contract-review-id]")];
+  let visibleCount = 0;
+
+  document.querySelectorAll("[data-contract-review-filter]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.contractReviewFilter === filter);
+  });
+
+  cards.forEach((card) => {
+    const status = card.dataset.contractReviewStatus || "pending";
+    const matchesFilter = filter === "all" || status === filter;
+    const matchesQuery = !query || String(card.dataset.contractReviewSearch || "").includes(query);
+    const visible = matchesFilter && matchesQuery;
+    card.hidden = !visible;
+    if (visible) visibleCount += 1;
+  });
+
+  const empty = document.getElementById("contractReviewEmpty");
+  if (empty) empty.hidden = visibleCount > 0;
+}
+
+function setVisibleContractReviewsOpen(open) {
+  document.querySelectorAll(".contract-review-card:not([hidden]) .contract-review-details").forEach((details) => {
+    details.open = Boolean(open);
+  });
+}
+
+function contractReviewCounts(reviews) {
+  return reviews.reduce((counts, review) => {
+    const status = review.adminReviewStatus || "pending";
+    counts.all += 1;
+    if (Object.prototype.hasOwnProperty.call(counts, status)) {
+      counts[status] += 1;
+    }
+    return counts;
+  }, { all: 0, pending: 0, approved: 0, rejected: 0 });
+}
+
+function renderContractReviewUserList(review) {
+  const users = Array.isArray(review.accountUsers) ? review.accountUsers : [];
+  const invites = Array.isArray(review.invitedAccountUsers) ? review.invitedAccountUsers : [];
+  if (!users.length && !invites.length) {
+    return `<p>No additional account users listed.</p>`;
+  }
+
+  return `
+    <ul class="contract-review-user-list">
+      ${users.map((user) => `
+        <li>
+          <strong>${escapeHtml(user.name || "Unnamed user")}</strong>
+          <span>${escapeHtml(user.relationship || "No relationship")} · DOB ${escapeHtml(user.dateOfBirth ? formatShortDate(user.dateOfBirth) : "Not set")} · ${user.canAccessIndependently ? "Independent contract/invite required" : "Supervised under-13 user"}</span>
+          <span>${escapeHtml([user.email, user.phone].filter(Boolean).join(" · ") || "No contact listed")}</span>
+        </li>
+      `).join("")}
+      ${invites.map((invite) => `
+        <li>
+          <strong>${escapeHtml(invite.invitedName || "Invited user")}</strong>
+          <span>Contract invite · Email ${invite.sentEmail ? "sent" : "not sent"} · Text ${invite.sentText ? "sent" : "not sent"}</span>
+          <span>${escapeHtml([invite.invitedEmail, invite.invitedPhone].filter(Boolean).join(" · ") || "No contact listed")}</span>
+          ${invite.deliveryErrors?.length ? `<span class="contract-review-warning">${escapeHtml(invite.deliveryErrors.join(" "))}</span>` : ""}
+        </li>
+      `).join("")}
+    </ul>
+  `;
+}
+
+function yesNo(value) {
+  return value ? "Yes" : "No";
+}
+
+function capitalizeLabel(value) {
+  const text = String(value || "");
+  return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : "";
+}
+
+async function submitContractReview(contractId, action, button) {
   const result = document.getElementById("contractReviewResult");
-  const notes = action === "reject"
-    ? String(window.prompt("Reason for rejection?") || "").trim()
-    : String(window.prompt("Approval notes? Optional.") || "").trim();
+  const notes = String(document.querySelector(`[data-contract-review-notes="${contractId}"]`)?.value || "").trim();
 
   if (action === "reject" && !notes) {
     if (result) result.textContent = "Rejection notes are required.";
     return;
   }
 
+  const confirmed = window.confirm(action === "approve"
+    ? "Approve this account and enable the requested access?"
+    : "Reject this account review?");
+  if (!confirmed) return;
+
+  const card = document.querySelector(`[data-contract-review-id="${contractId}"]`);
+  card?.querySelectorAll("[data-contract-review-action]").forEach((item) => {
+    item.disabled = true;
+  });
+  if (button) button.textContent = action === "approve" ? "Approving..." : "Rejecting...";
   if (result) result.textContent = `${action === "approve" ? "Approving" : "Rejecting"} account review...`;
 
   try {
@@ -1255,6 +1447,10 @@ async function submitContractReview(contractId, action) {
     window.setTimeout(() => renderContractReviewsPage(), 250);
   } catch (error) {
     if (result) result.textContent = error.message || "Could not update account review.";
+    card?.querySelectorAll("[data-contract-review-action]").forEach((item) => {
+      item.disabled = false;
+    });
+    if (button) button.textContent = action === "approve" ? "Approve" : "Reject";
   }
 }
 
@@ -5370,38 +5566,29 @@ async function moveMemberToAccountClientFallback(member, targetAccountNumber) {
   }
 }
 
-async function deleteMemberRecord(member) {
-  if (!canUseAccountAdminTools()) {
-    throw new Error("Only admins can delete members from Account Administration.");
+async function deleteSupabaseUserAccount(member) {
+  const token = currentAuthSession?.access_token || "";
+
+  if (!token) {
+    throw new Error("Missing session token.");
   }
 
-  if (!member?.id) {
-    throw new Error("Member not found.");
+  const response = await fetch("/api/delete-user-account", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      memberId: member?.id || ""
+    })
+  });
+
+  const body = await response.json().catch(() => ({}));
+
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not delete the full user account.");
   }
-
-  if (member.id === appUserSession.memberId) {
-    throw new Error("You cannot delete your own signed-in member record.");
-  }
-
-  const client = await createSupabaseClient();
-
-  if (!client) {
-    throw new Error("App data is not available.");
-  }
-
-  const { error } = await client
-    .from("account_members")
-    .delete()
-    .eq("id", member.id);
-
-  if (error) {
-    throw error;
-  }
-
-  removeLocalMember(member.id);
-  appState.selectedMemberId = null;
-  refreshSessions(appState.authMemberId);
-  updateDrawerIdentity();
 }
 
 function openMemberEditDialog(member) {
@@ -5412,7 +5599,8 @@ function openMemberEditDialog(member) {
 
   const canUseAdminTools = canUseAccountAdminTools();
   const canEditName = canUseAdminTools;
-  const canDeleteMember = canUseAdminTools && member.id !== appUserSession.memberId;
+  const canDeleteUserAccount = Boolean(member.id) && (canUseAdminTools || member.id === appUserSession.memberId);
+  const deletingOwnUserAccount = member.id === appUserSession.memberId;
   const account = accountForMember(member);
   const guardianOptions = accountMembers
     .filter((candidate) => candidate.accountId === member.accountId && candidate.id !== member.id)
@@ -5509,7 +5697,7 @@ function openMemberEditDialog(member) {
       <p id="editMemberResult" class="member-edit-result"></p>
 
       <footer>
-        ${canDeleteMember ? '<button class="member-edit-delete" type="button">Delete</button>' : ""}
+        ${canDeleteUserAccount ? `<button class="member-edit-delete-user" type="button">${deletingOwnUserAccount ? "Delete My User Account" : "Delete User Account"}</button>` : ""}
         <button class="member-edit-cancel" type="button">Cancel</button>
         <button class="member-edit-save" type="button">Save</button>
       </footer>
@@ -5531,7 +5719,7 @@ function openMemberEditDialog(member) {
   };
 
   const saveButton = overlay.querySelector(".member-edit-save");
-  const deleteButton = overlay.querySelector(".member-edit-delete");
+  const deleteUserAccountButton = overlay.querySelector(".member-edit-delete-user");
   overlay.querySelector("#toggleAccountHeaterPinVisibility")?.addEventListener("click", () => {
     const pinInput = overlay.querySelector("#editAccountHeaterPin");
     const toggle = overlay.querySelector("#toggleAccountHeaterPinVisibility");
@@ -5540,16 +5728,20 @@ function openMemberEditDialog(member) {
     pinInput.type = reveal ? "text" : "password";
     toggle.textContent = reveal ? "Hide" : "Unveil";
   });
-  const openDeleteConfirmDialog = () => new Promise((resolve) => {
+  const openDeleteConfirmDialog = ({
+    title = `Delete ${member.memberName}?`,
+    message = "This permanently removes this member record.",
+    confirmLabel = "Delete"
+  } = {}) => new Promise((resolve) => {
     const confirmOverlay = document.createElement("div");
     confirmOverlay.className = "member-delete-confirm-overlay";
     confirmOverlay.innerHTML = `
       <section class="member-delete-confirm-dialog" role="dialog" aria-modal="true" aria-label="Confirm member delete">
-        <h3>Delete ${escapeHtml(member.memberName)}?</h3>
-        <p>This permanently removes this member record.</p>
+        <h3>${escapeHtml(title)}</h3>
+        <p>${escapeHtml(message)}</p>
         <footer>
           <button class="member-delete-confirm-cancel" type="button">Cancel</button>
-          <button class="member-delete-confirm-accept" type="button">Delete</button>
+          <button class="member-delete-confirm-accept" type="button">${escapeHtml(confirmLabel)}</button>
         </footer>
       </section>
     `;
@@ -5633,26 +5825,33 @@ function openMemberEditDialog(member) {
 
   overlay.querySelector(".member-edit-cancel")?.addEventListener("click", close);
   saveButton?.addEventListener("click", save);
-  deleteButton?.addEventListener("click", async () => {
-    if (!canDeleteMember) {
-      setResult("Only admins can delete members from Account Administration.", "error");
-      return;
-    }
-
-    const confirmed = await openDeleteConfirmDialog();
+  deleteUserAccountButton?.addEventListener("click", async () => {
+    const confirmed = await openDeleteConfirmDialog({
+      title: deletingOwnUserAccount ? "Delete your user account?" : `Delete ${member.memberName}'s user account?`,
+      message: "This permanently removes the member profile, the linked Supabase Auth user, and related account data.",
+      confirmLabel: "Delete User Account"
+    });
     if (!confirmed) return;
 
-    deleteButton.disabled = true;
+    deleteUserAccountButton.disabled = true;
     saveButton.disabled = true;
-    setResult("Deleting...");
+    setResult("Deleting full user account...");
 
     try {
-      await deleteMemberRecord(member);
+      await deleteSupabaseUserAccount(member);
       close();
-      render(appState.detailReturnRoute || "accountInfo");
+      if (deletingOwnUserAccount) {
+        await handleLogout();
+        showAuthGate("Your user account and related data were deleted.", "success");
+      } else {
+        render(appState.detailReturnRoute || "accountInfo");
+        window.setTimeout(() => {
+          hydrateFromSupabase();
+        }, 180);
+      }
     } catch (error) {
-      setResult(error.message || "Could not delete member.", "error");
-      deleteButton.disabled = false;
+      setResult(error.message || "Could not delete the full user account.", "error");
+      deleteUserAccountButton.disabled = false;
       saveButton.disabled = false;
     }
   });
