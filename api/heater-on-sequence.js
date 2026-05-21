@@ -29,14 +29,19 @@ module.exports = async (req, res) => {
     }
 
     const settings = await getAutomationConfig("heater_on");
-    if (settings.enabled === false) {
+    const systemType = normalizeSystemType(req.body?.systemType);
+    const targetTemperatureF = Number(req.body?.targetTemperatureF || 0) || null;
+    const silent = Boolean(req.body?.silent);
+
+    if (!silent && settings.enabled === false) {
       return res.status(200).json({ success: true, skipped: true });
     }
 
-    const systemType = normalizeSystemType(req.body?.systemType);
-    const targetTemperatureF = Number(req.body?.targetTemperatureF || 0) || null;
-
     await turnThermostatOn({ systemType, targetTemperatureF });
+
+    if (silent) {
+      return res.status(200).json({ success: true, sentCount: 0, silent: true });
+    }
 
     const requestedIds = Array.isArray(req.body?.memberIds)
       ? req.body.memberIds.map((v) => String(v || "").trim()).filter(Boolean)

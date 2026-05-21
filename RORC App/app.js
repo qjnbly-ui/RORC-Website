@@ -2267,7 +2267,10 @@ async function sendMemberMessage(payload) {
 
 async function triggerHeaterOnSequence(memberIds, options = {}) {
   const token = currentAuthSession?.access_token || "";
-  if (!token || !Array.isArray(memberIds) || memberIds.length === 0) return;
+  if (!token || !Array.isArray(memberIds)) return;
+
+  const uniqueMemberIds = [...new Set(memberIds)];
+  if (uniqueMemberIds.length === 0 && !options.silent) return;
 
   const response = await fetch("/api/heater-on-sequence", {
     method: "POST",
@@ -2276,9 +2279,10 @@ async function triggerHeaterOnSequence(memberIds, options = {}) {
       Authorization: `Bearer ${token}`
     },
     body: JSON.stringify({
-      memberIds: [...new Set(memberIds)],
+      memberIds: uniqueMemberIds,
       systemType: options.systemType || "heat",
-      targetTemperatureF: options.targetTemperatureF || null
+      targetTemperatureF: options.targetTemperatureF || null,
+      silent: Boolean(options.silent)
     })
   });
 
@@ -4260,6 +4264,11 @@ function thermostatTempLabel(value) {
   return Number.isFinite(numeric) && numeric > 0 ? `${Math.round(numeric)}°F` : "Not set";
 }
 
+function thermostatSetPointLabel(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? `${Math.round(numeric)}°F` : "-";
+}
+
 function thermostatPercentLabel(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? `${Math.round(numeric)}%` : "Not set";
@@ -4363,8 +4372,28 @@ function firstConfiguredThermostat(...items) {
   return items.find((item) => item?.configured && !item.error) || null;
 }
 
-function renderThermostatSystemStatus(label, item) {
+function renderThermostatSystemStatus(label, item, activeEntry = null) {
   const systemType = label === "AC" ? "ac" : "heat";
+  const isActive = activeEntry?.systemType === systemType;
+
+  if (isActive) {
+    const activity = item?.configured && !item.error
+      ? thermostatSystemActivityLabel(systemType, item)
+      : "Currently On";
+    const statusLabel = activity && activity !== "Idle" && activity !== "Off" ? activity : "Currently On";
+
+    return `
+      <article class="is-active" aria-label="${escapeAttribute(label)} thermostat active">
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(statusLabel)}</strong>
+        <button class="thermostat-setpoint-button" data-change-thermostat-temp type="button">
+          <span>Set Temp</span>
+          <b>${escapeHtml(thermostatSetPointLabel(activeEntry.targetTemperatureF))}</b>
+        </button>
+        <button class="thermostat-card-off-button" data-turn-thermostat-off type="button">Turn Off</button>
+      </article>
+    `;
+  }
 
   if (!thermostatStatus) {
     return `
@@ -4409,6 +4438,7 @@ function renderThermostatSystemStatus(label, item) {
 
 function renderThermostatStatusPanel() {
   const status = thermostatStatus?.thermostats || {};
+  const activeEntry = activeHeaterEntry();
   const room = firstConfiguredThermostat(status.heat, status.ac) || status.heat || status.ac || {};
   const isLoading = !thermostatStatus;
   const hasRoomData = Boolean(!isLoading && room?.configured && !room.error);
@@ -4422,6 +4452,14 @@ function renderThermostatStatusPanel() {
   ].filter(Boolean) : ["Air quality -", "-"];
 
   const refreshed = thermostatStatus?.fetchedAt ? `Updated ${formatShortDateTime(thermostatStatus.fetchedAt)}` : "";
+  const systemCards = activeEntry
+    ? [activeEntry.systemType === "ac"
+      ? renderThermostatSystemStatus("AC", status.ac, activeEntry)
+      : renderThermostatSystemStatus("Heat", status.heat, activeEntry)]
+    : [
+      renderThermostatSystemStatus("Heat", status.heat),
+      renderThermostatSystemStatus("AC", status.ac)
+    ];
 
   return `
     <div class="thermostat-room-card" aria-label="Live room thermostat data">
@@ -4432,9 +4470,8 @@ function renderThermostatStatusPanel() {
         ${roomMetrics.map(renderThermostatMetric).join("")}
       </div>
     </div>
-    <div class="thermostat-system-grid" aria-label="Heat and AC status">
-      ${renderThermostatSystemStatus("Heat", status.heat)}
-      ${renderThermostatSystemStatus("AC", status.ac)}
+    <div class="thermostat-system-grid ${activeEntry ? "is-single" : ""}" aria-label="Heat and AC status">
+      ${systemCards.join("")}
     </div>
     ${refreshed ? `<p class="data-source-note thermostat-refresh-note">${escapeHtml(refreshed)}</p>` : ""}
   `;
@@ -4722,7 +4759,6 @@ function renderHeaterRecords() {
       ? "Admin view shows all thermostat records. Select a record to manage it."
       : "Showing your thermostat records. Select a record to view details.";
   const activeTimerEntry = allRecords.find((entry) => !entry.endAt && entry.setATimer && entry.timerStop);
-  const activeThermostat = activeHeaterEntry();
   const activeTimerCountdown = activeTimerEntry ? heaterCountdownText(activeTimerEntry) : "";
   const timerStatusNote = activeTimerEntry
     ? `
@@ -4732,16 +4768,6 @@ function renderHeaterRecords() {
       </p>
     `
     : "";
-  const activeThermostatTools = activeThermostat
-    ? `
-      <p class="data-source-note heater-timer-note">
-        ${escapeHtml(thermostatSystemLabel(activeThermostat.systemType))} is active at ${thermostatTempLabel(activeThermostat.targetTemperatureF)}.
-        <button class="inline-action-button" data-change-thermostat-temp type="button">Change Temp</button>
-        <button class="inline-action-button" data-turn-thermostat-off type="button">Turn Off</button>
-      </p>
-    `
-    : "";
-
   if (!thermostatStatus || (Date.now() - thermostatStatusFetchedAt) > THERMOSTAT_STATUS_CACHE_MS) {
     fetchThermostatStatus({ force: true }).then(() => {
       if (appState.currentRoute === "heaterRecords") {
@@ -4758,7 +4784,6 @@ function renderHeaterRecords() {
       ${renderThermostatStatusPanel()}
       <p class="heater-personal-record-note">${escapeHtml(recordsNote)}</p>
       ${timerStatusNote}
-      ${activeThermostatTools}
       ${records.length === 0 ? `
         <section class="empty-state">
           <p>No thermostat records yet.</p>
@@ -4864,7 +4889,7 @@ async function turnHeaterOffActiveEntry() {
     ? activeEntry.groupMemberIds
     : [activeEntry.responsibleMemberId];
 
-  triggerHeaterOffSequence(offRecipients, {
+  await triggerHeaterOffSequence(offRecipients, {
     systemType: activeEntry.systemType || "heat",
     heaterUseEntryId: activeEntry.id,
     timerTriggered: false
@@ -4873,6 +4898,9 @@ async function turnHeaterOffActiveEntry() {
   });
 
   thermostatStatusFetchedAt = 0;
+  await fetchThermostatStatus({ force: true }).catch((error) => {
+    console.warn("Could not refresh thermostat status.", error);
+  });
   await hydrateFromSupabase();
   render("heaterRecords");
 }
@@ -4897,7 +4925,7 @@ async function turnHeaterOffEntry(entry, { timerTriggered = false } = {}) {
     if (error) throw error;
 
     const offRecipients = entry.groupPay ? entry.groupMemberIds : [entry.responsibleMemberId];
-    triggerHeaterOffSequence(offRecipients, {
+    await triggerHeaterOffSequence(offRecipients, {
       systemType: entry.systemType || "heat",
       heaterUseEntryId: entry.id,
       timerTriggered,
@@ -4907,6 +4935,9 @@ async function turnHeaterOffEntry(entry, { timerTriggered = false } = {}) {
     });
 
     thermostatStatusFetchedAt = 0;
+    await fetchThermostatStatus({ force: true }).catch((error) => {
+      console.warn("Could not refresh thermostat status.", error);
+    });
     await hydrateFromSupabase();
     if (appState.currentRoute === "heaterRecords") {
       render("heaterRecords");
@@ -4926,11 +4957,9 @@ async function changeActiveThermostatTemperature() {
     return;
   }
 
-  const currentTemp = activeEntry.targetTemperatureF || (activeEntry.systemType === "ac" ? 66 : 74);
-  const raw = window.prompt(`Set ${thermostatSystemLabel(activeEntry.systemType)} temperature`, String(currentTemp));
-  if (raw === null) return;
+  const nextTemp = await openThermostatTemperatureDialog(activeEntry);
+  if (nextTemp === null) return;
 
-  const nextTemp = Number(String(raw).replace(/[^\d.]/g, ""));
   if (!Number.isFinite(nextTemp) || nextTemp < 45 || nextTemp > 92) {
     showDetailActionMessage("Enter a temperature between 45 and 92.");
     return;
@@ -4952,15 +4981,83 @@ async function changeActiveThermostatTemperature() {
     throw error;
   }
 
-  const recipients = activeEntry.groupPay ? activeEntry.groupMemberIds : [activeEntry.responsibleMemberId];
-  await triggerHeaterOnSequence(recipients, {
+  await triggerHeaterOnSequence([], {
     systemType: activeEntry.systemType || "heat",
-    targetTemperatureF: Math.round(nextTemp)
+    targetTemperatureF: Math.round(nextTemp),
+    silent: true
   });
 
   thermostatStatusFetchedAt = 0;
+  await fetchThermostatStatus({ force: true }).catch((error) => {
+    console.warn("Could not refresh thermostat status.", error);
+  });
   await hydrateFromSupabase();
   render("heaterRecords");
+}
+
+function openThermostatTemperatureDialog(activeEntry) {
+  return new Promise((resolve) => {
+    const systemLabel = thermostatSystemLabel(activeEntry.systemType);
+    const currentTemp = activeEntry.targetTemperatureF || (activeEntry.systemType === "ac" ? 66 : 74);
+    const overlay = document.createElement("div");
+    overlay.className = "thermostat-temp-modal-overlay";
+    overlay.innerHTML = `
+      <section class="thermostat-temp-modal" role="dialog" aria-modal="true" aria-label="Set ${escapeAttribute(systemLabel)} temperature">
+        <h3>Set ${escapeHtml(systemLabel)} Temperature</h3>
+        <label>
+          <span>Set Temp</span>
+          <input id="thermostatTempModalInput" type="number" min="45" max="92" inputmode="numeric" value="${escapeAttribute(currentTemp)}" />
+        </label>
+        <p id="thermostatTempModalError" class="thermostat-temp-modal-error"></p>
+        <footer>
+          <button class="thermostat-temp-cancel" type="button">Cancel</button>
+          <button class="thermostat-temp-save" type="button">Confirm</button>
+        </footer>
+      </section>
+    `;
+
+    const close = (value) => {
+      overlay.remove();
+      document.removeEventListener("keydown", onKeydown);
+      resolve(value);
+    };
+
+    const setError = (message) => {
+      const error = overlay.querySelector("#thermostatTempModalError");
+      if (error) error.textContent = message;
+    };
+
+    const save = () => {
+      const input = overlay.querySelector("#thermostatTempModalInput");
+      const value = Number(String(input?.value || "").replace(/[^\d.]/g, ""));
+      if (!Number.isFinite(value) || value < 45 || value > 92) {
+        setError("Enter a temperature between 45 and 92.");
+        return;
+      }
+      close(Math.round(value));
+    };
+
+    const onKeydown = (event) => {
+      if (event.key === "Escape") {
+        close(null);
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        save();
+      }
+    };
+
+    overlay.querySelector(".thermostat-temp-cancel")?.addEventListener("click", () => close(null));
+    overlay.querySelector(".thermostat-temp-save")?.addEventListener("click", save);
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close(null);
+    });
+
+    document.addEventListener("keydown", onKeydown);
+    document.body.appendChild(overlay);
+    overlay.querySelector("#thermostatTempModalInput")?.focus();
+    overlay.querySelector("#thermostatTempModalInput")?.select();
+  });
 }
 
 function renderAccountInfo() {
@@ -7031,7 +7128,7 @@ async function saveHeaterUse() {
 
     if (turnHeaterOn === "On") {
       const smsRecipients = groupPay ? multiResponsibleMemberIds : [singleResponsibleMemberId];
-      triggerHeaterOnSequence(smsRecipients, {
+      await triggerHeaterOnSequence(smsRecipients, {
         systemType,
         targetTemperatureF
       }).catch((sequenceError) => {
@@ -7039,7 +7136,7 @@ async function saveHeaterUse() {
       });
     } else if (turnHeaterOn === "Off") {
       const smsRecipients = groupPay ? multiResponsibleMemberIds : [singleResponsibleMemberId];
-      triggerHeaterOffSequence(smsRecipients, {
+      await triggerHeaterOffSequence(smsRecipients, {
         systemType,
         heaterUseEntryId: createdEntry?.id || null,
         timerTriggered: false
@@ -7049,6 +7146,9 @@ async function saveHeaterUse() {
     }
 
     thermostatStatusFetchedAt = 0;
+    await fetchThermostatStatus({ force: true }).catch((error) => {
+      console.warn("Could not refresh thermostat status.", error);
+    });
     await hydrateFromSupabase();
     render("heaterRecords");
   } catch (error) {

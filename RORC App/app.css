@@ -1135,6 +1135,10 @@ h1 {
   place-content: center;
 }
 
+.thermostat-system-grid.is-single {
+  grid-template-columns: minmax(0, 480px);
+}
+
 .thermostat-system-grid article {
   align-items: center;
   background:
@@ -1147,6 +1151,12 @@ h1 {
   justify-items: center;
   padding: 18px 20px;
   text-align: center;
+}
+
+.thermostat-system-grid article.is-active {
+  border-color: rgba(242, 58, 54, 0.58);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.18);
+  gap: 14px;
 }
 
 .thermostat-system-grid article[data-open-thermostat-system] {
@@ -1177,6 +1187,48 @@ h1 {
 
 .thermostat-system-grid strong {
   font-size: clamp(1.25rem, 2vw, 1.8rem);
+}
+
+.thermostat-setpoint-button,
+.thermostat-card-off-button {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 900;
+}
+
+.thermostat-setpoint-button {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(156, 163, 175, 0.28);
+  display: inline-grid;
+  gap: 4px;
+  grid-template-columns: auto auto;
+  justify-content: center;
+  min-height: 46px;
+  padding: 8px 16px;
+}
+
+.thermostat-setpoint-button span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.thermostat-setpoint-button b {
+  color: #fff;
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.thermostat-card-off-button {
+  background: var(--accent);
+  min-height: 44px;
+  padding: 0 24px;
 }
 
 .thermostat-activity {
@@ -1251,6 +1303,100 @@ h1 {
   font-weight: 900;
   margin-left: 10px;
   padding: 8px 14px;
+}
+
+.thermostat-temp-modal-overlay {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 20px;
+  position: fixed;
+  z-index: 140;
+}
+
+.thermostat-temp-modal {
+  background:
+    radial-gradient(circle at top right, rgba(242, 58, 54, 0.18), transparent 34%),
+    #151515;
+  border: 1px solid rgba(156, 163, 175, 0.32);
+  border-radius: 22px;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.62);
+  display: grid;
+  gap: 16px;
+  max-width: 480px;
+  padding: 24px;
+  width: min(100%, 480px);
+}
+
+.thermostat-temp-modal h3 {
+  color: #fff;
+  font-size: clamp(1.4rem, 6vw, 2.1rem);
+  line-height: 1.05;
+  margin: 0;
+  text-align: center;
+}
+
+.thermostat-temp-modal label {
+  display: grid;
+  gap: 8px;
+}
+
+.thermostat-temp-modal label span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.thermostat-temp-modal input {
+  background: #202020;
+  border: 1px solid rgba(156, 163, 175, 0.34);
+  border-radius: 14px;
+  color: #fff;
+  font: inherit;
+  font-size: 1.35rem;
+  font-weight: 900;
+  min-height: 58px;
+  padding: 0 16px;
+  text-align: center;
+}
+
+.thermostat-temp-modal-error {
+  color: #ffaaa5;
+  font-weight: 800;
+  margin: -4px 0 0;
+  min-height: 1.4em;
+  text-align: center;
+}
+
+.thermostat-temp-modal footer {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.thermostat-temp-modal button {
+  appearance: none;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 900;
+  min-height: 48px;
+}
+
+.thermostat-temp-cancel {
+  background: transparent;
+  border: 1px solid rgba(156, 163, 175, 0.34);
+  color: var(--muted);
+}
+
+.thermostat-temp-save {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #fff;
 }
 
 .data-source-note {
