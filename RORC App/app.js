@@ -4269,6 +4269,20 @@ function thermostatSetPointLabel(value) {
   return Number.isFinite(numeric) && numeric > 0 ? `${Math.round(numeric)}°F` : "-";
 }
 
+function thermostatSetPointForSystem(systemType, item, activeEntry = null) {
+  const liveValue = systemType === "ac" ? Number(item?.desiredCoolF) : Number(item?.desiredHeatF);
+  if (Number.isFinite(liveValue) && liveValue > 0) {
+    return liveValue;
+  }
+
+  const recordValue = Number(activeEntry?.targetTemperatureF);
+  if (Number.isFinite(recordValue) && recordValue > 0) {
+    return recordValue;
+  }
+
+  return null;
+}
+
 function thermostatPercentLabel(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? `${Math.round(numeric)}%` : "Not set";
@@ -4342,14 +4356,20 @@ function renderThermostatMetric(metric) {
   return `<small${className}>${escapeHtml(resolved.label || "-")}</small>`;
 }
 
-function thermostatWeatherLabel(weather) {
+function thermostatWeatherLabel(weather, roomHumidity = null) {
   if (!weather) return "Weather unavailable";
   const pieces = [];
   if (Number.isFinite(Number(weather.temperatureF))) {
     pieces.push(`Outside ${Math.round(Number(weather.temperatureF))}°F`);
   }
-  if (Number.isFinite(Number(weather.humidity))) {
-    pieces.push(`Humidity ${Math.round(Number(weather.humidity))}%`);
+  const outsideHumidity = Number(weather.humidity);
+  const insideHumidity = Number(roomHumidity);
+  const humidityLooksDuplicated = Number.isFinite(outsideHumidity)
+    && Number.isFinite(insideHumidity)
+    && Math.round(outsideHumidity) === Math.round(insideHumidity);
+
+  if (Number.isFinite(outsideHumidity) && !humidityLooksDuplicated) {
+    pieces.push(`Outside humidity ${Math.round(outsideHumidity)}%`);
   }
   if (weather.condition) {
     pieces.push(String(weather.condition));
@@ -4381,6 +4401,7 @@ function renderThermostatSystemStatus(label, item, activeEntry = null) {
       ? thermostatSystemActivityLabel(systemType, item)
       : "Currently On";
     const statusLabel = activity && activity !== "Idle" && activity !== "Off" ? activity : "Currently On";
+    const setPoint = thermostatSetPointForSystem(systemType, item, activeEntry);
 
     return `
       <article class="is-active" aria-label="${escapeAttribute(label)} thermostat active">
@@ -4388,7 +4409,7 @@ function renderThermostatSystemStatus(label, item, activeEntry = null) {
         <strong>${escapeHtml(statusLabel)}</strong>
         <button class="thermostat-setpoint-button" data-change-thermostat-temp type="button">
           <span>Set Temp</span>
-          <b>${escapeHtml(thermostatSetPointLabel(activeEntry.targetTemperatureF))}</b>
+          <b>${escapeHtml(thermostatSetPointLabel(setPoint))}</b>
         </button>
         <button class="thermostat-card-off-button" data-turn-thermostat-off type="button">Turn Off</button>
       </article>
@@ -4448,7 +4469,7 @@ function renderThermostatStatusPanel() {
     : "-";
   const roomMetrics = hasRoomData ? [
     thermostatAirQualityMetric(room),
-    thermostatWeatherLabel(room)
+    thermostatWeatherLabel(room.weather, room.humidity)
   ].filter(Boolean) : ["Air quality -", "-"];
 
   const refreshed = thermostatStatus?.fetchedAt ? `Updated ${formatShortDateTime(thermostatStatus.fetchedAt)}` : "";
@@ -4998,7 +5019,9 @@ async function changeActiveThermostatTemperature() {
 function openThermostatTemperatureDialog(activeEntry) {
   return new Promise((resolve) => {
     const systemLabel = thermostatSystemLabel(activeEntry.systemType);
-    const currentTemp = activeEntry.targetTemperatureF || (activeEntry.systemType === "ac" ? 66 : 74);
+    const statusItem = thermostatStatus?.thermostats?.[activeEntry.systemType === "ac" ? "ac" : "heat"] || null;
+    const currentTemp = thermostatSetPointForSystem(activeEntry.systemType, statusItem, activeEntry)
+      || (activeEntry.systemType === "ac" ? 66 : 74);
     const overlay = document.createElement("div");
     overlay.className = "thermostat-temp-modal-overlay";
     overlay.innerHTML = `
