@@ -1,9 +1,9 @@
-const CACHE_VERSION = "rorc-app-v24";
+const CACHE_VERSION = "rorc-app-v25";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./app.css",
-  "./app.js?v=20260522-ac-pin-required",
+  "./app.js?v=20260522-supabase-session-authority",
   "./app.config.js",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",

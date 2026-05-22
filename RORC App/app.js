@@ -5170,10 +5170,11 @@ function firstConfiguredThermostat(...items) {
 function renderThermostatSystemStatus(label, item, activeEntry = null) {
   const systemType = label === "AC" ? "ac" : "heat";
   const systemEnabled = isThermostatSystemEnabled(systemType);
+  const isRecordActive = normalizeThermostatSystemType(activeEntry?.systemType) === systemType;
   const isLiveActive = isLiveThermostatActive(systemType, item);
 
-  if (isLiveActive) {
-    const activity = item?.configured && !item.error
+  if (isRecordActive || isLiveActive) {
+    const activity = isLiveActive && item?.configured && !item.error
       ? thermostatSystemActivityLabel(systemType, item)
       : "Currently On";
     const pendingAction = thermostatPendingActionFor(systemType);
