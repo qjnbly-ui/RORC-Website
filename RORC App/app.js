@@ -38,11 +38,19 @@ let notificationRealtimeRetryTimer = null;
 let timesheetRealtimeChannel = null;
 let timesheetRealtimeRetryTimer = null;
 let timesheetSyncInFlight = false;
+let timesheetSyncPending = false;
+let timesheetSyncNeedsRender = false;
+let accountTypeRealtimeChannel = null;
+let accountTypeRealtimeRetryTimer = null;
+let accountTypeSyncInFlight = false;
+let accountTypeSyncPending = false;
+let accountTypeSyncNeedsRender = false;
 let heaterCountdownTimer = null;
 let thermostatStatus = null;
 let thermostatStatusFetchedAt = 0;
 const THERMOSTAT_STATUS_CACHE_MS = 3 * 60 * 1000;
 const pendingHeaterAutoOffIds = new Set();
+let thermostatActionFeedback = null;
 let notifiedIds = new Set();
 let notificationUnreadCount = 0;
 let contractReviewPendingCount = 0;
@@ -3232,6 +3240,36 @@ function mapTimesheetEntryRow(row) {
   };
 }
 
+function mergeTimesheetRows(...rowGroups) {
+  const byId = new Map();
+  rowGroups.flat().filter(Boolean).forEach((row) => {
+    if (row.id) byId.set(row.id, row);
+  });
+  return [...byId.values()]
+    .sort((a, b) => new Date(b.signed_in_at || 0) - new Date(a.signed_in_at || 0));
+}
+
+async function fetchVisibleTimesheetRows(client) {
+  const [latestResult, openResult] = await Promise.all([
+    client
+      .from("timesheet_entries")
+      .select("*")
+      .order("signed_in_at", { ascending: false })
+      .limit(250),
+    client
+      .from("timesheet_entries")
+      .select("*")
+      .is("signed_out_at", null)
+      .order("signed_in_at", { ascending: false })
+      .limit(100)
+  ]);
+
+  return {
+    data: mergeTimesheetRows(latestResult.data || [], openResult.data || []),
+    error: latestResult.error || openResult.error
+  };
+}
+
 function upsertLocalTimesheetEntries(rows) {
   const nextRows = (Array.isArray(rows) ? rows : [rows])
     .filter(Boolean)
@@ -3507,7 +3545,24 @@ function stopTimesheetRealtime() {
   }
 }
 
+function stopAccountTypeRealtime() {
+  if (accountTypeRealtimeRetryTimer) {
+    window.clearTimeout(accountTypeRealtimeRetryTimer);
+    accountTypeRealtimeRetryTimer = null;
+  }
+
+  if (accountTypeRealtimeChannel) {
+    try {
+      accountTypeRealtimeChannel.unsubscribe();
+    } catch (error) {
+      // Ignore unsubscribe failures during cleanup.
+    }
+    accountTypeRealtimeChannel = null;
+  }
+}
+
 function scheduleTimesheetRealtimeReconnect() {
+  if (!currentAuthSession) return;
   if (timesheetRealtimeRetryTimer) return;
   timesheetRealtimeRetryTimer = window.setTimeout(() => {
     timesheetRealtimeRetryTimer = null;
@@ -3515,7 +3570,17 @@ function scheduleTimesheetRealtimeReconnect() {
   }, 2500);
 }
 
+function scheduleAccountTypeRealtimeReconnect() {
+  if (!currentAuthSession) return;
+  if (accountTypeRealtimeRetryTimer) return;
+  accountTypeRealtimeRetryTimer = window.setTimeout(() => {
+    accountTypeRealtimeRetryTimer = null;
+    void startAccountTypeRealtime();
+  }, 2500);
+}
+
 async function startTimesheetRealtime() {
+  if (!currentAuthSession) return;
   stopTimesheetRealtime();
 
   const client = await createSupabaseClient();
@@ -3526,13 +3591,19 @@ async function startTimesheetRealtime() {
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "timesheet_entries" },
-      async () => {
-        await syncTimesheetEntries({ rerender: appState.currentRoute === "currentlySignedIn" });
+      () => {
+        syncTimesheetEntries({ rerender: appState.currentRoute === "currentlySignedIn" })
+          .catch((error) => {
+            console.warn("Could not sync timesheet realtime change.", error);
+          });
       }
     )
     .subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
-        await syncTimesheetEntries({ rerender: appState.currentRoute === "currentlySignedIn" });
+        await syncTimesheetEntries({ rerender: appState.currentRoute === "currentlySignedIn" })
+          .catch((error) => {
+            console.warn("Could not sync timesheet after realtime subscribe.", error);
+          });
         return;
       }
 
@@ -3543,41 +3614,163 @@ async function startTimesheetRealtime() {
 
 }
 
+async function startAccountTypeRealtime() {
+  if (!currentAuthSession) return;
+  stopAccountTypeRealtime();
+
+  const client = await createSupabaseClient();
+  if (!client) return;
+
+  const handleAccountTypeChange = () => {
+    syncAccountTypeData({ rerender: true })
+      .catch((error) => {
+        console.warn("Could not sync account type realtime change.", error);
+      });
+  };
+
+  accountTypeRealtimeChannel = client
+    .channel("account-types-live")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "account_members" },
+      handleAccountTypeChange
+    )
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "account_type_permissions" },
+      handleAccountTypeChange
+    )
+    .subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await syncAccountTypeData({ rerender: false })
+          .catch((error) => {
+            console.warn("Could not sync account types after realtime subscribe.", error);
+          });
+        return;
+      }
+
+      if (status === "TIMED_OUT" || status === "CHANNEL_ERROR" || status === "CLOSED") {
+        scheduleAccountTypeRealtimeReconnect();
+      }
+    });
+}
+
 async function syncTimesheetEntries({ rerender = false } = {}) {
-  if (timesheetSyncInFlight) return;
+  if (timesheetSyncInFlight) {
+    timesheetSyncPending = true;
+    timesheetSyncNeedsRender = timesheetSyncNeedsRender || rerender;
+    return;
+  }
 
   timesheetSyncInFlight = true;
   try {
-    if (canUsePrivilegedTimesheetApi()) {
-      timesheetEntries = await fetchPrivilegedTimesheetEntries();
-    } else {
-      const client = await createSupabaseClient();
-      if (!client) return;
+    let shouldRerender = rerender;
 
-      const timesheetResult = await client
-        .from("timesheet_entries")
-        .select("*")
-        .order("signed_in_at", { ascending: false })
-        .limit(1000);
+    do {
+      timesheetSyncPending = false;
+      shouldRerender = shouldRerender || timesheetSyncNeedsRender;
+      timesheetSyncNeedsRender = false;
 
-      if (timesheetResult.error) {
-        throw timesheetResult.error;
+      if (canUsePrivilegedTimesheetApi()) {
+        timesheetEntries = await fetchPrivilegedTimesheetEntries();
+      } else {
+        const client = await createSupabaseClient();
+        if (!client) return;
+
+        const timesheetResult = await fetchVisibleTimesheetRows(client);
+
+        if (timesheetResult.error) {
+          throw timesheetResult.error;
+        }
+
+        timesheetEntries = (timesheetResult.data || []).map(mapTimesheetEntryRow);
       }
 
-      timesheetEntries = (timesheetResult.data || []).map(mapTimesheetEntryRow);
-    }
+      refreshSessions(appState.authMemberId);
+      if (shouldRerender && appState.currentRoute === "currentlySignedIn") {
+        renderCurrentlySignedIn();
+        bindRouteActions();
+      }
 
-    refreshSessions(appState.authMemberId);
-    if (rerender && appState.currentRoute === "currentlySignedIn") {
-      renderCurrentlySignedIn();
-      bindRouteActions();
-    }
+      shouldRerender = false;
+    } while (timesheetSyncPending);
   } finally {
     timesheetSyncInFlight = false;
   }
 }
 
+async function syncAccountTypeData({ rerender = false } = {}) {
+  if (!currentAuthSession) return;
+
+  if (accountTypeSyncInFlight) {
+    accountTypeSyncPending = true;
+    accountTypeSyncNeedsRender = accountTypeSyncNeedsRender || rerender;
+    return;
+  }
+
+  accountTypeSyncInFlight = true;
+  try {
+    let shouldRerender = rerender;
+
+    do {
+      accountTypeSyncPending = false;
+      shouldRerender = shouldRerender || accountTypeSyncNeedsRender;
+      accountTypeSyncNeedsRender = false;
+
+      const client = await createSupabaseClient();
+      if (!client) return;
+
+      const [profilesResult, permissionsResult] = await Promise.all([
+        client
+          .from("account_member_profiles")
+          .select("*")
+          .order("account_number", { ascending: true })
+          .order("member_name", { ascending: true }),
+        client
+          .from("account_type_permissions")
+          .select("*")
+      ]);
+
+      if (profilesResult.error) {
+        throw profilesResult.error;
+      }
+
+      if (permissionsResult.error) {
+        throw permissionsResult.error;
+      }
+
+      const profiles = profilesResult.data || [];
+      const currentProfile = findProfileForSession(currentAuthSession, profiles);
+
+      if (!profiles.length || !currentProfile) {
+        throw new Error("This signed-in user is not linked to a RORC member profile.");
+      }
+
+      applyAccountProfileData(profiles, permissionsResult.data || []);
+      appState.authMemberId = currentProfile.account_member_id;
+      appState.currentUserEmail = currentAuthSession.user.email || currentProfile.email_address || "";
+      refreshSessions(appState.authMemberId);
+      updateDrawerIdentity();
+
+      try {
+        await loadGlobalMemberDirectory();
+      } catch (directoryError) {
+        console.warn("Could not refresh full member directory.", directoryError);
+      }
+
+      if (shouldRerender) {
+        render(appState.currentRoute);
+      }
+
+      shouldRerender = false;
+    } while (accountTypeSyncPending);
+  } finally {
+    accountTypeSyncInFlight = false;
+  }
+}
+
 function scheduleNotificationRealtimeReconnect() {
+  if (!currentAuthSession) return;
   if (notificationRealtimeRetryTimer) return;
   notificationRealtimeRetryTimer = window.setTimeout(() => {
     notificationRealtimeRetryTimer = null;
@@ -3597,6 +3790,7 @@ async function refreshNotificationsForCurrentRoute(announceNew = true) {
 }
 
 async function startNotificationRealtime() {
+  if (!currentAuthSession) return;
   stopNotificationRealtime();
 
   const client = await createSupabaseClient();
@@ -3721,11 +3915,7 @@ async function hydrateFromSupabase() {
       billingResult,
       permissionsResult
     ] = await Promise.all([
-      client
-        .from("timesheet_entries")
-        .select("*")
-        .order("signed_in_at", { ascending: false })
-        .limit(1000),
+      fetchVisibleTimesheetRows(client),
       client
         .from("heater_use_entries_with_duration")
         .select("*")
@@ -3803,8 +3993,9 @@ async function hydrateFromSupabase() {
     try {
       await startNotificationRealtime();
       await startTimesheetRealtime();
-    } catch (notificationError) {
-      console.warn("Could not load notifications.", notificationError);
+      await startAccountTypeRealtime();
+    } catch (realtimeError) {
+      console.warn("Could not start realtime sync.", realtimeError);
     }
   } catch (error) {
     console.error("Supabase data load failed.", error);
@@ -3860,14 +4051,7 @@ async function loadGlobalMemberDirectory() {
   }));
 }
 
-function applySupabaseData({
-  profiles,
-  timesheetRows,
-  heaterRows,
-  heaterGroupRows,
-  billingRows,
-  permissionsRows
-}) {
+function applyAccountProfileData(profiles = [], permissionsRows = []) {
   supportsMinorMemberFields = profiles.some((row) => (
     Object.prototype.hasOwnProperty.call(row, "date_of_birth")
     || Object.prototype.hasOwnProperty.call(row, "guardian_member_id")
@@ -3915,6 +4099,19 @@ function applySupabaseData({
     canAccessIndependently: row.can_access_independently !== false
   }));
 
+  accountTypePolicies = normalizeAccountTypePolicies(permissionsRows);
+}
+
+function applySupabaseData({
+  profiles,
+  timesheetRows,
+  heaterRows,
+  heaterGroupRows,
+  billingRows,
+  permissionsRows
+}) {
+  applyAccountProfileData(profiles, permissionsRows);
+
   timesheetEntries = timesheetRows.map(mapTimesheetEntryRow);
 
   const heaterGroupMap = heaterGroupRows.reduce((map, row) => {
@@ -3954,7 +4151,6 @@ function applySupabaseData({
     postedToStripeAt: row.posted_to_stripe_at
   }));
 
-  accountTypePolicies = normalizeAccountTypePolicies(permissionsRows);
 }
 
 function normalizeAccountTypePolicies(rows = []) {
@@ -4423,6 +4619,16 @@ function formatShortDateTime(value) {
   }).format(new Date(value));
 }
 
+function formatShortTime(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
+}
+
 function parseDateValue(value) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     return new Date(`${value}T12:00:00`);
@@ -4514,6 +4720,31 @@ function thermostatSetPointForSystem(systemType, item, activeEntry = null) {
   }
 
   return null;
+}
+
+function setThermostatActionFeedback(action, systemType, message) {
+  thermostatActionFeedback = {
+    action,
+    systemType: systemType === "ac" ? "ac" : "heat",
+    message: message || "",
+    startedAt: Date.now()
+  };
+}
+
+function clearThermostatActionFeedback() {
+  thermostatActionFeedback = null;
+}
+
+function thermostatPendingActionFor(systemType) {
+  if (!thermostatActionFeedback) return null;
+  return thermostatActionFeedback.systemType === systemType ? thermostatActionFeedback : null;
+}
+
+function thermostatPendingStatusLabel(action) {
+  if (action === "off") return "Turning Off...";
+  if (action === "temp") return "Updating Temp...";
+  if (action === "start") return "Starting...";
+  return "";
 }
 
 function thermostatPercentLabel(value) {
@@ -4633,18 +4864,23 @@ function renderThermostatSystemStatus(label, item, activeEntry = null) {
     const activity = item?.configured && !item.error
       ? thermostatSystemActivityLabel(systemType, item)
       : "Currently On";
-    const statusLabel = activity && activity !== "Idle" && activity !== "Off" ? activity : "Currently On";
+    const pendingAction = thermostatPendingActionFor(systemType);
+    const statusLabel = thermostatPendingStatusLabel(pendingAction?.action)
+      || (activity && activity !== "Idle" && activity !== "Off" ? activity : "Currently On");
     const setPoint = thermostatSetPointForSystem(systemType, item, activeEntry);
+    const timerText = heaterAutoShutoffText(activeEntry);
+    const disabledAttr = pendingAction ? " disabled" : "";
 
     return `
       <article class="is-active" aria-label="${escapeAttribute(label)} thermostat active">
         <span>${escapeHtml(label)}</span>
         <strong>${escapeHtml(statusLabel)}</strong>
-        <button class="thermostat-setpoint-button" data-change-thermostat-temp type="button">
+        <button class="thermostat-setpoint-button" data-change-thermostat-temp type="button"${disabledAttr}>
           <span>Set Temp</span>
           <b>${escapeHtml(thermostatSetPointLabel(setPoint))}</b>
         </button>
-        <button class="thermostat-card-off-button" data-turn-thermostat-off type="button">Turn Off</button>
+        ${timerText ? `<small class="thermostat-timer-chip">${escapeHtml(timerText)}</small>` : ""}
+        <button class="thermostat-card-off-button" data-turn-thermostat-off type="button"${disabledAttr}>${pendingAction?.action === "off" ? "Turning Off..." : "Turn Off"}</button>
       </article>
     `;
   }
@@ -4727,6 +4963,7 @@ function renderThermostatStatusPanel() {
     <div class="thermostat-system-grid ${activeEntry ? "is-single" : ""}" aria-label="Heat and AC status">
       ${systemCards.join("")}
     </div>
+    ${thermostatActionFeedback?.message ? `<p class="thermostat-action-feedback">${escapeHtml(thermostatActionFeedback.message)}</p>` : ""}
     ${refreshed ? `<p class="data-source-note thermostat-refresh-note">${escapeHtml(refreshed)}</p>` : ""}
   `;
 }
@@ -4771,10 +5008,25 @@ function heaterCountdownText(entry) {
   if (!target || Number.isNaN(target.getTime())) return "";
   const diffMs = target.getTime() - Date.now();
   if (diffMs <= 0) return "Timer reached";
-  const totalMin = Math.floor(diffMs / 60000);
+  const totalMin = Math.max(1, Math.ceil(diffMs / 60000));
   const hours = Math.floor(totalMin / 60);
   const mins = totalMin % 60;
   return hours > 0 ? `Timer ${hours}h ${mins}m left` : `Timer ${mins}m left`;
+}
+
+function heaterAutoShutoffText(entry) {
+  if (!entry?.setATimer || entry?.endAt) return "";
+  const target = heaterTimerTarget(entry);
+  if (!target || Number.isNaN(target.getTime())) return "";
+
+  const countdown = heaterCountdownText(entry);
+  const shutoffTime = formatShortTime(target);
+  if (!shutoffTime && !countdown) return "";
+
+  const pieces = [];
+  if (shutoffTime) pieces.push(`Auto shutoff ${shutoffTime}`);
+  if (countdown) pieces.push(countdown.replace(/^Timer\s+/i, ""));
+  return pieces.join(" · ");
 }
 
 function configuredTimerMinutes(entry) {
@@ -5014,10 +5266,11 @@ function renderHeaterRecords() {
       : "Showing your thermostat records. Select a record to view details.";
   const activeTimerEntry = allRecords.find((entry) => !entry.endAt && entry.setATimer && entry.timerStop);
   const activeTimerCountdown = activeTimerEntry ? heaterCountdownText(activeTimerEntry) : "";
+  const activeTimerShutoff = activeTimerEntry ? heaterAutoShutoffText(activeTimerEntry) : "";
   const timerStatusNote = activeTimerEntry
     ? `
       <p class="data-source-note heater-timer-note">
-        <span class="heater-timer-note-desktop">Timer is active. It can be turned off early.</span>
+        <span class="heater-timer-note-desktop">${escapeHtml(activeTimerShutoff || "Timer is active")} · Can be turned off early.</span>
         <span class="heater-timer-note-mobile">${escapeHtml(activeTimerCountdown || "Timer is active")} · Can be turned off early.</span>
       </p>
     `
@@ -5126,10 +5379,16 @@ async function turnHeaterOffActiveEntry() {
     return;
   }
 
+  const systemType = activeEntry.systemType || "heat";
+  const systemLabel = thermostatSystemLabel(systemType);
+  const endAtIso = new Date().toISOString();
+  setThermostatActionFeedback("off", systemType, `Turning ${systemLabel} off. This can take a moment.`);
+  render("heaterRecords");
+
   const { error } = await client
     .from("heater_use_entries")
     .update({
-      end_at: new Date().toISOString(),
+      end_at: endAtIso,
       turn_heater_on: "Off"
     })
     .eq("id", activeEntry.id)
@@ -5139,12 +5398,17 @@ async function turnHeaterOffActiveEntry() {
     throw error;
   }
 
+  heaterUseEntries = heaterUseEntries.map((entry) => (
+    entry.id === activeEntry.id ? { ...entry, endAt: endAtIso, turnHeaterOn: "Off" } : entry
+  ));
+  render("heaterRecords");
+
   const offRecipients = activeEntry.groupPay
     ? activeEntry.groupMemberIds
     : [activeEntry.responsibleMemberId];
 
   await triggerHeaterOffSequence(offRecipients, {
-    systemType: activeEntry.systemType || "heat",
+    systemType,
     heaterUseEntryId: activeEntry.id,
     timerTriggered: false
   }).catch((sequenceError) => {
@@ -5156,6 +5420,7 @@ async function turnHeaterOffActiveEntry() {
     console.warn("Could not refresh thermostat status.", error);
   });
   await hydrateFromSupabase();
+  clearThermostatActionFeedback();
   render("heaterRecords");
 }
 
@@ -5225,6 +5490,10 @@ async function changeActiveThermostatTemperature() {
     return;
   }
 
+  const systemType = activeEntry.systemType || "heat";
+  setThermostatActionFeedback("temp", systemType, `Updating ${thermostatSystemLabel(systemType)} to ${Math.round(nextTemp)}°F.`);
+  render("heaterRecords");
+
   const { error } = await client
     .from("heater_use_entries")
     .update({ target_temperature_f: Math.round(nextTemp) })
@@ -5235,8 +5504,13 @@ async function changeActiveThermostatTemperature() {
     throw error;
   }
 
+  heaterUseEntries = heaterUseEntries.map((entry) => (
+    entry.id === activeEntry.id ? { ...entry, targetTemperatureF: Math.round(nextTemp) } : entry
+  ));
+  render("heaterRecords");
+
   await triggerHeaterOnSequence([], {
-    systemType: activeEntry.systemType || "heat",
+    systemType,
     targetTemperatureF: Math.round(nextTemp),
     silent: true
   });
@@ -5246,6 +5520,7 @@ async function changeActiveThermostatTemperature() {
     console.warn("Could not refresh thermostat status.", error);
   });
   await hydrateFromSupabase();
+  clearThermostatActionFeedback();
   render("heaterRecords");
 }
 
@@ -6314,10 +6589,7 @@ function openMemberEditDialog(member) {
 
       <label>
         <span>Shared Account Heater PIN</span>
-        <div class="pin-input-row">
-          <input id="editAccountHeaterPin" type="password" value="${escapeAttribute(account?.heaterPin || "")}" inputmode="numeric" pattern="[0-9]*" maxlength="4" minlength="4" autocomplete="off" />
-          <button id="toggleAccountHeaterPinVisibility" class="auth-secondary" type="button">Unveil</button>
-        </div>
+        <input id="editAccountHeaterPin" type="password" value="${escapeAttribute(account?.heaterPin || "")}" inputmode="numeric" pattern="[0-9]*" maxlength="4" minlength="4" autocomplete="off" />
       </label>
 
       ${canEditName ? `
@@ -6399,14 +6671,6 @@ function openMemberEditDialog(member) {
 
   const saveButton = overlay.querySelector(".member-edit-save");
   const deleteUserAccountButton = overlay.querySelector(".member-edit-delete-user");
-  overlay.querySelector("#toggleAccountHeaterPinVisibility")?.addEventListener("click", () => {
-    const pinInput = overlay.querySelector("#editAccountHeaterPin");
-    const toggle = overlay.querySelector("#toggleAccountHeaterPinVisibility");
-    if (!pinInput || !toggle) return;
-    const reveal = pinInput.type === "password";
-    pinInput.type = reveal ? "text" : "password";
-    toggle.textContent = reveal ? "Hide" : "Unveil";
-  });
   const openDeleteConfirmDialog = ({
     title = `Delete ${member.memberName}?`,
     message = "This permanently removes this member record.",
@@ -6649,12 +6913,16 @@ function bindHeaterRecordsActions() {
 
   document.querySelector("[data-change-thermostat-temp]")?.addEventListener("click", () => {
     changeActiveThermostatTemperature().catch((error) => {
+      clearThermostatActionFeedback();
+      if (appState.currentRoute === "heaterRecords") render("heaterRecords");
       showDetailActionMessage(error.message || "Could not change thermostat temperature.");
     });
   });
 
   document.querySelector("[data-turn-thermostat-off]")?.addEventListener("click", () => {
     turnHeaterOffActiveEntry().catch((error) => {
+      clearThermostatActionFeedback();
+      if (appState.currentRoute === "heaterRecords") render("heaterRecords");
       showDetailActionMessage(error.message || "Could not turn thermostat off.");
     });
   });
@@ -7321,9 +7589,12 @@ async function saveHeaterUse() {
     return;
   }
 
+  const systemLabel = thermostatSystemLabel(systemType);
+  setThermostatActionFeedback("start", systemType, `Starting ${systemLabel}. This can take a moment.`);
+
   if (saveButton) {
     saveButton.disabled = true;
-    saveButton.textContent = "Saving...";
+    saveButton.textContent = `Starting ${systemLabel}...`;
   }
 
   try {
@@ -7331,6 +7602,7 @@ async function saveHeaterUse() {
     const responsibleMemberId = groupPay ? (multiResponsibleMemberIds[0] || null) : singleResponsibleMemberId;
     const usedOn = formatDateOnly(new Date());
     const now = new Date();
+    const startAtIso = now.toISOString();
     const timerStart = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:00`;
     let timerStop = null;
 
@@ -7357,7 +7629,7 @@ async function saveHeaterUse() {
         set_a_timer: timerEnabled,
         timer_start: timerEnabled ? timerStart : null,
         timer_stop: timerEnabled ? timerStop : null,
-        start_at: new Date().toISOString(),
+        start_at: startAtIso,
         note: note || null
       })
       .select("id")
@@ -7380,6 +7652,31 @@ async function saveHeaterUse() {
       if (groupError) {
         throw groupError;
       }
+    }
+
+    if (createdEntry?.id) {
+      heaterUseEntries = [
+        {
+          id: createdEntry.id,
+          usedOn,
+          systemType,
+          event: null,
+          responsibleMemberId,
+          groupMemberIds: groupPay ? [...new Set(multiResponsibleMemberIds)] : [],
+          groupPay,
+          turnHeaterOn,
+          targetTemperatureF: turnHeaterOn === "On" ? targetTemperatureF : null,
+          setATimer: timerEnabled,
+          timerStart: timerEnabled ? timerStart : null,
+          timerStop: timerEnabled ? timerStop : null,
+          startAt: startAtIso,
+          endAt: null,
+          paid: false,
+          note: note || ""
+        },
+        ...heaterUseEntries.filter((entry) => entry.id !== createdEntry.id)
+      ];
+      render("heaterRecords");
     }
 
     if (turnHeaterOn === "On") {
@@ -7406,8 +7703,11 @@ async function saveHeaterUse() {
       console.warn("Could not refresh thermostat status.", error);
     });
     await hydrateFromSupabase();
+    clearThermostatActionFeedback();
     render("heaterRecords");
   } catch (error) {
+    clearThermostatActionFeedback();
+    if (appState.currentRoute === "heaterRecords") render("heaterRecords");
     showDetailActionMessage(error.message || "Could not save heater record.");
   } finally {
     if (saveButton) {
@@ -7585,6 +7885,7 @@ async function handleLogout() {
   clearLiveData();
   stopNotificationRealtime();
   stopTimesheetRealtime();
+  stopAccountTypeRealtime();
   updateNavigationVisibility();
   showAuthGate("Signed out.", "success");
 }

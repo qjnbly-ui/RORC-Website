@@ -1,4 +1,4 @@
-const CACHE_VERSION = "rorc-app-v8";
+const CACHE_VERSION = "rorc-app-v14";
 const APP_SHELL = [
   "./",
   "./index.html",
@@ -10,6 +10,7 @@ const APP_SHELL = [
   "./icons/favicon-32.png",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
+  "/scripts/rorc-password-reveal.js",
   "/scripts/rorc-supabase-client.js",
   "/Images/LOGOS/LOGO.png"
 ];

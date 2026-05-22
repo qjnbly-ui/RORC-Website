@@ -554,6 +554,45 @@ a { color: inherit; }
   color: #f5f5f5;
 }
 
+.password-reveal-field {
+  display: block;
+  position: relative;
+  width: 100%;
+}
+
+.password-reveal-field > input {
+  box-sizing: border-box;
+  padding-right: 5rem !important;
+  width: 100%;
+}
+
+.password-reveal-toggle {
+  align-items: center;
+  background: rgba(234, 217, 156, 0.12);
+  border: 1px solid rgba(234, 217, 156, 0.42);
+  border-radius: 999px;
+  color: #ead99c;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  min-height: 30px;
+  padding: 0 10px;
+  position: absolute;
+  right: 8px;
+  text-transform: uppercase;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.password-reveal-toggle:hover,
+.password-reveal-toggle:focus-visible {
+  background: rgba(234, 217, 156, 0.2);
+  outline: none;
+}
+
 .page-content {
   max-width: 900px;
   margin: 0 auto;

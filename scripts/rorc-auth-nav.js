@@ -37,6 +37,28 @@
     link.removeAttribute("target");
     link.removeAttribute("rel");
     link.setAttribute("aria-label", "Portal");
+    link.dataset.authNavMode = "portal";
+  }
+
+  function applyLoginNav(link) {
+    if (!link) {
+      return;
+    }
+
+    rememberOriginalNav(link);
+    const originalText = link.dataset.authNavOriginalText || "Login";
+    const originalHref = link.dataset.authNavOriginalHref || LOGIN_PATH;
+    const originalTarget = link.dataset.authNavOriginalTarget || "";
+    const originalRel = link.dataset.authNavOriginalRel || "";
+
+    link.textContent = originalText;
+    link.setAttribute("href", originalHref);
+    link.removeAttribute("target");
+    link.removeAttribute("rel");
+    if (originalTarget) link.setAttribute("target", originalTarget);
+    if (originalRel) link.setAttribute("rel", originalRel);
+    link.setAttribute("aria-label", originalText);
+    link.dataset.authNavMode = "login";
   }
 
   function applyLogoutNav(link) {
@@ -50,40 +72,7 @@
     link.removeAttribute("target");
     link.removeAttribute("rel");
     link.setAttribute("aria-label", "Logout");
-  }
-
-  function restoreSignedOutNav(link) {
-    if (!link) {
-      return;
-    }
-
-    const text = link.dataset.authNavOriginalText;
-    const href = link.dataset.authNavOriginalHref;
-    const target = link.dataset.authNavOriginalTarget;
-    const rel = link.dataset.authNavOriginalRel;
-
-    if (text) {
-      link.textContent = text;
-      link.setAttribute("aria-label", text);
-    }
-
-    if (href) {
-      link.setAttribute("href", href);
-    } else {
-      link.removeAttribute("href");
-    }
-
-    if (target) {
-      link.setAttribute("target", target);
-    } else {
-      link.removeAttribute("target");
-    }
-
-    if (rel) {
-      link.setAttribute("rel", rel);
-    } else {
-      link.removeAttribute("rel");
-    }
+    link.dataset.authNavMode = "logout";
   }
 
   function setHintState(signedIn, member) {
@@ -175,7 +164,7 @@
 
     link.dataset.authNavLogoutBound = "true";
     link.addEventListener("click", async (event) => {
-      if (!window.location.pathname.startsWith(DASHBOARD_PATH)) {
+      if (link.dataset.authNavMode !== "logout") {
         return;
       }
 
@@ -191,17 +180,19 @@
       return;
     }
 
+    rememberOriginalNav(link);
+
     const onDashboard = window.location.pathname.startsWith(DASHBOARD_PATH);
     const cachedHint = readCachedHint();
 
-    if (cachedHint?.signedIn) {
+    if (cachedHint?.signedIn && onDashboard) {
       if (onDashboard) {
         applyLogoutNav(link);
         bindLogout(link);
-      } else {
-        applyPortalNav(link);
       }
       document.documentElement.dataset.rorcAuthHint = "signed-in";
+    } else if (!onDashboard) {
+      applyLoginNav(link);
     }
 
     let authState;
@@ -232,7 +223,7 @@
       return;
     }
 
-    restoreSignedOutNav(link);
+    applyLoginNav(link);
   }
 
   if (document.readyState === "loading") {

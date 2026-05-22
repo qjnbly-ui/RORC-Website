@@ -246,6 +246,29 @@ before update on public.account_type_permissions
 for each row
 execute function public.set_updated_at();
 
+do $$
+begin
+  if exists (
+    select 1
+    from pg_publication
+    where pubname = 'supabase_realtime'
+  ) then
+    begin
+      execute 'alter publication supabase_realtime add table public.account_members';
+    exception
+      when duplicate_object then
+        null;
+    end;
+
+    begin
+      execute 'alter publication supabase_realtime add table public.account_type_permissions';
+    exception
+      when duplicate_object then
+        null;
+    end;
+  end if;
+end $$;
+
 create table if not exists public.member_credentials (
   account_member_id uuid primary key references public.account_members(id) on delete cascade,
   pin_hash text,
@@ -869,6 +892,34 @@ create trigger trg_protect_timesheet_update
 before update on public.timesheet_entries
 for each row
 execute function public.protect_timesheet_update();
+
+create or replace function public.sign_out_member_guests()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if old.signed_out_at is null
+     and new.signed_out_at is not null
+     and new.member_or_guest = 'Member'
+     and new.member_id is not null then
+    update public.timesheet_entries
+    set signed_out_at = new.signed_out_at
+    where member_or_guest = 'Guest'
+      and member_entered_with_id = new.member_id
+      and signed_out_at is null;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_sign_out_member_guests on public.timesheet_entries;
+create trigger trg_sign_out_member_guests
+after update of signed_out_at on public.timesheet_entries
+for each row
+execute function public.sign_out_member_guests();
 
 create or replace function public.protect_heater_use_update()
 returns trigger

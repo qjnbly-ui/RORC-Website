@@ -21,10 +21,11 @@ module.exports = async (req, res) => {
     }
 
     if (req.method === "GET") {
-      const rows = await supabaseRest(
-        "timesheet_entries?select=*&order=signed_in_at.desc&limit=1000"
-      );
-      return res.status(200).json({ success: true, entries: rows || [] });
+      const [recentRows, openRows] = await Promise.all([
+        supabaseRest("timesheet_entries?select=*&order=signed_in_at.desc&limit=250"),
+        supabaseRest("timesheet_entries?select=*&signed_out_at=is.null&order=signed_in_at.desc&limit=100")
+      ]);
+      return res.status(200).json({ success: true, entries: mergeTimesheetRows(recentRows, openRows) });
     }
 
     if (req.method === "POST") {
@@ -126,6 +127,15 @@ function normalizeEntries(input) {
       return null;
     })
     .filter(Boolean);
+}
+
+function mergeTimesheetRows(...rowGroups) {
+  const byId = new Map();
+  rowGroups.flat().filter(Boolean).forEach((row) => {
+    if (row.id) byId.set(row.id, row);
+  });
+  return [...byId.values()]
+    .sort((a, b) => new Date(b.signed_in_at || 0) - new Date(a.signed_in_at || 0));
 }
 
 async function validateEntries(entries) {

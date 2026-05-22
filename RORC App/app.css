@@ -141,6 +141,45 @@ select {
   outline: 2px solid rgba(239, 59, 54, 0.2);
 }
 
+.password-reveal-field {
+  display: block;
+  position: relative;
+  width: 100%;
+}
+
+.password-reveal-field > input {
+  box-sizing: border-box;
+  padding-right: 5rem !important;
+  width: 100%;
+}
+
+.password-reveal-toggle {
+  align-items: center;
+  background: rgba(239, 59, 54, 0.14);
+  border: 1px solid rgba(239, 59, 54, 0.45);
+  border-radius: 999px;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  font-family: inherit;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  min-height: 30px;
+  padding: 0 10px;
+  position: absolute;
+  right: 10px;
+  text-transform: uppercase;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.password-reveal-toggle:hover,
+.password-reveal-toggle:focus-visible {
+  background: rgba(239, 59, 54, 0.24);
+  outline: none;
+}
+
 .auth-actions {
   display: grid;
   gap: 10px;
@@ -1225,10 +1264,40 @@ h1 {
   line-height: 1;
 }
 
+.thermostat-setpoint-button:disabled,
+.thermostat-card-off-button:disabled {
+  cursor: progress;
+  opacity: 0.78;
+}
+
+.thermostat-timer-chip {
+  background: rgba(155, 213, 155, 0.12);
+  border: 1px solid rgba(155, 213, 155, 0.36);
+  border-radius: 999px;
+  color: #9bd59b;
+  font-size: 0.88rem;
+  font-weight: 900;
+  justify-self: center;
+  padding: 8px 12px;
+}
+
 .thermostat-card-off-button {
   background: var(--accent);
   min-height: 44px;
   padding: 0 24px;
+}
+
+.thermostat-action-feedback {
+  background: rgba(155, 213, 155, 0.1);
+  border: 1px solid rgba(155, 213, 155, 0.28);
+  border-radius: 999px;
+  color: #9bd59b;
+  font-size: clamp(0.95rem, 2vw, 1.1rem);
+  font-weight: 900;
+  justify-self: center;
+  margin: 0;
+  padding: 8px 14px;
+  text-align: center;
 }
 
 .thermostat-activity {
