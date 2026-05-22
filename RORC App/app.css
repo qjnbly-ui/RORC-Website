@@ -1310,6 +1310,15 @@ h1 {
   border-color: rgba(242, 58, 54, 0.7);
 }
 
+.thermostat-system-grid article[data-open-thermostat-system].is-disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.thermostat-system-grid article[data-open-thermostat-system].is-disabled:hover {
+  border-color: rgba(156, 163, 175, 0.28);
+}
+
 .thermostat-room-card span,
 .thermostat-room-card small,
 .thermostat-system-grid span,
@@ -3379,6 +3388,11 @@ textarea:focus-visible,
 .segment.is-selected {
   background: var(--accent);
   color: #fff;
+}
+
+.segment.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .availability-warning {

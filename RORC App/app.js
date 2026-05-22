@@ -55,6 +55,7 @@ let notifiedIds = new Set();
 let notificationUnreadCount = 0;
 let contractReviewPendingCount = 0;
 let accountTypePolicies = defaultAccountTypePolicies();
+let thermostatSystemAccess = defaultThermostatSystemAccess();
 let supportsMinorMemberFields = false;
 
 const statusOrder = [
@@ -136,6 +137,28 @@ function defaultAccountTypePolicies() {
       allowedEndTime: null
     }
   };
+}
+
+function defaultThermostatSystemAccess() {
+  return {
+    heatEnabled: true,
+    acEnabled: true
+  };
+}
+
+function normalizeThermostatSystemAccess(config) {
+  return {
+    heatEnabled: config?.heat_enabled !== false,
+    acEnabled: config?.ac_enabled !== false
+  };
+}
+
+function isThermostatSystemEnabled(systemType) {
+  return systemType === "ac" ? thermostatSystemAccess.acEnabled : thermostatSystemAccess.heatEnabled;
+}
+
+function hasAnyThermostatSystemEnabled() {
+  return thermostatSystemAccess.heatEnabled || thermostatSystemAccess.acEnabled;
 }
 
 
@@ -999,6 +1022,22 @@ async function saveAutomationSettings(settings) {
   }
 }
 
+async function loadThermostatSystemAccess() {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) return defaultThermostatSystemAccess();
+  const response = await fetch("/api/thermostat-system-access", {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not load thermostat access settings.");
+  }
+  return normalizeThermostatSystemAccess(body.settings || {});
+}
+
 function renderAutomationSettingsPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
@@ -1081,6 +1120,14 @@ function renderAutomationSettingsPage() {
             <label class="automation-toggle">
               <input id="heaterOffEnabled" type="checkbox" />
               <span>Enable heater-off sequence</span>
+            </label>
+            <label class="automation-toggle">
+              <input id="thermostatHeatEnabled" type="checkbox" />
+              <span>Allow Heat selection</span>
+            </label>
+            <label class="automation-toggle">
+              <input id="thermostatAcEnabled" type="checkbox" />
+              <span>Allow AC selection</span>
             </label>
           </article>
         </section>
@@ -2882,6 +2929,8 @@ function applyAutomationSettingsToForm(settings) {
 
   setChecked("heaterOnEnabled", settings.heater_on?.enabled);
   setChecked("heaterOffEnabled", settings.heater_off?.enabled);
+  setChecked("thermostatHeatEnabled", settings.thermostat_system_access?.heat_enabled !== false);
+  setChecked("thermostatAcEnabled", settings.thermostat_system_access?.ac_enabled !== false);
 
   applyAccountTypePoliciesToForm(settings.account_type_permissions || accountTypePolicies || {});
 }
@@ -2949,6 +2998,10 @@ function collectAutomationSettingsFromForm() {
     },
     heater_off: {
       enabled: isChecked("heaterOffEnabled")
+    },
+    thermostat_system_access: {
+      heat_enabled: isChecked("thermostatHeatEnabled"),
+      ac_enabled: isChecked("thermostatAcEnabled")
     },
     account_type_permissions: collectAccountTypePoliciesFromForm()
   };
@@ -3032,6 +3085,7 @@ async function bindAutomationSettingsActions() {
   try {
     automationResult("Loading settings...");
     const settings = await loadAutomationSettings();
+    thermostatSystemAccess = normalizeThermostatSystemAccess(settings.thermostat_system_access || {});
     applyAutomationSettingsToForm(settings);
     refreshAutomationSectionStates();
     automationResult("Loaded.", "success");
@@ -3059,6 +3113,7 @@ async function bindAutomationSettingsActions() {
     try {
       const settings = collectAutomationSettingsFromForm();
       await saveAutomationSettings(settings);
+      thermostatSystemAccess = normalizeThermostatSystemAccess(settings.thermostat_system_access || {});
       automationResult("Saved.", "success");
     } catch (error) {
       automationResult(error.message || "Could not save settings.", "error");
@@ -3227,6 +3282,7 @@ function clearLiveData() {
   memberNotifications = [];
   notifiedIds = new Set();
   accountTypePolicies = defaultAccountTypePolicies();
+  thermostatSystemAccess = defaultThermostatSystemAccess();
   supportsMinorMemberFields = false;
 }
 
@@ -4114,6 +4170,12 @@ async function hydrateFromSupabase() {
       console.warn("Could not load thermostat status.", thermostatError);
     }
     try {
+      thermostatSystemAccess = await loadThermostatSystemAccess();
+    } catch (thermostatAccessError) {
+      thermostatSystemAccess = defaultThermostatSystemAccess();
+      console.warn("Could not load thermostat system access settings.", thermostatAccessError);
+    }
+    try {
       await startNotificationRealtime();
       await startTimesheetRealtime();
       await startAccountTypeRealtime();
@@ -4981,6 +5043,7 @@ function firstConfiguredThermostat(...items) {
 
 function renderThermostatSystemStatus(label, item, activeEntry = null) {
   const systemType = label === "AC" ? "ac" : "heat";
+  const systemEnabled = isThermostatSystemEnabled(systemType);
   const isActive = activeEntry?.systemType === systemType;
 
   if (isActive) {
@@ -5010,30 +5073,30 @@ function renderThermostatSystemStatus(label, item, activeEntry = null) {
 
   if (!thermostatStatus) {
     return `
-      <article data-open-thermostat-system="${escapeAttribute(systemType)}" role="button" tabindex="0">
+      <article data-open-thermostat-system="${escapeAttribute(systemType)}" class="${systemEnabled ? "" : "is-disabled"}" role="button" tabindex="${systemEnabled ? "0" : "-1"}" aria-disabled="${systemEnabled ? "false" : "true"}">
         <span>${escapeHtml(label)}</span>
         <strong>-</strong>
-        <small>Tap to turn on</small>
+        <small>${systemEnabled ? "Tap to turn on" : "Disabled by admin"}</small>
       </article>
     `;
   }
 
   if (!item?.configured) {
     return `
-      <article data-open-thermostat-system="${escapeAttribute(systemType)}" role="button" tabindex="0">
+      <article data-open-thermostat-system="${escapeAttribute(systemType)}" class="${systemEnabled ? "" : "is-disabled"}" role="button" tabindex="${systemEnabled ? "0" : "-1"}" aria-disabled="${systemEnabled ? "false" : "true"}">
         <span>${escapeHtml(label)}</span>
         <strong>Not configured</strong>
-        <small>Tap to turn on</small>
+        <small>${systemEnabled ? "Tap to turn on" : "Disabled by admin"}</small>
       </article>
     `;
   }
 
   if (item.error) {
     return `
-      <article data-open-thermostat-system="${escapeAttribute(systemType)}" role="button" tabindex="0">
+      <article data-open-thermostat-system="${escapeAttribute(systemType)}" class="${systemEnabled ? "" : "is-disabled"}" role="button" tabindex="${systemEnabled ? "0" : "-1"}" aria-disabled="${systemEnabled ? "false" : "true"}">
         <span>${escapeHtml(label)}</span>
         <strong>Status unavailable</strong>
-        <small>Tap to turn on</small>
+        <small>${systemEnabled ? "Tap to turn on" : "Disabled by admin"}</small>
       </article>
     `;
   }
@@ -5041,10 +5104,10 @@ function renderThermostatSystemStatus(label, item, activeEntry = null) {
   const activity = thermostatSystemActivityLabel(systemType, item);
 
   return `
-    <article data-open-thermostat-system="${escapeAttribute(systemType)}" role="button" tabindex="0">
+    <article data-open-thermostat-system="${escapeAttribute(systemType)}" class="${systemEnabled ? "" : "is-disabled"}" role="button" tabindex="${systemEnabled ? "0" : "-1"}" aria-disabled="${systemEnabled ? "false" : "true"}">
       <span>${escapeHtml(label)}</span>
       <strong>${escapeHtml(activity)}</strong>
-      <small>Tap to turn on</small>
+      <small>${systemEnabled ? "Tap to turn on" : "Disabled by admin"}</small>
     </article>
   `;
 }
@@ -7058,10 +7121,22 @@ function bindHeaterRecordsActions() {
   if (!confirm || !closeButton || !acceptButton) return;
 
   const openConfirm = (systemType = "") => {
+    if (!hasAnyThermostatSystemEnabled()) {
+      showDetailActionMessage("Thermostat use is currently disabled by admin settings.");
+      return;
+    }
     if (systemType === "heat" || systemType === "ac") {
+      if (!isThermostatSystemEnabled(systemType)) {
+        showDetailActionMessage(`${thermostatSystemLabel(systemType)} is currently disabled by admin settings.`);
+        return;
+      }
       appState.pendingThermostatSystem = systemType;
     }
     confirmSystem?.querySelectorAll("[data-confirm-system]").forEach((button) => {
+      const system = button.dataset.confirmSystem === "ac" ? "ac" : "heat";
+      const enabled = isThermostatSystemEnabled(system);
+      button.classList.toggle("is-disabled", !enabled);
+      button.setAttribute("aria-disabled", enabled ? "false" : "true");
       button.classList.toggle("is-selected", button.dataset.confirmSystem === appState.pendingThermostatSystem);
     });
     const confirmMessage = confirm.querySelector(".confirm-dialog p");
@@ -7092,7 +7167,9 @@ function bindHeaterRecordsActions() {
 
   confirmSystem?.querySelectorAll("[data-confirm-system]").forEach((button) => {
     button.addEventListener("click", () => {
-      appState.pendingThermostatSystem = button.dataset.confirmSystem === "ac" ? "ac" : "heat";
+      const selectedType = button.dataset.confirmSystem === "ac" ? "ac" : "heat";
+      if (!isThermostatSystemEnabled(selectedType)) return;
+      appState.pendingThermostatSystem = selectedType;
       confirmSystem.querySelectorAll("[data-confirm-system]").forEach((segment) => {
         segment.classList.toggle("is-selected", segment === button);
       });
@@ -7109,6 +7186,10 @@ function bindHeaterRecordsActions() {
       || "";
     if (!["heat", "ac"].includes(selectedSystem)) {
       showDetailActionMessage("Select Heat or AC before starting.");
+      return;
+    }
+    if (!isThermostatSystemEnabled(selectedSystem)) {
+      showDetailActionMessage(`${thermostatSystemLabel(selectedSystem)} is currently disabled by admin settings.`);
       return;
     }
 
@@ -7132,11 +7213,30 @@ function populateHeaterForm() {
   }
 
   const systemSegments = document.querySelectorAll('.heater-use-screen [aria-label="Thermostat system"] .segment');
-  const selectedSystem = appState.pendingThermostatSystem === "ac" ? "ac" : "heat";
+  if (!hasAnyThermostatSystemEnabled()) {
+    appState.pendingThermostatSystem = "";
+    systemSegments.forEach((segment) => {
+      segment.classList.remove("is-selected");
+    });
+    applyThermostatSystemAccessToHeaterForm();
+    const saveButton = document.querySelector(".heater-use-screen .save-action");
+    if (saveButton) saveButton.disabled = true;
+    showDetailActionMessage("Thermostat use is currently disabled by admin settings.");
+    return;
+  }
+  const saveButton = document.querySelector(".heater-use-screen .save-action");
+  if (saveButton) saveButton.disabled = false;
+
+  const preferredSystem = appState.pendingThermostatSystem === "ac" ? "ac" : "heat";
+  const selectedSystem = isThermostatSystemEnabled(preferredSystem)
+    ? preferredSystem
+    : (thermostatSystemAccess.heatEnabled ? "heat" : "ac");
+  appState.pendingThermostatSystem = selectedSystem;
 
   systemSegments.forEach((segment) => {
     segment.classList.toggle("is-selected", segment.dataset.thermostatSystem === selectedSystem);
   });
+  applyThermostatSystemAccessToHeaterForm();
 
   const turnHeaterSegments = document.querySelectorAll('.heater-use-screen [aria-label="Turn thermostat on"] .segment');
   turnHeaterSegments.forEach((segment, index) => {
@@ -7231,6 +7331,16 @@ function updateOpenGymWarning(selectedButton) {
   warning.hidden = selectedButton.textContent.trim() !== "Open Gym" || isOpenGymWindow(new Date());
 }
 
+function applyThermostatSystemAccessToHeaterForm() {
+  const systemSegments = document.querySelectorAll('.heater-use-screen [data-thermostat-system]');
+  systemSegments.forEach((segment) => {
+    const systemType = segment.dataset.thermostatSystem === "ac" ? "ac" : "heat";
+    const enabled = isThermostatSystemEnabled(systemType);
+    segment.classList.toggle("is-disabled", !enabled);
+    segment.setAttribute("aria-disabled", enabled ? "false" : "true");
+  });
+}
+
 function updateHeaterGroupPayFields(selectedButton) {
   const systemType = document.querySelector("[data-thermostat-system].is-selected")?.dataset.thermostatSystem || "heat";
   const forceSingleResponsible = systemType === "ac";
@@ -7259,9 +7369,12 @@ function updateHeaterGroupPayFields(selectedButton) {
 }
 
 function updateThermostatSystemFields(selectedButton) {
-  const systemType = selectedButton?.dataset.thermostatSystem
+  const requestedSystemType = selectedButton?.dataset.thermostatSystem
     || document.querySelector("[data-thermostat-system].is-selected")?.dataset.thermostatSystem
     || "heat";
+  const systemType = isThermostatSystemEnabled(requestedSystemType)
+    ? requestedSystemType
+    : (thermostatSystemAccess.heatEnabled ? "heat" : "ac");
   const isAc = systemType === "ac";
   const targetTemp = document.getElementById("thermostatTargetTemp");
   const costCopy = document.getElementById("thermostatCostCopy");
@@ -7291,6 +7404,14 @@ function updateThermostatSystemFields(selectedButton) {
       segment.classList.toggle("is-selected", segment.dataset.heaterGroupPay === "N");
     });
   }
+
+  document.querySelectorAll("[data-thermostat-system]").forEach((segment) => {
+    if (segment.dataset.thermostatSystem === systemType) {
+      segment.classList.add("is-selected");
+    } else {
+      segment.classList.remove("is-selected");
+    }
+  });
 
   updateHeaterGroupPayFields();
 }
@@ -7639,6 +7760,10 @@ async function saveHeaterUse() {
   const saveButton = form?.querySelector(".save-action");
 
   if (!form) return;
+  if (!hasAnyThermostatSystemEnabled()) {
+    showDetailActionMessage("Thermostat use is currently disabled by admin settings.");
+    return;
+  }
 
   const systemType = String(form.querySelector('[aria-label="Thermostat system"] .segment.is-selected')?.dataset.thermostatSystem || "heat").trim();
   const turnHeaterOn = "On";
@@ -7658,6 +7783,10 @@ async function saveHeaterUse() {
 
   if (!["heat", "ac"].includes(systemType)) {
     showDetailActionMessage("Select Heat or AC.");
+    return;
+  }
+  if (!isThermostatSystemEnabled(systemType)) {
+    showDetailActionMessage(`${thermostatSystemLabel(systemType)} is currently disabled by admin settings.`);
     return;
   }
 
@@ -7852,6 +7981,7 @@ function bindRouteActions() {
 
     group.querySelectorAll(".segment").forEach((button) => {
       button.addEventListener("click", () => {
+        if (button.classList.contains("is-disabled")) return;
         group.querySelectorAll(".segment").forEach((segment) => {
           segment.classList.toggle("is-selected", segment === button);
         });

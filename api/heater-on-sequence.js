@@ -30,11 +30,18 @@ module.exports = async (req, res) => {
 
     const settings = await getAutomationConfig("heater_on");
     const systemType = normalizeSystemType(req.body?.systemType);
+    const systemAccess = await getAutomationConfig("thermostat_system_access");
     const targetTemperatureF = Number(req.body?.targetTemperatureF || 0) || null;
     const silent = Boolean(req.body?.silent);
 
     if (!silent && settings.enabled === false) {
       return res.status(200).json({ success: true, skipped: true });
+    }
+    if (systemType === "ac" && systemAccess.ac_enabled === false) {
+      return res.status(403).json({ success: false, error: "AC is currently disabled by admin settings." });
+    }
+    if (systemType === "heat" && systemAccess.heat_enabled === false) {
+      return res.status(403).json({ success: false, error: "Heat is currently disabled by admin settings." });
     }
 
     await turnThermostatOn({ systemType, targetTemperatureF });
