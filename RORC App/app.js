@@ -5636,7 +5636,15 @@ async function turnHeaterOffActiveEntry(systemType = "") {
   const activeEntry = activeHeaterEntry(normalizedSystemType);
 
   if (!activeEntry) {
-    showDetailActionMessage("No active heater entry found.");
+    clearThermostatActionFeedback();
+    thermostatStatusFetchedAt = 0;
+    await fetchThermostatStatus({ force: true }).catch((error) => {
+      console.warn("Could not refresh thermostat status.", error);
+    });
+    await hydrateFromSupabase();
+    if (appState.currentRoute === "heaterRecords") {
+      render("heaterRecords");
+    }
     return;
   }
 
