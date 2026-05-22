@@ -1,9 +1,9 @@
-const CACHE_VERSION = "rorc-app-v19";
+const CACHE_VERSION = "rorc-app-v20";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./app.css",
-  "./app.js?v=20260522-ecobee-polling",
+  "./app.js?v=20260522-ac-records",
   "./app.config.js",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",

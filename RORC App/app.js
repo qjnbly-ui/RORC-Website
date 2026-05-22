@@ -7491,6 +7491,7 @@ function populateHeaterForm() {
     ? preferredSystem
     : (thermostatSystemAccess.heatEnabled ? "heat" : "ac");
   appState.pendingThermostatSystem = selectedSystem;
+  setThermostatFormSystemValue(selectedSystem);
 
   systemSegments.forEach((segment) => {
     segment.classList.toggle("is-selected", segment.dataset.thermostatSystem === selectedSystem);
@@ -7600,8 +7601,33 @@ function applyThermostatSystemAccessToHeaterForm() {
   });
 }
 
+function setThermostatFormSystemValue(systemType) {
+  const normalizedSystemType = normalizeThermostatSystemType(systemType);
+  const input = document.getElementById("thermostatSystemValue");
+  if (input) {
+    input.value = normalizedSystemType;
+  }
+  appState.pendingThermostatSystem = normalizedSystemType;
+  return normalizedSystemType;
+}
+
+function selectedThermostatFormSystem(form = document) {
+  const selectedValue = String(form?.querySelector?.('[aria-label="Thermostat system"] .segment.is-selected')?.dataset?.thermostatSystem || "").trim();
+  if (selectedValue === "heat" || selectedValue === "ac") {
+    setThermostatFormSystemValue(selectedValue);
+    return selectedValue;
+  }
+
+  const explicitValue = String(form?.querySelector?.("#thermostatSystemValue")?.value || "").trim();
+  if (explicitValue === "heat" || explicitValue === "ac") {
+    return explicitValue;
+  }
+
+  return appState.pendingThermostatSystem === "ac" ? "ac" : "heat";
+}
+
 function updateHeaterGroupPayFields(selectedButton) {
-  const systemType = document.querySelector("[data-thermostat-system].is-selected")?.dataset.thermostatSystem || "heat";
+  const systemType = selectedThermostatFormSystem(document.querySelector(".heater-use-screen") || document);
   const forceSingleResponsible = systemType === "ac";
   const selectedValue = selectedButton?.dataset.heaterGroupPay
     || document.querySelector("[data-heater-group-pay].is-selected")?.dataset.heaterGroupPay
@@ -7634,6 +7660,7 @@ function updateThermostatSystemFields(selectedButton) {
   const systemType = isThermostatSystemEnabled(requestedSystemType)
     ? requestedSystemType
     : (thermostatSystemAccess.heatEnabled ? "heat" : "ac");
+  setThermostatFormSystemValue(systemType);
   const isAc = systemType === "ac";
   const targetTemp = document.getElementById("thermostatTargetTemp");
   const costCopy = document.getElementById("thermostatCostCopy");
@@ -8094,7 +8121,7 @@ async function saveHeaterUse() {
     return;
   }
 
-  const systemType = String(form.querySelector('[aria-label="Thermostat system"] .segment.is-selected')?.dataset.thermostatSystem || "heat").trim();
+  const systemType = selectedThermostatFormSystem(form);
   const turnHeaterOn = "On";
   const targetTemperatureF = Number(document.getElementById("thermostatTargetTemp")?.value || 0);
   const costAccepted = String(form.querySelector('[aria-label="Thermostat cost accepted"] .segment.is-selected')?.dataset.thermostatCostAccepted || "N").trim() === "Y";

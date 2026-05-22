@@ -596,7 +596,8 @@ select *
 from public.timesheet_entries
 where signed_out_at is null;
 
-create or replace view public.heater_use_entries_with_duration
+drop view if exists public.heater_use_entries_with_duration;
+create view public.heater_use_entries_with_duration
 with (security_invoker = true) as
 select
   hue.*,
@@ -605,6 +606,8 @@ select
     else extract(epoch from (hue.end_at - hue.start_at)) / 3600
   end as run_hours
 from public.heater_use_entries hue;
+
+grant select on public.heater_use_entries_with_duration to anon, authenticated, service_role;
 
 create or replace function public.current_account_member_id()
 returns uuid

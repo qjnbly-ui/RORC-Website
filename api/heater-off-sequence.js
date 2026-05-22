@@ -28,7 +28,10 @@ module.exports = async (req, res) => {
       return res.status(404).json({ success: false, error: "Member profile not found." });
     }
 
-    const systemType = normalizeSystemType(req.body?.systemType);
+    const requestedSystemType = normalizeSystemType(req.body?.systemType);
+    const heaterUseEntryId = String(req.body?.heaterUseEntryId || "").trim();
+    const heaterEntryMeta = heaterUseEntryId ? await loadHeaterUseEntryMeta(heaterUseEntryId) : null;
+    const systemType = heaterEntryMeta?.systemType || requestedSystemType;
 
     await turnThermostatOff(systemType);
 
@@ -40,16 +43,17 @@ module.exports = async (req, res) => {
     const requestedIds = Array.isArray(req.body?.memberIds)
       ? req.body.memberIds.map((v) => String(v || "").trim()).filter(Boolean)
       : [];
-    const heaterUseEntryId = String(req.body?.heaterUseEntryId || "").trim();
     const timerTriggered = Boolean(req.body?.timerTriggered);
     const timerMinutes = Math.max(0, Number(req.body?.timerMinutes || 0) || 0);
-    const targetIds = [...new Set(requestedIds)];
+    const fallbackIds = requestedIds.length || !heaterEntryMeta
+      ? []
+      : await recipientIdsForHeaterEntry(heaterEntryMeta);
+    const targetIds = [...new Set(requestedIds.length ? requestedIds : fallbackIds)];
     let sentCount = 0;
     const errors = [];
 
     if (targetIds.length) {
       const members = await loadMembersByIds(targetIds);
-      const heaterEntryMeta = heaterUseEntryId ? await loadHeaterUseEntryMeta(heaterUseEntryId) : null;
       const billedByMember = heaterUseEntryId
         ? await loadBilledAmountByMember(heaterUseEntryId)
         : new Map();
@@ -139,16 +143,30 @@ async function getAutomationConfig(id) {
 
 async function loadHeaterUseEntryMeta(heaterUseEntryId) {
   const rows = await supabaseRest(
-    `heater_use_entries?select=id,group_pay,set_a_timer&id=eq.${encodeURIComponent(heaterUseEntryId)}&limit=1`
+    `heater_use_entries?select=id,system_type,responsible_member_id,group_pay,set_a_timer&id=eq.${encodeURIComponent(heaterUseEntryId)}&limit=1`
   );
   const row = rows[0] || null;
   if (!row) return null;
 
   return {
     id: row.id,
+    systemType: normalizeSystemType(row.system_type),
+    responsibleMemberId: row.responsible_member_id || "",
     groupPay: Boolean(row.group_pay),
     setATimer: Boolean(row.set_a_timer)
   };
+}
+
+async function recipientIdsForHeaterEntry(entryMeta) {
+  if (!entryMeta?.id) return [];
+  if (!entryMeta.groupPay) {
+    return entryMeta.responsibleMemberId ? [entryMeta.responsibleMemberId] : [];
+  }
+
+  const rows = await supabaseRest(
+    `heater_use_group_members?select=account_member_id&heater_use_entry_id=eq.${encodeURIComponent(entryMeta.id)}`
+  );
+  return (rows || []).map((row) => String(row.account_member_id || "").trim()).filter(Boolean);
 }
 
 async function loadBilledAmountByMember(heaterUseEntryId) {
