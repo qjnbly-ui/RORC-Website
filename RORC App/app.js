@@ -5643,8 +5643,14 @@ function findActiveEntryByIdAndSystem(entryId, systemType = "") {
 
 async function turnHeaterOffActiveEntry(systemType = "", preferredEntryId = "") {
   const normalizedSystemType = systemType ? normalizeThermostatSystemType(systemType) : "";
-  const activeEntry = findActiveEntryByIdAndSystem(preferredEntryId, normalizedSystemType)
+  let activeEntry = findActiveEntryByIdAndSystem(preferredEntryId, normalizedSystemType)
     || activeHeaterEntry(normalizedSystemType);
+
+  if (!activeEntry) {
+    await hydrateFromSupabase();
+    activeEntry = findActiveEntryByIdAndSystem(preferredEntryId, normalizedSystemType)
+      || activeHeaterEntry(normalizedSystemType);
+  }
 
   if (!activeEntry) {
     clearThermostatActionFeedback();
@@ -5774,10 +5780,18 @@ async function turnHeaterOffEntry(entry, { timerTriggered = false } = {}) {
 }
 
 async function changeActiveThermostatTemperature() {
-  const activeEntry = activeHeaterEntry();
+  let activeEntry = activeHeaterEntry();
 
   if (!activeEntry) {
-    showDetailActionMessage("No active thermostat record found.");
+    await hydrateFromSupabase();
+    activeEntry = activeHeaterEntry();
+  }
+
+  if (!activeEntry) {
+    clearThermostatActionFeedback();
+    thermostatStatusFetchedAt = 0;
+    await fetchThermostatStatus({ force: true }).catch(() => null);
+    if (appState.currentRoute === "heaterRecords") render("heaterRecords");
     return;
   }
 
@@ -7219,7 +7233,9 @@ function bindDetailLogOpenActions() {
 function bindHeaterRecordsActions() {
   bindDetailLogOpenActions();
 
-  document.querySelector("[data-change-thermostat-temp]")?.addEventListener("click", () => {
+  document.querySelector("[data-change-thermostat-temp]")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
     changeActiveThermostatTemperature().catch((error) => {
       clearThermostatActionFeedback();
       if (appState.currentRoute === "heaterRecords") render("heaterRecords");
