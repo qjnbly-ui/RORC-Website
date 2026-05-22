@@ -5109,7 +5109,7 @@ function renderThermostatSystemStatus(label, item, activeEntry = null) {
           <b>${escapeHtml(thermostatSetPointLabel(setPoint))}</b>
         </button>
         ${timerText ? `<small class="thermostat-timer-chip">${escapeHtml(timerText)}</small>` : ""}
-        <button class="thermostat-card-off-button" data-turn-thermostat-off="${escapeAttribute(systemType)}" type="button"${disabledAttr}>${pendingAction?.action === "off" ? "Turning Off..." : "Turn Off"}</button>
+        <button class="thermostat-card-off-button" data-turn-thermostat-off="${escapeAttribute(systemType)}" data-turn-thermostat-entry-id="${escapeAttribute(activeEntry?.id || "")}" type="button"${disabledAttr}>${pendingAction?.action === "off" ? "Turning Off..." : "Turn Off"}</button>
       </article>
     `;
   }
@@ -5631,20 +5631,27 @@ function activeHeaterEntry(systemType = "") {
     .sort((a, b) => new Date(b.startAt || b.usedOn) - new Date(a.startAt || a.usedOn))[0] || null;
 }
 
-async function turnHeaterOffActiveEntry(systemType = "") {
+function findActiveEntryByIdAndSystem(entryId, systemType = "") {
+  const id = String(entryId || "").trim();
+  if (!id) return null;
+  const requestedSystemType = systemType ? normalizeThermostatSystemType(systemType) : "";
+  const entry = heaterUseEntries.find((item) => String(item?.id || "") === id) || null;
+  if (!entry || !isActiveThermostatEntry(entry)) return null;
+  if (requestedSystemType && normalizeThermostatSystemType(entry.systemType) !== requestedSystemType) return null;
+  return entry;
+}
+
+async function turnHeaterOffActiveEntry(systemType = "", preferredEntryId = "") {
   const normalizedSystemType = systemType ? normalizeThermostatSystemType(systemType) : "";
-  const activeEntry = activeHeaterEntry(normalizedSystemType);
+  const activeEntry = findActiveEntryByIdAndSystem(preferredEntryId, normalizedSystemType)
+    || activeHeaterEntry(normalizedSystemType);
 
   if (!activeEntry) {
     clearThermostatActionFeedback();
     thermostatStatusFetchedAt = 0;
-    await fetchThermostatStatus({ force: true }).catch((error) => {
-      console.warn("Could not refresh thermostat status.", error);
-    });
+    await fetchThermostatStatus({ force: true }).catch(() => null);
     await hydrateFromSupabase();
-    if (appState.currentRoute === "heaterRecords") {
-      render("heaterRecords");
-    }
+    if (appState.currentRoute === "heaterRecords") render("heaterRecords");
     return;
   }
 
@@ -5661,17 +5668,39 @@ async function turnHeaterOffActiveEntry(systemType = "") {
   setThermostatActionFeedback("off", activeSystemType, `Turning ${systemLabel} off. This can take a moment.`);
   render("heaterRecords");
 
-  const { error } = await client
+  const { data: strictRows, error } = await client
     .from("heater_use_entries")
     .update({
       end_at: endAtIso,
       turn_heater_on: "Off"
     })
     .eq("id", activeEntry.id)
-    .is("end_at", null);
+    .is("end_at", null)
+    .select("id");
 
   if (error) {
     throw error;
+  }
+
+  if (!Array.isArray(strictRows) || strictRows.length === 0) {
+    const { data: fallbackRows, error: fallbackError } = await client
+      .from("heater_use_entries")
+      .update({
+        end_at: endAtIso,
+        turn_heater_on: "Off"
+      })
+      .eq("id", activeEntry.id)
+      .select("id");
+
+    if (fallbackError) throw fallbackError;
+    if (!Array.isArray(fallbackRows) || fallbackRows.length === 0) {
+      clearThermostatActionFeedback();
+      thermostatStatusFetchedAt = 0;
+      await fetchThermostatStatus({ force: true }).catch(() => null);
+      await hydrateFromSupabase();
+      if (appState.currentRoute === "heaterRecords") render("heaterRecords");
+      return;
+    }
   }
 
   heaterUseEntries = heaterUseEntries.map((entry) => (
@@ -7199,8 +7228,11 @@ function bindHeaterRecordsActions() {
   });
 
   document.querySelector("[data-turn-thermostat-off]")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
     const systemType = String(event.currentTarget?.dataset?.turnThermostatOff || "").trim();
-    turnHeaterOffActiveEntry(systemType).catch((error) => {
+    const entryId = String(event.currentTarget?.dataset?.turnThermostatEntryId || "").trim();
+    turnHeaterOffActiveEntry(systemType, entryId).catch((error) => {
       clearThermostatActionFeedback();
       if (appState.currentRoute === "heaterRecords") render("heaterRecords");
       showDetailActionMessage(error.message || "Could not turn thermostat off.");
