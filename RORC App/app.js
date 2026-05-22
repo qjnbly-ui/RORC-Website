@@ -3969,6 +3969,10 @@ async function syncHeaterEntries({ rerender = false } = {}) {
         return map;
       }, new Map());
 
+      const previouslyActiveSystems = new Set(
+        ["heat", "ac"].filter((systemType) => activeHeaterEntry(systemType) !== null)
+      );
+
       heaterUseEntries = (heaterResult.data || []).map((row) => ({
         id: row.id,
         usedOn: row.used_on,
@@ -3987,6 +3991,13 @@ async function syncHeaterEntries({ rerender = false } = {}) {
         paid: Boolean(row.paid),
         note: row.note || ""
       }));
+
+      previouslyActiveSystems.forEach((systemType) => {
+        if (activeHeaterEntry(systemType) === null) {
+          markThermostatSystemOff(systemType);
+          fetchThermostatStatus({ force: true }).catch(() => null);
+        }
+      });
 
       if (shouldRerender && appState.currentRoute === "heaterRecords") {
         render("heaterRecords");
