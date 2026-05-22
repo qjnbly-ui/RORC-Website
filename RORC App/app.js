@@ -48,7 +48,7 @@ let accountTypeSyncNeedsRender = false;
 let heaterCountdownTimer = null;
 let thermostatStatus = null;
 let thermostatStatusFetchedAt = 0;
-const THERMOSTAT_STATUS_CACHE_MS = 3 * 60 * 1000;
+const THERMOSTAT_STATUS_CACHE_MS = 15 * 1000;
 const pendingHeaterAutoOffIds = new Set();
 let thermostatActionFeedback = null;
 let notifiedIds = new Set();
@@ -5014,6 +5014,10 @@ function isLiveThermostatActive(systemType, item) {
   return mode === (systemType === "ac" ? "cool" : "heat");
 }
 
+function isLiveThermostatStateKnown(item) {
+  return Boolean(thermostatStatus && item?.configured && !item.error);
+}
+
 function thermostatFanLabel(value) {
   const raw = String(value || "").trim();
   if (!raw) return "Auto";
@@ -5099,8 +5103,9 @@ function renderThermostatSystemStatus(label, item, activeEntry = null) {
   const systemEnabled = isThermostatSystemEnabled(systemType);
   const isRecordActive = normalizeThermostatSystemType(activeEntry?.systemType) === systemType;
   const isLiveActive = isLiveThermostatActive(systemType, item);
+  const liveStateKnown = isLiveThermostatStateKnown(item);
 
-  if (isRecordActive || isLiveActive) {
+  if (isLiveActive || (!liveStateKnown && isRecordActive)) {
     const activity = item?.configured && !item.error
       ? thermostatSystemActivityLabel(systemType, item)
       : "Currently On";
