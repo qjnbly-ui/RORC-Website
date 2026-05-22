@@ -1221,23 +1221,32 @@ security definer
 set search_path = public
 as $$
 declare
+  heat_rate_cents_per_hour integer := 1300;
+  ac_rate_cents_per_hour integer := 200;
+  applied_rate_cents_per_hour integer;
   total_cents integer;
   participant_count integer;
   base_cents integer;
   extra_cents integer;
+  reason_text text;
   participant record;
 begin
-  if coalesce(new.system_type, 'heat') <> 'heat' then
-    return new;
-  end if;
-
   if new.start_at is null or new.end_at is null then
     return new;
   end if;
 
+  reason_text := case
+    when coalesce(new.system_type, 'heat') = 'ac' then 'AC use'
+    else 'Heater use'
+  end;
+  applied_rate_cents_per_hour := case
+    when coalesce(new.system_type, 'heat') = 'ac' then ac_rate_cents_per_hour
+    else heat_rate_cents_per_hour
+  end;
+
   total_cents := greatest(
     0,
-    ceiling((extract(epoch from (new.end_at - new.start_at)) / 3600.0) * 1300)::integer
+    ceiling((extract(epoch from (new.end_at - new.start_at)) / 3600.0) * applied_rate_cents_per_hour)::integer
   );
 
   if total_cents = 0 then
@@ -1279,7 +1288,7 @@ begin
         participant.account_member_id,
         new.id,
         base_cents + case when participant.participant_index <= extra_cents then 1 else 0 end,
-        'Heater use group share'
+        reason_text || ' group share'
       )
       on conflict do nothing;
     end loop;
@@ -1293,7 +1302,7 @@ begin
       new.responsible_member_id,
       new.id,
       total_cents,
-      'Heater use'
+      reason_text
     )
     on conflict do nothing;
   end if;

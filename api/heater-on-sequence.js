@@ -168,19 +168,11 @@ function formatCurrencyFromCents(cents) {
 }
 
 function buildThermostatOnMessage({ systemType, targetTemperatureF, openBillingCents }) {
-  if (systemType === "ac") {
-    return [
-      "A new AC thermostat use record was created under your name.",
-      targetTemperatureF ? `Desired temperature: ${Math.round(targetTemperatureF)} degrees.` : "",
-      "Do not forget to turn the thermostat off before leaving.",
-      "AC billing is not active yet."
-    ].filter(Boolean).join(" ");
-  }
-
+  const systemLabel = systemType === "ac" ? "AC" : "heater";
   return [
-    "A new heater use record was created under your name.",
+    `A new ${systemLabel} use record was created under your name.`,
     targetTemperatureF ? `Desired temperature: ${Math.round(targetTemperatureF)} degrees.` : "",
-    "Do not forget to turn heater off before leaving.",
+    "Do not forget to turn the thermostat off before leaving.",
     `Current open billing total: ${formatCurrencyFromCents(openBillingCents)}.`,
     "All use will be billed monthly."
   ].filter(Boolean).join(" ");

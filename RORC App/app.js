@@ -7142,7 +7142,7 @@ function bindHeaterRecordsActions() {
     const confirmMessage = confirm.querySelector(".confirm-dialog p");
     const selectedLabel = appState.pendingThermostatSystem === "ac" ? "AC" : "Heat";
     const costCopy = appState.pendingThermostatSystem === "ac"
-      ? "No AC billing yet. Use still must be logged and turned off when leaving."
+      ? "AC costs $2 per hour and is billed monthly."
       : "Heat costs $13 per hour and is billed monthly.";
     if (confirmMessage) {
       confirmMessage.innerHTML = `Confirm ${selectedLabel}<br /><span>${escapeHtml(costCopy)}</span>`;
@@ -7387,7 +7387,7 @@ function updateThermostatSystemFields(selectedButton) {
 
   if (costCopy) {
     costCopy.innerHTML = isAc
-      ? "AC cost is not billed yet while we learn operating cost. Use still must be logged and turned off when leaving.<mark>*</mark>"
+      ? "AC costs $2 per hour and is billed monthly.<mark>*</mark>"
       : "Heat costs $13 per hour and is billed monthly.<mark>*</mark>";
   }
 

@@ -200,26 +200,13 @@ function buildHeaterOffMessage({
   isGroupPay,
   recipientCount
 }) {
-  if (systemType === "ac") {
-    if (timerTriggered) {
-      return [
-        `Your ${Math.max(1, Math.round(timerMinutes))} min AC thermostat timer finished and the AC was returned to schedule.`,
-        "No AC billing was added."
-      ].join(" ");
-    }
-
-    return [
-      "Your AC thermostat use record has been completed and the AC was returned to schedule.",
-      "No AC billing was added."
-    ].join(" ");
-  }
-
+  const systemLabel = systemType === "ac" ? "AC" : "heater";
   const addedText = formatCurrencyFromCents(addedCents);
   const totalText = formatCurrencyFromCents(openTotalCents);
 
   if (timerTriggered) {
     return [
-      `Your ${Math.max(1, Math.round(timerMinutes))} min heater timer finished and the heater was turned off.`,
+      `Your ${Math.max(1, Math.round(timerMinutes))} min ${systemLabel} timer finished and the thermostat was turned off.`,
       `${addedText} was added to your monthly bill.`,
       `Your current open billing total is ${totalText}.`
     ].join(" ");
@@ -227,7 +214,7 @@ function buildHeaterOffMessage({
 
   if (isGroupPay || recipientCount > 1) {
     return [
-      "The shared/group heater use record has been completed and the heater was turned off.",
+      `The shared/group ${systemLabel} use record has been completed and the thermostat was turned off.`,
       `${addedText} was added to your monthly bill.`,
       `Your current open billing total is ${totalText}.`
     ].join(" ");
@@ -235,14 +222,14 @@ function buildHeaterOffMessage({
 
   if (addedCents > 0) {
     return [
-      "Your heater use record has been completed and the heater was turned off.",
+      `Your ${systemLabel} use record has been completed and the thermostat was turned off.`,
       `${addedText} was added to your monthly bill.`,
       `Your current open billing total is ${totalText}.`
     ].join(" ");
   }
 
   return [
-    "A heater off record was submitted under your name.",
+    `A ${systemLabel} off record was submitted under your name.`,
     `${addedText} was added to your monthly bill.`,
     `Your current open billing total is ${totalText}.`
   ].join(" ");
