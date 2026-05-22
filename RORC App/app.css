@@ -943,11 +943,61 @@ h1 {
   text-transform: none !important;
 }
 
+.automation-shell {
+  gap: 18px;
+}
+
+.automation-hero {
+  background:
+    radial-gradient(circle at 15% 15%, rgba(239, 59, 54, 0.2), transparent 34%),
+    linear-gradient(135deg, #1b1b1b, #141519);
+  border: 1px solid #3d3d3d;
+  border-radius: 18px;
+  padding: 20px;
+}
+
+.automation-form {
+  background: #161616;
+  border: 1px solid #353535;
+  border-radius: 18px;
+  padding: 18px;
+}
+
+.automation-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.automation-card {
+  background: #202020;
+  border: 1px solid #3d3d3d;
+  border-radius: 14px;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+}
+
+.automation-card h3 {
+  margin: 0;
+}
+
+.automation-card p {
+  color: var(--muted);
+  font-size: 0.92rem;
+  margin: 0;
+}
+
 .automation-advanced {
   border-top: 1px solid #3d3d3d;
   display: grid;
   gap: 12px;
-  padding-top: 6px;
+  padding-top: 10px;
+}
+
+.automation-note {
+  color: var(--muted);
+  margin: 0;
 }
 
 .settings-divider {
@@ -973,6 +1023,56 @@ h1 {
 
 .policy-card h3 {
   margin: 0;
+}
+
+.policy-days {
+  border: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+}
+
+.policy-days legend {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.policy-day-chip {
+  display: inline-flex !important;
+  margin-right: 6px;
+}
+
+.policy-day-chip input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.policy-day-chip span {
+  align-items: center;
+  background: #252525;
+  border: 1px solid #4a4a4a;
+  border-radius: 999px;
+  color: #c8c8c8 !important;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.82rem !important;
+  font-weight: 900 !important;
+  justify-content: center;
+  min-width: 26px;
+  padding: 4px 0;
+  text-transform: none !important;
+}
+
+.policy-day-chip input:checked + span {
+  background: rgba(239, 59, 54, 0.2);
+  border-color: var(--accent);
+  color: #fff !important;
 }
 
 .share-hero,

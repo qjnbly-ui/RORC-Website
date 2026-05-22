@@ -1004,60 +1004,89 @@ function renderAutomationSettingsPage() {
   if (!root) return;
 
   root.innerHTML = `
-    <section class="feedback-shell">
-      <header class="feedback-hero">
+    <section class="feedback-shell automation-shell">
+      <header class="feedback-hero automation-hero">
         <p class="eyebrow">Admin</p>
         <h2>Bot Settings</h2>
-        <p>Control webhooks, SMS, and toggles for gym and heater automations.</p>
+        <p>Control automations, alert routing, fallback webhooks, and account access policy from one place.</p>
       </header>
 
-      <form id="automationSettingsForm" class="feedback-form" autocomplete="off">
-        <label class="automation-toggle">
-          <input id="gymLightsOnEnabled" type="checkbox" />
-          <span>Gym Lights On Enabled</span>
-        </label>
-        <label>
-          <span>Gym Lights On SMS To</span>
-          <input id="gymLightsOnSmsTo" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
-        </label>
+      <form id="automationSettingsForm" class="feedback-form automation-form" autocomplete="off">
+        <section class="automation-grid">
+          <article class="automation-card">
+            <h3>Gym Lights On</h3>
+            <p>Triggers opening flow and optional AC fan assist.</p>
+            <label class="automation-toggle">
+              <input id="gymLightsOnEnabled" type="checkbox" />
+              <span>Enable automation</span>
+            </label>
+            <label>
+              <span>SMS destination</span>
+              <input id="gymLightsOnSmsTo" type="text" placeholder="+1..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+            </label>
+            <label class="automation-toggle">
+              <input id="gymLightsOnAcFanEnabled" type="checkbox" />
+              <span>Run AC fan helper</span>
+            </label>
+          </article>
 
-        <label class="automation-toggle">
-          <input id="gymLightsOffEnabled" type="checkbox" />
-          <span>Gym Lights Off Enabled</span>
-        </label>
-        <label>
-          <span>Gym Lights Off SMS To</span>
-          <input id="gymLightsOffSmsTo" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
-        </label>
+          <article class="automation-card">
+            <h3>Gym Lights Off</h3>
+            <p>Triggers closing flow and optional AC fan reset.</p>
+            <label class="automation-toggle">
+              <input id="gymLightsOffEnabled" type="checkbox" />
+              <span>Enable automation</span>
+            </label>
+            <label>
+              <span>SMS destination</span>
+              <input id="gymLightsOffSmsTo" type="text" placeholder="+1..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+            </label>
+            <label class="automation-toggle">
+              <input id="gymLightsOffAcFanEnabled" type="checkbox" />
+              <span>Run AC fan helper</span>
+            </label>
+          </article>
 
-        <label class="automation-toggle">
-          <input id="heaterOnEnabled" type="checkbox" />
-          <span>Heater On Automation Enabled</span>
-        </label>
-        <label class="automation-toggle">
-          <input id="heaterOffEnabled" type="checkbox" />
-          <span>Heater Off Automation Enabled</span>
-        </label>
+          <article class="automation-card">
+            <h3>Heater Controls</h3>
+            <p>Master switch controls for heating automations.</p>
+            <label class="automation-toggle">
+              <input id="heaterOnEnabled" type="checkbox" />
+              <span>Enable heater-on sequence</span>
+            </label>
+            <label class="automation-toggle">
+              <input id="heaterOffEnabled" type="checkbox" />
+              <span>Enable heater-off sequence</span>
+            </label>
+          </article>
+        </section>
 
         <div class="automation-advanced">
-          <button id="toggleAutomationAdvanced" class="auth-secondary" type="button">Edit Advanced URLs</button>
-          <div id="automationAdvancedFields" hidden>
-            <label>
-              <span>Gym Lights On Step 1 URL</span>
-              <input id="gymLightsOnStep1Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
-            </label>
-            <label>
-              <span>Gym Lights On Step 2 URL</span>
-              <input id="gymLightsOnStep2Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
-            </label>
-            <label>
-              <span>Gym Lights Off Step 1 URL</span>
-              <input id="gymLightsOffStep1Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
-            </label>
-            <label>
-              <span>Gym Lights Off Step 2 URL</span>
-              <input id="gymLightsOffStep2Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
-            </label>
+          <button id="toggleAutomationAdvanced" class="auth-secondary" type="button">Show Secret Webhooks</button>
+          <p class="automation-note">Sensitive endpoints are masked and stored as secure settings.</p>
+          <div id="automationAdvancedFields" class="automation-grid" hidden>
+            <article class="automation-card">
+              <h3>Gym Lights On Webhooks</h3>
+              <label>
+                <span>Step 1 URL</span>
+                <input id="gymLightsOnStep1Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
+              </label>
+              <label>
+                <span>Step 2 URL</span>
+                <input id="gymLightsOnStep2Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
+              </label>
+            </article>
+            <article class="automation-card">
+              <h3>Gym Lights Off Webhooks</h3>
+              <label>
+                <span>Step 1 URL</span>
+                <input id="gymLightsOffStep1Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
+              </label>
+              <label>
+                <span>Step 2 URL</span>
+                <input id="gymLightsOffStep2Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
+              </label>
+            </article>
           </div>
         </div>
 
@@ -1083,6 +1112,7 @@ function renderAutomationSettingsPage() {
 
 function renderAccountTypePolicyFields() {
   const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Weight Room Only", "Open Gym Only", "RESTRICTED ACCOUNT"];
+  const dayLabels = ["S", "M", "T", "W", "T", "F", "S"];
   return `
     <section class="account-type-policy-grid">
       ${orderedTypes.map((type) => {
@@ -1098,10 +1128,15 @@ function renderAccountTypePolicyFields() {
               <input id="policy_${key}_bypass" type="checkbox" />
               <span>24/7 bypass time windows</span>
             </label>
-            <label>
-              <span>Allowed days (0=Sun ... 6=Sat)</span>
-              <input id="policy_${key}_days" type="text" placeholder="0,1,2,3,4,5,6" autocomplete="off" />
-            </label>
+            <fieldset class="policy-days" aria-label="Allowed days">
+              <legend>Allowed days</legend>
+              ${dayLabels.map((label, dayIndex) => `
+                <label class="policy-day-chip">
+                  <input id="policy_${key}_day_${dayIndex}" type="checkbox" />
+                  <span>${label}</span>
+                </label>
+              `).join("")}
+            </fieldset>
             <label>
               <span>Start time</span>
               <input id="policy_${key}_start" type="time" />
@@ -2807,11 +2842,13 @@ function applyAutomationSettingsToForm(settings) {
   setValue("gymLightsOnStep1Url", settings.gym_lights_on?.step1_url);
   setValue("gymLightsOnStep2Url", settings.gym_lights_on?.step2_url);
   setValue("gymLightsOnSmsTo", settings.gym_lights_on?.sms_to);
+  setChecked("gymLightsOnAcFanEnabled", settings.gym_lights_on?.ac_fan_enabled);
 
   setChecked("gymLightsOffEnabled", settings.gym_lights_off?.enabled);
   setValue("gymLightsOffStep1Url", settings.gym_lights_off?.step1_url);
   setValue("gymLightsOffStep2Url", settings.gym_lights_off?.step2_url);
   setValue("gymLightsOffSmsTo", settings.gym_lights_off?.sms_to);
+  setChecked("gymLightsOffAcFanEnabled", settings.gym_lights_off?.ac_fan_enabled);
 
   setChecked("heaterOnEnabled", settings.heater_on?.enabled);
   setChecked("heaterOffEnabled", settings.heater_off?.enabled);
@@ -2838,12 +2875,15 @@ function applyAccountTypePoliciesToForm(policies) {
     const key = policyFieldKey(type);
     const canSignIn = document.getElementById(`policy_${key}_can_sign_in`);
     const bypass = document.getElementById(`policy_${key}_bypass`);
-    const days = document.getElementById(`policy_${key}_days`);
     const start = document.getElementById(`policy_${key}_start`);
     const end = document.getElementById(`policy_${key}_end`);
     if (canSignIn) canSignIn.checked = Boolean(policy?.canSignIn);
     if (bypass) bypass.checked = Boolean(policy?.bypassTimeWindows);
-    if (days) days.value = (policy?.allowedDays || []).join(",");
+    const allowedDays = new Set(policy?.allowedDays || []);
+    for (let day = 0; day <= 6; day += 1) {
+      const dayInput = document.getElementById(`policy_${key}_day_${day}`);
+      if (dayInput) dayInput.checked = allowedDays.has(day);
+    }
     if (start) start.value = formatPolicyTimeForInput(policy?.allowedStartTime);
     if (end) end.value = formatPolicyTimeForInput(policy?.allowedEndTime);
   });
@@ -2858,13 +2898,15 @@ function collectAutomationSettingsFromForm() {
       enabled: isChecked("gymLightsOnEnabled"),
       step1_url: getValue("gymLightsOnStep1Url"),
       step2_url: getValue("gymLightsOnStep2Url"),
-      sms_to: getValue("gymLightsOnSmsTo")
+      sms_to: getValue("gymLightsOnSmsTo"),
+      ac_fan_enabled: isChecked("gymLightsOnAcFanEnabled")
     },
     gym_lights_off: {
       enabled: isChecked("gymLightsOffEnabled"),
       step1_url: getValue("gymLightsOffStep1Url"),
       step2_url: getValue("gymLightsOffStep2Url"),
-      sms_to: getValue("gymLightsOffSmsTo")
+      sms_to: getValue("gymLightsOffSmsTo"),
+      ac_fan_enabled: isChecked("gymLightsOffAcFanEnabled")
     },
     heater_on: {
       enabled: isChecked("heaterOnEnabled")
@@ -2884,11 +2926,12 @@ function collectAccountTypePoliciesFromForm() {
     const key = policyFieldKey(type);
     const canSignIn = Boolean(document.getElementById(`policy_${key}_can_sign_in`)?.checked);
     const bypass = Boolean(document.getElementById(`policy_${key}_bypass`)?.checked);
-    const daysRaw = String(document.getElementById(`policy_${key}_days`)?.value || "");
-    const days = daysRaw
-      .split(",")
-      .map((value) => Number(String(value).trim()))
-      .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6);
+    const days = [];
+    for (let day = 0; day <= 6; day += 1) {
+      if (document.getElementById(`policy_${key}_day_${day}`)?.checked) {
+        days.push(day);
+      }
+    }
     const start = String(document.getElementById(`policy_${key}_start`)?.value || "").trim();
     const end = String(document.getElementById(`policy_${key}_end`)?.value || "").trim();
     policies[type] = {
@@ -2924,7 +2967,7 @@ async function bindAutomationSettingsActions() {
     if (!advancedFields) return;
     const nextHidden = !advancedFields.hidden;
     advancedFields.hidden = nextHidden;
-    advancedToggle.textContent = nextHidden ? "Edit Advanced URLs" : "Hide Advanced URLs";
+    advancedToggle.textContent = nextHidden ? "Show Secret Webhooks" : "Hide Secret Webhooks";
   });
 
   form.addEventListener("submit", async (event) => {
