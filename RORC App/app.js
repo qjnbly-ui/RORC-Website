@@ -5255,11 +5255,13 @@ function renderThermostatStatusPanel() {
   const room = firstConfiguredThermostat(status.heat, status.ac) || status.heat || status.ac || {};
   const isLoading = !thermostatStatus;
   const hasRoomData = Boolean(!isLoading && room?.configured && !room.error && !room.stale);
-  const roomTitle = hasRoomData ? thermostatTempLabel(room.temperatureF) : "Room status";
-  const roomSubtitle = hasRoomData
+  const roomTitle = isLoading ? "Checking..." : (hasRoomData ? thermostatTempLabel(room.temperatureF) : "Status unavailable");
+  const roomSubtitle = isLoading
+    ? "Waiting for live status"
+    : hasRoomData
     ? `Humidity ${thermostatPercentLabel(room.humidity)}`
     : "-";
-  const roomMetrics = hasRoomData ? [
+  const roomMetrics = isLoading ? ["Air quality waiting", "Weather waiting"] : hasRoomData ? [
     thermostatAirQualityMetric(room),
     thermostatWeatherLabel(room.weather, room.humidity)
   ].filter(Boolean) : ["Air quality -", "-"];
