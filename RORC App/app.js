@@ -4919,8 +4919,14 @@ function normalizeThermostatSystemType(systemType) {
 
 function thermostatTemperatureRange(systemType) {
   return normalizeThermostatSystemType(systemType) === "ac"
-    ? { min: 64, max: 92 }
+    ? { min: 64, max: 80 }
     : { min: 45, max: 92 };
+}
+
+function thermostatTemperatureChoices(systemType) {
+  return normalizeThermostatSystemType(systemType) === "ac"
+    ? [64, 66, 68, 70, 72, 74, 76, 78, 80]
+    : [60, 62, 64, 66, 68, 70, 72, 74, 76, 78, 80, 82, 84, 86, 88, 90, 92];
 }
 
 function thermostatSystemLabel(systemType) {
@@ -5164,11 +5170,9 @@ function firstConfiguredThermostat(...items) {
 function renderThermostatSystemStatus(label, item, activeEntry = null) {
   const systemType = label === "AC" ? "ac" : "heat";
   const systemEnabled = isThermostatSystemEnabled(systemType);
-  const isRecordActive = normalizeThermostatSystemType(activeEntry?.systemType) === systemType;
   const isLiveActive = isLiveThermostatActive(systemType, item);
-  const liveStateKnown = isLiveThermostatStateKnown(item);
 
-  if (isLiveActive || (!liveStateKnown && isRecordActive)) {
+  if (isLiveActive) {
     const activity = item?.configured && !item.error
       ? thermostatSystemActivityLabel(systemType, item)
       : "Currently On";
@@ -5195,10 +5199,10 @@ function renderThermostatSystemStatus(label, item, activeEntry = null) {
 
   if (!thermostatStatus) {
     return `
-      <article data-open-thermostat-system="${escapeAttribute(systemType)}" class="${systemEnabled ? "" : "is-disabled"}" role="button" tabindex="${systemEnabled ? "0" : "-1"}" aria-disabled="${systemEnabled ? "false" : "true"}">
+      <article class="is-disabled" aria-disabled="true">
         <span>${escapeHtml(label)}</span>
-        <strong>-</strong>
-        <small>${systemEnabled ? "Tap to turn on" : "Disabled by admin"}</small>
+        <strong>Checking...</strong>
+        <small>Waiting for live status</small>
       </article>
     `;
   }
@@ -7669,17 +7673,16 @@ function updateThermostatSystemFields(selectedButton) {
   const allowedRange = thermostatTemperatureRange(systemType);
 
   if (targetTemp) {
-    [...targetTemp.options].forEach((option) => {
-      const value = Number(option.value);
-      option.disabled = Number.isFinite(value) && value < allowedRange.min;
-    });
-  }
-
-  if (targetTemp && (!selectedButton || selectedButton.dataset.thermostatSystem)) {
-    const selectedValue = Number(targetTemp.value);
-    if (!Number.isFinite(selectedValue) || selectedValue < allowedRange.min || selectedValue > allowedRange.max) {
-      targetTemp.value = isAc ? "66" : "74";
-    }
+    const previousValue = Number(targetTemp.value);
+    targetTemp.replaceChildren(...thermostatTemperatureChoices(systemType).map((value) => {
+      const option = document.createElement("option");
+      option.value = String(value);
+      option.textContent = `${value}°F`;
+      return option;
+    }));
+    targetTemp.value = Number.isFinite(previousValue) && previousValue >= allowedRange.min && previousValue <= allowedRange.max
+      ? String(previousValue)
+      : (isAc ? "66" : "74");
   }
 
   if (costCopy) {
