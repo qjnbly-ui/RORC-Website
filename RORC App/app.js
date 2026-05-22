@@ -5168,7 +5168,7 @@ function firstConfiguredThermostat(...items) {
 function renderThermostatSystemStatus(label, item, activeEntry = null) {
   const systemType = label === "AC" ? "ac" : "heat";
   const systemEnabled = isThermostatSystemEnabled(systemType);
-  const isRecordActive = normalizeThermostatSystemType(activeEntry?.systemType) === systemType;
+  const isRecordActive = activeEntry != null && normalizeThermostatSystemType(activeEntry.systemType) === systemType;
   const isLiveActive = isLiveThermostatActive(systemType, item);
 
   if (isRecordActive || isLiveActive) {
