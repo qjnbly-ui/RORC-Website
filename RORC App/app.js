@@ -2043,7 +2043,7 @@ function openMasterLogEditor(recordType, recordId, options = {}) {
           </label>
           <label>
             <span>Target Temperature</span>
-            <input id="masterLogTargetTemp" type="number" min="45" max="92" value="${escapeAttribute(record.targetTemperatureF || "")}" ${readonlyAttribute} />
+            <input id="masterLogTargetTemp" type="number" min="${normalizeThermostatSystemType(record.systemType) === "ac" ? "64" : "45"}" max="80" value="${escapeAttribute(record.targetTemperatureF || "")}" ${readonlyAttribute} />
           </label>
           <label>
             <span>Start At</span>
@@ -4920,13 +4920,13 @@ function normalizeThermostatSystemType(systemType) {
 function thermostatTemperatureRange(systemType) {
   return normalizeThermostatSystemType(systemType) === "ac"
     ? { min: 64, max: 80 }
-    : { min: 45, max: 92 };
+    : { min: 45, max: 80 };
 }
 
 function thermostatTemperatureChoices(systemType) {
   return normalizeThermostatSystemType(systemType) === "ac"
     ? [64, 66, 68, 70, 72, 74, 76, 78, 80]
-    : [60, 62, 64, 66, 68, 70, 72, 74, 76, 78, 80, 82, 84, 86, 88, 90, 92];
+    : [45, 50, 55, 60, 62, 64, 66, 68, 70, 72, 74, 76, 78, 80];
 }
 
 function thermostatSystemLabel(systemType) {
@@ -7529,11 +7529,6 @@ function populateHeaterForm() {
     segment.classList.toggle("is-selected", index === 0);
   });
 
-  const heaterPin = document.getElementById("heaterPin");
-  if (heaterPin) {
-    heaterPin.value = "";
-  }
-
   const timerDuration = document.getElementById("heaterTimerDuration");
   if (timerDuration) {
     timerDuration.value = "15";
@@ -7698,7 +7693,7 @@ function updateThermostatSystemFields(selectedButton) {
   }
 
   if (heaterPinField) {
-    heaterPinField.hidden = isAc;
+    heaterPinField.hidden = false;
   }
 
   if (isAc) {
@@ -8191,8 +8186,8 @@ async function saveHeaterUse() {
     }
   }
 
-  if (systemType === "heat" && groupPayValue === "N" && !/^\d{4}$/.test(heaterPin)) {
-    showDetailActionMessage("Enter the 4-digit heater PIN.");
+  if (groupPayValue === "N" && !/^\d{4}$/.test(heaterPin)) {
+    showDetailActionMessage(`Enter the 4-digit ${thermostatSystemLabel(systemType)} PIN.`);
     return;
   }
 
@@ -8227,7 +8222,7 @@ async function saveHeaterUse() {
       timerStop = `${timerUntilValue}:00`;
     }
 
-    if (systemType === "heat" && !groupPay && responsibleMemberId) {
+    if (!groupPay && responsibleMemberId) {
       await verifyHeaterPin(responsibleMemberId, heaterPin);
     }
 
