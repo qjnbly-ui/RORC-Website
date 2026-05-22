@@ -23,30 +23,36 @@ module.exports = async (req, res) => {
     const step2Url = String(settings.step2_url || STEP_2_URL);
     const warnings = [];
 
-    const step1 = await fetch(step1Url, { method: "GET" });
-    if (!step1.ok) {
-      const text = await step1.text();
-      throw new Error(`Step 1 failed: ${step1.status} ${text}`);
+    if (settings.step1_enabled !== false) {
+      const step1 = await fetch(step1Url, { method: "GET" });
+      if (!step1.ok) {
+        const text = await step1.text();
+        throw new Error(`Step 1 failed: ${step1.status} ${text}`);
+      }
     }
 
-    const step2 = await fetch(step2Url, { method: "GET" });
-    if (!step2.ok) {
-      const text = await step2.text();
-      throw new Error(`Step 2 failed: ${step2.status} ${text}`);
+    if (settings.step2_enabled !== false) {
+      const step2 = await fetch(step2Url, { method: "GET" });
+      if (!step2.ok) {
+        const text = await step2.text();
+        throw new Error(`Step 2 failed: ${step2.status} ${text}`);
+      }
     }
 
-    const origin = `https://${req.headers.host}`;
-    const step3 = await fetch(`${origin}/api/send-gym-open-text`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ memberName, to: settings.sms_to || "" })
-    });
+    if (settings.sms_enabled !== false) {
+      const origin = `https://${req.headers.host}`;
+      const step3 = await fetch(`${origin}/api/send-gym-open-text`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ memberName, to: settings.sms_to || "" })
+      });
 
-    const step3Body = await step3.json().catch(() => ({}));
-    if (!step3.ok || step3Body.success === false) {
-      throw new Error(step3Body.error || "Step 3 failed.");
+      const step3Body = await step3.json().catch(() => ({}));
+      if (!step3.ok || step3Body.success === false) {
+        throw new Error(step3Body.error || "Step 3 failed.");
+      }
     }
 
     if (settings.ac_fan_enabled !== false) {

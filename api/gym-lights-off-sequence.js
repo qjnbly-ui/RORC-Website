@@ -29,45 +29,51 @@ module.exports = async (req, res) => {
     const smsTo = String(settings.sms_to || GYM_OFF_TO_NUMBER).trim() || GYM_OFF_TO_NUMBER;
     const warnings = [];
 
-    const step1 = await fetch(step1Url, { method: "GET" });
-    if (!step1.ok) {
-      const text = await step1.text();
-      throw new Error(`Step 1 failed: ${step1.status} ${text}`);
-    }
-
-    const step2 = await fetch(step2Url, { method: "GET" });
-    if (!step2.ok) {
-      const text = await step2.text();
-      throw new Error(`Step 2 failed: ${step2.status} ${text}`);
-    }
-
-    if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
-      throw new Error("Step 3 failed: Twilio credentials are not configured.");
-    }
-
-    const smsBody = `GYM LIGHTS OFF\nMember Last To Exit: ${memberName}\nVisit Duration: ${Math.max(0, Math.round(visitDurationMinutes))} MIN`;
-    const auth = Buffer
-      .from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`)
-      .toString("base64");
-    const params = new URLSearchParams({
-      To: smsTo,
-      From: TWILIO_FROM_NUMBER,
-      Body: smsBody
-    });
-    const step3 = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Basic ${auth}`,
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        body: params.toString()
+    if (settings.step1_enabled !== false) {
+      const step1 = await fetch(step1Url, { method: "GET" });
+      if (!step1.ok) {
+        const text = await step1.text();
+        throw new Error(`Step 1 failed: ${step1.status} ${text}`);
       }
-    );
-    const step3Body = await step3.json().catch(() => ({}));
-    if (!step3.ok) {
-      throw new Error(`Step 3 failed: ${step3Body?.message || "Twilio SMS request failed."}`);
+    }
+
+    if (settings.step2_enabled !== false) {
+      const step2 = await fetch(step2Url, { method: "GET" });
+      if (!step2.ok) {
+        const text = await step2.text();
+        throw new Error(`Step 2 failed: ${step2.status} ${text}`);
+      }
+    }
+
+    if (settings.sms_enabled !== false) {
+      if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
+        throw new Error("Step 3 failed: Twilio credentials are not configured.");
+      }
+
+      const smsBody = `GYM LIGHTS OFF\nMember Last To Exit: ${memberName}\nVisit Duration: ${Math.max(0, Math.round(visitDurationMinutes))} MIN`;
+      const auth = Buffer
+        .from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`)
+        .toString("base64");
+      const params = new URLSearchParams({
+        To: smsTo,
+        From: TWILIO_FROM_NUMBER,
+        Body: smsBody
+      });
+      const step3 = await fetch(
+        `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Basic ${auth}`,
+            "Content-Type": "application/x-www-form-urlencoded"
+          },
+          body: params.toString()
+        }
+      );
+      const step3Body = await step3.json().catch(() => ({}));
+      if (!step3.ok) {
+        throw new Error(`Step 3 failed: ${step3Body?.message || "Twilio SMS request failed."}`);
+      }
     }
 
     if (settings.ac_fan_enabled !== false) {

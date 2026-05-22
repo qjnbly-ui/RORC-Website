@@ -1020,13 +1020,25 @@ function renderAutomationSettingsPage() {
               <input id="gymLightsOnEnabled" type="checkbox" />
               <span>Enable automation</span>
             </label>
+            <label class="automation-toggle">
+              <input id="gymLightsOnStep1Enabled" type="checkbox" />
+              <span>Stage 1 Announcement</span>
+            </label>
+            <label class="automation-toggle">
+              <input id="gymLightsOnStep2Enabled" type="checkbox" />
+              <span>Stage 2 Trigger</span>
+            </label>
+            <label class="automation-toggle">
+              <input id="gymLightsOnSmsEnabled" type="checkbox" />
+              <span>Stage 3 SMS</span>
+            </label>
             <label>
               <span>SMS destination</span>
               <input id="gymLightsOnSmsTo" type="text" placeholder="+1..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
             </label>
             <label class="automation-toggle">
               <input id="gymLightsOnAcFanEnabled" type="checkbox" />
-              <span>Fan On</span>
+              <span>Stage 4 Fan On</span>
             </label>
           </article>
 
@@ -1037,13 +1049,25 @@ function renderAutomationSettingsPage() {
               <input id="gymLightsOffEnabled" type="checkbox" />
               <span>Enable automation</span>
             </label>
+            <label class="automation-toggle">
+              <input id="gymLightsOffStep1Enabled" type="checkbox" />
+              <span>Stage 1 Announcement</span>
+            </label>
+            <label class="automation-toggle">
+              <input id="gymLightsOffStep2Enabled" type="checkbox" />
+              <span>Stage 2 Trigger</span>
+            </label>
+            <label class="automation-toggle">
+              <input id="gymLightsOffSmsEnabled" type="checkbox" />
+              <span>Stage 3 SMS</span>
+            </label>
             <label>
               <span>SMS destination</span>
               <input id="gymLightsOffSmsTo" type="text" placeholder="+1..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
             </label>
             <label class="automation-toggle">
               <input id="gymLightsOffAcFanEnabled" type="checkbox" />
-              <span>Fan Off</span>
+              <span>Stage 4 Fan Off</span>
             </label>
           </article>
 
@@ -2839,12 +2863,18 @@ function applyAutomationSettingsToForm(settings) {
   };
 
   setChecked("gymLightsOnEnabled", settings.gym_lights_on?.enabled);
+  setChecked("gymLightsOnStep1Enabled", settings.gym_lights_on?.step1_enabled !== false);
+  setChecked("gymLightsOnStep2Enabled", settings.gym_lights_on?.step2_enabled !== false);
+  setChecked("gymLightsOnSmsEnabled", settings.gym_lights_on?.sms_enabled !== false);
   setValue("gymLightsOnStep1Url", settings.gym_lights_on?.step1_url);
   setValue("gymLightsOnStep2Url", settings.gym_lights_on?.step2_url);
   setValue("gymLightsOnSmsTo", settings.gym_lights_on?.sms_to);
   setChecked("gymLightsOnAcFanEnabled", settings.gym_lights_on?.ac_fan_enabled);
 
   setChecked("gymLightsOffEnabled", settings.gym_lights_off?.enabled);
+  setChecked("gymLightsOffStep1Enabled", settings.gym_lights_off?.step1_enabled !== false);
+  setChecked("gymLightsOffStep2Enabled", settings.gym_lights_off?.step2_enabled !== false);
+  setChecked("gymLightsOffSmsEnabled", settings.gym_lights_off?.sms_enabled !== false);
   setValue("gymLightsOffStep1Url", settings.gym_lights_off?.step1_url);
   setValue("gymLightsOffStep2Url", settings.gym_lights_off?.step2_url);
   setValue("gymLightsOffSmsTo", settings.gym_lights_off?.sms_to);
@@ -2896,6 +2926,9 @@ function collectAutomationSettingsFromForm() {
   return {
     gym_lights_on: {
       enabled: isChecked("gymLightsOnEnabled"),
+      step1_enabled: isChecked("gymLightsOnStep1Enabled"),
+      step2_enabled: isChecked("gymLightsOnStep2Enabled"),
+      sms_enabled: isChecked("gymLightsOnSmsEnabled"),
       step1_url: getValue("gymLightsOnStep1Url"),
       step2_url: getValue("gymLightsOnStep2Url"),
       sms_to: getValue("gymLightsOnSmsTo"),
@@ -2903,6 +2936,9 @@ function collectAutomationSettingsFromForm() {
     },
     gym_lights_off: {
       enabled: isChecked("gymLightsOffEnabled"),
+      step1_enabled: isChecked("gymLightsOffStep1Enabled"),
+      step2_enabled: isChecked("gymLightsOffStep2Enabled"),
+      sms_enabled: isChecked("gymLightsOffSmsEnabled"),
       step1_url: getValue("gymLightsOffStep1Url"),
       step2_url: getValue("gymLightsOffStep2Url"),
       sms_to: getValue("gymLightsOffSmsTo"),
