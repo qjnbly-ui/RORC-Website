@@ -28,14 +28,14 @@ module.exports = async (req, res) => {
       return res.status(404).json({ success: false, error: "Member profile not found." });
     }
 
-    const settings = await getAutomationConfig("heater_off");
-    if (settings.enabled === false) {
-      return res.status(200).json({ success: true, skipped: true });
-    }
-
     const systemType = normalizeSystemType(req.body?.systemType);
 
     await turnThermostatOff(systemType);
+
+    const settings = await getAutomationConfig("heater_off");
+    if (settings.enabled === false) {
+      return res.status(200).json({ success: true, skipped: true, sentCount: 0 });
+    }
 
     const requestedIds = Array.isArray(req.body?.memberIds)
       ? req.body.memberIds.map((v) => String(v || "").trim()).filter(Boolean)
@@ -242,10 +242,6 @@ function formatCurrencyFromCents(cents) {
 async function turnThermostatOff(systemType) {
   const normalizedSystemType = normalizeSystemType(systemType);
   const thermostatId = thermostatIdForSystem(normalizedSystemType);
-
-  if (normalizedSystemType === "ac") {
-    return resumeEcobeeProgram({ thermostatId });
-  }
 
   await resumeEcobeeProgram({ thermostatId });
   return setEcobeeHvacMode({ thermostatId, mode: "off" });

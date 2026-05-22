@@ -2035,7 +2035,7 @@ function openMasterLogEditor(recordType, recordId, options = {}) {
             </select>
           </label>
           <label>
-            <span>Heater State</span>
+            <span>${escapeHtml(thermostatSystemLabel(record.systemType))} State</span>
             <select id="masterLogHeaterState" ${readonlyAttribute}>
               <option value="On" ${(record.turnHeaterOn || "On") === "On" ? "selected" : ""}>On</option>
               <option value="Off" ${(record.turnHeaterOn || "On") === "Off" ? "selected" : ""}>Off</option>
@@ -4131,6 +4131,7 @@ async function hydrateFromSupabase() {
       client
         .from("heater_use_entries_with_duration")
         .select("*")
+        .order("start_at", { ascending: false, nullsFirst: false })
         .order("used_on", { ascending: false })
         .limit(500),
       client
@@ -5004,6 +5005,15 @@ function thermostatSystemActivityLabel(systemType, item) {
   return thermostatActivityLabel(item);
 }
 
+function isLiveThermostatActive(systemType, item) {
+  if (!item?.configured || item.error) return false;
+  if (systemType === "ac" && item?.isCooling) return true;
+  if (systemType === "heat" && item?.isHeating) return true;
+
+  const mode = String(item?.hvacMode || "").trim().toLowerCase();
+  return mode === (systemType === "ac" ? "cool" : "heat");
+}
+
 function thermostatFanLabel(value) {
   const raw = String(value || "").trim();
   if (!raw) return "Auto";
@@ -5087,9 +5097,10 @@ function firstConfiguredThermostat(...items) {
 function renderThermostatSystemStatus(label, item, activeEntry = null) {
   const systemType = label === "AC" ? "ac" : "heat";
   const systemEnabled = isThermostatSystemEnabled(systemType);
-  const isActive = normalizeThermostatSystemType(activeEntry?.systemType) === systemType;
+  const isRecordActive = normalizeThermostatSystemType(activeEntry?.systemType) === systemType;
+  const isLiveActive = isLiveThermostatActive(systemType, item);
 
-  if (isActive) {
+  if (isRecordActive || isLiveActive) {
     const activity = item?.configured && !item.error
       ? thermostatSystemActivityLabel(systemType, item)
       : "Currently On";
@@ -5104,7 +5115,7 @@ function renderThermostatSystemStatus(label, item, activeEntry = null) {
       <article class="is-active" aria-label="${escapeAttribute(label)} thermostat active">
         <span>${escapeHtml(label)}</span>
         <strong>${escapeHtml(statusLabel)}</strong>
-        <button class="thermostat-setpoint-button" data-change-thermostat-temp type="button"${disabledAttr}>
+        <button class="thermostat-setpoint-button" data-change-thermostat-temp="${escapeAttribute(systemType)}" data-change-thermostat-entry-id="${escapeAttribute(activeEntry?.id || "")}" type="button"${disabledAttr}>
           <span>Set Temp</span>
           <b>${escapeHtml(thermostatSetPointLabel(setPoint))}</b>
         </button>
@@ -5157,7 +5168,8 @@ function renderThermostatSystemStatus(label, item, activeEntry = null) {
 
 function renderThermostatStatusPanel() {
   const status = thermostatStatus?.thermostats || {};
-  const activeEntry = activeHeaterEntry();
+  const activeHeatEntry = activeHeaterEntry("heat");
+  const activeAcEntry = activeHeaterEntry("ac");
   const room = firstConfiguredThermostat(status.heat, status.ac) || status.heat || status.ac || {};
   const isLoading = !thermostatStatus;
   const hasRoomData = Boolean(!isLoading && room?.configured && !room.error);
@@ -5171,14 +5183,10 @@ function renderThermostatStatusPanel() {
   ].filter(Boolean) : ["Air quality -", "-"];
 
   const refreshed = thermostatStatus?.fetchedAt ? `Updated ${formatShortDateTime(thermostatStatus.fetchedAt)}` : "";
-  const systemCards = activeEntry
-    ? [normalizeThermostatSystemType(activeEntry.systemType) === "ac"
-      ? renderThermostatSystemStatus("AC", status.ac, activeEntry)
-      : renderThermostatSystemStatus("Heat", status.heat, activeEntry)]
-    : [
-      renderThermostatSystemStatus("Heat", status.heat),
-      renderThermostatSystemStatus("AC", status.ac)
-    ];
+  const systemCards = [
+    renderThermostatSystemStatus("Heat", status.heat, activeHeatEntry),
+    renderThermostatSystemStatus("AC", status.ac, activeAcEntry)
+  ];
 
   return `
     <div class="thermostat-room-card" aria-label="Live room thermostat data">
@@ -5189,7 +5197,7 @@ function renderThermostatStatusPanel() {
         ${roomMetrics.map(renderThermostatMetric).join("")}
       </div>
     </div>
-    <div class="thermostat-system-grid ${activeEntry ? "is-single" : ""}" aria-label="Heat and AC status">
+    <div class="thermostat-system-grid" aria-label="Heat and AC status">
       ${systemCards.join("")}
     </div>
     ${thermostatActionFeedback?.message ? `<p class="thermostat-action-feedback">${escapeHtml(thermostatActionFeedback.message)}</p>` : ""}
@@ -5594,16 +5602,6 @@ function renderHeaterRecords() {
 
   bindHeaterRecordsActions();
 
-  const expiredTimers = allRecords.filter((entry) => {
-    if (!isActiveThermostatEntry(entry) || !entry.setATimer) return false;
-    const target = heaterTimerTarget(entry);
-    return Boolean(target && target.getTime() <= Date.now());
-  });
-
-  expiredTimers.forEach((entry) => {
-    turnHeaterOffEntry(entry, { timerTriggered: true });
-  });
-
   if (heaterCountdownTimer) {
     window.clearTimeout(heaterCountdownTimer);
     heaterCountdownTimer = null;
@@ -5653,10 +5651,21 @@ async function turnHeaterOffActiveEntry(systemType = "", preferredEntryId = "") 
   }
 
   if (!activeEntry) {
-    clearThermostatActionFeedback();
+    if (normalizedSystemType) {
+      const systemLabel = thermostatSystemLabel(normalizedSystemType);
+      setThermostatActionFeedback("off", normalizedSystemType, `Turning ${systemLabel} off. This can take a moment.`);
+      render("heaterRecords");
+      await triggerHeaterOffSequence([], {
+        systemType: normalizedSystemType,
+        heaterUseEntryId: null,
+        timerTriggered: false
+      });
+    }
+
     thermostatStatusFetchedAt = 0;
     await fetchThermostatStatus({ force: true }).catch(() => null);
     await hydrateFromSupabase();
+    clearThermostatActionFeedback();
     if (appState.currentRoute === "heaterRecords") render("heaterRecords");
     return;
   }
@@ -5779,26 +5788,63 @@ async function turnHeaterOffEntry(entry, { timerTriggered = false } = {}) {
   }
 }
 
-async function changeActiveThermostatTemperature() {
-  let activeEntry = activeHeaterEntry();
+async function changeActiveThermostatTemperature(systemType = "", preferredEntryId = "") {
+  const normalizedSystemType = systemType ? normalizeThermostatSystemType(systemType) : "";
+  let activeEntry = findActiveEntryByIdAndSystem(preferredEntryId, normalizedSystemType)
+    || activeHeaterEntry(normalizedSystemType);
 
   if (!activeEntry) {
     await hydrateFromSupabase();
-    activeEntry = activeHeaterEntry();
+    activeEntry = findActiveEntryByIdAndSystem(preferredEntryId, normalizedSystemType)
+      || activeHeaterEntry(normalizedSystemType);
   }
 
   if (!activeEntry) {
-    clearThermostatActionFeedback();
+    if (!normalizedSystemType) {
+      clearThermostatActionFeedback();
+      thermostatStatusFetchedAt = 0;
+      await fetchThermostatStatus({ force: true }).catch(() => null);
+      if (appState.currentRoute === "heaterRecords") render("heaterRecords");
+      return;
+    }
+
+    const nextTemp = await openThermostatTemperatureDialog({
+      systemType: normalizedSystemType,
+      targetTemperatureF: thermostatSetPointForSystem(
+        normalizedSystemType,
+        thermostatStatus?.thermostats?.[normalizedSystemType] || null,
+        null
+      )
+    });
+    if (nextTemp === null) return;
+
+    const allowedRange = thermostatTemperatureRange(normalizedSystemType);
+    if (!Number.isFinite(nextTemp) || nextTemp < allowedRange.min || nextTemp > allowedRange.max) {
+      showDetailActionMessage(`Enter a temperature between ${allowedRange.min} and ${allowedRange.max}.`);
+      return;
+    }
+
+    setThermostatActionFeedback("temp", normalizedSystemType, `Updating ${thermostatSystemLabel(normalizedSystemType)} to ${Math.round(nextTemp)}°F.`);
+    render("heaterRecords");
+
+    await triggerHeaterOnSequence([], {
+      systemType: normalizedSystemType,
+      targetTemperatureF: Math.round(nextTemp),
+      silent: true
+    });
+
     thermostatStatusFetchedAt = 0;
     await fetchThermostatStatus({ force: true }).catch(() => null);
+    await hydrateFromSupabase();
+    clearThermostatActionFeedback();
     if (appState.currentRoute === "heaterRecords") render("heaterRecords");
     return;
   }
 
   const nextTemp = await openThermostatTemperatureDialog(activeEntry);
   if (nextTemp === null) return;
-  const systemType = normalizeThermostatSystemType(activeEntry.systemType);
-  const allowedRange = thermostatTemperatureRange(systemType);
+  const activeSystemType = normalizeThermostatSystemType(activeEntry.systemType);
+  const allowedRange = thermostatTemperatureRange(activeSystemType);
 
   if (!Number.isFinite(nextTemp) || nextTemp < allowedRange.min || nextTemp > allowedRange.max) {
     showDetailActionMessage(`Enter a temperature between ${allowedRange.min} and ${allowedRange.max}.`);
@@ -5811,7 +5857,7 @@ async function changeActiveThermostatTemperature() {
     return;
   }
 
-  setThermostatActionFeedback("temp", systemType, `Updating ${thermostatSystemLabel(systemType)} to ${Math.round(nextTemp)}°F.`);
+  setThermostatActionFeedback("temp", activeSystemType, `Updating ${thermostatSystemLabel(activeSystemType)} to ${Math.round(nextTemp)}°F.`);
   render("heaterRecords");
 
   const { error } = await client
@@ -5830,7 +5876,7 @@ async function changeActiveThermostatTemperature() {
   render("heaterRecords");
 
   await triggerHeaterOnSequence([], {
-    systemType,
+    systemType: activeSystemType,
     targetTemperatureF: Math.round(nextTemp),
     silent: true
   });
@@ -7233,25 +7279,31 @@ function bindDetailLogOpenActions() {
 function bindHeaterRecordsActions() {
   bindDetailLogOpenActions();
 
-  document.querySelector("[data-change-thermostat-temp]")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    changeActiveThermostatTemperature().catch((error) => {
-      clearThermostatActionFeedback();
-      if (appState.currentRoute === "heaterRecords") render("heaterRecords");
-      showDetailActionMessage(error.message || "Could not change thermostat temperature.");
+  document.querySelectorAll("[data-change-thermostat-temp]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const systemType = String(event.currentTarget?.dataset?.changeThermostatTemp || "").trim();
+      const entryId = String(event.currentTarget?.dataset?.changeThermostatEntryId || "").trim();
+      changeActiveThermostatTemperature(systemType, entryId).catch((error) => {
+        clearThermostatActionFeedback();
+        if (appState.currentRoute === "heaterRecords") render("heaterRecords");
+        showDetailActionMessage(error.message || "Could not change thermostat temperature.");
+      });
     });
   });
 
-  document.querySelector("[data-turn-thermostat-off]")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const systemType = String(event.currentTarget?.dataset?.turnThermostatOff || "").trim();
-    const entryId = String(event.currentTarget?.dataset?.turnThermostatEntryId || "").trim();
-    turnHeaterOffActiveEntry(systemType, entryId).catch((error) => {
-      clearThermostatActionFeedback();
-      if (appState.currentRoute === "heaterRecords") render("heaterRecords");
-      showDetailActionMessage(error.message || "Could not turn thermostat off.");
+  document.querySelectorAll("[data-turn-thermostat-off]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const systemType = String(event.currentTarget?.dataset?.turnThermostatOff || "").trim();
+      const entryId = String(event.currentTarget?.dataset?.turnThermostatEntryId || "").trim();
+      turnHeaterOffActiveEntry(systemType, entryId).catch((error) => {
+        clearThermostatActionFeedback();
+        if (appState.currentRoute === "heaterRecords") render("heaterRecords");
+        showDetailActionMessage(error.message || "Could not turn thermostat off.");
+      });
     });
   });
 
