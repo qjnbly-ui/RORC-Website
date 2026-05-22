@@ -2030,8 +2030,8 @@ function openMasterLogEditor(recordType, recordId, options = {}) {
           <label>
             <span>System</span>
             <select id="masterLogThermostatSystem" ${readonlyAttribute}>
-              <option value="heat" ${(record.systemType || "heat") === "heat" ? "selected" : ""}>Heat</option>
-              <option value="ac" ${(record.systemType || "heat") === "ac" ? "selected" : ""}>AC</option>
+              <option value="heat" ${normalizeThermostatSystemType(record.systemType) === "heat" ? "selected" : ""}>Heat</option>
+              <option value="ac" ${normalizeThermostatSystemType(record.systemType) === "ac" ? "selected" : ""}>AC</option>
             </select>
           </label>
           <label>
@@ -4342,7 +4342,7 @@ function applySupabaseData({
   heaterUseEntries = heaterRows.map((row) => ({
     id: row.id,
     usedOn: row.used_on,
-    systemType: row.system_type || "heat",
+    systemType: normalizeThermostatSystemType(row.system_type),
     event: row.event,
     responsibleMemberId: row.responsible_member_id,
     groupMemberIds: heaterGroupMap.get(row.id) || [],
@@ -4912,8 +4912,12 @@ function heaterDisplayState(entry) {
   return heaterRecordStatus(entry).label;
 }
 
+function normalizeThermostatSystemType(systemType) {
+  return String(systemType || "").trim().toLowerCase() === "ac" ? "ac" : "heat";
+}
+
 function thermostatSystemLabel(systemType) {
-  return String(systemType || "").toLowerCase() === "ac" ? "AC" : "Heat";
+  return normalizeThermostatSystemType(systemType) === "ac" ? "AC" : "Heat";
 }
 
 function thermostatTempLabel(value) {
@@ -5077,7 +5081,7 @@ function firstConfiguredThermostat(...items) {
 function renderThermostatSystemStatus(label, item, activeEntry = null) {
   const systemType = label === "AC" ? "ac" : "heat";
   const systemEnabled = isThermostatSystemEnabled(systemType);
-  const isActive = activeEntry?.systemType === systemType;
+  const isActive = normalizeThermostatSystemType(activeEntry?.systemType) === systemType;
 
   if (isActive) {
     const activity = item?.configured && !item.error
@@ -5162,7 +5166,7 @@ function renderThermostatStatusPanel() {
 
   const refreshed = thermostatStatus?.fetchedAt ? `Updated ${formatShortDateTime(thermostatStatus.fetchedAt)}` : "";
   const systemCards = activeEntry
-    ? [activeEntry.systemType === "ac"
+    ? [normalizeThermostatSystemType(activeEntry.systemType) === "ac"
       ? renderThermostatSystemStatus("AC", status.ac, activeEntry)
       : renderThermostatSystemStatus("Heat", status.heat, activeEntry)]
     : [
@@ -5618,7 +5622,7 @@ async function turnHeaterOffActiveEntry() {
     return;
   }
 
-  const systemType = activeEntry.systemType || "heat";
+  const systemType = normalizeThermostatSystemType(activeEntry.systemType);
   const systemLabel = thermostatSystemLabel(systemType);
   const endAtIso = new Date().toISOString();
   setThermostatActionFeedback("off", systemType, `Turning ${systemLabel} off. This can take a moment.`);
@@ -5684,7 +5688,7 @@ async function turnHeaterOffEntry(entry, { timerTriggered = false } = {}) {
 
     const offRecipients = entry.groupPay ? entry.groupMemberIds : [entry.responsibleMemberId];
     await triggerHeaterOffSequence(offRecipients, {
-      systemType: entry.systemType || "heat",
+      systemType: normalizeThermostatSystemType(entry.systemType),
       heaterUseEntryId: entry.id,
       timerTriggered,
       timerMinutes: timerTriggered ? configuredTimerMinutes(entry) : null
@@ -5729,7 +5733,7 @@ async function changeActiveThermostatTemperature() {
     return;
   }
 
-  const systemType = activeEntry.systemType || "heat";
+  const systemType = normalizeThermostatSystemType(activeEntry.systemType);
   setThermostatActionFeedback("temp", systemType, `Updating ${thermostatSystemLabel(systemType)} to ${Math.round(nextTemp)}°F.`);
   render("heaterRecords");
 
@@ -5766,9 +5770,10 @@ async function changeActiveThermostatTemperature() {
 function openThermostatTemperatureDialog(activeEntry) {
   return new Promise((resolve) => {
     const systemLabel = thermostatSystemLabel(activeEntry.systemType);
-    const statusItem = thermostatStatus?.thermostats?.[activeEntry.systemType === "ac" ? "ac" : "heat"] || null;
+    const activeSystem = normalizeThermostatSystemType(activeEntry.systemType);
+    const statusItem = thermostatStatus?.thermostats?.[activeSystem === "ac" ? "ac" : "heat"] || null;
     const currentTemp = thermostatSetPointForSystem(activeEntry.systemType, statusItem, activeEntry)
-      || (activeEntry.systemType === "ac" ? 66 : 74);
+      || (activeSystem === "ac" ? 66 : 74);
     const overlay = document.createElement("div");
     overlay.className = "thermostat-temp-modal-overlay";
     overlay.innerHTML = `

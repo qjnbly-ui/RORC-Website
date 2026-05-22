@@ -208,8 +208,9 @@ async function sendTwilioText(to, body) {
 }
 
 async function turnThermostatOn({ systemType, targetTemperatureF }) {
-  const thermostatId = thermostatIdForSystem(systemType);
-  const mode = systemType === "ac" ? "cool" : "heat";
+  const normalizedSystemType = normalizeSystemType(systemType);
+  const thermostatId = thermostatIdForSystem(normalizedSystemType);
+  const mode = normalizedSystemType === "ac" ? "cool" : "heat";
 
   if (targetTemperatureF) {
     return setEcobeeTemperatureHold({
@@ -223,7 +224,21 @@ async function turnThermostatOn({ systemType, targetTemperatureF }) {
 }
 
 function thermostatIdForSystem(systemType) {
-  return systemType === "ac" ? ECOBEE_AC_THERMOSTAT_ID : ECOBEE_HEATER_THERMOSTAT_ID;
+  const normalizedSystemType = normalizeSystemType(systemType);
+  const acId = String(ECOBEE_AC_THERMOSTAT_ID || "").trim();
+  const heatId = String(ECOBEE_HEATER_THERMOSTAT_ID || "").trim();
+
+  if (acId && heatId && acId === heatId) {
+    throw new Error("AC and Heat thermostat IDs must be different.");
+  }
+
+  if (normalizedSystemType === "ac") {
+    if (!acId) throw new Error("AC thermostat ID is not configured.");
+    return acId;
+  }
+
+  if (!heatId) throw new Error("Heat thermostat ID is not configured.");
+  return heatId;
 }
 
 function normalizeSystemType(value) {

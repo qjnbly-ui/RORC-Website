@@ -240,9 +240,10 @@ function formatCurrencyFromCents(cents) {
 }
 
 async function turnThermostatOff(systemType) {
-  const thermostatId = thermostatIdForSystem(systemType);
+  const normalizedSystemType = normalizeSystemType(systemType);
+  const thermostatId = thermostatIdForSystem(normalizedSystemType);
 
-  if (systemType === "ac") {
+  if (normalizedSystemType === "ac") {
     return resumeEcobeeProgram({ thermostatId });
   }
 
@@ -251,7 +252,21 @@ async function turnThermostatOff(systemType) {
 }
 
 function thermostatIdForSystem(systemType) {
-  return systemType === "ac" ? ECOBEE_AC_THERMOSTAT_ID : ECOBEE_HEATER_THERMOSTAT_ID;
+  const normalizedSystemType = normalizeSystemType(systemType);
+  const acId = String(ECOBEE_AC_THERMOSTAT_ID || "").trim();
+  const heatId = String(ECOBEE_HEATER_THERMOSTAT_ID || "").trim();
+
+  if (acId && heatId && acId === heatId) {
+    throw new Error("AC and Heat thermostat IDs must be different.");
+  }
+
+  if (normalizedSystemType === "ac") {
+    if (!acId) throw new Error("AC thermostat ID is not configured.");
+    return acId;
+  }
+
+  if (!heatId) throw new Error("Heat thermostat ID is not configured.");
+  return heatId;
 }
 
 function normalizeSystemType(value) {
