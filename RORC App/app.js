@@ -32,6 +32,7 @@ let heaterUseEntries = [];
 let billingLineItems = [];
 let notificationDispatchRecords = [];
 let memberNotifications = [];
+let adminNotes = [];
 let notificationRealtimeChannel = null;
 let notificationRealtimeRetryTimer = null;
 let timesheetRealtimeChannel = null;
@@ -169,7 +170,8 @@ const accountManagerOnlyRoutes = new Set([
   "notificationsEmail",
   "masterLogs",
   "messageCompose",
-  "contracts"
+  "contracts",
+  "adminNotes"
 ]);
 
 const kioskAllowedRoutes = new Set([
@@ -287,6 +289,11 @@ const routes = {
     title: "Account Reviews",
     template: "feedbackTemplate",
     afterRender: renderContractReviewsPage
+  },
+  adminNotes: {
+    title: "Admin Notes",
+    template: "feedbackTemplate",
+    afterRender: renderAdminNotesPage
   },
   about: {
     title: "About",
@@ -1343,6 +1350,232 @@ function renderNotificationsPage() {
   bindNotificationHistoryFilters();
 
   bindNotificationOpenActions();
+}
+
+async function fetchAdminNotes({ includeArchived = false } = {}) {
+  const token = currentAuthSession?.access_token || "";
+  if (!token || !isAccountManager(appUserSession)) return [];
+
+  const query = includeArchived ? "?includeArchived=1" : "";
+  const response = await fetch(`/api/admin-notes${query}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw createHttpError(body.error || "Could not load admin notes.", response.status);
+  }
+
+  return Array.isArray(body.notes) ? body.notes : [];
+}
+
+async function createAdminNote(noteText) {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) {
+    throw new Error("Missing session token.");
+  }
+
+  const response = await fetch("/api/admin-notes", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ noteText })
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw createHttpError(body.error || "Could not create admin note.", response.status);
+  }
+
+  return body.note || null;
+}
+
+async function updateAdminNote(id, patch) {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) {
+    throw new Error("Missing session token.");
+  }
+
+  const response = await fetch("/api/admin-notes", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ id, ...patch })
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw createHttpError(body.error || "Could not update admin note.", response.status);
+  }
+
+  return body.note || null;
+}
+
+async function renderAdminNotesPage() {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+
+  root.innerHTML = `
+    <section class="live-record-page">
+      <header class="account-page-heading">
+        <div>
+          <p class="eyebrow">Admin Workflow</p>
+          <h2>Admin Notes</h2>
+          <p>Track messages to send, site edits, and operations follow-ups.</p>
+        </div>
+      </header>
+      <section class="empty-state">
+        <p>Loading admin notes...</p>
+      </section>
+    </section>
+  `;
+
+  try {
+    adminNotes = await fetchAdminNotes();
+    drawAdminNotesPage();
+  } catch (error) {
+    root.innerHTML = `
+      <section class="empty-state">
+        <p>${escapeHtml(error.message || "Could not load admin notes.")}</p>
+      </section>
+    `;
+  }
+}
+
+function drawAdminNotesPage() {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+
+  const openNotes = adminNotes.filter((note) => !note.archivedAt);
+  const completedCount = openNotes.filter((note) => note.isDone).length;
+
+  root.innerHTML = `
+    <section class="live-record-page">
+      <header class="account-page-heading">
+        <div>
+          <p class="eyebrow">Admin Workflow</p>
+          <h2>Admin Notes</h2>
+          <p>Check off work as you finish it. Archive hides finished rows.</p>
+        </div>
+        <div class="account-summary-strip">
+          <span><strong>${openNotes.length}</strong> active</span>
+          <span><strong>${completedCount}</strong> complete</span>
+        </div>
+      </header>
+
+      <div class="detail-card">
+        <form id="adminNoteForm" class="feedback-form">
+          <label for="adminNoteInput">New note</label>
+          <textarea id="adminNoteInput" placeholder="Example: Send Friday member text update."></textarea>
+          <div class="feedback-actions">
+            <button id="adminNoteSubmit" type="submit">Add Note</button>
+            <p id="adminNotesResult" class="feedback-result" aria-live="polite"></p>
+          </div>
+        </form>
+      </div>
+
+      ${openNotes.length ? `
+        <div class="detail-card">
+          <ol class="record-list heater-record-list">
+            ${openNotes.map((note) => `
+              <li data-admin-note-id="${escapeAttribute(note.id)}">
+                <div class="contract-review-actions">
+                  <label class="automation-toggle" style="margin:0;">
+                    <input data-admin-note-toggle="${escapeAttribute(note.id)}" type="checkbox" ${note.isDone ? "checked" : ""} />
+                    <span><strong>${escapeHtml(note.noteText)}</strong></span>
+                  </label>
+                  <button class="text-action" data-admin-note-archive="${escapeAttribute(note.id)}" type="button" ${note.isDone ? "" : "disabled"}>Archive</button>
+                </div>
+                <span class="heater-record-meta">
+                  ${note.createdAt ? `Created ${escapeHtml(formatShortDateTime(note.createdAt))}` : ""}
+                  ${note.completedAt ? ` · Completed ${escapeHtml(formatShortDateTime(note.completedAt))}` : ""}
+                </span>
+              </li>
+            `).join("")}
+          </ol>
+        </div>
+      ` : `
+        <section class="empty-state">
+          <p>No admin notes right now.</p>
+        </section>
+      `}
+    </section>
+  `;
+
+  bindAdminNotesActions();
+}
+
+function bindAdminNotesActions() {
+  const form = document.getElementById("adminNoteForm");
+  const input = document.getElementById("adminNoteInput");
+  const result = document.getElementById("adminNotesResult");
+  const submitButton = document.getElementById("adminNoteSubmit");
+
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const text = String(input?.value || "").trim();
+    if (!text) {
+      if (result) result.textContent = "Enter a note first.";
+      return;
+    }
+
+    try {
+      if (submitButton) {
+        submitButton.disabled = true;
+        submitButton.textContent = "Adding...";
+      }
+      if (result) result.textContent = "Creating note...";
+      await createAdminNote(text);
+      adminNotes = await fetchAdminNotes();
+      drawAdminNotesPage();
+    } catch (error) {
+      if (result) result.textContent = error.message || "Could not create note.";
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = "Add Note";
+      }
+    }
+  });
+
+  document.querySelectorAll("[data-admin-note-toggle]").forEach((checkbox) => {
+    checkbox.addEventListener("change", async () => {
+      const id = checkbox.getAttribute("data-admin-note-toggle") || "";
+      if (!id) return;
+
+      try {
+        if (result) result.textContent = "Saving note...";
+        await updateAdminNote(id, { isDone: checkbox.checked });
+        adminNotes = await fetchAdminNotes();
+        drawAdminNotesPage();
+      } catch (error) {
+        if (result) result.textContent = error.message || "Could not update note.";
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-admin-note-archive]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const id = button.getAttribute("data-admin-note-archive") || "";
+      if (!id) return;
+
+      try {
+        if (result) result.textContent = "Archiving note...";
+        await updateAdminNote(id, { archived: true });
+        adminNotes = await fetchAdminNotes();
+        drawAdminNotesPage();
+      } catch (error) {
+        if (result) result.textContent = error.message || "Could not archive note.";
+      }
+    });
+  });
 }
 
 function renderUserNotificationsPage() {
