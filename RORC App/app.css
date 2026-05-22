@@ -923,6 +923,43 @@ h1 {
   color: #9bd59b;
 }
 
+.gym-lights-mode-card {
+  background:
+    radial-gradient(circle at 90% 10%, rgba(239, 59, 54, 0.18), transparent 45%),
+    linear-gradient(130deg, #18191d, #1f1a1a);
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  margin: 0 auto;
+  max-width: 760px;
+  padding: 18px 20px;
+  text-align: center;
+}
+
+.gym-lights-mode-head {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+}
+
+.gym-lights-mode-head .eyebrow {
+  margin: 0;
+}
+
+.gym-lights-mode-status {
+  color: #d2d6dd;
+  font-weight: 800;
+  margin: 0;
+}
+
+.gym-lights-mode-actions {
+  justify-content: center;
+}
+
+.gym-lights-mode-actions button {
+  min-width: 280px;
+}
+
 .automation-toggle {
   align-items: center;
   display: flex !important;

@@ -5361,13 +5361,15 @@ function renderGymLightsModeBar(openEntries) {
   if (!Array.isArray(openEntries) || openEntries.length < 1) return "";
   const halfMode = gymLightsMode === "half";
   return `
-    <section class="detail-card">
-      <p class="eyebrow">Lights Control</p>
-      <div class="feedback-actions">
+    <section class="detail-card gym-lights-mode-card">
+      <div class="gym-lights-mode-head">
+        <p class="eyebrow">Lights Control</p>
+        <p class="gym-lights-mode-status">${halfMode ? "Current mode: Half lights" : "Current mode: Full lights"}</p>
+      </div>
+      <div class="feedback-actions gym-lights-mode-actions">
         <button data-gym-lights-mode-action="${halfMode ? "full" : "half"}" type="button">
           ${halfMode ? "Turn All Lights On" : "Turn Half The Lights Off"}
         </button>
-        <p class="feedback-result">${halfMode ? "Current mode: Half lights" : "Current mode: Full lights"}</p>
       </div>
     </section>
   `;
