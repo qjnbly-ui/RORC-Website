@@ -56,6 +56,9 @@ let notificationUnreadCount = 0;
 let contractReviewPendingCount = 0;
 let accountTypePolicies = defaultAccountTypePolicies();
 let thermostatSystemAccess = defaultThermostatSystemAccess();
+let gymLightsMode = "full";
+let gymLightsModeFetchedAt = 0;
+let gymLightsModeLoading = false;
 let supportsMinorMemberFields = false;
 
 const statusOrder = [
@@ -1068,6 +1071,18 @@ function renderAutomationSettingsPage() {
               <span>Stage 2 Trigger</span>
             </label>
             <label class="automation-toggle">
+              <input id="gymLightsOnHalfLightsEnabled" type="checkbox" />
+              <span>Use Half Lights Schedule</span>
+            </label>
+            <label>
+              <span>Half Lights Start</span>
+              <input id="gymLightsOnHalfLightsStartTime" type="time" />
+            </label>
+            <label>
+              <span>Half Lights End</span>
+              <input id="gymLightsOnHalfLightsEndTime" type="time" />
+            </label>
+            <label class="automation-toggle">
               <input id="gymLightsOnSmsEnabled" type="checkbox" />
               <span>Stage 3 SMS</span>
             </label>
@@ -1145,6 +1160,10 @@ function renderAutomationSettingsPage() {
               <label>
                 <span>Step 2 URL</span>
                 <input id="gymLightsOnStep2Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
+              </label>
+              <label>
+                <span>Half Lights Step 2 URL</span>
+                <input id="gymLightsOnHalfLightsStep2Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
               </label>
             </article>
             <article class="automation-card">
@@ -2912,9 +2931,13 @@ function applyAutomationSettingsToForm(settings) {
   setChecked("gymLightsOnEnabled", settings.gym_lights_on?.enabled);
   setChecked("gymLightsOnStep1Enabled", settings.gym_lights_on?.step1_enabled !== false);
   setChecked("gymLightsOnStep2Enabled", settings.gym_lights_on?.step2_enabled !== false);
+  setChecked("gymLightsOnHalfLightsEnabled", settings.gym_lights_on?.half_lights_enabled !== false);
+  setValue("gymLightsOnHalfLightsStartTime", settings.gym_lights_on?.half_lights_start_time || "07:00");
+  setValue("gymLightsOnHalfLightsEndTime", settings.gym_lights_on?.half_lights_end_time || "18:00");
   setChecked("gymLightsOnSmsEnabled", settings.gym_lights_on?.sms_enabled !== false);
   setValue("gymLightsOnStep1Url", settings.gym_lights_on?.step1_url);
   setValue("gymLightsOnStep2Url", settings.gym_lights_on?.step2_url);
+  setValue("gymLightsOnHalfLightsStep2Url", settings.gym_lights_on?.half_lights_step2_url);
   setValue("gymLightsOnSmsTo", settings.gym_lights_on?.sms_to);
   setChecked("gymLightsOnAcFanEnabled", settings.gym_lights_on?.ac_fan_enabled !== false);
 
@@ -2977,9 +3000,13 @@ function collectAutomationSettingsFromForm() {
       enabled: isChecked("gymLightsOnEnabled"),
       step1_enabled: isChecked("gymLightsOnStep1Enabled"),
       step2_enabled: isChecked("gymLightsOnStep2Enabled"),
+      half_lights_enabled: isChecked("gymLightsOnHalfLightsEnabled"),
+      half_lights_start_time: getValue("gymLightsOnHalfLightsStartTime"),
+      half_lights_end_time: getValue("gymLightsOnHalfLightsEndTime"),
       sms_enabled: isChecked("gymLightsOnSmsEnabled"),
       step1_url: getValue("gymLightsOnStep1Url"),
       step2_url: getValue("gymLightsOnStep2Url"),
+      half_lights_step2_url: getValue("gymLightsOnHalfLightsStep2Url"),
       sms_to: getValue("gymLightsOnSmsTo"),
       ac_fan_enabled: isChecked("gymLightsOnAcFanEnabled")
     },
@@ -3057,6 +3084,9 @@ function refreshAutomationSectionStates() {
     fieldIds: [
       "gymLightsOnStep1Enabled",
       "gymLightsOnStep2Enabled",
+      "gymLightsOnHalfLightsEnabled",
+      "gymLightsOnHalfLightsStartTime",
+      "gymLightsOnHalfLightsEndTime",
       "gymLightsOnSmsEnabled",
       "gymLightsOnSmsTo",
       "gymLightsOnAcFanEnabled"
@@ -3283,6 +3313,9 @@ function clearLiveData() {
   notifiedIds = new Set();
   accountTypePolicies = defaultAccountTypePolicies();
   thermostatSystemAccess = defaultThermostatSystemAccess();
+  gymLightsMode = "full";
+  gymLightsModeFetchedAt = 0;
+  gymLightsModeLoading = false;
   supportsMinorMemberFields = false;
 }
 
@@ -5314,6 +5347,7 @@ function renderCurrentlySignedIn() {
           ${dataSourceNotice()}
         </div>
       </div>
+      ${renderGymLightsModeBar(openEntries)}
       <div class="status-panel">
         <div class="member-card-list">
           ${openEntries.map(renderSignedInCard).join("")}
@@ -5323,8 +5357,25 @@ function renderCurrentlySignedIn() {
   `;
 }
 
+function renderGymLightsModeBar(openEntries) {
+  if (!Array.isArray(openEntries) || openEntries.length < 1) return "";
+  const halfMode = gymLightsMode === "half";
+  return `
+    <section class="detail-card">
+      <p class="eyebrow">Lights Control</p>
+      <div class="feedback-actions">
+        <button data-gym-lights-mode-action="${halfMode ? "full" : "half"}" type="button">
+          ${halfMode ? "Turn All Lights On" : "Turn Half The Lights Off"}
+        </button>
+        <p class="feedback-result">${halfMode ? "Current mode: Half lights" : "Current mode: Full lights"}</p>
+      </div>
+    </section>
+  `;
+}
+
 function renderCurrentlySignedInRoute() {
   renderCurrentlySignedIn();
+  void refreshGymLightsMode({ rerender: true });
   void syncTimesheetEntries({ rerender: true });
 }
 
@@ -7533,6 +7584,65 @@ async function triggerGymLightsOffSequence(memberName, visitDurationMinutes) {
   }
 }
 
+async function loadGymLightsMode() {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) return { mode: "full" };
+  const response = await fetch("/api/gym-lights-mode", {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not load gym lights mode.");
+  }
+  return body.settings || { mode: "full" };
+}
+
+async function saveGymLightsMode(mode) {
+  const token = currentAuthSession?.access_token || "";
+  const response = await fetch("/api/gym-lights-mode", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ mode })
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not change gym lights mode.");
+  }
+  return body.settings || { mode };
+}
+
+async function refreshGymLightsMode({ rerender = false, force = false } = {}) {
+  if (gymLightsModeLoading) return;
+  const isStale = (Date.now() - gymLightsModeFetchedAt) > 15000;
+  if (!force && !isStale) return;
+  gymLightsModeLoading = true;
+  try {
+    const settings = await loadGymLightsMode();
+    gymLightsMode = settings.mode === "half" ? "half" : "full";
+    gymLightsModeFetchedAt = Date.now();
+    if (rerender && appState.currentRoute === "currentlySignedIn") {
+      renderCurrentlySignedIn();
+    }
+  } catch (error) {
+    console.warn("Could not refresh gym lights mode.", error);
+  } finally {
+    gymLightsModeLoading = false;
+  }
+}
+
+async function setGymLightsMode(mode) {
+  const targetMode = mode === "half" ? "half" : "full";
+  const settings = await saveGymLightsMode(targetMode);
+  gymLightsMode = settings.mode === "half" ? "half" : "full";
+  gymLightsModeFetchedAt = Date.now();
+}
+
 async function saveMemberSignIn() {
   const memberInput = document.getElementById("memberNameSelect");
   const saveButton = document.querySelector(".member-sign-in-screen .save-action");
@@ -8003,6 +8113,22 @@ function bindRouteActions() {
 
   const heaterUseSave = document.querySelector(".heater-use-screen .save-action");
   heaterUseSave?.addEventListener("click", saveHeaterUse);
+
+  document.querySelectorAll("[data-gym-lights-mode-action]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const targetMode = button.dataset.gymLightsModeAction === "half" ? "half" : "full";
+      button.disabled = true;
+      button.textContent = "Working...";
+      try {
+        await setGymLightsMode(targetMode);
+        render("currentlySignedIn");
+      } catch (error) {
+        showDetailActionMessage(error.message || "Could not change lights mode.");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
 
   document.querySelectorAll("[data-sign-out-entry]").forEach((button) => {
     button.addEventListener("click", () => signOutTimesheetEntry(button.dataset.signOutEntry));
