@@ -1,4 +1,4 @@
-const { getEcobeeThermostat } = require("./_ecobee-client");
+const { getEcobeeThermostat, getEcobeeThermostatSummary } = require("./_ecobee-client");
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -11,7 +11,8 @@ const ECOBEE_ROOM_THERMOSTAT_ID = process.env.ECOBEE_ROOM_THERMOSTAT_ID
   || process.env.ECOBEE_THERMOSTAT_ID
   || process.env.ECOBEE_AC_THERMOSTAT_ID
   || "";
-const ROOM_CLIMATE_CACHE_MS = 3 * 60 * 1000;
+const ROOM_CLIMATE_CACHE_MS = 5 * 60 * 1000;
+const ROOM_CLIMATE_FULL_CACHE_MS = 15 * 60 * 1000;
 let roomClimateCache = null;
 let roomClimateCacheAt = 0;
 
@@ -89,12 +90,32 @@ async function loadRoomClimate() {
   }
 
   try {
+    const summary = await getEcobeeThermostatSummary({ thermostatId: ECOBEE_ROOM_THERMOSTAT_ID });
+    const nextSummaryKey = thermostatSummaryKey(summary);
+    const previousFetchedAt = Date.parse(roomClimateCache?.fetchedAt || "");
+    const previousFullStatusIsFresh = roomClimateCache
+      && Number.isFinite(previousFetchedAt)
+      && now - previousFetchedAt < ROOM_CLIMATE_FULL_CACHE_MS;
+
+    if (previousFullStatusIsFresh && roomClimateCache.summaryRevisionKey === nextSummaryKey) {
+      roomClimateCache = {
+        ...roomClimateCache,
+        connected: summary.connected,
+        statusCheckedAt: new Date().toISOString()
+      };
+      roomClimateCacheAt = now;
+      return roomClimateCache;
+    }
+
     const thermostat = await getEcobeeThermostat({ thermostatId: ECOBEE_ROOM_THERMOSTAT_ID });
     const runtime = thermostat?.runtime || {};
     const result = {
       temperatureF: parseEcobeeTemperature(runtime.actualTemperature),
       humidity: parseOptionalNumber(runtime.actualHumidity),
-      updatedAt: runtime.lastStatusModified || thermostat?.lastModified || null
+      updatedAt: runtime.lastStatusModified || thermostat?.lastModified || null,
+      connected: summary.connected,
+      summaryRevisionKey: nextSummaryKey,
+      fetchedAt: new Date().toISOString()
     };
     roomClimateCache = result;
     roomClimateCacheAt = now;
@@ -103,6 +124,17 @@ async function loadRoomClimate() {
     console.warn("Room climate unavailable:", error?.message || error);
     return roomClimateCache || fallback;
   }
+}
+
+function thermostatSummaryKey(summary) {
+  if (!summary) return "";
+  return [
+    summary.thermostatRevision,
+    summary.runtimeRevision,
+    summary.intervalRevision,
+    summary.equipmentStatus,
+    summary.connected
+  ].map((value) => String(value ?? "")).join("|");
 }
 
 function parseEcobeeTemperature(value) {

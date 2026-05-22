@@ -147,6 +147,36 @@ async function getEcobeeThermostat({ thermostatId }) {
   return result.thermostat;
 }
 
+async function getEcobeeThermostatSummary({ thermostatId }) {
+  if (!ECOBEE_CLIENT_ID || !ECOBEE_ACCESS_TOKEN || !ECOBEE_REFRESH_TOKEN || !thermostatId) {
+    throw new Error("Ecobee credentials are not configured. Thermostat ID is required.");
+  }
+
+  let token = ECOBEE_ACCESS_TOKEN;
+  let result = await getEcobeeThermostatSummaryWithToken({ token, thermostatId });
+
+  if (result.ok) return result.summary;
+
+  const bodyText = result.text || "";
+  const expired = result.status === 401
+    || bodyText.includes('"code":14')
+    || bodyText.toLowerCase().includes("authentication token has expired");
+
+  if (!expired) {
+    throw new Error(`Ecobee summary request failed: ${result.status} ${bodyText}`);
+  }
+
+  const refreshed = await refreshEcobeeToken();
+  token = refreshed.access_token;
+  result = await getEcobeeThermostatSummaryWithToken({ token, thermostatId });
+
+  if (!result.ok) {
+    throw new Error(`Ecobee summary retry failed: ${result.status} ${result.text || ""}`);
+  }
+
+  return result.summary;
+}
+
 async function postEcobeePayload({ token, thermostatId, payload }) {
   const response = await fetch("https://api.ecobee.com/1/thermostat?format=json", {
     method: "POST",
@@ -197,6 +227,26 @@ async function getEcobeeThermostatWithToken({ token, thermostatId }) {
   return result;
 }
 
+async function getEcobeeThermostatSummaryWithToken({ token, thermostatId }) {
+  const query = encodeURIComponent(JSON.stringify({
+    selection: {
+      selectionType: "thermostats",
+      selectionMatch: thermostatId,
+      includeEquipmentStatus: true
+    }
+  }));
+
+  let result = await fetchEcobeeThermostatSummaryQuery({ token, query, queryParam: "json", thermostatId });
+  if (!result.ok) {
+    const fallback = await fetchEcobeeThermostatSummaryQuery({ token, query, queryParam: "body", thermostatId });
+    if (fallback.ok || !isExpiredEcobeeResponse(result)) {
+      result = fallback;
+    }
+  }
+
+  return result;
+}
+
 async function fetchEcobeeThermostatQuery({ token, query, queryParam }) {
   const response = await fetch(`https://api.ecobee.com/1/thermostat?format=json&${queryParam}=${query}`, {
     method: "GET",
@@ -214,6 +264,52 @@ async function fetchEcobeeThermostatQuery({ token, query, queryParam }) {
     text,
     thermostat: Array.isArray(body?.thermostatList) ? body.thermostatList[0] : null
   };
+}
+
+async function fetchEcobeeThermostatSummaryQuery({ token, query, queryParam, thermostatId }) {
+  const response = await fetch(`https://api.ecobee.com/1/thermostatSummary?format=json&${queryParam}=${query}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json;charset=UTF-8",
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  const text = await response.text();
+  const body = parseJson(text);
+  return {
+    ok: response.ok && Number(body?.status?.code || 0) === 0,
+    status: response.status,
+    text,
+    summary: parseThermostatSummary(body, thermostatId)
+  };
+}
+
+function parseThermostatSummary(body, thermostatId) {
+  const revisionRows = Array.isArray(body?.revisionList) ? body.revisionList : [];
+  const statusRows = Array.isArray(body?.statusList) ? body.statusList : [];
+  const revisionRow = findCsvRowForThermostat(revisionRows, thermostatId);
+  const statusRow = findCsvRowForThermostat(statusRows, thermostatId);
+  const revisionParts = revisionRow ? String(revisionRow).split(":") : [];
+  const statusParts = statusRow ? String(statusRow).split(":") : [];
+
+  return {
+    id: revisionParts[0] || thermostatId,
+    name: revisionParts[1] || "",
+    connected: String(revisionParts[2] || "").toLowerCase() === "true",
+    thermostatRevision: revisionParts[3] || "",
+    alertsRevision: revisionParts[4] || "",
+    runtimeRevision: revisionParts[5] || "",
+    intervalRevision: revisionParts[6] || "",
+    equipmentStatus: statusParts.slice(1).join(":").trim(),
+    rawRevision: revisionRow || "",
+    rawStatus: statusRow || ""
+  };
+}
+
+function findCsvRowForThermostat(rows, thermostatId) {
+  const prefix = `${thermostatId}:`;
+  return rows.find((row) => String(row || "").startsWith(prefix)) || rows[0] || "";
 }
 
 function isExpiredEcobeeResponse(result) {
@@ -282,6 +378,7 @@ function parseJson(value) {
 
 module.exports = {
   getEcobeeThermostat,
+  getEcobeeThermostatSummary,
   resumeEcobeeProgram,
   setEcobeeFanHold,
   setEcobeeHvacMode,

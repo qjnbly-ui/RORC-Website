@@ -1,10 +1,12 @@
-const { getEcobeeThermostat } = require("./_ecobee-client");
+const { getEcobeeThermostat, getEcobeeThermostatSummary } = require("./_ecobee-client");
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const ECOBEE_HEATER_THERMOSTAT_ID = process.env.ECOBEE_HEATER_THERMOSTAT_ID || process.env.ECOBEE_THERMOSTAT_ID || "";
 const ECOBEE_AC_THERMOSTAT_ID = process.env.ECOBEE_AC_THERMOSTAT_ID || "";
-const STATUS_CACHE_MS = 15 * 1000;
+const STATUS_CACHE_MS = 5 * 60 * 1000;
+const FORCED_STATUS_CACHE_MS = 3 * 60 * 1000;
+const FULL_STATUS_MAX_AGE_MS = 15 * 60 * 1000;
 let cachedStatus = null;
 let cachedStatusAt = 0;
 let cachedStatusKey = "";
@@ -32,14 +34,13 @@ module.exports = async (req, res) => {
 
     const cacheKey = `${ECOBEE_HEATER_THERMOSTAT_ID}|${ECOBEE_AC_THERMOSTAT_ID}`;
     const refreshRequested = String(req.query?.refresh || "").trim() === "1";
-    if (!refreshRequested && cachedStatus && cachedStatusKey === cacheKey && Date.now() - cachedStatusAt < STATUS_CACHE_MS) {
+    const cacheWindowMs = refreshRequested ? FORCED_STATUS_CACHE_MS : STATUS_CACHE_MS;
+    if (cachedStatus && cachedStatusKey === cacheKey && Date.now() - cachedStatusAt < cacheWindowMs) {
       return res.status(200).json(cachedStatus);
     }
 
-    const [heater, ac] = await Promise.all([
-      loadThermostatStatus("heat", ECOBEE_HEATER_THERMOSTAT_ID),
-      loadThermostatStatus("ac", ECOBEE_AC_THERMOSTAT_ID)
-    ]);
+    const heater = await loadThermostatStatus("heat", ECOBEE_HEATER_THERMOSTAT_ID);
+    const ac = await loadThermostatStatus("ac", ECOBEE_AC_THERMOSTAT_ID);
 
     cachedStatus = {
       success: true,
@@ -66,42 +67,34 @@ async function loadThermostatStatus(systemType, thermostatId) {
     };
   }
 
-  try {
-    const thermostat = await getEcobeeThermostat({ thermostatId });
-    const runtime = thermostat?.runtime || {};
-    const settings = thermostat?.settings || {};
-    const equipmentStatus = String(thermostat?.equipmentStatus || "").trim();
-    const hvacMode = String(settings.hvacMode || "").trim();
-    const desiredFanMode = String(runtime.desiredFanMode || "").trim();
-    const remoteSensors = normalizeRemoteSensors(thermostat?.remoteSensors);
-    const weather = normalizeWeather(thermostat?.weather);
-    const airQuality = normalizeAirQuality(thermostat, remoteSensors);
+  const previous = cachedStatus?.thermostats?.[systemType] || null;
 
-    return {
-      systemType,
-      configured: true,
-      id: thermostatId,
-      name: thermostat?.name || "",
-      connected: thermostat?.isRegistered !== false,
-      hvacMode,
-      equipmentStatus,
-      currentActivity: describeEquipmentStatus(equipmentStatus, hvacMode, desiredFanMode),
-      isCooling: isCoolingEquipmentActive(equipmentStatus, hvacMode),
-      isHeating: isHeatingEquipmentActive(equipmentStatus, hvacMode),
-      isFanRunning: isFanActive(equipmentStatus, desiredFanMode),
-      temperatureF: fromEcobeeTemp(runtime.actualTemperature),
-      humidity: runtime.actualHumidity ?? null,
-      desiredHeatF: fromEcobeeTemp(runtime.desiredHeat),
-      desiredCoolF: fromEcobeeTemp(runtime.desiredCool),
-      desiredFanMode,
-      airQuality,
-      weather,
-      sensors: remoteSensors,
-      activeSensorCount: remoteSensors.filter((sensor) => sensor.inUse).length,
-      lastStatusModified: runtime.lastStatusModified || "",
-      lastModified: thermostat?.lastModified || ""
-    };
+  try {
+    const summary = await getEcobeeThermostatSummary({ thermostatId });
+    const nextSummaryKey = thermostatSummaryKey(summary);
+    const previousSummaryKey = String(previous?.summaryRevisionKey || "");
+    const previousFetchedAt = Date.parse(previous?.fetchedAt || "");
+    const previousFullStatusIsFresh = previous
+      && !previous.error
+      && Number.isFinite(previousFetchedAt)
+      && Date.now() - previousFetchedAt < FULL_STATUS_MAX_AGE_MS;
+
+    if (previousFullStatusIsFresh && previousSummaryKey && previousSummaryKey === nextSummaryKey) {
+      return applySummaryToStatus(previous, summary);
+    }
+
+    const thermostat = await getEcobeeThermostat({ thermostatId });
+    return thermostatToStatus(systemType, thermostatId, thermostat, summary);
   } catch (error) {
+    if (previous && !previous.error) {
+      return {
+        ...previous,
+        stale: true,
+        staleReason: error.message || "Ecobee status request failed.",
+        statusCheckedAt: new Date().toISOString()
+      };
+    }
+
     return {
       systemType,
       configured: true,
@@ -109,6 +102,76 @@ async function loadThermostatStatus(systemType, thermostatId) {
       error: error.message || "Ecobee status request failed."
     };
   }
+}
+
+function thermostatToStatus(systemType, thermostatId, thermostat, summary = null) {
+  const runtime = thermostat?.runtime || {};
+  const settings = thermostat?.settings || {};
+  const equipmentStatus = String(thermostat?.equipmentStatus ?? summary?.equipmentStatus ?? "").trim();
+  const hvacMode = String(settings.hvacMode || "").trim();
+  const desiredFanMode = String(runtime.desiredFanMode || "").trim();
+  const remoteSensors = normalizeRemoteSensors(thermostat?.remoteSensors);
+  const weather = normalizeWeather(thermostat?.weather);
+  const airQuality = normalizeAirQuality(thermostat, remoteSensors);
+
+  return {
+    systemType,
+    configured: true,
+    id: thermostatId,
+    name: thermostat?.name || summary?.name || "",
+    connected: summary?.connected ?? (thermostat?.isRegistered !== false),
+    hvacMode,
+    equipmentStatus,
+    currentActivity: describeEquipmentStatus(equipmentStatus, hvacMode, desiredFanMode),
+    isCooling: isCoolingEquipmentActive(equipmentStatus, hvacMode),
+    isHeating: isHeatingEquipmentActive(equipmentStatus, hvacMode),
+    isFanRunning: isFanActive(equipmentStatus, desiredFanMode),
+    temperatureF: fromEcobeeTemp(runtime.actualTemperature),
+    humidity: runtime.actualHumidity ?? null,
+    desiredHeatF: fromEcobeeTemp(runtime.desiredHeat),
+    desiredCoolF: fromEcobeeTemp(runtime.desiredCool),
+    desiredFanMode,
+    airQuality,
+    weather,
+    sensors: remoteSensors,
+    activeSensorCount: remoteSensors.filter((sensor) => sensor.inUse).length,
+    lastStatusModified: runtime.lastStatusModified || "",
+    lastModified: thermostat?.lastModified || "",
+    summaryRevisionKey: thermostatSummaryKey(summary),
+    fetchedAt: new Date().toISOString(),
+    stale: false
+  };
+}
+
+function applySummaryToStatus(item, summary) {
+  const equipmentStatus = String(summary?.equipmentStatus ?? item?.equipmentStatus ?? "").trim();
+  const hvacMode = String(item?.hvacMode || "").trim();
+  const desiredFanMode = String(item?.desiredFanMode || "").trim();
+
+  return {
+    ...item,
+    connected: summary?.connected ?? item.connected,
+    equipmentStatus,
+    currentActivity: describeEquipmentStatus(equipmentStatus, hvacMode, desiredFanMode),
+    isCooling: isCoolingEquipmentActive(equipmentStatus, hvacMode),
+    isHeating: isHeatingEquipmentActive(equipmentStatus, hvacMode),
+    isFanRunning: isFanActive(equipmentStatus, desiredFanMode),
+    summaryRevisionKey: thermostatSummaryKey(summary),
+    statusCheckedAt: new Date().toISOString(),
+    stale: false,
+    staleReason: ""
+  };
+}
+
+function thermostatSummaryKey(summary) {
+  if (!summary) return "";
+  return [
+    summary.thermostatRevision,
+    summary.runtimeRevision,
+    summary.intervalRevision,
+    summary.equipmentStatus,
+    summary.connected
+  ].map((value) => String(value ?? "")).join("|");
 }
 
 function fromEcobeeTemp(value) {
