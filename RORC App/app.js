@@ -4916,6 +4916,12 @@ function normalizeThermostatSystemType(systemType) {
   return String(systemType || "").trim().toLowerCase() === "ac" ? "ac" : "heat";
 }
 
+function thermostatTemperatureRange(systemType) {
+  return normalizeThermostatSystemType(systemType) === "ac"
+    ? { min: 64, max: 92 }
+    : { min: 45, max: 92 };
+}
+
 function thermostatSystemLabel(systemType) {
   return normalizeThermostatSystemType(systemType) === "ac" ? "AC" : "Heat";
 }
@@ -5103,7 +5109,7 @@ function renderThermostatSystemStatus(label, item, activeEntry = null) {
           <b>${escapeHtml(thermostatSetPointLabel(setPoint))}</b>
         </button>
         ${timerText ? `<small class="thermostat-timer-chip">${escapeHtml(timerText)}</small>` : ""}
-        <button class="thermostat-card-off-button" data-turn-thermostat-off type="button"${disabledAttr}>${pendingAction?.action === "off" ? "Turning Off..." : "Turn Off"}</button>
+        <button class="thermostat-card-off-button" data-turn-thermostat-off="${escapeAttribute(systemType)}" type="button"${disabledAttr}>${pendingAction?.action === "off" ? "Turning Off..." : "Turn Off"}</button>
       </article>
     `;
   }
@@ -5192,12 +5198,24 @@ function renderThermostatStatusPanel() {
 }
 
 function heaterRecordStatus(entry) {
-  const isCurrentlyOn = !entry?.endAt && (entry?.turnHeaterOn || "On") === "On";
+  const isCurrentlyOn = isActiveThermostatEntry(entry);
 
   return {
     key: isCurrentlyOn ? "currently-on" : "complete",
     label: isCurrentlyOn ? "Currently On" : "Complete"
   };
+}
+
+function isOpenThermostatEntry(entry) {
+  if (!entry) return false;
+  const endAt = String(entry.endAt || "").trim();
+  return !endAt;
+}
+
+function isActiveThermostatEntry(entry) {
+  if (!isOpenThermostatEntry(entry)) return false;
+  const state = String(entry?.turnHeaterOn || "On").trim().toLowerCase();
+  return state === "on" || !state;
 }
 
 function heaterTimerTarget(entry) {
@@ -5577,7 +5595,7 @@ function renderHeaterRecords() {
   bindHeaterRecordsActions();
 
   const expiredTimers = allRecords.filter((entry) => {
-    if (entry.endAt || !entry.setATimer || (entry.turnHeaterOn || "On") !== "On") return false;
+    if (!isActiveThermostatEntry(entry) || !entry.setATimer) return false;
     const target = heaterTimerTarget(entry);
     return Boolean(target && target.getTime() <= Date.now());
   });
@@ -5601,14 +5619,21 @@ function renderHeaterRecords() {
   }
 }
 
-function activeHeaterEntry() {
+function activeHeaterEntry(systemType = "") {
+  const requestedSystemType = systemType ? normalizeThermostatSystemType(systemType) : "";
   return [...heaterUseEntries]
-    .filter((entry) => !entry.endAt && (entry.turnHeaterOn || "On") === "On")
+    .filter((entry) => {
+      if (!isActiveThermostatEntry(entry)) return false;
+      return requestedSystemType
+        ? normalizeThermostatSystemType(entry.systemType) === requestedSystemType
+        : true;
+    })
     .sort((a, b) => new Date(b.startAt || b.usedOn) - new Date(a.startAt || a.usedOn))[0] || null;
 }
 
-async function turnHeaterOffActiveEntry() {
-  const activeEntry = activeHeaterEntry();
+async function turnHeaterOffActiveEntry(systemType = "") {
+  const normalizedSystemType = systemType ? normalizeThermostatSystemType(systemType) : "";
+  const activeEntry = activeHeaterEntry(normalizedSystemType);
 
   if (!activeEntry) {
     showDetailActionMessage("No active heater entry found.");
@@ -5622,10 +5647,10 @@ async function turnHeaterOffActiveEntry() {
     return;
   }
 
-  const systemType = normalizeThermostatSystemType(activeEntry.systemType);
-  const systemLabel = thermostatSystemLabel(systemType);
+  const activeSystemType = normalizeThermostatSystemType(activeEntry.systemType);
+  const systemLabel = thermostatSystemLabel(activeSystemType);
   const endAtIso = new Date().toISOString();
-  setThermostatActionFeedback("off", systemType, `Turning ${systemLabel} off. This can take a moment.`);
+  setThermostatActionFeedback("off", activeSystemType, `Turning ${systemLabel} off. This can take a moment.`);
   render("heaterRecords");
 
   const { error } = await client
@@ -5651,7 +5676,7 @@ async function turnHeaterOffActiveEntry() {
     : [activeEntry.responsibleMemberId];
 
   await triggerHeaterOffSequence(offRecipients, {
-    systemType,
+    systemType: activeSystemType,
     heaterUseEntryId: activeEntry.id,
     timerTriggered: false
   }).catch((sequenceError) => {
@@ -5721,9 +5746,11 @@ async function changeActiveThermostatTemperature() {
 
   const nextTemp = await openThermostatTemperatureDialog(activeEntry);
   if (nextTemp === null) return;
+  const systemType = normalizeThermostatSystemType(activeEntry.systemType);
+  const allowedRange = thermostatTemperatureRange(systemType);
 
-  if (!Number.isFinite(nextTemp) || nextTemp < 45 || nextTemp > 92) {
-    showDetailActionMessage("Enter a temperature between 45 and 92.");
+  if (!Number.isFinite(nextTemp) || nextTemp < allowedRange.min || nextTemp > allowedRange.max) {
+    showDetailActionMessage(`Enter a temperature between ${allowedRange.min} and ${allowedRange.max}.`);
     return;
   }
 
@@ -5733,7 +5760,6 @@ async function changeActiveThermostatTemperature() {
     return;
   }
 
-  const systemType = normalizeThermostatSystemType(activeEntry.systemType);
   setThermostatActionFeedback("temp", systemType, `Updating ${thermostatSystemLabel(systemType)} to ${Math.round(nextTemp)}°F.`);
   render("heaterRecords");
 
@@ -5771,6 +5797,7 @@ function openThermostatTemperatureDialog(activeEntry) {
   return new Promise((resolve) => {
     const systemLabel = thermostatSystemLabel(activeEntry.systemType);
     const activeSystem = normalizeThermostatSystemType(activeEntry.systemType);
+    const allowedRange = thermostatTemperatureRange(activeSystem);
     const statusItem = thermostatStatus?.thermostats?.[activeSystem === "ac" ? "ac" : "heat"] || null;
     const currentTemp = thermostatSetPointForSystem(activeEntry.systemType, statusItem, activeEntry)
       || (activeSystem === "ac" ? 66 : 74);
@@ -5781,7 +5808,7 @@ function openThermostatTemperatureDialog(activeEntry) {
         <h3>Set ${escapeHtml(systemLabel)} Temperature</h3>
         <label>
           <span>Set Temp</span>
-          <input id="thermostatTempModalInput" type="number" min="45" max="92" inputmode="numeric" value="${escapeAttribute(currentTemp)}" />
+          <input id="thermostatTempModalInput" type="number" min="${allowedRange.min}" max="${allowedRange.max}" inputmode="numeric" value="${escapeAttribute(currentTemp)}" />
         </label>
         <p id="thermostatTempModalError" class="thermostat-temp-modal-error"></p>
         <footer>
@@ -5805,8 +5832,8 @@ function openThermostatTemperatureDialog(activeEntry) {
     const save = () => {
       const input = overlay.querySelector("#thermostatTempModalInput");
       const value = Number(String(input?.value || "").replace(/[^\d.]/g, ""));
-      if (!Number.isFinite(value) || value < 45 || value > 92) {
-        setError("Enter a temperature between 45 and 92.");
+      if (!Number.isFinite(value) || value < allowedRange.min || value > allowedRange.max) {
+        setError(`Enter a temperature between ${allowedRange.min} and ${allowedRange.max}.`);
         return;
       }
       close(Math.round(value));
@@ -7163,8 +7190,9 @@ function bindHeaterRecordsActions() {
     });
   });
 
-  document.querySelector("[data-turn-thermostat-off]")?.addEventListener("click", () => {
-    turnHeaterOffActiveEntry().catch((error) => {
+  document.querySelector("[data-turn-thermostat-off]")?.addEventListener("click", (event) => {
+    const systemType = String(event.currentTarget?.dataset?.turnThermostatOff || "").trim();
+    turnHeaterOffActiveEntry(systemType).catch((error) => {
       clearThermostatActionFeedback();
       if (appState.currentRoute === "heaterRecords") render("heaterRecords");
       showDetailActionMessage(error.message || "Could not turn thermostat off.");
@@ -7438,9 +7466,20 @@ function updateThermostatSystemFields(selectedButton) {
   const costCopy = document.getElementById("thermostatCostCopy");
   const groupPayField = document.querySelector('.heater-use-screen [aria-label="Group pay"]')?.closest(".segmented-field");
   const heaterPinField = document.querySelector(".heater-pin-field");
+  const allowedRange = thermostatTemperatureRange(systemType);
+
+  if (targetTemp) {
+    [...targetTemp.options].forEach((option) => {
+      const value = Number(option.value);
+      option.disabled = Number.isFinite(value) && value < allowedRange.min;
+    });
+  }
 
   if (targetTemp && (!selectedButton || selectedButton.dataset.thermostatSystem)) {
-    targetTemp.value = isAc ? "66" : "74";
+    const selectedValue = Number(targetTemp.value);
+    if (!Number.isFinite(selectedValue) || selectedValue < allowedRange.min || selectedValue > allowedRange.max) {
+      targetTemp.value = isAc ? "66" : "74";
+    }
   }
 
   if (costCopy) {
@@ -7907,7 +7946,8 @@ async function saveHeaterUse() {
     return;
   }
 
-  if (turnHeaterOn === "On" && (!Number.isFinite(targetTemperatureF) || targetTemperatureF < 45 || targetTemperatureF > 92)) {
+  const allowedRange = thermostatTemperatureRange(systemType);
+  if (turnHeaterOn === "On" && (!Number.isFinite(targetTemperatureF) || targetTemperatureF < allowedRange.min || targetTemperatureF > allowedRange.max)) {
     showDetailActionMessage("Select a desired temperature.");
     return;
   }
