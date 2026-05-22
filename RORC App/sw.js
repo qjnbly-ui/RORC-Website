@@ -1,9 +1,9 @@
-const CACHE_VERSION = "rorc-app-v14";
+const CACHE_VERSION = "rorc-app-v15";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./app.css",
-  "./app.js",
+  "./app.js?v=20260522-thermostat-reset",
   "./app.config.js",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",
