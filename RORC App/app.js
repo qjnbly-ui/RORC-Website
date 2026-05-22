@@ -45,10 +45,15 @@ let accountTypeRealtimeRetryTimer = null;
 let accountTypeSyncInFlight = false;
 let accountTypeSyncPending = false;
 let accountTypeSyncNeedsRender = false;
+let heaterEntriesRealtimeChannel = null;
+let heaterEntriesRealtimeRetryTimer = null;
+let heaterEntriesSyncInFlight = false;
+let heaterEntriesSyncPending = false;
+let heaterEntriesSyncNeedsRender = false;
 let heaterCountdownTimer = null;
 let thermostatStatus = null;
 let thermostatStatusFetchedAt = 0;
-const THERMOSTAT_STATUS_CACHE_MS = 5 * 60 * 1000;
+const THERMOSTAT_STATUS_CACHE_MS = 60 * 1000;
 const pendingHeaterAutoOffIds = new Set();
 let thermostatActionFeedback = null;
 let notifiedIds = new Set();
@@ -3791,6 +3796,31 @@ function scheduleAccountTypeRealtimeReconnect() {
   }, 2500);
 }
 
+function stopHeaterEntriesRealtime() {
+  if (heaterEntriesRealtimeRetryTimer) {
+    window.clearTimeout(heaterEntriesRealtimeRetryTimer);
+    heaterEntriesRealtimeRetryTimer = null;
+  }
+
+  if (heaterEntriesRealtimeChannel) {
+    try {
+      heaterEntriesRealtimeChannel.unsubscribe();
+    } catch (error) {
+      // Ignore unsubscribe failures during cleanup.
+    }
+    heaterEntriesRealtimeChannel = null;
+  }
+}
+
+function scheduleHeaterEntriesRealtimeReconnect() {
+  if (!currentAuthSession) return;
+  if (heaterEntriesRealtimeRetryTimer) return;
+  heaterEntriesRealtimeRetryTimer = window.setTimeout(() => {
+    heaterEntriesRealtimeRetryTimer = null;
+    void startHeaterEntriesRealtime();
+  }, 2500);
+}
+
 async function startTimesheetRealtime() {
   if (!currentAuthSession) return;
   stopTimesheetRealtime();
@@ -3865,6 +3895,108 @@ async function startAccountTypeRealtime() {
         scheduleAccountTypeRealtimeReconnect();
       }
     });
+}
+
+async function startHeaterEntriesRealtime() {
+  if (!currentAuthSession) return;
+  stopHeaterEntriesRealtime();
+
+  const client = await createSupabaseClient();
+  if (!client) return;
+
+  heaterEntriesRealtimeChannel = client
+    .channel("heater-entries-live")
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "heater_use_entries" },
+      () => {
+        syncHeaterEntries({ rerender: true })
+          .catch((error) => {
+            console.warn("Could not sync heater entries realtime change.", error);
+          });
+      }
+    )
+    .subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await syncHeaterEntries({ rerender: false })
+          .catch((error) => {
+            console.warn("Could not sync heater entries after realtime subscribe.", error);
+          });
+        return;
+      }
+
+      if (status === "TIMED_OUT" || status === "CHANNEL_ERROR" || status === "CLOSED") {
+        scheduleHeaterEntriesRealtimeReconnect();
+      }
+    });
+}
+
+async function syncHeaterEntries({ rerender = false } = {}) {
+  if (heaterEntriesSyncInFlight) {
+    heaterEntriesSyncPending = true;
+    heaterEntriesSyncNeedsRender = heaterEntriesSyncNeedsRender || rerender;
+    return;
+  }
+
+  heaterEntriesSyncInFlight = true;
+  try {
+    let shouldRerender = rerender;
+
+    do {
+      heaterEntriesSyncPending = false;
+      shouldRerender = shouldRerender || heaterEntriesSyncNeedsRender;
+      heaterEntriesSyncNeedsRender = false;
+
+      const client = await createSupabaseClient();
+      if (!client) return;
+
+      const [heaterResult, heaterGroupResult] = await Promise.all([
+        client
+          .from("heater_use_entries_with_duration")
+          .select("*")
+          .order("start_at", { ascending: false, nullsFirst: false })
+          .order("used_on", { ascending: false })
+          .limit(500),
+        client.from("heater_use_group_members").select("*")
+      ]);
+
+      if (heaterResult.error) throw heaterResult.error;
+
+      const heaterGroupMap = (heaterGroupResult.data || []).reduce((map, row) => {
+        const current = map.get(row.heater_use_entry_id) || [];
+        current.push(row.account_member_id);
+        map.set(row.heater_use_entry_id, current);
+        return map;
+      }, new Map());
+
+      heaterUseEntries = (heaterResult.data || []).map((row) => ({
+        id: row.id,
+        usedOn: row.used_on,
+        systemType: normalizeThermostatSystemType(row.system_type),
+        event: row.event,
+        responsibleMemberId: row.responsible_member_id,
+        groupMemberIds: heaterGroupMap.get(row.id) || [],
+        groupPay: Boolean(row.group_pay),
+        turnHeaterOn: row.turn_heater_on || "On",
+        targetTemperatureF: Number(row.target_temperature_f || 0) || null,
+        setATimer: Boolean(row.set_a_timer),
+        timerStart: row.timer_start || null,
+        timerStop: row.timer_stop || null,
+        startAt: row.start_at,
+        endAt: row.end_at,
+        paid: Boolean(row.paid),
+        note: row.note || ""
+      }));
+
+      if (shouldRerender && appState.currentRoute === "heaterRecords") {
+        render("heaterRecords");
+      }
+
+      shouldRerender = false;
+    } while (heaterEntriesSyncPending);
+  } finally {
+    heaterEntriesSyncInFlight = false;
+  }
 }
 
 async function syncTimesheetEntries({ rerender = false } = {}) {
@@ -4213,6 +4345,7 @@ async function hydrateFromSupabase() {
       await startNotificationRealtime();
       await startTimesheetRealtime();
       await startAccountTypeRealtime();
+      await startHeaterEntriesRealtime();
     } catch (realtimeError) {
       console.warn("Could not start realtime sync.", realtimeError);
     }
@@ -4944,14 +5077,14 @@ function thermostatSetPointLabel(value) {
 }
 
 function thermostatSetPointForSystem(systemType, item, activeEntry = null) {
-  const liveValue = systemType === "ac" ? Number(item?.desiredCoolF) : Number(item?.desiredHeatF);
-  if (Number.isFinite(liveValue) && liveValue > 0) {
-    return liveValue;
-  }
-
   const recordValue = Number(activeEntry?.targetTemperatureF);
   if (Number.isFinite(recordValue) && recordValue > 0) {
     return recordValue;
+  }
+
+  const liveValue = systemType === "ac" ? Number(item?.desiredCoolF) : Number(item?.desiredHeatF);
+  if (Number.isFinite(liveValue) && liveValue > 0) {
+    return liveValue;
   }
 
   return null;
@@ -8509,6 +8642,7 @@ async function handleLogout() {
   stopNotificationRealtime();
   stopTimesheetRealtime();
   stopAccountTypeRealtime();
+  stopHeaterEntriesRealtime();
   updateNavigationVisibility();
   showAuthGate("Signed out.", "success");
 }
