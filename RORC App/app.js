@@ -1026,7 +1026,7 @@ function renderAutomationSettingsPage() {
             </label>
             <label class="automation-toggle">
               <input id="gymLightsOnAcFanEnabled" type="checkbox" />
-              <span>Run AC fan helper</span>
+              <span>Fan On</span>
             </label>
           </article>
 
@@ -1043,7 +1043,7 @@ function renderAutomationSettingsPage() {
             </label>
             <label class="automation-toggle">
               <input id="gymLightsOffAcFanEnabled" type="checkbox" />
-              <span>Run AC fan helper</span>
+              <span>Fan Off</span>
             </label>
           </article>
 
