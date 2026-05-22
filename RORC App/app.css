@@ -988,6 +988,10 @@ h1 {
   margin: 0;
 }
 
+.automation-card-disabled {
+  opacity: 0.55;
+}
+
 .automation-advanced {
   border-top: 1px solid #3d3d3d;
   display: grid;

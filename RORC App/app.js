@@ -1013,7 +1013,7 @@ function renderAutomationSettingsPage() {
 
       <form id="automationSettingsForm" class="feedback-form automation-form" autocomplete="off">
         <section class="automation-grid">
-          <article class="automation-card">
+          <article id="gymLightsOnCard" class="automation-card">
             <h3>Gym Lights On</h3>
             <p>Triggers opening flow and optional AC fan assist.</p>
             <label class="automation-toggle">
@@ -1042,7 +1042,7 @@ function renderAutomationSettingsPage() {
             </label>
           </article>
 
-          <article class="automation-card">
+          <article id="gymLightsOffCard" class="automation-card">
             <h3>Gym Lights Off</h3>
             <p>Triggers closing flow and optional AC fan reset.</p>
             <label class="automation-toggle">
@@ -2869,7 +2869,7 @@ function applyAutomationSettingsToForm(settings) {
   setValue("gymLightsOnStep1Url", settings.gym_lights_on?.step1_url);
   setValue("gymLightsOnStep2Url", settings.gym_lights_on?.step2_url);
   setValue("gymLightsOnSmsTo", settings.gym_lights_on?.sms_to);
-  setChecked("gymLightsOnAcFanEnabled", settings.gym_lights_on?.ac_fan_enabled);
+  setChecked("gymLightsOnAcFanEnabled", settings.gym_lights_on?.ac_fan_enabled !== false);
 
   setChecked("gymLightsOffEnabled", settings.gym_lights_off?.enabled);
   setChecked("gymLightsOffStep1Enabled", settings.gym_lights_off?.step1_enabled !== false);
@@ -2878,7 +2878,7 @@ function applyAutomationSettingsToForm(settings) {
   setValue("gymLightsOffStep1Url", settings.gym_lights_off?.step1_url);
   setValue("gymLightsOffStep2Url", settings.gym_lights_off?.step2_url);
   setValue("gymLightsOffSmsTo", settings.gym_lights_off?.sms_to);
-  setChecked("gymLightsOffAcFanEnabled", settings.gym_lights_off?.ac_fan_enabled);
+  setChecked("gymLightsOffAcFanEnabled", settings.gym_lights_off?.ac_fan_enabled !== false);
 
   setChecked("heaterOnEnabled", settings.heater_on?.enabled);
   setChecked("heaterOffEnabled", settings.heater_off?.enabled);
@@ -2983,6 +2983,45 @@ function collectAccountTypePoliciesFromForm() {
   return policies;
 }
 
+function setAutomationSectionEnabled({ masterId, sectionId, fieldIds }) {
+  const master = document.getElementById(masterId);
+  const section = document.getElementById(sectionId);
+  const enabled = Boolean(master?.checked);
+  if (section) {
+    section.classList.toggle("automation-card-disabled", !enabled);
+  }
+  fieldIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.disabled = !enabled;
+  });
+}
+
+function refreshAutomationSectionStates() {
+  setAutomationSectionEnabled({
+    masterId: "gymLightsOnEnabled",
+    sectionId: "gymLightsOnCard",
+    fieldIds: [
+      "gymLightsOnStep1Enabled",
+      "gymLightsOnStep2Enabled",
+      "gymLightsOnSmsEnabled",
+      "gymLightsOnSmsTo",
+      "gymLightsOnAcFanEnabled"
+    ]
+  });
+  setAutomationSectionEnabled({
+    masterId: "gymLightsOffEnabled",
+    sectionId: "gymLightsOffCard",
+    fieldIds: [
+      "gymLightsOffStep1Enabled",
+      "gymLightsOffStep2Enabled",
+      "gymLightsOffSmsEnabled",
+      "gymLightsOffSmsTo",
+      "gymLightsOffAcFanEnabled"
+    ]
+  });
+}
+
 async function bindAutomationSettingsActions() {
   const form = document.getElementById("automationSettingsForm");
   const saveButton = document.getElementById("automationSettingsSave");
@@ -2994,10 +3033,15 @@ async function bindAutomationSettingsActions() {
     automationResult("Loading settings...");
     const settings = await loadAutomationSettings();
     applyAutomationSettingsToForm(settings);
+    refreshAutomationSectionStates();
     automationResult("Loaded.", "success");
   } catch (error) {
     automationResult(error.message || "Could not load settings.", "error");
   }
+  refreshAutomationSectionStates();
+
+  document.getElementById("gymLightsOnEnabled")?.addEventListener("change", refreshAutomationSectionStates);
+  document.getElementById("gymLightsOffEnabled")?.addEventListener("change", refreshAutomationSectionStates);
 
   advancedToggle?.addEventListener("click", () => {
     if (!advancedFields) return;
