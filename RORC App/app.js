@@ -5013,11 +5013,9 @@ function thermostatSystemActivityLabel(systemType, item) {
 
 function isLiveThermostatActive(systemType, item) {
   if (!item?.configured || item.error || item.stale) return false;
-  if (systemType === "ac" && item?.isCooling) return true;
-  if (systemType === "heat" && item?.isHeating) return true;
-
-  const mode = String(item?.hvacMode || "").trim().toLowerCase();
-  return mode === (systemType === "ac" ? "cool" : "heat");
+  if (systemType === "ac") return Boolean(item?.isCooling);
+  if (systemType === "heat") return Boolean(item?.isHeating);
+  return false;
 }
 
 function isLiveThermostatStateKnown(item) {
