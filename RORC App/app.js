@@ -4919,13 +4919,13 @@ function normalizeThermostatSystemType(systemType) {
 
 function thermostatTemperatureRange(systemType) {
   return normalizeThermostatSystemType(systemType) === "ac"
-    ? { min: 64, max: 80 }
+    ? { min: 60, max: 80 }
     : { min: 45, max: 80 };
 }
 
 function thermostatTemperatureChoices(systemType) {
   return normalizeThermostatSystemType(systemType) === "ac"
-    ? [64, 66, 68, 70, 72, 74, 76, 78, 80]
+    ? [60, 62, 64, 66, 68, 70, 72, 74, 76, 78, 80]
     : [45, 50, 55, 60, 62, 64, 66, 68, 70, 72, 74, 76, 78, 80];
 }
 
