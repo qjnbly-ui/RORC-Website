@@ -3863,6 +3863,26 @@ async function renderCalendarPage() {
   }
 }
 
+function getRecurringEventsForMonth(year, month) {
+  const recurring = [];
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = new Date(year, month, d).getDay();
+    if (dow === 2 || dow === 4) { // Tuesday or Thursday
+      const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      recurring.push({
+        id: null, isRecurring: true,
+        title: "Open Gym",
+        eventType: "open_gym",
+        startAt: `${iso}T18:00:00`,
+        endAt:   `${iso}T20:00:00`,
+        allDay: false, isPublic: true
+      });
+    }
+  }
+  return recurring;
+}
+
 function renderCalendarView(root) {
   const now   = new Date();
   const year  = calendarYear;
@@ -3872,8 +3892,13 @@ function renderCalendarView(root) {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const monthName   = new Date(year, month, 1).toLocaleString("en-US", { month: "long" });
 
-  // Group events by date string "YYYY-MM-DD"
+  // Group events by date string "YYYY-MM-DD" — recurring first so they appear at top
   const byDate = {};
+  getRecurringEventsForMonth(year, month).forEach((ev) => {
+    const d = ev.startAt.slice(0, 10);
+    if (!byDate[d]) byDate[d] = [];
+    byDate[d].push(ev);
+  });
   calendarEvents.forEach((ev) => {
     const d = ev.startAt.slice(0, 10);
     if (!byDate[d]) byDate[d] = [];
@@ -4013,19 +4038,29 @@ function calendarJumpToDate(dateIso) {
 
 function showCalDayPanel(root, dateIso) {
   const panel  = root.querySelector("#calDayPanel");
-  const dayEvs = calendarEvents.filter((ev) => ev.startAt.slice(0, 10) === dateIso);
+  const dow    = new Date(dateIso + "T12:00:00").getDay();
+  const recurringToday = (dow === 2 || dow === 4) ? [{
+    id: null, isRecurring: true,
+    title: "Open Gym",
+    eventType: "open_gym",
+    startAt: `${dateIso}T18:00:00`,
+    endAt:   `${dateIso}T20:00:00`,
+    allDay: false
+  }] : [];
+  const dayEvs = [...recurringToday, ...calendarEvents.filter((ev) => ev.startAt.slice(0, 10) === dateIso)];
   const label  = new Date(dateIso + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
   const evHtml = dayEvs.length
     ? dayEvs.map((ev) => `
-        <div class="cal-day-event" data-ev-id="${ev.id}">
+        <div class="cal-day-event"${ev.id ? ` data-ev-id="${ev.id}"` : ""}>
           <span class="cal-day-event-dot" style="background:${EVENT_COLORS[ev.eventType] || "#8a97a8"}"></span>
           <div class="cal-day-event-info">
             <strong>${escapeHtml(ev.title)}</strong>
             <span>${ev.allDay ? "All Day" : (ev.startAt.slice(11, 16) + " – " + ev.endAt.slice(11, 16))}</span>
+            ${ev.isRecurring ? `<span class="cal-recurring-badge">Recurring</span>` : ""}
             ${ev.eventType === "rental" && ev.rentalRequestId ? `<span class="cal-day-event-badge cal-rental-link" data-rental-id="${escapeAttribute(ev.rentalRequestId)}">View Rental Request →</span>` : ""}
           </div>
-          <button class="cal-day-edit-btn" data-ev-id="${ev.id}" title="Edit">✏️</button>
+          ${ev.id ? `<button class="cal-day-edit-btn" data-ev-id="${ev.id}" title="Edit">✏️</button>` : ""}
         </div>`)
       .join("")
     : `<p class="cal-day-empty">No events on this day.</p>`;
