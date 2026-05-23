@@ -4218,6 +4218,54 @@ textarea:focus-visible,
   flex-wrap: wrap;
 }
 
+.cal-rental-info {
+  margin-top: 16px;
+  background: rgba(231, 210, 160, 0.08);
+  border: 1px solid rgba(231, 210, 160, 0.2);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 13px;
+  color: #c8bfa8;
+}
+
+.cal-rental-divider {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #e7d2a0;
+  margin-bottom: 10px;
+}
+
+.cal-rental-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+  align-items: baseline;
+}
+
+.cal-rental-label {
+  flex-shrink: 0;
+  min-width: 72px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #8a97a8;
+}
+
+.cal-rental-status {
+  text-transform: capitalize;
+}
+
+.cal-rental-goto {
+  margin-top: 10px;
+  font-size: 12px;
+  padding: 4px 12px;
+  color: #e7d2a0;
+  border-color: rgba(231, 210, 160, 0.3);
+}
+
 .rorc-btn-danger {
   background: rgba(235,87,87,0.15);
   color: #eb5757;

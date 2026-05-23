@@ -37,6 +37,61 @@ module.exports = async (req, res) => {
     }
   }
 
+  if (req.method === "POST") {
+    const { event_date, event_start_time, event_end_time, contact_name } = req.body || {};
+    if (!event_date) {
+      return res.status(400).json({ success: false, error: "event_date is required" });
+    }
+    try {
+      const insertRes = await fetch(`${SUPABASE_URL}/rest/v1/rental_requests`, {
+        method: "POST",
+        headers: {
+          apikey: SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+          "Content-Type": "application/json",
+          Prefer: "return=representation"
+        },
+        body: JSON.stringify({
+          contact_name: contact_name || "Admin Booking",
+          contact_phone: "",
+          contact_email: "",
+          contact_address: "",
+          event_name: null,
+          event_type: "Other",
+          event_date,
+          event_start_time: event_start_time || "07:00",
+          event_end_time: event_end_time || "21:00",
+          estimated_attendance: 0,
+          food_or_drinks: false,
+          alcohol: "No",
+          rental_type: "all_day",
+          rental_hours: null,
+          addon_tables: false,
+          addon_chairs: false,
+          addon_tarp: false,
+          addon_heater: false,
+          addon_early_setup: false,
+          addon_early_day_rental: false,
+          addon_late_cleanup: false,
+          addon_late_day_rental: false,
+          estimated_total_cents: 0,
+          agreed_to_no_guarantee: true,
+          agreed_to_guidelines: true,
+          rental_status: "confirmed"
+        })
+      });
+      if (!insertRes.ok) {
+        const text = await insertRes.text();
+        throw new Error(`Insert failed: ${insertRes.status} ${text}`);
+      }
+      const rows = await insertRes.json();
+      return res.status(200).json({ success: true, id: rows[0]?.id });
+    } catch (err) {
+      console.error("rental-reviews POST error:", err);
+      return res.status(500).json({ success: false, error: "Could not create rental request" });
+    }
+  }
+
   if (req.method === "PATCH") {
     const { id, status, adminNotes } = req.body || {};
 

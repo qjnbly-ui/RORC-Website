@@ -3980,6 +3980,8 @@ function renderCalendarView(root) {
           <textarea id="calEvDesc" class="rorc-input" rows="3" placeholder="Any notes…"></textarea>
         </label>
 
+        <div id="calRentalInfo" class="cal-rental-info" hidden></div>
+
         <div class="cal-modal-actions">
           <button class="rorc-btn rorc-btn-neutral" id="calModalCancel">Cancel</button>
           <button class="rorc-btn rorc-btn-accent" id="calModalSave">Save Event</button>
@@ -4099,6 +4101,7 @@ function openCalendarModal(root, event, prefillDate) {
   const titleEl   = root.querySelector("#calModalTitle");
   const deleteBtn = root.querySelector("#calModalDelete");
   const errEl     = root.querySelector("#calModalError");
+  const rentalInfo = root.querySelector("#calRentalInfo");
 
   errEl.hidden = true;
   modal.dataset.evId = event ? event.id : "";
@@ -4115,7 +4118,62 @@ function openCalendarModal(root, event, prefillDate) {
   root.querySelector("#calEvPublic").checked  = event ? event.isPublic : false;
   root.querySelector("#calEvDesc").value    = event ? (event.description || "") : "";
 
+  rentalInfo.hidden = true;
+  rentalInfo.innerHTML = "";
+
+  if (event?.rentalRequestId) {
+    loadCalRentalInfo(root, event.rentalRequestId);
+  }
+
   modal.hidden = false;
+}
+
+async function loadCalRentalInfo(root, rentalRequestId) {
+  const rentalInfo = root.querySelector("#calRentalInfo");
+  try {
+    const token = appUserSession?.access_token;
+    const res = await fetch("/api/rental-reviews", {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const body = await res.json();
+    if (!res.ok || !body.success) return;
+    const rental = (body.requests || []).find((r) => r.id === rentalRequestId);
+    if (!rental) return;
+
+    const addons = [
+      rental.addonTables && "Tables",
+      rental.addonChairs && "Chairs",
+      rental.addonTarp && "Tarp",
+      rental.addonHeater && "Heater",
+      rental.addonEarlySetup && "Early Setup",
+      rental.addonEarlyDayRental && "Extra Day (Early)",
+      rental.addonLateCleanup && "Late Cleanup",
+      rental.addonLateDayRental && "Extra Day (Late)"
+    ].filter(Boolean);
+
+    const totalDollars = rental.estimatedTotalCents ? `$${(rental.estimatedTotalCents / 100).toFixed(2)}` : "—";
+    const statusLabel = rental.rentalStatus ? rental.rentalStatus.replace(/_/g, " ") : "—";
+
+    rentalInfo.innerHTML = `
+      <div class="cal-rental-divider">Linked Rental</div>
+      <div class="cal-rental-row"><span class="cal-rental-label">Contact</span><span>${escapeHtml(rental.contactName || "—")}${rental.contactPhone ? " · " + escapeHtml(rental.contactPhone) : ""}${rental.contactEmail ? " · " + escapeHtml(rental.contactEmail) : ""}</span></div>
+      <div class="cal-rental-row"><span class="cal-rental-label">Event</span><span>${escapeHtml(rental.eventType || "—")} · Est. attendance: ${rental.estimatedAttendance ?? "—"}</span></div>
+      ${addons.length ? `<div class="cal-rental-row"><span class="cal-rental-label">Add-ons</span><span>${escapeHtml(addons.join(", "))}</span></div>` : ""}
+      <div class="cal-rental-row"><span class="cal-rental-label">Total</span><span>${totalDollars}</span></div>
+      <div class="cal-rental-row"><span class="cal-rental-label">Status</span><span class="cal-rental-status">${escapeHtml(statusLabel)}</span></div>
+      <button class="rorc-btn rorc-btn-ghost cal-rental-goto" data-rental-id="${escapeAttribute(rentalRequestId)}">Go to Rental →</button>
+    `;
+    rentalInfo.hidden = false;
+
+    rentalInfo.querySelector(".cal-rental-goto").addEventListener("click", () => {
+      highlightRentalId  = rentalRequestId;
+      rentalActiveFilter = "all";
+      root.querySelector("#calEventModal").hidden = true;
+      navigateTo("rentalReviews");
+    });
+  } catch {
+    // silently fail — rental info is supplementary
+  }
 }
 
 async function saveCalendarEvent(root) {
@@ -4152,6 +4210,22 @@ async function saveCalendarEvent(root) {
     const method = evId ? "PATCH" : "POST";
     const payload = { title, event_type: type, start_at: startAt, end_at: endAt, all_day: allDay, is_public: isPublic, description: desc || null };
     if (evId) payload.id = evId;
+
+    if (!evId && type === "rental") {
+      const rrRes = await fetch("/api/rental-reviews", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          event_date: date,
+          event_start_time: allDay ? "07:00" : (start || "07:00"),
+          event_end_time:   allDay ? "21:00" : (end   || "21:00"),
+          contact_name: title
+        })
+      });
+      const rrBody = await rrRes.json();
+      if (!rrRes.ok || !rrBody.success) throw new Error(rrBody.error || "Could not create rental record");
+      payload.rental_request_id = rrBody.id;
+    }
 
     const res  = await fetch("/api/events", {
       method,
