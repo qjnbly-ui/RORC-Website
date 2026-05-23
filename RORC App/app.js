@@ -224,7 +224,6 @@ const kioskAllowedRoutes = new Set([
   "heaterForm",
   "notifications",
   "feedback",
-  "calendar",
   "about",
   "share"
 ]);
@@ -287,10 +286,6 @@ const routes = {
     title: "Feedback",
     template: "feedbackTemplate",
     afterRender: renderFeedbackPage
-  },
-  calendar: {
-    title: "Calendar",
-    template: "calendarTemplate"
   },
   gymProjects: {
     title: "Gym Projects",
@@ -3361,7 +3356,7 @@ function updateNavigationVisibility() {
   const showOtherUsers = hasOtherUsersOnCurrentAccount();
   const showAccountManagerPages = isAccountManager(appUserSession);
   const kioskMode = isKioskModeSession(appUserSession);
-  const alwaysVisibleRoutes = new Set(["notifications", "about", "share", "calendar", "feedback"]);
+  const alwaysVisibleRoutes = new Set(["notifications", "about", "share", "feedback"]);
 
   drawerItems
     .filter((item) => item.dataset.route === "otherUsers")
@@ -3378,7 +3373,7 @@ function updateNavigationVisibility() {
   if (kioskMode) {
     drawerItems.forEach((item) => {
       const routeName = item.dataset.route;
-      item.hidden = !["feedback", "calendar", "notifications", "about", "share"].includes(routeName);
+      item.hidden = !["feedback", "notifications", "about", "share"].includes(routeName);
     });
   }
 
