@@ -3850,7 +3850,8 @@ async function renderCalendarPage() {
   root.innerHTML = `<p class="feedback-loading">Loading calendar…</p>`;
 
   try {
-    const token = appUserSession?.access_token;
+    const token = currentAuthSession?.access_token || "";
+    if (!token) throw new Error("Please sign in again.");
     const res   = await fetch("/api/events", {
       headers: { Authorization: `Bearer ${token}` }
     });
@@ -4355,7 +4356,8 @@ function collectCalendarRentalSchedulePayload(defaults) {
 async function loadCalRentalInfo(root, rentalRequestId) {
   const rentalInfo = root.querySelector("#calRentalInfo");
   try {
-    const token = appUserSession?.access_token;
+    const token = currentAuthSession?.access_token || "";
+    if (!token) return;
     const res = await fetch("/api/rental-reviews", {
       headers: { Authorization: `Bearer ${token}` }
     });
@@ -4432,7 +4434,8 @@ async function saveCalendarEvent(root) {
   saveBtn.textContent = "Saving…";
 
   try {
-    const token  = appUserSession?.access_token;
+    const token  = currentAuthSession?.access_token || "";
+    if (!token) throw new Error("Please sign in again before saving.");
     const method = evId ? "PATCH" : "POST";
     const payload = { title, event_type: type, start_at: startAt, end_at: endAt, all_day: allDay, is_public: isPublic, description: desc || null };
     if (evId) payload.id = evId;
@@ -4479,7 +4482,8 @@ async function deleteCalendarEvent(root) {
   if (!confirm("Delete this event?")) return;
 
   try {
-    const token = appUserSession?.access_token;
+    const token = currentAuthSession?.access_token || "";
+    if (!token) throw new Error("Please sign in again before deleting.");
     const res   = await fetch("/api/events", {
       method: "DELETE",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
