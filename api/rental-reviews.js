@@ -215,7 +215,7 @@ function buildRentalRecord(body) {
     event_date: str(body.event_date),
     event_start_time: str(body.event_start_time || body.eventStartTime || "07:00") || "07:00",
     event_end_time: str(body.event_end_time || body.eventEndTime || "21:00") || "21:00",
-    estimated_attendance: Math.max(0, Number(body.estimated_attendance ?? body.estimatedAttendance ?? 0) || 0),
+    estimated_attendance: Math.max(1, Number(body.estimated_attendance ?? body.estimatedAttendance ?? 1) || 1),
     food_or_drinks: Boolean(body.food_or_drinks ?? body.foodOrDrinks),
     alcohol: str(body.alcohol || "No") || "No",
     addon_tables: Boolean(body.addon_tables ?? body.addonTables),
@@ -263,7 +263,7 @@ function buildRentalPatch(body) {
   });
 
   if (body.estimated_attendance !== undefined || body.estimatedAttendance !== undefined) {
-    patch.estimated_attendance = Math.max(0, Number(body.estimated_attendance ?? body.estimatedAttendance ?? 0) || 0);
+    patch.estimated_attendance = Math.max(1, Number(body.estimated_attendance ?? body.estimatedAttendance ?? 1) || 1);
   }
   if (body.food_or_drinks !== undefined || body.foodOrDrinks !== undefined) patch.food_or_drinks = Boolean(body.food_or_drinks ?? body.foodOrDrinks);
   if (body.addon_tables !== undefined || body.addonTables !== undefined) patch.addon_tables = Boolean(body.addon_tables ?? body.addonTables);
