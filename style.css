@@ -1199,6 +1199,27 @@ a { color: inherit; }
   max-width: 720px;
 }
 
+.rental-photos {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 40px;
+}
+
+.rental-photo {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 14px;
+  display: block;
+}
+
+@media (max-width: 600px) {
+  .rental-photos {
+    grid-template-columns: 1fr;
+  }
+}
+
 .rentals-grid {
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
