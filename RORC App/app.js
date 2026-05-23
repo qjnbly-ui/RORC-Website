@@ -59,6 +59,7 @@ let thermostatActionFeedback = null;
 let notifiedIds = new Set();
 let notificationUnreadCount = 0;
 let contractReviewPendingCount = 0;
+let rentalReviewsPendingCount = 0;
 let accountTypePolicies = defaultAccountTypePolicies();
 let thermostatSystemAccess = defaultThermostatSystemAccess();
 let gymLightsMode = "full";
@@ -210,7 +211,8 @@ const accountManagerOnlyRoutes = new Set([
   "masterLogs",
   "messageCompose",
   "contracts",
-  "adminNotes"
+  "adminNotes",
+  "rentalReviews"
 ]);
 
 const kioskAllowedRoutes = new Set([
@@ -333,6 +335,11 @@ const routes = {
     title: "Admin Notes",
     template: "feedbackTemplate",
     afterRender: renderAdminNotesPage
+  },
+  rentalReviews: {
+    title: "Rentals",
+    template: "feedbackTemplate",
+    afterRender: renderRentalReviewsPage
   },
   about: {
     title: "About",
@@ -3435,6 +3442,244 @@ async function refreshContractReviewBadge() {
   updateContractReviewBadge();
 }
 
+function updateRentalReviewsBadge() {
+  const badge = document.getElementById("drawerRentalReviewsBadge");
+  if (!badge) return;
+  const hasPending = isAccountManager(appUserSession) && rentalReviewsPendingCount > 0;
+  badge.hidden = !hasPending;
+  badge.textContent = hasPending ? String(rentalReviewsPendingCount) : "";
+}
+
+async function refreshRentalReviewsBadge() {
+  if (!isAccountManager(appUserSession)) {
+    rentalReviewsPendingCount = 0;
+    updateRentalReviewsBadge();
+    return;
+  }
+
+  const token = currentAuthSession?.access_token || "";
+  if (!token) return;
+
+  const response = await fetch("/api/rental-reviews", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not load rental review count.");
+  }
+
+  rentalReviewsPendingCount = (body.requests || [])
+    .filter((r) => r.rentalStatus === "submitted" || r.rentalStatus === "pending_review")
+    .length;
+  updateRentalReviewsBadge();
+}
+
+async function renderRentalReviewsPage() {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+
+  root.innerHTML = `
+    <section class="live-record-page">
+      <header class="account-page-heading">
+        <div>
+          <p class="eyebrow">Facility Rentals</p>
+          <h2>Rental Requests</h2>
+          <p>Review and respond to rental inquiries submitted from the RORC website.</p>
+        </div>
+      </header>
+      <section class="empty-state"><p>Loading rental requests…</p></section>
+    </section>
+  `;
+
+  try {
+    const token = currentAuthSession?.access_token || "";
+    if (!token) throw new Error("Log in again before loading rental requests.");
+
+    const response = await fetch("/api/rental-reviews", {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.success === false) {
+      throw new Error(body.error || "Could not load rental requests.");
+    }
+
+    renderRentalReviewList(body.requests || []);
+  } catch (error) {
+    root.innerHTML = `
+      <section class="live-record-page">
+        <section class="empty-state"><p>${escapeHtml(error.message || "Could not load rental requests.")}</p></section>
+      </section>
+    `;
+  }
+}
+
+function renderRentalReviewList(requests) {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+
+  const pending = requests.filter((r) => r.rentalStatus === "submitted" || r.rentalStatus === "pending_review");
+  const history = requests.filter((r) => r.rentalStatus !== "submitted" && r.rentalStatus !== "pending_review").slice(0, 50);
+
+  rentalReviewsPendingCount = pending.length;
+  updateRentalReviewsBadge();
+
+  root.innerHTML = `
+    <section class="live-record-page">
+      <header class="account-page-heading">
+        <div>
+          <p class="eyebrow">Facility Rentals</p>
+          <h2>Rental Requests</h2>
+          <p>Review and respond to rental inquiries.</p>
+        </div>
+        <div class="account-summary-strip">
+          <span><strong>${pending.length}</strong> pending</span>
+          <span><strong>${history.length}</strong> reviewed</span>
+        </div>
+      </header>
+      <p id="rentalReviewResult" class="auth-message" aria-live="polite"></p>
+      ${pending.length ? `
+        <div class="detail-card">
+          <ol class="record-list heater-record-list">
+            ${pending.map((r) => renderRentalReviewCard(r, true)).join("")}
+          </ol>
+        </div>
+      ` : `
+        <section class="empty-state"><p>No pending rental requests.</p></section>
+      `}
+      ${history.length ? `
+        <header class="account-page-heading contract-review-history-heading">
+          <div>
+            <p class="eyebrow">History</p>
+            <h2>Recent Reviews</h2>
+          </div>
+        </header>
+        <div class="detail-card">
+          <ol class="record-list heater-record-list">
+            ${history.map((r) => renderRentalReviewCard(r, false)).join("")}
+          </ol>
+        </div>
+      ` : ""}
+    </section>
+  `;
+
+  bindRentalReviewActions();
+}
+
+function renderRentalReviewCard(request, isPending) {
+  const statusLabel = {
+    submitted: "Pending",
+    pending_review: "In Review",
+    confirmed: "Confirmed",
+    rejected: "Declined",
+    canceled: "Canceled"
+  }[request.rentalStatus] || request.rentalStatus;
+
+  const statusClass = {
+    submitted: "currently-on",
+    pending_review: "currently-on",
+    confirmed: "paid",
+    rejected: "overdue",
+    canceled: "overdue"
+  }[request.rentalStatus] || "";
+
+  const totalDollars = request.estimatedTotalCents
+    ? `$${(request.estimatedTotalCents / 100).toLocaleString("en-US")}`
+    : "";
+
+  const addons = [
+    request.addonTables && "Tables",
+    request.addonChairs && "Chairs",
+    request.addonTarp && "Tarp",
+    request.addonHeater && "Heater",
+    request.addonEarlySetup && "Early Setup",
+    request.addonEarlyDayRental && "Extra Day (Early)",
+    request.addonLateCleanup && "Late Cleanup",
+    request.addonLateDayRental && "Extra Day (Late)"
+  ].filter(Boolean);
+
+  const eventLine = [
+    escapeHtml(request.eventType || ""),
+    escapeHtml(request.eventDate || ""),
+    (request.eventStartTime && request.eventEndTime)
+      ? `${escapeHtml(request.eventStartTime)} – ${escapeHtml(request.eventEndTime)}`
+      : "",
+    request.estimatedAttendance ? `${request.estimatedAttendance} guests` : ""
+  ].filter(Boolean).join(" · ");
+
+  return `
+    <li data-rental-review-id="${escapeAttribute(request.id)}">
+      <strong class="heater-record-event">${escapeHtml(request.contactName || "Unknown")}</strong>
+      <span class="heater-record-meta">${eventLine}</span>
+      <button class="heater-state-action is-${escapeAttribute(statusClass)}" type="button" disabled>${escapeHtml(statusLabel)}</button>
+      <p class="heater-record-message">
+        ${escapeHtml(request.contactPhone || "")} · ${escapeHtml(request.contactEmail || "")}<br />
+        ${escapeHtml(request.contactAddress || "")}<br />
+        Food/drinks: ${request.foodOrDrinks ? "Yes" : "No"} · Alcohol: ${escapeHtml(request.alcohol || "No")}
+        ${addons.length ? `<br />Add-ons: ${addons.map(escapeHtml).join(", ")}` : ""}
+        ${totalDollars ? `<br />Est. total: ${totalDollars}` : ""}
+        ${request.adminNotes ? `<br />Notes: ${escapeHtml(request.adminNotes)}` : ""}
+        <br /><span style="color:var(--muted,#888);font-size:12px;">Submitted ${formatShortDateTime(request.createdAt)}</span>
+      </p>
+      ${isPending ? `
+        <div class="form-actions contract-review-actions">
+          <button class="text-action" data-rental-review-action="decline" data-rental-review-id="${escapeAttribute(request.id)}" type="button">Decline</button>
+          <button class="save-action" data-rental-review-action="confirm" data-rental-review-id="${escapeAttribute(request.id)}" type="button">Confirm</button>
+        </div>
+      ` : ""}
+    </li>
+  `;
+}
+
+function bindRentalReviewActions() {
+  document.querySelectorAll("[data-rental-review-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      submitRentalReview(button.dataset.rentalReviewId, button.dataset.rentalReviewAction);
+    });
+  });
+}
+
+async function submitRentalReview(rentalId, action) {
+  const result = document.getElementById("rentalReviewResult");
+  const notes = action === "decline"
+    ? String(window.prompt("Reason for declining? (Required)") || "").trim()
+    : String(window.prompt("Confirmation notes? (Optional)") || "").trim();
+
+  if (action === "decline" && !notes) {
+    if (result) result.textContent = "A reason is required when declining.";
+    return;
+  }
+
+  if (result) result.textContent = action === "confirm" ? "Confirming…" : "Declining…";
+
+  try {
+    const token = currentAuthSession?.access_token || "";
+    if (!token) throw new Error("Log in again before reviewing rental requests.");
+
+    const response = await fetch("/api/rental-reviews", {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        id: rentalId,
+        status: action === "confirm" ? "confirmed" : "rejected",
+        adminNotes: notes || null
+      })
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.success === false) {
+      throw new Error(body.error || "Could not update rental request.");
+    }
+
+    if (result) result.textContent = action === "confirm" ? "Request confirmed." : "Request declined.";
+    await refreshRentalReviewsBadge();
+    window.setTimeout(() => renderRentalReviewsPage(), 250);
+  } catch (error) {
+    if (result) result.textContent = error.message || "Could not update rental request.";
+  }
+}
+
 function createHttpError(message, statusCode) {
   const error = new Error(message);
   error.statusCode = Number(statusCode) || 500;
@@ -4331,6 +4576,11 @@ async function hydrateFromSupabase() {
       } catch (reviewBadgeError) {
         console.warn("Could not load account review count.", reviewBadgeError);
       }
+      try {
+        await refreshRentalReviewsBadge();
+      } catch (rentalBadgeError) {
+        console.warn("Could not load rental review count.", rentalBadgeError);
+      }
     }
     if (canUsePrivilegedTimesheetApi()) {
       try {
@@ -4596,6 +4846,9 @@ function openDrawer() {
   if (isAccountManager(appUserSession)) {
     refreshContractReviewBadge().catch((error) => {
       console.warn("Could not refresh account review badge.", error);
+    });
+    refreshRentalReviewsBadge().catch((error) => {
+      console.warn("Could not refresh rental review badge.", error);
     });
   }
 }
