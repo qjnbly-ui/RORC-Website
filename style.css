@@ -1262,6 +1262,359 @@ a { color: inherit; }
   }
 }
 
+/* ===== Rental Application Form ===== */
+.rental-app-card {
+  padding: 24px 20px;
+}
+
+.rental-form {
+  margin-top: 18px;
+  display: grid;
+  gap: 0;
+}
+
+.rental-form-section {
+  padding: 22px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.rental-form-section:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.rental-form-section-title {
+  margin: 0 0 16px;
+  font-family: var(--font-display);
+  font-size: 17px;
+  color: #f5f5f5;
+}
+
+.rental-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.rental-label {
+  display: grid;
+  gap: 7px;
+}
+
+.rental-label-wide {
+  grid-column: 1 / -1;
+}
+
+.rental-label > span,
+.rental-label > span:first-child {
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #c2cad6;
+}
+
+.rental-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(9, 13, 18, 0.9);
+  color: #f5f5f5;
+  font-family: var(--font-body);
+  font-size: 14px;
+  transition: border-color 0.15s ease;
+  box-sizing: border-box;
+}
+
+.rental-input:focus {
+  outline: none;
+  border-color: rgba(231, 210, 160, 0.55);
+}
+
+.rental-select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23c2cad6' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+  cursor: pointer;
+}
+
+.rental-radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.rental-radio-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #c2cad6;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.rental-radio-label:has(input:checked) {
+  border-color: rgba(231, 210, 160, 0.6);
+  color: #e7d2a0;
+}
+
+.rental-radio-label input[type="radio"] {
+  accent-color: #e7d2a0;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+/* Estimator header */
+.rental-estimator-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.rental-estimator-header .rental-form-section-title {
+  margin: 0;
+}
+
+.rental-estimator-badge {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  background: rgba(231, 210, 160, 0.1);
+  border: 1px solid rgba(231, 210, 160, 0.3);
+  border-radius: 999px;
+  padding: 6px 16px;
+}
+
+.rental-estimator-label {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #c2cad6;
+}
+
+.rental-estimator-value {
+  font-family: var(--font-display);
+  font-size: 20px;
+  color: #e7d2a0;
+  font-weight: 600;
+  transition: transform 0.15s ease;
+}
+
+/* Base items always included */
+.rental-base-list {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.rental-base-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13.5px;
+  color: #c2cad6;
+}
+
+.rental-base-row span:last-child {
+  color: #f5f5f5;
+  font-weight: 600;
+}
+
+/* Add-on cards */
+.rental-addon-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.rental-addon-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.rental-addon-card:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.055);
+}
+
+.rental-addon-card.is-checked {
+  border-color: rgba(231, 210, 160, 0.55);
+  background: rgba(231, 210, 160, 0.07);
+}
+
+.rental-addon-card input[type="checkbox"] {
+  margin-top: 2px;
+  accent-color: #e7d2a0;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.rental-addon-info {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+}
+
+.rental-addon-name {
+  font-size: 13.5px;
+  color: #f5f5f5;
+  font-weight: 500;
+}
+
+.rental-addon-desc {
+  font-size: 11.5px;
+  color: #8a97a8;
+}
+
+.rental-addon-price {
+  font-size: 13px;
+  color: #e7d2a0;
+  font-weight: 600;
+}
+
+.rental-addon-price-note {
+  color: #a09070;
+}
+
+.rental-addon-note {
+  font-size: 12px;
+  color: #8a97a8;
+  margin: 0;
+  line-height: 1.55;
+}
+
+/* Agreement */
+.rental-agreement-list {
+  display: grid;
+  gap: 10px;
+}
+
+.rental-agreement-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  font-size: 13.5px;
+  color: #c2cad6;
+  line-height: 1.55;
+  transition: border-color 0.15s ease;
+}
+
+.rental-agreement-item:has(input:checked) {
+  border-color: rgba(231, 210, 160, 0.4);
+}
+
+.rental-agreement-item input[type="checkbox"] {
+  margin-top: 2px;
+  accent-color: #e7d2a0;
+  width: 16px;
+  height: 16px;
+}
+
+.rental-agreement-item a {
+  color: #e7d2a0;
+}
+
+/* Error */
+.rental-form-error {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 140, 140, 0.4);
+  background: rgba(255, 80, 80, 0.08);
+}
+
+.rental-form-error p {
+  margin: 0;
+  font-size: 13.5px;
+  color: #ff9f9f;
+  line-height: 1.5;
+}
+
+/* Submit actions */
+.rental-form-actions {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  justify-content: flex-start;
+}
+
+/* Success state */
+.rental-success-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  background: rgba(155, 226, 155, 0.15);
+  border: 1px solid rgba(155, 226, 155, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  color: #9be29b;
+  margin: 0 auto 18px;
+}
+
+#rental-success {
+  text-align: center;
+  padding: 20px 0;
+}
+
+#rental-success h2 {
+  margin-bottom: 12px;
+}
+
+#rental-success p {
+  max-width: 520px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+@media (max-width: 640px) {
+  .rental-field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rental-addon-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rental-estimator-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+}
+
 /* ===== Windows Fundraiser Page ===== */
 .windows-hero {
   text-align: center;

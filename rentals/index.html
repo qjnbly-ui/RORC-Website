@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Gym Rentals | RORC</title>
   <link rel="stylesheet" href="../style.css" />
-<script src="/scripts/rorc-auth-nav.js" defer></script>
+  <script src="/scripts/rorc-auth-nav.js" defer></script>
   <!-- Google tag (gtag.js) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-EGC30XZVXV"></script>
   <script>
@@ -40,8 +40,8 @@
         </nav>
       </div>
       <div class="site-menu-legal" aria-label="Legal">
-                <a href="/support/">Support</a>
-<a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
         <a href="/terms-of-service/">Terms of Service</a>
       </div>
     </div>
@@ -90,7 +90,7 @@
             Hourly use is intended for small group activities, practices, or individual sessions and does not include
             exclusive full-day access.
           </p>
-          <p>Extended hourly use may require a Standard Day Rental at RORC’s discretion.</p>
+          <p>Extended hourly use may require a Standard Day Rental at RORC's discretion.</p>
           <p>
             All hourly use requests must be approved by RORC management and are subject to availability.
           </p>
@@ -184,7 +184,7 @@
             </li>
           </ul>
           <p>
-            Insurance may be obtained through the renter’s personal or business insurance provider. Online special
+            Insurance may be obtained through the renter's personal or business insurance provider. Online special
             event providers such as EventHelper.com or similar services may also be used.
           </p>
           <p>Proof of coverage must be submitted and approved prior to the event date.</p>
@@ -195,37 +195,242 @@
       </div>
     </section>
 
+    <!-- ===== Rental Application Form ===== -->
     <section class="rentals-section" aria-label="Rental application">
       <div class="rentals-grid">
-        <article class="rentals-card rentals-feature">
-          <h2>Rental Application</h2>
-          <p>
-            To request a rental date, submit the Rental Application Form. Submission does not guarantee booking. A
-            member of RORC management will review your request and contact you with confirmation, payment details, and
-            any additional requirements.
-          </p>
-          <ul class="rentals-list">
-            <li>Event date and time</li>
-            <li>Setup and cleanup time requested</li>
-            <li>Estimated attendance</li>
-            <li>Type of event</li>
-            <li>Equipment needs (tables, chairs, heat, tarp)</li>
-            <li>Contact name, phone number, and email</li>
-          </ul>
-          <p>All rental fees must be paid in full prior to the event date unless otherwise arranged.</p>
+        <article class="rentals-card rentals-feature rental-app-card" id="rental-app-card">
 
-          <div class="rorc-actions" style="margin-top: 12px;">
-            <button
-              class="rorc-btn rorc-btn-neutral"
-              onclick="window.open('https://docs.google.com/forms/d/e/1FAIpQLSc2DWqkPSfc0DbzCc1NUwxs0DBV57yMRtAD83GSkAoWsKuyQw/viewform?usp=publish-editor', '_blank')">
-              Open Rental Application
-            </button>
-            <button
-              class="rorc-btn rorc-btn-ghost"
-              onclick="window.location.href='tel:+15419040428'">
-              Call RORC
-            </button>
+          <!-- Default state: description + form -->
+          <div id="rental-app-main">
+            <h2>Rental Application</h2>
+            <p>
+              Submit your request below. Submission does not guarantee booking — RORC staff will review and
+              contact you with confirmation, payment details, and any additional requirements.
+            </p>
+
+            <form id="rental-form" class="rental-form" novalidate>
+
+              <!-- Section: Contact Information -->
+              <div class="rental-form-section">
+                <h3 class="rental-form-section-title">Contact Information</h3>
+                <div class="rental-field-grid">
+                  <label class="rental-label rental-label-wide">
+                    <span>Primary Contact Name</span>
+                    <input class="rental-input" type="text" name="contactName" autocomplete="name" required placeholder="Full name" />
+                  </label>
+                  <label class="rental-label">
+                    <span>Phone Number</span>
+                    <input class="rental-input" type="tel" name="contactPhone" autocomplete="tel" required placeholder="(541) 000-0000" />
+                  </label>
+                  <label class="rental-label">
+                    <span>Email Address</span>
+                    <input class="rental-input" type="email" name="contactEmail" autocomplete="email" required placeholder="you@example.com" />
+                  </label>
+                  <label class="rental-label rental-label-wide">
+                    <span>Mailing Address</span>
+                    <input class="rental-input" type="text" name="contactAddress" autocomplete="street-address" required placeholder="Street, City, State, ZIP" />
+                  </label>
+                </div>
+              </div>
+
+              <!-- Section: Event Details -->
+              <div class="rental-form-section">
+                <h3 class="rental-form-section-title">Event Details</h3>
+                <div class="rental-field-grid">
+                  <label class="rental-label">
+                    <span>Type of Event</span>
+                    <select class="rental-input rental-select" name="eventType" required>
+                      <option value="">Select event type…</option>
+                      <option>Birthday Party</option>
+                      <option>Private Party</option>
+                      <option>Meeting</option>
+                      <option>Memorial Service</option>
+                      <option>Other</option>
+                    </select>
+                  </label>
+                  <label class="rental-label">
+                    <span>Event Date</span>
+                    <input class="rental-input" type="date" name="eventDate" required />
+                  </label>
+                  <label class="rental-label">
+                    <span>Event Start Time</span>
+                    <input class="rental-input" type="time" name="eventStartTime" required />
+                  </label>
+                  <label class="rental-label">
+                    <span>Event End Time</span>
+                    <input class="rental-input" type="time" name="eventEndTime" required />
+                  </label>
+                  <label class="rental-label">
+                    <span>Estimated Attendance</span>
+                    <input class="rental-input" type="number" name="estimatedAttendance" required min="1" placeholder="# of guests" />
+                  </label>
+                  <div class="rental-label">
+                    <span>Will food or drinks be served?</span>
+                    <div class="rental-radio-group">
+                      <label class="rental-radio-label">
+                        <input type="radio" name="foodOrDrinks" value="yes" required />
+                        <span>Yes</span>
+                      </label>
+                      <label class="rental-radio-label">
+                        <input type="radio" name="foodOrDrinks" value="no" />
+                        <span>No</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="rental-label">
+                    <span>Will alcohol be at the event?</span>
+                    <div class="rental-radio-group">
+                      <label class="rental-radio-label">
+                        <input type="radio" name="alcohol" value="Yes" required />
+                        <span>Yes</span>
+                      </label>
+                      <label class="rental-radio-label">
+                        <input type="radio" name="alcohol" value="No" />
+                        <span>No</span>
+                      </label>
+                      <label class="rental-radio-label">
+                        <input type="radio" name="alcohol" value="Maybe" />
+                        <span>Maybe</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Section: Equipment & Add-Ons -->
+              <div class="rental-form-section">
+                <div class="rental-estimator-header">
+                  <h3 class="rental-form-section-title">Equipment &amp; Add-Ons</h3>
+                  <div class="rental-estimator-badge">
+                    <span class="rental-estimator-label">Est. Total</span>
+                    <span class="rental-estimator-value" id="rental-total-display">$130</span>
+                  </div>
+                </div>
+
+                <div class="rental-base-list">
+                  <div class="rental-base-row">
+                    <span>Standard Day Rental</span>
+                    <span>$100</span>
+                  </div>
+                  <div class="rental-base-row">
+                    <span>Cleaning &amp; Maintenance</span>
+                    <span>$30</span>
+                  </div>
+                </div>
+
+                <div class="rental-addon-grid">
+                  <label class="rental-addon-card" id="addon-card-tables">
+                    <input type="checkbox" name="addonTables" data-price="20" />
+                    <div class="rental-addon-info">
+                      <span class="rental-addon-name">Tables</span>
+                      <span class="rental-addon-price">+$20</span>
+                    </div>
+                  </label>
+                  <label class="rental-addon-card" id="addon-card-chairs">
+                    <input type="checkbox" name="addonChairs" data-price="20" />
+                    <div class="rental-addon-info">
+                      <span class="rental-addon-name">Chairs</span>
+                      <span class="rental-addon-price">+$20</span>
+                    </div>
+                  </label>
+                  <label class="rental-addon-card" id="addon-card-tarp">
+                    <input type="checkbox" name="addonTarp" data-price="20" />
+                    <div class="rental-addon-info">
+                      <span class="rental-addon-name">Tarp</span>
+                      <span class="rental-addon-price">+$20</span>
+                    </div>
+                  </label>
+                  <label class="rental-addon-card" id="addon-card-heater">
+                    <input type="checkbox" name="addonHeater" data-price="0" />
+                    <div class="rental-addon-info">
+                      <span class="rental-addon-name">Heater Use</span>
+                      <span class="rental-addon-price rental-addon-price-note">$13/hr</span>
+                    </div>
+                  </label>
+                  <label class="rental-addon-card" id="addon-card-early-setup">
+                    <input type="checkbox" name="addonEarlySetup" data-price="50" />
+                    <div class="rental-addon-info">
+                      <span class="rental-addon-name">Early Setup</span>
+                      <span class="rental-addon-desc">6 PM+ day before</span>
+                      <span class="rental-addon-price">+$50</span>
+                    </div>
+                  </label>
+                  <label class="rental-addon-card" id="addon-card-early-day">
+                    <input type="checkbox" name="addonEarlyDayRental" data-price="100" />
+                    <div class="rental-addon-info">
+                      <span class="rental-addon-name">Extra Day (Early)</span>
+                      <span class="rental-addon-desc">Access before 6 PM prior day</span>
+                      <span class="rental-addon-price">+$100</span>
+                    </div>
+                  </label>
+                  <label class="rental-addon-card" id="addon-card-late-cleanup">
+                    <input type="checkbox" name="addonLateCleanup" data-price="50" />
+                    <div class="rental-addon-info">
+                      <span class="rental-addon-name">Late Cleanup</span>
+                      <span class="rental-addon-desc">Through 9 AM day after</span>
+                      <span class="rental-addon-price">+$50</span>
+                    </div>
+                  </label>
+                  <label class="rental-addon-card" id="addon-card-late-day">
+                    <input type="checkbox" name="addonLateDayRental" data-price="100" />
+                    <div class="rental-addon-info">
+                      <span class="rental-addon-name">Extra Day (Late)</span>
+                      <span class="rental-addon-desc">Access past 9 AM next day</span>
+                      <span class="rental-addon-price">+$100</span>
+                    </div>
+                  </label>
+                </div>
+                <p class="rental-addon-note">Heater billed at $13/hr of actual use, logged on the day of your event. All other totals are estimates — final fees confirmed at booking.</p>
+              </div>
+
+              <!-- Section: Agreement -->
+              <div class="rental-form-section">
+                <h3 class="rental-form-section-title">Agreement</h3>
+                <div class="rental-agreement-list">
+                  <label class="rental-agreement-item">
+                    <input type="checkbox" name="agreedToNoGuarantee" required />
+                    <span>I acknowledge that submission does not guarantee booking and that rental fees must be paid in full prior to the event date.</span>
+                  </label>
+                  <label class="rental-agreement-item">
+                    <input type="checkbox" name="agreedToGuidelines" required />
+                    <span>I agree to follow RORC rental guidelines and <a href="/terms-of-service/" target="_blank">Terms of Service</a>.</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- Error message -->
+              <div class="rental-form-error" id="rental-form-error" hidden>
+                <p id="rental-form-error-text"></p>
+              </div>
+
+              <!-- Submit -->
+              <div class="rorc-actions rental-form-actions">
+                <button type="submit" class="rorc-btn rorc-btn-neutral" id="rental-submit-btn">
+                  Submit Application
+                </button>
+                <button type="button" class="rorc-btn rorc-btn-ghost" onclick="window.location.href='tel:+15419040428'">
+                  Call RORC
+                </button>
+              </div>
+            </form>
           </div>
+
+          <!-- Success state (hidden until submitted) -->
+          <div id="rental-success" hidden>
+            <div class="rental-success-icon" aria-hidden="true">✓</div>
+            <h2>Application Submitted</h2>
+            <p>
+              Thank you, <strong id="rental-success-name"></strong>. We've received your rental request and will
+              follow up at <strong id="rental-success-email"></strong>.
+            </p>
+            <p>RORC staff will review availability and contact you with confirmation, total fees, and next steps.</p>
+            <div class="rorc-actions" style="margin-top: 16px;">
+              <button class="rorc-btn rorc-btn-ghost" onclick="window.location.href='tel:+15419040428'">
+                Call RORC
+              </button>
+            </div>
+          </div>
+
         </article>
       </div>
     </section>
@@ -268,5 +473,159 @@
       <div>Designed &amp; Built by <a href="https://n3xra.com"><strong>N3XRA</strong></a></div>
     </div>
   </footer>
+
+  <script>
+    (function () {
+      const BASE_CENTS = 13000; // $100 rental + $30 cleaning
+
+      const form = document.getElementById("rental-form");
+      const totalDisplay = document.getElementById("rental-total-display");
+      const submitBtn = document.getElementById("rental-submit-btn");
+      const errorBox = document.getElementById("rental-form-error");
+      const errorText = document.getElementById("rental-form-error-text");
+      const mainSection = document.getElementById("rental-app-main");
+      const successSection = document.getElementById("rental-success");
+
+      // Live cost estimator
+      function updateTotal() {
+        let extra = 0;
+        form.querySelectorAll("input[type=checkbox][data-price]").forEach(function (cb) {
+          if (cb.checked) extra += Number(cb.dataset.price) * 100;
+        });
+        const total = (BASE_CENTS + extra) / 100;
+        totalDisplay.textContent = "$" + total.toLocaleString("en-US");
+      }
+
+      // Toggle checked style on add-on cards
+      function syncAddonCards() {
+        form.querySelectorAll(".rental-addon-card").forEach(function (card) {
+          const cb = card.querySelector("input[type=checkbox]");
+          if (cb) card.classList.toggle("is-checked", cb.checked);
+        });
+      }
+
+      form.addEventListener("change", function (e) {
+        if (e.target.dataset.price !== undefined) {
+          updateTotal();
+          syncAddonCards();
+        }
+      });
+
+      // Form submission
+      form.addEventListener("submit", async function (e) {
+        e.preventDefault();
+
+        hideError();
+
+        const fd = new FormData(form);
+        const foodVal = fd.get("foodOrDrinks");
+        const alcohol = fd.get("alcohol") || "";
+
+        const payload = {
+          contactName: fd.get("contactName") || "",
+          contactPhone: fd.get("contactPhone") || "",
+          contactEmail: fd.get("contactEmail") || "",
+          contactAddress: fd.get("contactAddress") || "",
+
+          eventType: fd.get("eventType") || "",
+          eventDate: fd.get("eventDate") || "",
+          eventStartTime: fd.get("eventStartTime") || "",
+          eventEndTime: fd.get("eventEndTime") || "",
+          estimatedAttendance: Number(fd.get("estimatedAttendance")) || 0,
+          foodOrDrinks: foodVal === "yes",
+          alcohol: alcohol,
+
+          addonTables: fd.get("addonTables") === "on",
+          addonChairs: fd.get("addonChairs") === "on",
+          addonTarp: fd.get("addonTarp") === "on",
+          addonHeater: fd.get("addonHeater") === "on",
+          addonEarlySetup: fd.get("addonEarlySetup") === "on",
+          addonEarlyDayRental: fd.get("addonEarlyDayRental") === "on",
+          addonLateCleanup: fd.get("addonLateCleanup") === "on",
+          addonLateDayRental: fd.get("addonLateDayRental") === "on",
+
+          estimatedTotalCents: calcTotal(),
+
+          agreedToNoGuarantee: fd.get("agreedToNoGuarantee") === "on",
+          agreedToGuidelines: fd.get("agreedToGuidelines") === "on"
+        };
+
+        // Basic client-side checks before sending
+        const clientErrors = clientValidate(payload, foodVal);
+        if (clientErrors.length) {
+          showError(clientErrors.join(" "));
+          return;
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "Submitting…";
+
+        try {
+          const res = await fetch("/api/rental-request", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          const json = await res.json();
+
+          if (!res.ok || !json.success) {
+            const msg = (json.errors && json.errors.join(" ")) || json.error || "Submission failed. Please try again.";
+            showError(msg);
+            submitBtn.disabled = false;
+            submitBtn.textContent = "Submit Application";
+            return;
+          }
+
+          // Show success
+          document.getElementById("rental-success-name").textContent = payload.contactName;
+          document.getElementById("rental-success-email").textContent = payload.contactEmail;
+          mainSection.hidden = true;
+          successSection.hidden = false;
+          successSection.scrollIntoView({ behavior: "smooth", block: "start" });
+        } catch (err) {
+          showError("Network error. Please check your connection and try again, or call RORC directly.");
+          submitBtn.disabled = false;
+          submitBtn.textContent = "Submit Application";
+        }
+      });
+
+      function calcTotal() {
+        let extra = 0;
+        form.querySelectorAll("input[type=checkbox][data-price]").forEach(function (cb) {
+          if (cb.checked) extra += Number(cb.dataset.price) * 100;
+        });
+        return BASE_CENTS + extra;
+      }
+
+      function clientValidate(p, foodVal) {
+        const errs = [];
+        if (!p.contactName) errs.push("Contact name is required.");
+        if (!p.contactPhone) errs.push("Phone number is required.");
+        if (!p.contactEmail || !p.contactEmail.includes("@")) errs.push("A valid email is required.");
+        if (!p.contactAddress) errs.push("Mailing address is required.");
+        if (!p.eventType) errs.push("Event type is required.");
+        if (!p.eventDate) errs.push("Event date is required.");
+        if (!p.eventStartTime) errs.push("Start time is required.");
+        if (!p.eventEndTime) errs.push("End time is required.");
+        if (!p.estimatedAttendance || p.estimatedAttendance < 1) errs.push("Attendance must be at least 1.");
+        if (!foodVal) errs.push("Please indicate whether food or drinks will be served.");
+        if (!p.alcohol) errs.push("Please indicate whether alcohol will be at the event.");
+        if (!p.agreedToNoGuarantee) errs.push("Please acknowledge the booking terms.");
+        if (!p.agreedToGuidelines) errs.push("Please agree to the rental guidelines.");
+        return errs;
+      }
+
+      function showError(msg) {
+        errorText.textContent = msg;
+        errorBox.hidden = false;
+        errorBox.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+
+      function hideError() {
+        errorBox.hidden = true;
+        errorText.textContent = "";
+      }
+    })();
+  </script>
 </body>
 </html>
