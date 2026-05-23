@@ -4071,6 +4071,10 @@ function showCalDayPanel(root, dateIso) {
       <strong>${escapeHtml(label)}</strong>
       <button class="cal-day-add-btn" data-date="${dateIso}">+ Add Event</button>
     </div>
+    <div class="cal-hours-strip">
+      <span class="cal-hours-label">Facility hours</span>
+      <span class="cal-hours-value">7:00 AM – 9:00 PM</span>
+    </div>
     ${evHtml}
   `;
 
