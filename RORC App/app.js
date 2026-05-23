@@ -1340,10 +1340,6 @@ function renderContractReviewList(reviews) {
           <h2>Account Reviews</h2>
           <p>Pending accounts stay restricted until approved.</p>
         </div>
-        <div class="account-summary-strip">
-          <span><strong>${pending.length}</strong> pending</span>
-          <span><strong>${reviewed.length}</strong> reviewed</span>
-        </div>
       </header>
       <p id="contractReviewResult" class="auth-message" aria-live="polite"></p>
       ${pending.length ? `
@@ -3575,10 +3571,6 @@ function renderRentalPipeline(root) {
           <p class="eyebrow">Facility Rentals</p>
           <h2>Rentals</h2>
         </div>
-        <div class="account-summary-strip">
-          <span><strong>${action.length}</strong> needs action</span>
-          <span><strong>${confirmed.length}</strong> confirmed</span>
-        </div>
       </header>
 
       <div class="detail-card">
@@ -3594,10 +3586,8 @@ function renderRentalPipeline(root) {
       </div>
 
       ${filtered.length ? `
-        <div id="rental-cards-list" class="detail-card rental-list-card">
-          <ol class="record-list heater-record-list rental-record-list">
-            ${filtered.map((r) => buildRentalCard(r)).join("")}
-          </ol>
+        <div id="rental-cards-list" class="rental-cards">
+          ${filtered.map((r) => buildRentalCard(r)).join("")}
         </div>
       ` : `
         <section id="rental-cards-list" class="empty-state">
@@ -3654,13 +3644,6 @@ function buildRentalCard(r) {
   const status      = r.rentalStatus || "submitted";
   const statusLabel = RENTAL_STATUS_LABEL[status] || status;
   const statusColor = RENTAL_STATUS_COLOR[status] || "#8a97a8";
-  const statusClass = status === "confirmed"
-    ? "paid"
-    : status === "rejected"
-      ? "overdue"
-      : status === "canceled"
-        ? "complete"
-        : "pending";
 
   const totalDollars = r.estimatedTotalCents
     ? `$${(r.estimatedTotalCents / 100).toLocaleString("en-US", { minimumFractionDigits: 0 })}`
@@ -3711,38 +3694,84 @@ function buildRentalCard(r) {
     </div>
   ` : "";
 
-  const meta = [
-    eventDate,
-    timeRange,
-    r.contactName || "",
-    totalDollars || ""
-  ].filter(Boolean).join(" · ");
-
-  const messageParts = [
-    r.contactPhone ? `Phone: ${r.contactPhone}` : "",
-    r.contactEmail ? `Email: ${r.contactEmail}` : "",
-    r.estimatedAttendance ? `Attendance: ${r.estimatedAttendance}` : "",
-    `Rental: ${rentalTypeLabel}`,
-    r.alcohol ? `Alcohol: ${r.alcohol}` : "",
-    addons.length ? `Add-ons: ${addons.join(", ")}` : "",
-    r.adminNotes ? `Notes: ${r.adminNotes}` : ""
-  ].filter(Boolean);
-
   return `
-    <li class="rental-card" data-rental-id="${escapeAttribute(r.id)}" data-status="${escapeAttribute(status)}" style="--status-color:${statusColor}">
-      <strong class="heater-record-event">${escapeHtml(r.eventName || r.eventType || "Rental Request")}</strong>
-      <span class="heater-record-meta">${escapeHtml(meta)}</span>
-      <button class="heater-state-action is-${escapeAttribute(statusClass)}" type="button" disabled>${escapeHtml(statusLabel)}</button>
-      <p class="heater-record-message">
-        <span class="rental-record-type">${escapeHtml(r.eventType || "Event")}</span>
-        ${escapeHtml(messageParts.join(" · ") || "No booking details yet.")}
-      </p>
+    <article class="rental-card" data-rental-id="${escapeAttribute(r.id)}" data-status="${escapeAttribute(status)}">
+
+      <div class="rental-card-head">
+        <span class="rental-card-type-badge">${escapeHtml(r.eventType || "Event")}</span>
+        <span class="rental-card-status-pill" style="--status-color:${statusColor}">${escapeHtml(statusLabel)}</span>
+      </div>
+
+      <h3 class="rental-card-title">${escapeHtml(r.eventName || r.eventType || "Rental Request")}</h3>
+      <p class="rental-card-contact-name">${escapeHtml(r.contactName || "")}</p>
+
+      <div class="rental-card-divider"></div>
+
+      <dl class="rental-card-grid">
+        <div class="rental-card-field">
+          <dt>Date</dt>
+          <dd>${escapeHtml(eventDate)}</dd>
+        </div>
+        ${timeRange ? `
+        <div class="rental-card-field">
+          <dt>Time</dt>
+          <dd>${escapeHtml(timeRange)}</dd>
+        </div>` : ""}
+        <div class="rental-card-field">
+          <dt>Attendance</dt>
+          <dd>${r.estimatedAttendance ? `${r.estimatedAttendance} guests` : "—"}</dd>
+        </div>
+        <div class="rental-card-field">
+          <dt>Rental</dt>
+          <dd>
+            <span class="rental-card-pill">${escapeHtml(rentalTypeLabel)}</span>
+          </dd>
+        </div>
+        <div class="rental-card-field">
+          <dt>Est. Total</dt>
+          <dd class="rental-card-total">${escapeHtml(totalDollars || "—")}</dd>
+        </div>
+        <div class="rental-card-field">
+          <dt>Alcohol</dt>
+          <dd>${escapeHtml(r.alcohol || "No")}</dd>
+        </div>
+      </dl>
+
+      ${addons.length ? `
+      <div class="rental-card-addons">
+        ${addons.map((a) => `<span class="rental-card-addon-chip">${escapeHtml(a)}</span>`).join("")}
+      </div>` : ""}
+
+      <div class="rental-card-divider"></div>
+
+      <dl class="rental-card-contact">
+        <div class="rental-card-contact-row">
+          <dt>Phone</dt><dd><a href="tel:${escapeAttribute(r.contactPhone || "")}">${escapeHtml(r.contactPhone || "—")}</a></dd>
+        </div>
+        <div class="rental-card-contact-row">
+          <dt>Email</dt><dd><a href="mailto:${escapeAttribute(r.contactEmail || "")}">${escapeHtml(r.contactEmail || "—")}</a></dd>
+        </div>
+        <div class="rental-card-contact-row">
+          <dt>Address</dt><dd>${escapeHtml(r.contactAddress || "—")}</dd>
+        </div>
+        <div class="rental-card-contact-row">
+          <dt>Food / Drinks</dt><dd>${r.foodOrDrinks ? "Yes" : "No"}</dd>
+        </div>
+      </dl>
+
+      ${r.adminNotes ? `
+      <div class="rental-card-notes">
+        <span class="rental-card-notes-label">Admin Notes</span>
+        <p class="rental-card-notes-text">${escapeHtml(r.adminNotes)}</p>
+      </div>` : ""}
+
       <div class="rental-card-footer">
         <span class="rental-card-timestamp">Submitted ${formatShortDateTime(r.createdAt)}</span>
         ${r.reviewedAt ? `<span class="rental-card-timestamp">Reviewed ${formatShortDateTime(r.reviewedAt)}</span>` : ""}
       </div>
+
       ${actionsHtml}
-    </li>
+    </article>
   `;
 }
 
