@@ -38,7 +38,7 @@ module.exports = async (req, res) => {
   }
 
   if (req.method === "POST") {
-    const { event_date, event_start_time, event_end_time, contact_name } = req.body || {};
+    const { event_date } = req.body || {};
     if (!event_date) {
       return res.status(400).json({ success: false, error: "event_date is required" });
     }
@@ -51,34 +51,7 @@ module.exports = async (req, res) => {
           "Content-Type": "application/json",
           Prefer: "return=representation"
         },
-        body: JSON.stringify({
-          contact_name: contact_name || "Admin Booking",
-          contact_phone: "",
-          contact_email: "",
-          contact_address: "",
-          event_name: null,
-          event_type: "Other",
-          event_date,
-          event_start_time: event_start_time || "07:00",
-          event_end_time: event_end_time || "21:00",
-          estimated_attendance: 0,
-          food_or_drinks: false,
-          alcohol: "No",
-          rental_type: "all_day",
-          rental_hours: null,
-          addon_tables: false,
-          addon_chairs: false,
-          addon_tarp: false,
-          addon_heater: false,
-          addon_early_setup: false,
-          addon_early_day_rental: false,
-          addon_late_cleanup: false,
-          addon_late_day_rental: false,
-          estimated_total_cents: 0,
-          agreed_to_no_guarantee: true,
-          agreed_to_guidelines: true,
-          rental_status: "confirmed"
-        })
+        body: JSON.stringify(buildRentalRecord(req.body || {}))
       });
       if (!insertRes.ok) {
         const text = await insertRes.text();
@@ -98,11 +71,12 @@ module.exports = async (req, res) => {
     if (!id || typeof id !== "string") {
       return res.status(400).json({ success: false, error: "Missing rental request ID" });
     }
-    if (!VALID_STATUSES.includes(status)) {
+    if (status !== undefined && !VALID_STATUSES.includes(status)) {
       return res.status(400).json({ success: false, error: `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}` });
     }
 
     try {
+      const patchBody = buildRentalPatch(req.body || {});
       const patchRes = await fetch(
         `${SUPABASE_URL}/rest/v1/rental_requests?id=eq.${encodeURIComponent(id)}`,
         {
@@ -113,11 +87,7 @@ module.exports = async (req, res) => {
             "Content-Type": "application/json",
             Prefer: "return=representation"
           },
-          body: JSON.stringify({
-            rental_status: status,
-            admin_notes: typeof adminNotes === "string" ? adminNotes.trim() : null,
-            reviewed_at: new Date().toISOString()
-          })
+          body: JSON.stringify(patchBody)
         }
       );
 
@@ -130,13 +100,16 @@ module.exports = async (req, res) => {
       const record = rows[0];
 
       if (record && status === "confirmed") {
-        createCalendarEvent(record).catch((err) => {
+        createOrUpdateCalendarEvent(record).catch((err) => {
           console.error("Calendar event creation failed:", err);
         });
         sendApplicantEmail(record, status, adminNotes).catch((err) => {
           console.error("Rental applicant email failed:", err);
         });
-      } else if (record && status === "rejected") {
+      } else if (record && (status === "rejected" || status === "canceled")) {
+        syncLinkedCalendarEventStatus(record.id, "cancelled").catch((err) => {
+          console.error("Linked calendar event status sync failed:", err);
+        });
         sendApplicantEmail(record, status, adminNotes).catch((err) => {
           console.error("Rental applicant email failed:", err);
         });
@@ -152,45 +125,178 @@ module.exports = async (req, res) => {
   return res.status(405).json({ success: false, error: "Method not allowed" });
 };
 
-async function createCalendarEvent(record) {
+async function createOrUpdateCalendarEvent(record) {
   const dateStr = record.event_date; // "YYYY-MM-DD"
   const startTime = record.event_start_time || "07:00";
   const endTime   = record.event_end_time   || "21:00";
-
-  const startAt = new Date(`${dateStr}T${startTime}:00`).toISOString();
-  const endAt   = new Date(`${dateStr}T${endTime}:00`).toISOString();
+  const isAllDayRental = record.rental_type !== "hourly";
+  const startAt = buildIsoTimestamp(dateStr, isAllDayRental ? "07:00" : startTime);
+  const endAt   = buildIsoTimestamp(dateStr, isAllDayRental ? "21:00" : endTime);
 
   const title = record.event_name
     ? `${record.event_name} (${record.event_type})`
     : `${record.event_type} — ${record.contact_name}`;
 
-  const body = {
+  const payload = {
     title,
     event_type: "rental",
     start_at: startAt,
     end_at:   endAt,
-    all_day:  false,
+    all_day:  isAllDayRental,
     is_public: false,
     status: "confirmed",
     rental_request_id: record.id,
     created_by: "system"
   };
 
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/events`, {
-    method: "POST",
-    headers: {
-      apikey: SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-      "Content-Type": "application/json",
-      Prefer: "return=minimal"
-    },
-    body: JSON.stringify(body)
-  });
+  const existingRows = await supabaseRest(
+    `events?select=id&rental_request_id=eq.${encodeURIComponent(record.id)}&limit=1`
+  );
+  const existingId = existingRows[0]?.id;
+
+  const res = await fetch(
+    existingId
+      ? `${SUPABASE_URL}/rest/v1/events?id=eq.${encodeURIComponent(existingId)}`
+      : `${SUPABASE_URL}/rest/v1/events`,
+    {
+      method: existingId ? "PATCH" : "POST",
+      headers: {
+        apikey: SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal"
+      },
+      body: JSON.stringify(payload)
+    }
+  );
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Event insert failed: ${res.status} ${text}`);
+    throw new Error(`Event upsert failed: ${res.status} ${text}`);
   }
+}
+
+async function syncLinkedCalendarEventStatus(rentalRequestId, eventStatus) {
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/events?rental_request_id=eq.${encodeURIComponent(rentalRequestId)}`,
+    {
+      method: "PATCH",
+      headers: {
+        apikey: SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal"
+      },
+      body: JSON.stringify({
+        status: eventStatus,
+        updated_at: new Date().toISOString()
+      })
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Event status sync failed: ${res.status} ${text}`);
+  }
+}
+
+function buildIsoTimestamp(dateStr, hhmm) {
+  return `${String(dateStr || "")}T${String(hhmm || "00:00")}:00`;
+}
+
+function buildRentalRecord(body) {
+  return {
+    contact_name: str(body.contact_name || body.contactName || body.title || "Admin Booking"),
+    contact_phone: str(body.contact_phone || body.contactPhone),
+    contact_email: str(body.contact_email || body.contactEmail).toLowerCase(),
+    contact_address: str(body.contact_address || body.contactAddress),
+    event_name: str(body.event_name || body.eventName || body.title) || null,
+    event_type: str(body.event_type || body.eventType || "Other") || "Other",
+    event_date: str(body.event_date),
+    event_start_time: str(body.event_start_time || body.eventStartTime || "07:00") || "07:00",
+    event_end_time: str(body.event_end_time || body.eventEndTime || "21:00") || "21:00",
+    estimated_attendance: Math.max(0, Number(body.estimated_attendance ?? body.estimatedAttendance ?? 0) || 0),
+    food_or_drinks: Boolean(body.food_or_drinks ?? body.foodOrDrinks),
+    alcohol: str(body.alcohol || "No") || "No",
+    addon_tables: Boolean(body.addon_tables ?? body.addonTables),
+    addon_chairs: Boolean(body.addon_chairs ?? body.addonChairs),
+    addon_tarp: Boolean(body.addon_tarp ?? body.addonTarp),
+    addon_heater: Boolean(body.addon_heater ?? body.addonHeater),
+    addon_early_setup: Boolean(body.addon_early_setup ?? body.addonEarlySetup),
+    addon_early_day_rental: Boolean(body.addon_early_day_rental ?? body.addonEarlyDayRental),
+    addon_late_cleanup: Boolean(body.addon_late_cleanup ?? body.addonLateCleanup),
+    addon_late_day_rental: Boolean(body.addon_late_day_rental ?? body.addonLateDayRental),
+    estimated_total_cents: Math.max(0, Number(body.estimated_total_cents ?? body.estimatedTotalCents ?? 0) || 0),
+    rental_type: str(body.rental_type || body.rentalType) === "hourly" ? "hourly" : "all_day",
+    rental_hours: str(body.rental_type || body.rentalType) === "hourly"
+      ? Math.min(9, Math.max(1, Number(body.rental_hours ?? body.rentalHours ?? 1) || 1))
+      : null,
+    agreed_to_no_guarantee: true,
+    agreed_to_guidelines: true,
+    rental_status: VALID_STATUSES.includes(body.rental_status || body.rentalStatus)
+      ? (body.rental_status || body.rentalStatus)
+      : "confirmed",
+    admin_notes: typeof body.admin_notes === "string"
+      ? body.admin_notes.trim() || null
+      : typeof body.adminNotes === "string" ? body.adminNotes.trim() || null : null,
+    reviewed_at: new Date().toISOString()
+  };
+}
+
+function buildRentalPatch(body) {
+  const patch = {};
+  const allowedFields = [
+    ["contact_name", body.contact_name ?? body.contactName],
+    ["contact_phone", body.contact_phone ?? body.contactPhone],
+    ["contact_email", body.contact_email ?? body.contactEmail],
+    ["contact_address", body.contact_address ?? body.contactAddress],
+    ["event_name", body.event_name ?? body.eventName],
+    ["event_type", body.event_type ?? body.eventType],
+    ["event_date", body.event_date ?? body.eventDate],
+    ["event_start_time", body.event_start_time ?? body.eventStartTime],
+    ["event_end_time", body.event_end_time ?? body.eventEndTime],
+    ["alcohol", body.alcohol]
+  ];
+
+  allowedFields.forEach(([key, value]) => {
+    if (value !== undefined) patch[key] = key === "contact_email" ? str(value).toLowerCase() : str(value);
+  });
+
+  if (body.estimated_attendance !== undefined || body.estimatedAttendance !== undefined) {
+    patch.estimated_attendance = Math.max(0, Number(body.estimated_attendance ?? body.estimatedAttendance ?? 0) || 0);
+  }
+  if (body.food_or_drinks !== undefined || body.foodOrDrinks !== undefined) patch.food_or_drinks = Boolean(body.food_or_drinks ?? body.foodOrDrinks);
+  if (body.addon_tables !== undefined || body.addonTables !== undefined) patch.addon_tables = Boolean(body.addon_tables ?? body.addonTables);
+  if (body.addon_chairs !== undefined || body.addonChairs !== undefined) patch.addon_chairs = Boolean(body.addon_chairs ?? body.addonChairs);
+  if (body.addon_tarp !== undefined || body.addonTarp !== undefined) patch.addon_tarp = Boolean(body.addon_tarp ?? body.addonTarp);
+  if (body.addon_heater !== undefined || body.addonHeater !== undefined) patch.addon_heater = Boolean(body.addon_heater ?? body.addonHeater);
+  if (body.addon_early_setup !== undefined || body.addonEarlySetup !== undefined) patch.addon_early_setup = Boolean(body.addon_early_setup ?? body.addonEarlySetup);
+  if (body.addon_early_day_rental !== undefined || body.addonEarlyDayRental !== undefined) patch.addon_early_day_rental = Boolean(body.addon_early_day_rental ?? body.addonEarlyDayRental);
+  if (body.addon_late_cleanup !== undefined || body.addonLateCleanup !== undefined) patch.addon_late_cleanup = Boolean(body.addon_late_cleanup ?? body.addonLateCleanup);
+  if (body.addon_late_day_rental !== undefined || body.addonLateDayRental !== undefined) patch.addon_late_day_rental = Boolean(body.addon_late_day_rental ?? body.addonLateDayRental);
+  if (body.estimated_total_cents !== undefined || body.estimatedTotalCents !== undefined) {
+    patch.estimated_total_cents = Math.max(0, Number(body.estimated_total_cents ?? body.estimatedTotalCents ?? 0) || 0);
+  }
+
+  if (body.rental_type !== undefined || body.rentalType !== undefined) {
+    patch.rental_type = str(body.rental_type || body.rentalType) === "hourly" ? "hourly" : "all_day";
+    patch.rental_hours = patch.rental_type === "hourly"
+      ? Math.min(9, Math.max(1, Number(body.rental_hours ?? body.rentalHours ?? 1) || 1))
+      : null;
+  } else if (body.rental_hours !== undefined || body.rentalHours !== undefined) {
+    patch.rental_hours = Math.min(9, Math.max(1, Number(body.rental_hours ?? body.rentalHours ?? 1) || 1));
+  }
+
+  if (body.status !== undefined) patch.rental_status = body.status;
+  if (typeof body.adminNotes === "string" || typeof body.admin_notes === "string") {
+    patch.admin_notes = str(body.adminNotes ?? body.admin_notes) || null;
+  }
+  patch.reviewed_at = new Date().toISOString();
+  return patch;
+}
+
+function str(value) {
+  return String(value || "").trim();
 }
 
 function mapRow(row) {

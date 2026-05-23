@@ -3492,16 +3492,17 @@ const RENTAL_STATUS_LABEL = {
 };
 
 const RENTAL_STATUS_COLOR = {
-  submitted:      "#e7d2a0",
-  pending_review: "#f2994a",
-  confirmed:      "#6fcf97",
-  rejected:       "#eb5757",
-  canceled:       "#8a97a8"
+  submitted:      "#f59e0b",
+  pending_review: "#f97316",
+  confirmed:      "#22c55e",
+  rejected:       "#ef4444",
+  canceled:       "#737373"
 };
 
 async function renderRentalReviewsPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
+  root.classList.add("rental-admin-page");
 
   root.innerHTML = `<p class="feedback-loading">Loading rental requests…</p>`;
 
@@ -3818,22 +3819,25 @@ async function submitRentalStatusChange(id, status, notes, root) {
 // ─────────────────────────────────────────────
 
 const EVENT_COLORS = {
-  rental:        "#e7d2a0",
-  open_gym:      "#6fcf97",
-  maintenance:   "#f2994a",
-  private_event: "#56ccf2",
-  public_event:  "#bb87fc",
-  general:       "#8a97a8"
+  rental:        "#ef3b36",
+  maintenance:   "#f59e0b",
+  rorc:          "#9ca3af"
 };
 
 const EVENT_LABELS = {
   rental:        "Rental",
-  open_gym:      "Open Gym",
   maintenance:   "Maintenance",
-  private_event: "Private Event",
-  public_event:  "Public Event",
-  general:       "General"
+  rorc:          "RORC"
 };
+
+function normalizeEventTypeForUi(type) {
+  const raw = String(type || "").trim();
+  if (Object.prototype.hasOwnProperty.call(EVENT_LABELS, raw)) return raw;
+  if (raw === "open_gym" || raw === "private_event" || raw === "public_event" || raw === "general") {
+    return "rorc";
+  }
+  return "rorc";
+}
 
 let calendarEvents = [];
 let calendarYear   = new Date().getFullYear();
@@ -3842,6 +3846,7 @@ let calendarMonth  = new Date().getMonth(); // 0-based
 async function renderCalendarPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
+  root.classList.add("calendar-admin-page");
   root.innerHTML = `<p class="feedback-loading">Loading calendar…</p>`;
 
   try {
@@ -3868,7 +3873,7 @@ function getRecurringEventsForMonth(year, month) {
       recurring.push({
         id: null, isRecurring: true,
         title: "Open Gym",
-        eventType: "open_gym",
+        eventType: "rorc",
         startAt: `${iso}T18:00:00`,
         endAt:   `${iso}T20:00:00`,
         allDay: false, isPublic: true
@@ -3925,10 +3930,10 @@ function renderCalendarView(root) {
     <h2 class="feedback-title">Calendar</h2>
 
     <div class="cal-toolbar">
-      <button class="rorc-btn rorc-btn-ghost cal-nav" id="calPrev">&#8249;</button>
+      <button class="app-admin-btn app-admin-btn-secondary cal-nav" id="calPrev">&#8249;</button>
       <span class="cal-month-label">${monthName} ${year}</span>
-      <button class="rorc-btn rorc-btn-ghost cal-nav" id="calNext">&#8250;</button>
-      <button class="rorc-btn rorc-btn-accent cal-new-btn" id="calNewEvent">+ New Event</button>
+      <button class="app-admin-btn app-admin-btn-secondary cal-nav" id="calNext">&#8250;</button>
+      <button class="app-admin-btn app-admin-btn-primary cal-new-btn" id="calNewEvent">+ New Event</button>
     </div>
 
     <div class="cal-grid">
@@ -3974,18 +3979,92 @@ function renderCalendarView(root) {
         </label>
         <label class="cal-field-label cal-field-check">
           <input id="calEvPublic" type="checkbox" />
-          Show on public events page
+          Public event (visible on website)
         </label>
         <label class="cal-field-label">Description (optional)
           <textarea id="calEvDesc" class="rorc-input" rows="3" placeholder="Any notes…"></textarea>
         </label>
 
+        <details id="calRentalDetails" class="cal-rental-details" hidden>
+          <summary>Booking details</summary>
+          <div class="cal-rental-fields">
+            <label class="cal-field-label">Contact Name
+              <input id="calRentalContactName" class="rorc-input" type="text" placeholder="Name from call or form" />
+            </label>
+            <div class="cal-field-row">
+              <label class="cal-field-label">Phone
+                <input id="calRentalContactPhone" class="rorc-input" type="tel" />
+              </label>
+              <label class="cal-field-label">Email
+                <input id="calRentalContactEmail" class="rorc-input" type="email" />
+              </label>
+            </div>
+            <label class="cal-field-label">Mailing Address
+              <input id="calRentalContactAddress" class="rorc-input" type="text" />
+            </label>
+            <div class="cal-field-row">
+              <label class="cal-field-label">Rental Category
+                <select id="calRentalEventType" class="rorc-input">
+                  <option>Birthday Party</option>
+                  <option>Private Party</option>
+                  <option>Meeting</option>
+                  <option>Memorial Service</option>
+                  <option>Other</option>
+                </select>
+              </label>
+              <label class="cal-field-label">Attendance
+                <input id="calRentalAttendance" class="rorc-input" type="number" min="0" inputmode="numeric" />
+              </label>
+            </div>
+            <div class="cal-field-row">
+              <label class="cal-field-label">Rental Type
+                <select id="calRentalType" class="rorc-input">
+                  <option value="all_day">All Day</option>
+                  <option value="hourly">Hourly</option>
+                </select>
+              </label>
+              <label class="cal-field-label">Hours
+                <input id="calRentalHours" class="rorc-input" type="number" min="1" max="9" inputmode="numeric" />
+              </label>
+            </div>
+            <div class="cal-field-row">
+              <label class="cal-field-label cal-field-check">
+                <input id="calRentalFood" type="checkbox" />
+                Food or drinks
+              </label>
+              <label class="cal-field-label">Alcohol
+                <select id="calRentalAlcohol" class="rorc-input">
+                  <option>No</option>
+                  <option>Yes</option>
+                  <option>Maybe</option>
+                </select>
+              </label>
+            </div>
+            <div class="cal-rental-addon-grid">
+              <label><input id="calRentalTables" type="checkbox" /> Tables</label>
+              <label><input id="calRentalChairs" type="checkbox" /> Chairs</label>
+              <label><input id="calRentalTarp" type="checkbox" /> Tarp</label>
+              <label><input id="calRentalHeater" type="checkbox" /> Heater</label>
+              <label><input id="calRentalEarlySetup" type="checkbox" /> Early setup</label>
+              <label><input id="calRentalEarlyDay" type="checkbox" /> Extra day early</label>
+              <label><input id="calRentalLateCleanup" type="checkbox" /> Late cleanup</label>
+              <label><input id="calRentalLateDay" type="checkbox" /> Extra day late</label>
+            </div>
+            <label class="cal-field-label">Estimated Total
+              <input id="calRentalTotal" class="rorc-input" type="number" min="0" step="1" inputmode="numeric" />
+            </label>
+            <label class="cal-field-label">Admin Notes
+              <textarea id="calRentalAdminNotes" class="rorc-input" rows="3"></textarea>
+            </label>
+          </div>
+        </details>
+
         <div id="calRentalInfo" class="cal-rental-info" hidden></div>
 
         <div class="cal-modal-actions">
-          <button class="rorc-btn rorc-btn-neutral" id="calModalCancel">Cancel</button>
-          <button class="rorc-btn rorc-btn-accent" id="calModalSave">Save Event</button>
-          <button class="rorc-btn rorc-btn-danger" id="calModalDelete" hidden>Delete</button>
+          <button class="app-admin-btn app-admin-btn-secondary" id="calModalCancel">Cancel</button>
+          <button class="app-admin-btn app-admin-btn-primary" id="calModalSave">Save Event</button>
+          <button class="app-admin-btn app-admin-btn-danger" id="calModalDelete" hidden>Delete</button>
         </div>
       </div>
     </div>
@@ -4024,6 +4103,8 @@ function bindCalendarEvents(root) {
 
   root.querySelector("#calModalSave").addEventListener("click", () => saveCalendarEvent(root));
   root.querySelector("#calModalDelete").addEventListener("click", () => deleteCalendarEvent(root));
+  root.querySelector("#calEvType").addEventListener("change", () => syncCalendarRentalDetailsVisibility(root));
+  root.querySelector("#calRentalType").addEventListener("change", () => setCalendarRentalHoursState(root));
 }
 
 function calendarJumpToDate(dateIso) {
@@ -4039,7 +4120,7 @@ function showCalDayPanel(root, dateIso) {
   const recurringToday = (dow === 2 || dow === 4) ? [{
     id: null, isRecurring: true,
     title: "Open Gym",
-    eventType: "open_gym",
+    eventType: "rorc",
     startAt: `${dateIso}T18:00:00`,
     endAt:   `${dateIso}T20:00:00`,
     allDay: false
@@ -4055,6 +4136,7 @@ function showCalDayPanel(root, dateIso) {
             <strong>${escapeHtml(ev.title)}</strong>
             <span>${ev.allDay ? "All Day" : (ev.startAt.slice(11, 16) + " – " + ev.endAt.slice(11, 16))}</span>
             ${ev.isRecurring ? `<span class="cal-recurring-badge">Recurring</span>` : ""}
+            ${ev.id ? `<span class="cal-day-event-badge">${ev.isPublic ? "Public" : "Private"}</span>` : ""}
             ${ev.eventType === "rental" && ev.rentalRequestId ? `<span class="cal-day-event-badge cal-rental-link" data-rental-id="${escapeAttribute(ev.rentalRequestId)}">View Rental Request →</span>` : ""}
           </div>
           ${ev.id ? `<button class="cal-day-edit-btn" data-ev-id="${ev.id}" title="Edit">✏️</button>` : ""}
@@ -4105,18 +4187,23 @@ function openCalendarModal(root, event, prefillDate) {
 
   errEl.hidden = true;
   modal.dataset.evId = event ? event.id : "";
+  modal.dataset.rentalRequestId = event?.rentalRequestId || "";
+  modal.dataset.rentalLoaded = "";
 
   titleEl.textContent = event ? "Edit Event" : "New Event";
   deleteBtn.hidden    = !event;
 
   root.querySelector("#calEvTitle").value   = event ? event.title : "";
-  root.querySelector("#calEvType").value    = event ? event.eventType : "general";
+  root.querySelector("#calEvType").value    = event ? normalizeEventTypeForUi(event.eventType) : "rorc";
   root.querySelector("#calEvDate").value    = event ? event.startAt.slice(0, 10) : (prefillDate || "");
   root.querySelector("#calEvStart").value   = event ? event.startAt.slice(11, 16) : "";
   root.querySelector("#calEvEnd").value     = event ? event.endAt.slice(11, 16) : "";
   root.querySelector("#calEvAllDay").checked  = event ? event.allDay : false;
   root.querySelector("#calEvPublic").checked  = event ? event.isPublic : false;
   root.querySelector("#calEvDesc").value    = event ? (event.description || "") : "";
+
+  resetCalendarRentalFields(root, event?.title || "");
+  syncCalendarRentalDetailsVisibility(root, !event && normalizeEventTypeForUi(root.querySelector("#calEvType").value) === "rental");
 
   rentalInfo.hidden = true;
   rentalInfo.innerHTML = "";
@@ -4126,6 +4213,143 @@ function openCalendarModal(root, event, prefillDate) {
   }
 
   modal.hidden = false;
+}
+
+function syncCalendarRentalDetailsVisibility(root, shouldOpen = false) {
+  const details = root.querySelector("#calRentalDetails");
+  if (!details) return;
+  const isRental = normalizeEventTypeForUi(root.querySelector("#calEvType")?.value) === "rental";
+  details.hidden = !isRental;
+  if (isRental && shouldOpen) details.open = true;
+  if (!isRental) details.open = false;
+  setCalendarRentalHoursState(root);
+}
+
+function setCalendarRentalHoursState(root) {
+  const rentalType = root.querySelector("#calRentalType")?.value || "all_day";
+  const hoursInput = root.querySelector("#calRentalHours");
+  if (!hoursInput) return;
+  hoursInput.disabled = rentalType !== "hourly";
+  if (rentalType !== "hourly") hoursInput.value = "";
+  if (rentalType === "hourly" && !hoursInput.value) hoursInput.value = "1";
+}
+
+function resetCalendarRentalFields(root, title = "") {
+  const defaults = {
+    calRentalContactName: title,
+    calRentalContactPhone: "",
+    calRentalContactEmail: "",
+    calRentalContactAddress: "",
+    calRentalEventType: "Other",
+    calRentalAttendance: "",
+    calRentalType: "all_day",
+    calRentalHours: "",
+    calRentalAlcohol: "No",
+    calRentalTotal: "",
+    calRentalAdminNotes: ""
+  };
+
+  Object.entries(defaults).forEach(([id, value]) => {
+    const el = root.querySelector(`#${id}`);
+    if (el) el.value = value;
+  });
+
+  [
+    "calRentalFood",
+    "calRentalTables",
+    "calRentalChairs",
+    "calRentalTarp",
+    "calRentalHeater",
+    "calRentalEarlySetup",
+    "calRentalEarlyDay",
+    "calRentalLateCleanup",
+    "calRentalLateDay"
+  ].forEach((id) => {
+    const el = root.querySelector(`#${id}`);
+    if (el) el.checked = false;
+  });
+}
+
+function populateCalendarRentalFields(root, rental) {
+  const values = {
+    calRentalContactName: rental.contactName || "",
+    calRentalContactPhone: rental.contactPhone || "",
+    calRentalContactEmail: rental.contactEmail || "",
+    calRentalContactAddress: rental.contactAddress || "",
+    calRentalEventType: rental.eventType || "Other",
+    calRentalAttendance: rental.estimatedAttendance ?? "",
+    calRentalType: rental.rentalType || "all_day",
+    calRentalHours: rental.rentalHours || "",
+    calRentalAlcohol: rental.alcohol || "No",
+    calRentalTotal: rental.estimatedTotalCents ? String(Math.round(rental.estimatedTotalCents / 100)) : "",
+    calRentalAdminNotes: rental.adminNotes || ""
+  };
+
+  Object.entries(values).forEach(([id, value]) => {
+    const el = root.querySelector(`#${id}`);
+    if (el) el.value = value;
+  });
+
+  const checks = {
+    calRentalFood: rental.foodOrDrinks,
+    calRentalTables: rental.addonTables,
+    calRentalChairs: rental.addonChairs,
+    calRentalTarp: rental.addonTarp,
+    calRentalHeater: rental.addonHeater,
+    calRentalEarlySetup: rental.addonEarlySetup,
+    calRentalEarlyDay: rental.addonEarlyDayRental,
+    calRentalLateCleanup: rental.addonLateCleanup,
+    calRentalLateDay: rental.addonLateDayRental
+  };
+
+  Object.entries(checks).forEach(([id, checked]) => {
+    const el = root.querySelector(`#${id}`);
+    if (el) el.checked = Boolean(checked);
+  });
+
+  setCalendarRentalHoursState(root);
+}
+
+function collectCalendarRentalPayload(root, defaults) {
+  const rentalType = root.querySelector("#calRentalType")?.value || "all_day";
+  const totalDollars = Number(root.querySelector("#calRentalTotal")?.value || 0) || 0;
+  return {
+    title: defaults.title,
+    contact_name: root.querySelector("#calRentalContactName")?.value.trim() || defaults.title || "Admin Booking",
+    contact_phone: root.querySelector("#calRentalContactPhone")?.value.trim() || "",
+    contact_email: root.querySelector("#calRentalContactEmail")?.value.trim() || "",
+    contact_address: root.querySelector("#calRentalContactAddress")?.value.trim() || "",
+    event_name: defaults.title,
+    event_type: root.querySelector("#calRentalEventType")?.value || "Other",
+    event_date: defaults.date,
+    event_start_time: defaults.allDay ? "07:00" : (defaults.start || "07:00"),
+    event_end_time: defaults.allDay ? "21:00" : (defaults.end || "21:00"),
+    estimated_attendance: Number(root.querySelector("#calRentalAttendance")?.value || 0) || 0,
+    food_or_drinks: Boolean(root.querySelector("#calRentalFood")?.checked),
+    alcohol: root.querySelector("#calRentalAlcohol")?.value || "No",
+    rental_type: rentalType,
+    rental_hours: rentalType === "hourly" ? (Number(root.querySelector("#calRentalHours")?.value || 1) || 1) : null,
+    addon_tables: Boolean(root.querySelector("#calRentalTables")?.checked),
+    addon_chairs: Boolean(root.querySelector("#calRentalChairs")?.checked),
+    addon_tarp: Boolean(root.querySelector("#calRentalTarp")?.checked),
+    addon_heater: Boolean(root.querySelector("#calRentalHeater")?.checked),
+    addon_early_setup: Boolean(root.querySelector("#calRentalEarlySetup")?.checked),
+    addon_early_day_rental: Boolean(root.querySelector("#calRentalEarlyDay")?.checked),
+    addon_late_cleanup: Boolean(root.querySelector("#calRentalLateCleanup")?.checked),
+    addon_late_day_rental: Boolean(root.querySelector("#calRentalLateDay")?.checked),
+    estimated_total_cents: Math.max(0, Math.round(totalDollars * 100)),
+    adminNotes: root.querySelector("#calRentalAdminNotes")?.value.trim() || null,
+    rental_status: "confirmed"
+  };
+}
+
+function collectCalendarRentalSchedulePayload(defaults) {
+  return {
+    event_name: defaults.title,
+    event_date: defaults.date,
+    event_start_time: defaults.allDay ? "07:00" : (defaults.start || "07:00"),
+    event_end_time: defaults.allDay ? "21:00" : (defaults.end || "21:00")
+  };
 }
 
 async function loadCalRentalInfo(root, rentalRequestId) {
@@ -4139,6 +4363,8 @@ async function loadCalRentalInfo(root, rentalRequestId) {
     if (!res.ok || !body.success) return;
     const rental = (body.requests || []).find((r) => r.id === rentalRequestId);
     if (!rental) return;
+    populateCalendarRentalFields(root, rental);
+    root.querySelector("#calEventModal").dataset.rentalLoaded = "true";
 
     const addons = [
       rental.addonTables && "Tables",
@@ -4161,7 +4387,7 @@ async function loadCalRentalInfo(root, rentalRequestId) {
       ${addons.length ? `<div class="cal-rental-row"><span class="cal-rental-label">Add-ons</span><span>${escapeHtml(addons.join(", "))}</span></div>` : ""}
       <div class="cal-rental-row"><span class="cal-rental-label">Total</span><span>${totalDollars}</span></div>
       <div class="cal-rental-row"><span class="cal-rental-label">Status</span><span class="cal-rental-status">${escapeHtml(statusLabel)}</span></div>
-      <button class="rorc-btn rorc-btn-ghost cal-rental-goto" data-rental-id="${escapeAttribute(rentalRequestId)}">Go to Rental →</button>
+      <button class="app-admin-btn app-admin-btn-secondary cal-rental-goto" data-rental-id="${escapeAttribute(rentalRequestId)}">Go to Rental →</button>
     `;
     rentalInfo.hidden = false;
 
@@ -4211,20 +4437,20 @@ async function saveCalendarEvent(root) {
     const payload = { title, event_type: type, start_at: startAt, end_at: endAt, all_day: allDay, is_public: isPublic, description: desc || null };
     if (evId) payload.id = evId;
 
-    if (!evId && type === "rental") {
+    if (type === "rental") {
+      const rentalDefaults = { title, date, start, end, allDay };
+      const existingRentalId = modal.dataset.rentalRequestId || "";
+      const rentalPayload = existingRentalId && modal.dataset.rentalLoaded !== "true"
+        ? collectCalendarRentalSchedulePayload(rentalDefaults)
+        : collectCalendarRentalPayload(root, rentalDefaults);
       const rrRes = await fetch("/api/rental-reviews", {
-        method: "POST",
+        method: existingRentalId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          event_date: date,
-          event_start_time: allDay ? "07:00" : (start || "07:00"),
-          event_end_time:   allDay ? "21:00" : (end   || "21:00"),
-          contact_name: title
-        })
+        body: JSON.stringify(existingRentalId ? { id: existingRentalId, ...rentalPayload } : rentalPayload)
       });
       const rrBody = await rrRes.json();
-      if (!rrRes.ok || !rrBody.success) throw new Error(rrBody.error || "Could not create rental record");
-      payload.rental_request_id = rrBody.id;
+      if (!rrRes.ok || !rrBody.success) throw new Error(rrBody.error || "Could not save rental record");
+      payload.rental_request_id = existingRentalId || rrBody.id;
     }
 
     const res  = await fetch("/api/events", {

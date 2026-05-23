@@ -1,8 +1,9 @@
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const VALID_TYPES   = ["rental", "open_gym", "maintenance", "private_event", "public_event", "general"];
+const VALID_TYPES   = ["rental", "maintenance", "rorc"];
 const VALID_STATUSES = ["confirmed", "cancelled"];
+const RENTAL_BLOCKING_TYPES = ["rental", "maintenance"];
 
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -21,10 +22,10 @@ module.exports = async (req, res) => {
       let path;
 
       if (bookedOnly) {
-        // Return booked rental dates for Flatpickr disabling — no auth required
-        path = "events?select=start_at,end_at&event_type=eq.rental&status=eq.confirmed&order=start_at.asc";
+        // Return dates that should block new rentals — no auth required.
+        path = `events?select=start_at,end_at,event_type&event_type=in.(${RENTAL_BLOCKING_TYPES.join(",")})&status=eq.confirmed&order=start_at.asc`;
         const rows = await supabaseRest(path);
-        const dates = rows.map((r) => r.start_at.slice(0, 10));
+        const dates = [...collectBlockedDates(rows)];
         return res.status(200).json({ success: true, dates });
       }
 
@@ -91,6 +92,7 @@ module.exports = async (req, res) => {
     if (fields.all_day     !== undefined) patch.all_day     = Boolean(fields.all_day);
     if (fields.is_public   !== undefined) patch.is_public   = Boolean(fields.is_public);
     if (fields.status      !== undefined && VALID_STATUSES.includes(fields.status)) patch.status = fields.status;
+    if (fields.rental_request_id !== undefined) patch.rental_request_id = fields.rental_request_id || null;
     patch.updated_at = new Date().toISOString();
 
     try {
@@ -180,11 +182,12 @@ function buildInsert(body) {
 
 function mapEvent(row) {
   if (!row) return null;
+  const normalizedType = normalizeEventType(row.event_type);
   return {
     id:               row.id,
     title:            row.title,
     description:      row.description,
-    eventType:        row.event_type,
+    eventType:        normalizedType,
     startAt:          row.start_at,
     endAt:            row.end_at,
     allDay:           row.all_day,
@@ -195,6 +198,33 @@ function mapEvent(row) {
     createdAt:        row.created_at,
     updatedAt:        row.updated_at
   };
+}
+
+function normalizeEventType(value) {
+  const raw = String(value || "").trim();
+  if (VALID_TYPES.includes(raw)) return raw;
+  if (raw === "open_gym" || raw === "private_event" || raw === "public_event" || raw === "general") {
+    return "rorc";
+  }
+  return "rorc";
+}
+
+function collectBlockedDates(rows) {
+  const blocked = new Set();
+  (rows || []).forEach((row) => {
+    const start = new Date(row.start_at);
+    const end = new Date(row.end_at);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
+
+    const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
+    const endDay = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+
+    while (cursor <= endDay) {
+      blocked.add(cursor.toISOString().slice(0, 10));
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+  });
+  return blocked;
 }
 
 // Returns the authed member if admin, null otherwise — never throws
