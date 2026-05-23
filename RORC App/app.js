@@ -18,6 +18,7 @@ const drawerAvatar = document.getElementById("drawerAvatar");
 const drawerUserEmail = document.getElementById("drawerUserEmail");
 const supabaseSettings = window.RORC_SUPABASE_CONFIG || {};
 const STRIPE_FALLBACK_PORTAL = "https://payments.ruthobenchainrc.com/p/login/eVaeWh2tN0vxgSs288";
+const APP_REFRESH_ROUTE_KEY = "rorc-app-refresh-route";
 let supabaseClient = null;
 let currentAuthSession = null;
 let deferredInstallPrompt = null;
@@ -464,6 +465,30 @@ function appUrl() {
 function requestedInitialRoute() {
   const routeName = new URLSearchParams(window.location.search).get("route");
   return routes[routeName] ? routeName : "";
+}
+
+function isReloadNavigation() {
+  const entry = performance.getEntriesByType?.("navigation")?.[0];
+  return entry?.type === "reload";
+}
+
+function storedRefreshRoute() {
+  if (!isReloadNavigation()) return "";
+  try {
+    const routeName = sessionStorage.getItem(APP_REFRESH_ROUTE_KEY) || "";
+    return routes[routeName] ? routeName : "";
+  } catch {
+    return "";
+  }
+}
+
+function rememberRefreshRoute(routeName) {
+  if (!routes[routeName]) return;
+  try {
+    sessionStorage.setItem(APP_REFRESH_ROUTE_KEY, routeName);
+  } catch {
+    // Session storage can be unavailable in some private browsing contexts.
+  }
 }
 
 function dashboardUrl() {
@@ -5281,7 +5306,7 @@ async function hydrateFromSupabase() {
     window.RORC_SUPABASE.cleanAuthUrl?.();
   }
 
-  const initialRoute = requestedInitialRoute();
+  const initialRoute = requestedInitialRoute() || storedRefreshRoute();
   if (initialRoute) {
     appState.currentRoute = initialRoute;
   }
@@ -9730,6 +9755,9 @@ async function handleLogout() {
   stopTimesheetRealtime();
   stopAccountTypeRealtime();
   stopHeaterEntriesRealtime();
+  try {
+    sessionStorage.removeItem(APP_REFRESH_ROUTE_KEY);
+  } catch {}
   updateNavigationVisibility();
   showAuthGate("Signed out.", "success");
 }
@@ -9777,6 +9805,7 @@ function render(routeName) {
 
   closeDrawer();
   appState.currentRoute = resolvedRouteName;
+  rememberRefreshRoute(resolvedRouteName);
 
   const backRoute = Boolean(route.formRoute || route.detailRoute);
   const activeRouteName = resolvedRouteName === "accountDetails" ? appState.detailReturnRoute : resolvedRouteName;
