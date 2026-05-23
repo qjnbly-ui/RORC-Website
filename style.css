@@ -1435,6 +1435,14 @@ body.interior-page {
   color: #c2cad6;
 }
 
+.rental-label-hint {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: #7a8a9a;
+  margin-left: 6px;
+}
+
 .rental-input {
   width: 100%;
   padding: 10px 12px;

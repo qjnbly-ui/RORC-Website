@@ -188,11 +188,11 @@
                     <input class="rental-input" type="date" name="eventDate" required />
                   </label>
                   <label class="rental-label">
-                    <span>Event Start Time</span>
+                    <span>Event Start Time <small class="rental-label-hint">7:00 AM – 9:00 PM</small></span>
                     <input class="rental-input" type="time" name="eventStartTime" required />
                   </label>
                   <label class="rental-label">
-                    <span>Event End Time</span>
+                    <span>Event End Time <small class="rental-label-hint">7:00 AM – 9:00 PM</small></span>
                     <input class="rental-input" type="time" name="eventEndTime" required />
                   </label>
                   <label class="rental-label">
@@ -746,7 +746,9 @@
       noCalendar: true,
       dateFormat: "H:i",
       time_24hr: false,
-      disableMobile: true
+      disableMobile: true,
+      minTime: "07:00",
+      maxTime: "21:00"
     };
     flatpickr('input[name="eventStartTime"]', timeCfg);
     flatpickr('input[name="eventEndTime"]', timeCfg);
