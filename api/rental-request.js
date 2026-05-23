@@ -1,13 +1,13 @@
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// Email notification via Resend (optional — all three vars must be set to send)
-// RESEND_API_KEY  — API key from resend.com
+// Email notification via Resend (optional — RESEND_API_KEY + RORC_NOTIFY_EMAIL must be set to send)
+// RESEND_API_KEY    — API key from resend.com
 // RORC_NOTIFY_EMAIL — admin address to receive notifications (e.g. info@rorcoregon.com)
-// RORC_FROM_EMAIL  — verified Resend sender address (e.g. rentals@rorcoregon.com)
+// RESEND_FROM_EMAIL — verified Resend sender (defaults to "RORC App <no-reply@ruthobenchainrc.com>")
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RORC_NOTIFY_EMAIL = process.env.RORC_NOTIFY_EMAIL;
-const RORC_FROM_EMAIL = process.env.RORC_FROM_EMAIL;
+const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@ruthobenchainrc.com>";
 
 const VALID_EVENT_TYPES = ["Birthday Party", "Private Party", "Meeting", "Memorial Service", "Other"];
 const VALID_ALCOHOL_VALUES = ["Yes", "No", "Maybe"];
@@ -59,7 +59,7 @@ module.exports = async (req, res) => {
     const savedRecord = rows[0];
 
     // Fire-and-forget email — never block or fail the response
-    sendNotificationEmail(savedRecord, body).catch((err) => {
+    sendNotificationEmail(savedRecord).catch((err) => {
       console.error("Rental notification email failed:", err);
     });
 
@@ -130,8 +130,8 @@ function str(value) {
   return String(value || "").trim();
 }
 
-async function sendNotificationEmail(record, body) {
-  if (!RESEND_API_KEY || !RORC_NOTIFY_EMAIL || !RORC_FROM_EMAIL) return;
+async function sendNotificationEmail(record) {
+  if (!RESEND_API_KEY || !RORC_NOTIFY_EMAIL) return;
 
   const totalDollars = ((record?.estimated_total_cents || 0) / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
 
@@ -146,24 +146,24 @@ async function sendNotificationEmail(record, body) {
     record?.addon_late_day_rental && "Extra Day — Late ($100)"
   ].filter(Boolean);
 
-  const html = `
-<h2 style="margin:0 0 16px;font-family:sans-serif;">New Rental Request</h2>
-<table style="border-collapse:collapse;font-family:sans-serif;font-size:14px;width:100%;max-width:560px;">
-  <tr><td style="padding:6px 12px 6px 0;color:#666;white-space:nowrap;">Name</td><td style="padding:6px 0;">${esc(record?.contact_name)}</td></tr>
-  <tr><td style="padding:6px 12px 6px 0;color:#666;">Phone</td><td style="padding:6px 0;">${esc(record?.contact_phone)}</td></tr>
-  <tr><td style="padding:6px 12px 6px 0;color:#666;">Email</td><td style="padding:6px 0;">${esc(record?.contact_email)}</td></tr>
-  <tr><td style="padding:6px 12px 6px 0;color:#666;">Address</td><td style="padding:6px 0;">${esc(record?.contact_address)}</td></tr>
-  <tr><td colspan="2" style="padding:14px 0 6px;border-top:1px solid #eee;font-weight:600;">Event Details</td></tr>
-  <tr><td style="padding:6px 12px 6px 0;color:#666;">Type</td><td style="padding:6px 0;">${esc(record?.event_type)}</td></tr>
-  <tr><td style="padding:6px 12px 6px 0;color:#666;">Date</td><td style="padding:6px 0;">${esc(record?.event_date)}</td></tr>
-  <tr><td style="padding:6px 12px 6px 0;color:#666;">Time</td><td style="padding:6px 0;">${esc(record?.event_start_time)} – ${esc(record?.event_end_time)}</td></tr>
-  <tr><td style="padding:6px 12px 6px 0;color:#666;">Attendance</td><td style="padding:6px 0;">${esc(String(record?.estimated_attendance || ""))}</td></tr>
-  <tr><td style="padding:6px 12px 6px 0;color:#666;">Food/Drinks</td><td style="padding:6px 0;">${record?.food_or_drinks ? "Yes" : "No"}</td></tr>
-  <tr><td style="padding:6px 12px 6px 0;color:#666;">Alcohol</td><td style="padding:6px 0;">${esc(record?.alcohol)}</td></tr>
-  ${addons.length ? `<tr><td style="padding:6px 12px 6px 0;color:#666;vertical-align:top;">Add-Ons</td><td style="padding:6px 0;">${addons.map(esc).join("<br />")}</td></tr>` : ""}
-  <tr><td style="padding:14px 12px 6px 0;border-top:1px solid #eee;color:#666;font-weight:600;">Est. Total</td><td style="padding:14px 0 6px;font-weight:600;">${totalDollars}</td></tr>
+  const bodyHtml = `
+<p style="margin:0 0 20px;color:#ccc;font-size:15px;">A new facility rental request has been submitted and is waiting for review.</p>
+<table role="presentation" style="width:100%;border-collapse:collapse;font-size:14px;color:#f5f5f5;">
+  <tr><td style="padding:6px 12px 6px 0;color:#888;white-space:nowrap;">Name</td><td style="padding:6px 0;">${esc(record?.contact_name)}</td></tr>
+  <tr><td style="padding:6px 12px 6px 0;color:#888;">Phone</td><td style="padding:6px 0;">${esc(record?.contact_phone)}</td></tr>
+  <tr><td style="padding:6px 12px 6px 0;color:#888;">Email</td><td style="padding:6px 0;">${esc(record?.contact_email)}</td></tr>
+  <tr><td style="padding:6px 12px 6px 0;color:#888;">Address</td><td style="padding:6px 0;">${esc(record?.contact_address)}</td></tr>
+  <tr><td colspan="2" style="padding:18px 0 8px;border-top:1px solid #333;font-weight:600;color:#fff;">Event Details</td></tr>
+  <tr><td style="padding:6px 12px 6px 0;color:#888;">Type</td><td style="padding:6px 0;">${esc(record?.event_type)}</td></tr>
+  <tr><td style="padding:6px 12px 6px 0;color:#888;">Date</td><td style="padding:6px 0;">${esc(record?.event_date)}</td></tr>
+  <tr><td style="padding:6px 12px 6px 0;color:#888;">Time</td><td style="padding:6px 0;">${esc(record?.event_start_time)} – ${esc(record?.event_end_time)}</td></tr>
+  <tr><td style="padding:6px 12px 6px 0;color:#888;">Attendance</td><td style="padding:6px 0;">${esc(String(record?.estimated_attendance || ""))}</td></tr>
+  <tr><td style="padding:6px 12px 6px 0;color:#888;">Food/Drinks</td><td style="padding:6px 0;">${record?.food_or_drinks ? "Yes" : "No"}</td></tr>
+  <tr><td style="padding:6px 12px 6px 0;color:#888;">Alcohol</td><td style="padding:6px 0;">${esc(record?.alcohol)}</td></tr>
+  ${addons.length ? `<tr><td style="padding:6px 12px 6px 0;color:#888;vertical-align:top;">Add-Ons</td><td style="padding:6px 0;">${addons.map(esc).join("<br>")}</td></tr>` : ""}
+  <tr><td style="padding:18px 12px 8px 0;border-top:1px solid #333;color:#888;font-weight:600;">Est. Total</td><td style="padding:18px 0 8px;font-weight:600;color:#fff;">${esc(totalDollars)}</td></tr>
 </table>
-<p style="margin:20px 0 0;font-family:sans-serif;font-size:13px;color:#888;">Review this request in the RORC app under Rentals.</p>
+<p style="margin:24px 0 0;color:#888;font-size:13px;">Review this request in the RORC app under <strong style="color:#ccc;">Rentals</strong>.</p>
 `;
 
   await fetch("https://api.resend.com/emails", {
@@ -173,14 +173,46 @@ async function sendNotificationEmail(record, body) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      from: RORC_FROM_EMAIL,
+      from: RESEND_FROM_EMAIL,
       to: [RORC_NOTIFY_EMAIL],
       subject: `New Rental Request — ${record?.event_type || "Event"} on ${record?.event_date || "TBD"}`,
-      html
+      html: buildEmailTemplate({ title: "New Rental Request", bodyHtml })
     })
   });
 }
 
 function esc(value) {
   return String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function buildEmailTemplate({ title, bodyHtml }) {
+  return `
+    <div style="font-family:Arial,sans-serif;background:#111;color:#f5f5f5;padding:28px;line-height:1.55;text-align:center;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#1b1b1b;border:1px solid #333;border-radius:14px;overflow:hidden;text-align:center;">
+        <tr>
+          <td style="padding:28px 28px 16px;border-bottom:1px solid #333;text-align:center;">
+            <h2 style="margin:0;color:#fff;font-size:32px;line-height:1.15;text-align:center;">${title}</h2>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:20px 28px;text-align:left;">
+            ${bodyHtml}
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:24px 28px;border-top:1px solid #333;color:#888;font-size:13px;line-height:1.6;text-align:center;">
+            <p style="margin:0 0 8px;text-align:center;">&copy; 2026 Ruth Obenchain Recreation Center</p>
+            <p style="margin:0 0 8px;text-align:center;">
+              <a href="https://ruthobenchainrc.com/support/" style="color:#bbb;text-decoration:none;">Support</a>
+              &nbsp;|&nbsp;
+              <a href="https://ruthobenchainrc.com/privacy-policy/" style="color:#bbb;text-decoration:none;">Privacy Policy</a>
+              &nbsp;|&nbsp;
+              <a href="https://ruthobenchainrc.com/terms-of-service/" style="color:#bbb;text-decoration:none;">Terms of Service</a>
+            </p>
+            <p style="margin:0;text-align:center;">Operated by Bly Community Action Team<br />Designed &amp; Built by N3XRA</p>
+          </td>
+        </tr>
+      </table>
+    </div>
+  `;
 }
