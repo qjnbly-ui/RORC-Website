@@ -2715,6 +2715,11 @@ h1 {
   color: #f87171;
 }
 
+.heater-state-action.is-pending {
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
 .contract-review-actions {
   justify-content: flex-end;
   margin-top: 12px;
@@ -4575,6 +4580,11 @@ textarea:focus-visible,
   margin-top: 14px;
 }
 
+.rental-record-list .rental-card-footer {
+  grid-column: 1 / -1;
+  margin-top: -4px;
+}
+
 .rental-card-timestamp {
   font-size: 11.5px;
   color: #555e6b;
@@ -4585,6 +4595,11 @@ textarea:focus-visible,
   margin-top: 16px;
   padding-top: 14px;
   border-top: 1px solid rgba(255,255,255,0.07);
+}
+
+.rental-record-list .rental-card-actions {
+  grid-column: 1 / -1;
+  margin-top: 0;
 }
 
 .rental-card-btn-row {
@@ -5137,6 +5152,40 @@ textarea:focus-visible,
   padding: 16px;
 }
 
+.rental-list-card {
+  padding-bottom: 8px;
+  padding-top: 8px;
+}
+
+.rental-record-list .rental-card {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 16px 0;
+}
+
+.rental-record-list .rental-card:first-child {
+  padding-top: 8px;
+}
+
+.rental-record-list .rental-card:last-child {
+  padding-bottom: 8px;
+}
+
+.rental-record-type {
+  background: #242424;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: var(--muted);
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  margin-right: 8px;
+  padding: 2px 7px;
+  text-transform: uppercase;
+}
+
 .rental-card[data-status="submitted"] { --status-color: #f59e0b; }
 .rental-card[data-status="pending_review"] { --status-color: #f97316; }
 .rental-card[data-status="confirmed"] { --status-color: #22c55e; }
@@ -5240,6 +5289,18 @@ textarea:focus-visible,
 
 .rental-action-textarea:focus {
   border-color: var(--accent);
+}
+
+.rental-record-list .rental-card {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 16px 0;
+}
+
+.rental-record-list .rental-card-footer,
+.rental-record-list .rental-card-actions {
+  grid-column: 1 / -1;
 }
 
 @media (max-width: 640px) {

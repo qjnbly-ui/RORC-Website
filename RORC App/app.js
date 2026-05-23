@@ -3569,24 +3569,47 @@ function renderRentalPipeline(root) {
   ];
 
   root.innerHTML = `
-    <p class="feedback-eyebrow">Facility Rentals</p>
-    <h2 class="feedback-title">Rental Requests</h2>
+    <section class="live-record-page rental-admin-shell">
+      <header class="account-page-heading">
+        <div>
+          <p class="eyebrow">Facility Rentals</p>
+          <h2>Rentals</h2>
+        </div>
+        <div class="account-summary-strip">
+          <span><strong>${action.length}</strong> needs action</span>
+          <span><strong>${confirmed.length}</strong> confirmed</span>
+        </div>
+      </header>
 
-    <div class="rental-filter-tabs" role="tablist">
-      ${tabs.map((t) => `
-        <button class="rental-filter-tab${rentalActiveFilter === t.key ? " is-active" : ""}"
-                data-filter="${escapeAttribute(t.key)}" role="tab"
-                aria-selected="${rentalActiveFilter === t.key}">
-          ${escapeHtml(t.label)}
-          ${t.count ? `<span class="rental-filter-count">${t.count}</span>` : ""}
-        </button>`).join("")}
-    </div>
+      <div class="detail-card">
+        <div class="rental-filter-tabs master-logs-tabs" role="tablist" aria-label="Rental request filters">
+          ${tabs.map((t) => `
+            <button class="rental-filter-tab master-logs-tab${rentalActiveFilter === t.key ? " is-active" : ""}"
+                    data-filter="${escapeAttribute(t.key)}" role="tab"
+                    aria-selected="${rentalActiveFilter === t.key}" type="button">
+              ${escapeHtml(t.label)}
+              ${t.count ? `<span class="rental-filter-count">${t.count}</span>` : ""}
+            </button>`).join("")}
+        </div>
+      </div>
 
-    <div id="rental-cards-list" class="rental-cards">
-      ${filtered.length
-        ? filtered.map((r) => buildRentalCard(r)).join("")
-        : `<div class="rental-empty">No ${rentalActiveFilter === "all" ? "" : rentalActiveFilter + " "}requests.</div>`}
-    </div>
+      ${filtered.length ? `
+        <div id="rental-cards-list" class="detail-card rental-list-card">
+          <ol class="record-list heater-record-list rental-record-list">
+            ${filtered.map((r) => buildRentalCard(r)).join("")}
+          </ol>
+        </div>
+      ` : `
+        <section id="rental-cards-list" class="empty-state">
+          <p>No ${rentalActiveFilter === "all" ? "" : rentalActiveFilter + " "}requests.</p>
+        </section>
+      `}
+
+      <button class="heater-fab rental-fab" type="button" aria-label="Create new rental">
+        <span class="heater-fab-label">New</span>
+        <span class="heater-fab-icon" aria-hidden="true">+</span>
+      </button>
+    </section>
   `;
 
   // Filter tabs
@@ -3611,6 +3634,11 @@ function renderRentalPipeline(root) {
     });
   });
 
+  root.querySelector(".rental-fab")?.addEventListener("click", () => {
+    pendingCalendarRentalCreate = true;
+    render("calendar");
+  });
+
   // Scroll to highlighted request if coming from calendar
   if (highlightRentalId) {
     const card = root.querySelector(`[data-rental-id="${highlightRentalId}"]`);
@@ -3626,6 +3654,13 @@ function buildRentalCard(r) {
   const status      = r.rentalStatus || "submitted";
   const statusLabel = RENTAL_STATUS_LABEL[status] || status;
   const statusColor = RENTAL_STATUS_COLOR[status] || "#8a97a8";
+  const statusClass = status === "confirmed"
+    ? "paid"
+    : status === "rejected"
+      ? "overdue"
+      : status === "canceled"
+        ? "complete"
+        : "pending";
 
   const totalDollars = r.estimatedTotalCents
     ? `$${(r.estimatedTotalCents / 100).toLocaleString("en-US", { minimumFractionDigits: 0 })}`
@@ -3676,84 +3711,38 @@ function buildRentalCard(r) {
     </div>
   ` : "";
 
+  const meta = [
+    eventDate,
+    timeRange,
+    r.contactName || "",
+    totalDollars || ""
+  ].filter(Boolean).join(" · ");
+
+  const messageParts = [
+    r.contactPhone ? `Phone: ${r.contactPhone}` : "",
+    r.contactEmail ? `Email: ${r.contactEmail}` : "",
+    r.estimatedAttendance ? `Attendance: ${r.estimatedAttendance}` : "",
+    `Rental: ${rentalTypeLabel}`,
+    r.alcohol ? `Alcohol: ${r.alcohol}` : "",
+    addons.length ? `Add-ons: ${addons.join(", ")}` : "",
+    r.adminNotes ? `Notes: ${r.adminNotes}` : ""
+  ].filter(Boolean);
+
   return `
-    <article class="rental-card" data-rental-id="${escapeAttribute(r.id)}" data-status="${escapeAttribute(status)}">
-
-      <div class="rental-card-head">
-        <span class="rental-card-type-badge">${escapeHtml(r.eventType || "Event")}</span>
-        <span class="rental-card-status-pill" style="--status-color:${statusColor}">${escapeHtml(statusLabel)}</span>
-      </div>
-
-      <h3 class="rental-card-title">${escapeHtml(r.eventName || r.eventType || "Rental Request")}</h3>
-      <p class="rental-card-contact-name">${escapeHtml(r.contactName || "")}</p>
-
-      <div class="rental-card-divider"></div>
-
-      <dl class="rental-card-grid">
-        <div class="rental-card-field">
-          <dt>Date</dt>
-          <dd>${escapeHtml(eventDate)}</dd>
-        </div>
-        ${timeRange ? `
-        <div class="rental-card-field">
-          <dt>Time</dt>
-          <dd>${escapeHtml(timeRange)}</dd>
-        </div>` : ""}
-        <div class="rental-card-field">
-          <dt>Attendance</dt>
-          <dd>${r.estimatedAttendance ? `${r.estimatedAttendance} guests` : "—"}</dd>
-        </div>
-        <div class="rental-card-field">
-          <dt>Rental</dt>
-          <dd>
-            <span class="rental-card-pill">${escapeHtml(rentalTypeLabel)}</span>
-          </dd>
-        </div>
-        <div class="rental-card-field">
-          <dt>Est. Total</dt>
-          <dd class="rental-card-total">${escapeHtml(totalDollars || "—")}</dd>
-        </div>
-        <div class="rental-card-field">
-          <dt>Alcohol</dt>
-          <dd>${escapeHtml(r.alcohol || "No")}</dd>
-        </div>
-      </dl>
-
-      ${addons.length ? `
-      <div class="rental-card-addons">
-        ${addons.map((a) => `<span class="rental-card-addon-chip">${escapeHtml(a)}</span>`).join("")}
-      </div>` : ""}
-
-      <div class="rental-card-divider"></div>
-
-      <dl class="rental-card-contact">
-        <div class="rental-card-contact-row">
-          <dt>Phone</dt><dd><a href="tel:${escapeAttribute(r.contactPhone || "")}">${escapeHtml(r.contactPhone || "—")}</a></dd>
-        </div>
-        <div class="rental-card-contact-row">
-          <dt>Email</dt><dd><a href="mailto:${escapeAttribute(r.contactEmail || "")}">${escapeHtml(r.contactEmail || "—")}</a></dd>
-        </div>
-        <div class="rental-card-contact-row">
-          <dt>Address</dt><dd>${escapeHtml(r.contactAddress || "—")}</dd>
-        </div>
-        <div class="rental-card-contact-row">
-          <dt>Food / Drinks</dt><dd>${r.foodOrDrinks ? "Yes" : "No"}</dd>
-        </div>
-      </dl>
-
-      ${r.adminNotes ? `
-      <div class="rental-card-notes">
-        <span class="rental-card-notes-label">Admin Notes</span>
-        <p class="rental-card-notes-text">${escapeHtml(r.adminNotes)}</p>
-      </div>` : ""}
-
+    <li class="rental-card" data-rental-id="${escapeAttribute(r.id)}" data-status="${escapeAttribute(status)}" style="--status-color:${statusColor}">
+      <strong class="heater-record-event">${escapeHtml(r.eventName || r.eventType || "Rental Request")}</strong>
+      <span class="heater-record-meta">${escapeHtml(meta)}</span>
+      <button class="heater-state-action is-${escapeAttribute(statusClass)}" type="button" disabled>${escapeHtml(statusLabel)}</button>
+      <p class="heater-record-message">
+        <span class="rental-record-type">${escapeHtml(r.eventType || "Event")}</span>
+        ${escapeHtml(messageParts.join(" · ") || "No booking details yet.")}
+      </p>
       <div class="rental-card-footer">
         <span class="rental-card-timestamp">Submitted ${formatShortDateTime(r.createdAt)}</span>
         ${r.reviewedAt ? `<span class="rental-card-timestamp">Reviewed ${formatShortDateTime(r.reviewedAt)}</span>` : ""}
       </div>
-
       ${actionsHtml}
-    </article>
+    </li>
   `;
 }
 
@@ -3867,6 +3856,7 @@ function normalizeEventTypeForUi(type) {
 let calendarEvents = [];
 let calendarYear   = new Date().getFullYear();
 let calendarMonth  = new Date().getMonth(); // 0-based
+let pendingCalendarRentalCreate = false;
 
 async function renderCalendarPage() {
   const root = document.getElementById("feedbackContent");
@@ -3884,6 +3874,10 @@ async function renderCalendarPage() {
     if (!res.ok || !body.success) throw new Error(body.error || "Could not load events");
     calendarEvents = body.events || [];
     renderCalendarView(root);
+    if (pendingCalendarRentalCreate) {
+      pendingCalendarRentalCreate = false;
+      openNewRentalCalendarModal(root);
+    }
   } catch (err) {
     root.innerHTML = `<p class="feedback-empty">Could not load calendar: ${escapeHtml(err.message)}</p>`;
   }
@@ -4239,6 +4233,12 @@ function openCalendarModal(root, event, prefillDate) {
   }
 
   modal.hidden = false;
+}
+
+function openNewRentalCalendarModal(root) {
+  openCalendarModal(root, null, null);
+  root.querySelector("#calEvType").value = "rental";
+  syncCalendarRentalDetailsVisibility(root, true);
 }
 
 function syncCalendarRentalDetailsVisibility(root, shouldOpen = false) {
@@ -9835,6 +9835,10 @@ function render(routeName) {
   populateGuestSignIn();
   bindMemberPickers();
   bindRouteActions();
+}
+
+function navigateTo(routeName) {
+  render(routeName);
 }
 
 navItems.forEach((item) => {
