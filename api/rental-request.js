@@ -78,6 +78,7 @@ function validate(body) {
   if (!str(body.contactEmail) || !body.contactEmail.includes("@")) errors.push("A valid email address is required.");
   if (!str(body.contactAddress)) errors.push("Mailing address is required.");
 
+  if (!str(body.eventName)) errors.push("Event name is required.");
   if (!VALID_EVENT_TYPES.includes(str(body.eventType))) errors.push("A valid event type is required.");
   if (!str(body.eventDate) || isNaN(Date.parse(body.eventDate))) errors.push("A valid event date is required.");
   if (!str(body.eventStartTime)) errors.push("Event start time is required.");
@@ -92,6 +93,13 @@ function validate(body) {
   if (body.agreedToNoGuarantee !== true) errors.push("Please acknowledge the booking terms.");
   if (body.agreedToGuidelines !== true) errors.push("Please agree to the RORC rental guidelines.");
 
+  const rentalType = str(body.rentalType) || "all_day";
+  if (!["all_day", "hourly"].includes(rentalType)) errors.push("Invalid rental type.");
+  if (rentalType === "hourly") {
+    const hours = Number(body.rentalHours);
+    if (!Number.isInteger(hours) || hours < 1 || hours > 9) errors.push("Number of hours must be between 1 and 9.");
+  }
+
   return errors;
 }
 
@@ -102,6 +110,7 @@ function buildRecord(body) {
     contact_email: str(body.contactEmail).toLowerCase(),
     contact_address: str(body.contactAddress),
 
+    event_name: str(body.eventName).slice(0, 120),
     event_type: str(body.eventType),
     event_date: str(body.eventDate),
     event_start_time: str(body.eventStartTime),
@@ -120,6 +129,9 @@ function buildRecord(body) {
     addon_late_day_rental: body.addonLateDayRental === true,
 
     estimated_total_cents: Math.max(0, Number(body.estimatedTotalCents) || 0),
+
+    rental_type: ["all_day", "hourly"].includes(str(body.rentalType)) ? str(body.rentalType) : "all_day",
+    rental_hours: str(body.rentalType) === "hourly" ? Math.min(9, Math.max(1, Number(body.rentalHours) || 1)) : null,
 
     agreed_to_no_guarantee: true,
     agreed_to_guidelines: true
@@ -146,6 +158,10 @@ async function sendNotificationEmail(record) {
     record?.addon_late_day_rental && "Extra Day — Late ($100)"
   ].filter(Boolean);
 
+  const rentalTypeLabel = record?.rental_type === "hourly"
+    ? `By the Hour (${record?.rental_hours || 1} hr${record?.rental_hours !== 1 ? "s" : ""})`
+    : "All Day (7 AM – 9 PM)";
+
   const bodyHtml = `
 <p style="margin:0 0 20px;color:#ccc;font-size:15px;">A new facility rental request has been submitted and is waiting for review.</p>
 <table role="presentation" style="width:100%;border-collapse:collapse;font-size:14px;color:#f5f5f5;">
@@ -154,7 +170,9 @@ async function sendNotificationEmail(record) {
   <tr><td style="padding:6px 12px 6px 0;color:#888;">Email</td><td style="padding:6px 0;">${esc(record?.contact_email)}</td></tr>
   <tr><td style="padding:6px 12px 6px 0;color:#888;">Address</td><td style="padding:6px 0;">${esc(record?.contact_address)}</td></tr>
   <tr><td colspan="2" style="padding:18px 0 8px;border-top:1px solid #333;font-weight:600;color:#fff;">Event Details</td></tr>
+  <tr><td style="padding:6px 12px 6px 0;color:#888;">Event Name</td><td style="padding:6px 0;">${esc(record?.event_name)}</td></tr>
   <tr><td style="padding:6px 12px 6px 0;color:#888;">Type</td><td style="padding:6px 0;">${esc(record?.event_type)}</td></tr>
+  <tr><td style="padding:6px 12px 6px 0;color:#888;">Rental</td><td style="padding:6px 0;">${esc(rentalTypeLabel)}</td></tr>
   <tr><td style="padding:6px 12px 6px 0;color:#888;">Date</td><td style="padding:6px 0;">${esc(record?.event_date)}</td></tr>
   <tr><td style="padding:6px 12px 6px 0;color:#888;">Time</td><td style="padding:6px 0;">${esc(record?.event_start_time)} – ${esc(record?.event_end_time)}</td></tr>
   <tr><td style="padding:6px 12px 6px 0;color:#888;">Attendance</td><td style="padding:6px 0;">${esc(String(record?.estimated_attendance || ""))}</td></tr>

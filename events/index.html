@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Events | RORC</title>
+  <link rel="stylesheet" href="../style.css" />
+  <script src="/scripts/rorc-auth-nav.js" defer></script>
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-EGC30XZVXV"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-EGC30XZVXV');
+  </script>
+</head>
+<body class="interior-page">
+  <div class="site-menu">
+    <input type="checkbox" id="site-menu-toggle" class="site-menu-toggle" />
+    <div class="site-menu-bar">
+      <a class="site-menu-brand" href="/">RORC</a>
+      <div class="site-menu-actions">
+        <a class="site-menu-login" href="/membership-login/">Login</a>
+        <label class="site-menu-button" for="site-menu-toggle">Menu</label>
+      </div>
+    </div>
+    <label class="site-menu-backdrop" for="site-menu-toggle" aria-hidden="true"></label>
+    <div class="site-menu-panel" role="dialog" aria-label="Site menu">
+      <label class="site-menu-close" for="site-menu-toggle">Close</label>
+      <div>
+        <nav class="site-menu-links" aria-label="Site">
+          <a href="/">Home</a>
+          <a href="/about-rorc/">About</a>
+          <a href="/memberships/">Memberships</a>
+          <a href="/rentals/">Rentals</a>
+          <a href="/sponsors/">Sponsors</a>
+          <a href="/projects/">Projects</a>
+          <a href="/news-updates/">News & Updates</a>
+          <a href="/events/">Events</a>
+        </nav>
+      </div>
+      <div class="site-menu-legal" aria-label="Legal">
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </div>
+    </div>
+  </div>
+
+  <main class="page-content">
+    <section class="page-hero">
+      <p class="page-kicker">Ruth Obenchain Recreation Center</p>
+      <h1>Upcoming Events</h1>
+      <p class="page-lead">Open gym nights, community events, and facility programming at RORC.</p>
+    </section>
+
+    <section class="rorc-card" style="margin-top: 22px;">
+      <div id="events-loading" class="events-state">Loading events…</div>
+      <div id="events-empty"   class="events-state" hidden>No upcoming events scheduled. Check back soon.</div>
+      <div id="events-error"   class="events-state events-error" hidden>Could not load events. Please try again later.</div>
+      <ul id="events-list" class="events-list" hidden></ul>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <div>© 2026 Ruth Obenchain Recreation Center</div>
+      <div class="site-footer-links">
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </div>
+      <div>Operated by Bly Community Action Team</div>
+      <div>Designed &amp; Built by <a href="https://n3xra.com"><strong>N3XRA</strong></a></div>
+    </div>
+  </footer>
+
+  <script>
+    const EVENT_LABELS = {
+      rental:        "Rental",
+      open_gym:      "Open Gym",
+      maintenance:   "Maintenance",
+      private_event: "Private Event",
+      public_event:  "Public Event",
+      general:       "General"
+    };
+
+    const EVENT_COLORS = {
+      rental:        "#e7d2a0",
+      open_gym:      "#6fcf97",
+      maintenance:   "#f2994a",
+      private_event: "#56ccf2",
+      public_event:  "#bb87fc",
+      general:       "#8a97a8"
+    };
+
+    async function loadEvents() {
+      const loading = document.getElementById("events-loading");
+      const empty   = document.getElementById("events-empty");
+      const error   = document.getElementById("events-error");
+      const list    = document.getElementById("events-list");
+
+      try {
+        const res  = await fetch("/api/events", { cache: "no-store" });
+        const body = await res.json();
+        if (!res.ok || !body.success) throw new Error(body.error || "Failed");
+
+        const now    = new Date();
+        const events = (body.events || []).filter((ev) => new Date(ev.endAt) >= now);
+
+        loading.hidden = true;
+
+        if (!events.length) {
+          empty.hidden = false;
+          return;
+        }
+
+        list.hidden = false;
+        list.innerHTML = events.map((ev) => {
+          const start   = new Date(ev.startAt);
+          const end     = new Date(ev.endAt);
+          const color   = EVENT_COLORS[ev.eventType] || "#8a97a8";
+          const label   = EVENT_LABELS[ev.eventType] || ev.eventType;
+
+          const dateStr = start.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+          const timeStr = ev.allDay
+            ? "All Day"
+            : start.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+              + " – "
+              + end.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+
+          return `
+            <li class="events-item">
+              <div class="events-item-accent" style="background:${color}"></div>
+              <div class="events-item-body">
+                <div class="events-item-header">
+                  <span class="events-item-type" style="color:${color}">${label}</span>
+                </div>
+                <strong class="events-item-title">${esc(ev.title)}</strong>
+                <span class="events-item-date">${esc(dateStr)}</span>
+                <span class="events-item-time">${esc(timeStr)}</span>
+                ${ev.description ? `<p class="events-item-desc">${esc(ev.description)}</p>` : ""}
+              </div>
+            </li>`;
+        }).join("");
+      } catch (err) {
+        loading.hidden = true;
+        error.hidden   = false;
+        console.warn("Events load error:", err);
+      }
+    }
+
+    function esc(v) {
+      return String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    loadEvents();
+  </script>
+</body>
+</html>

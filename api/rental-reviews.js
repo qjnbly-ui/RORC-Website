@@ -74,7 +74,14 @@ module.exports = async (req, res) => {
       const rows = await patchRes.json();
       const record = rows[0];
 
-      if (record && (status === "confirmed" || status === "rejected")) {
+      if (record && status === "confirmed") {
+        createCalendarEvent(record).catch((err) => {
+          console.error("Calendar event creation failed:", err);
+        });
+        sendApplicantEmail(record, status, adminNotes).catch((err) => {
+          console.error("Rental applicant email failed:", err);
+        });
+      } else if (record && status === "rejected") {
         sendApplicantEmail(record, status, adminNotes).catch((err) => {
           console.error("Rental applicant email failed:", err);
         });
@@ -90,9 +97,51 @@ module.exports = async (req, res) => {
   return res.status(405).json({ success: false, error: "Method not allowed" });
 };
 
+async function createCalendarEvent(record) {
+  const dateStr = record.event_date; // "YYYY-MM-DD"
+  const startTime = record.event_start_time || "07:00";
+  const endTime   = record.event_end_time   || "21:00";
+
+  const startAt = new Date(`${dateStr}T${startTime}:00`).toISOString();
+  const endAt   = new Date(`${dateStr}T${endTime}:00`).toISOString();
+
+  const title = record.event_name
+    ? `${record.event_name} (${record.event_type})`
+    : `${record.event_type} — ${record.contact_name}`;
+
+  const body = {
+    title,
+    event_type: "rental",
+    start_at: startAt,
+    end_at:   endAt,
+    all_day:  false,
+    is_public: false,
+    status: "confirmed",
+    rental_request_id: record.id,
+    created_by: "system"
+  };
+
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/events`, {
+    method: "POST",
+    headers: {
+      apikey: SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      "Content-Type": "application/json",
+      Prefer: "return=minimal"
+    },
+    body: JSON.stringify(body)
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Event insert failed: ${res.status} ${text}`);
+  }
+}
+
 function mapRow(row) {
   return {
     id: row.id,
+    eventName: row.event_name,
     contactName: row.contact_name,
     contactPhone: row.contact_phone,
     contactEmail: row.contact_email,
@@ -113,6 +162,8 @@ function mapRow(row) {
     addonLateCleanup: row.addon_late_cleanup,
     addonLateDayRental: row.addon_late_day_rental,
     estimatedTotalCents: row.estimated_total_cents,
+    rentalType: row.rental_type,
+    rentalHours: row.rental_hours,
     rentalStatus: row.rental_status,
     adminNotes: row.admin_notes,
     reviewedAt: row.reviewed_at,

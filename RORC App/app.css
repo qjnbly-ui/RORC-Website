@@ -3970,3 +3970,682 @@ textarea:focus-visible,
     font-size: 1rem;
   }
 }
+
+/* ===== Calendar ===== */
+.cal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+
+.cal-month-label {
+  font-size: 17px;
+  font-weight: 600;
+  color: #f5f5f5;
+  flex: 1;
+  text-align: center;
+}
+
+.cal-nav {
+  min-width: 36px;
+  padding: 6px 12px;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.cal-new-btn {
+  margin-left: auto;
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 20px;
+}
+
+.cal-header {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #8a97a8;
+  padding: 6px 0;
+}
+
+.cal-cell {
+  min-height: 64px;
+  padding: 6px 5px 4px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.cal-cell:hover {
+  background: rgba(255,255,255,0.07);
+}
+
+.cal-cell-blank {
+  background: transparent;
+  border-color: transparent;
+  cursor: default;
+}
+
+.cal-today {
+  border-color: rgba(231,210,160,0.5) !important;
+  background: rgba(231,210,160,0.06) !important;
+}
+
+.cal-day-num {
+  font-size: 12px;
+  color: #c2cad6;
+  display: block;
+  margin-bottom: 4px;
+}
+
+.cal-today .cal-day-num {
+  color: #e7d2a0;
+  font-weight: 700;
+}
+
+.cal-dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.cal-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: block;
+}
+
+/* Day panel */
+.cal-day-panel {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.cal-day-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  color: #f5f5f5;
+  font-size: 14px;
+}
+
+.cal-day-add-btn {
+  background: none;
+  border: 1px solid rgba(231,210,160,0.4);
+  color: #e7d2a0;
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.cal-day-add-btn:hover {
+  background: rgba(231,210,160,0.1);
+}
+
+.cal-day-event {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+
+.cal-day-event-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.cal-day-event-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: #f5f5f5;
+}
+
+.cal-day-event-info span {
+  font-size: 11.5px;
+  color: #8a97a8;
+}
+
+.cal-day-event-badge {
+  display: inline-block;
+  font-size: 10px;
+  background: rgba(231,210,160,0.15);
+  color: #e7d2a0;
+  border-radius: 20px;
+  padding: 1px 7px;
+  margin-top: 2px;
+  width: fit-content;
+}
+
+.cal-day-edit-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  opacity: 0.6;
+  padding: 4px;
+  transition: opacity 0.15s;
+}
+
+.cal-day-edit-btn:hover { opacity: 1; }
+
+.cal-day-empty {
+  color: #8a97a8;
+  font-size: 13px;
+  margin: 0;
+}
+
+/* Modal */
+.cal-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 20px;
+}
+
+.cal-modal[hidden] { display: none; }
+
+.cal-modal-inner {
+  background: #1a1e24;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 16px;
+  padding: 24px;
+  width: 100%;
+  max-width: 460px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.cal-modal-heading {
+  font-size: 18px;
+  color: #f5f5f5;
+  margin: 0 0 18px;
+}
+
+.cal-field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #c2cad6;
+  margin-bottom: 14px;
+}
+
+.cal-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.cal-field-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.cal-modal-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+
+.rorc-btn-danger {
+  background: rgba(235,87,87,0.15);
+  color: #eb5757;
+  border: 1px solid rgba(235,87,87,0.3);
+}
+
+.rorc-btn-danger:hover {
+  background: rgba(235,87,87,0.25);
+}
+
+/* ===== Rental Reviews — Premium Card UI ===== */
+
+.rental-filter-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 22px;
+  flex-wrap: wrap;
+}
+
+.rental-filter-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: transparent;
+  color: #8a97a8;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.rental-filter-tab:hover {
+  border-color: rgba(255,255,255,0.28);
+  color: #f5f5f5;
+}
+
+.rental-filter-tab.is-active {
+  background: rgba(231,210,160,0.1);
+  border-color: rgba(231,210,160,0.45);
+  color: #e7d2a0;
+  font-weight: 600;
+}
+
+.rental-filter-count {
+  background: rgba(255,255,255,0.12);
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.rental-filter-tab.is-active .rental-filter-count {
+  background: rgba(231,210,160,0.2);
+  color: #e7d2a0;
+}
+
+.rental-cards {
+  display: grid;
+  gap: 16px;
+}
+
+.rental-empty {
+  color: #8a97a8;
+  font-size: 14px;
+  text-align: center;
+  padding: 40px 0;
+}
+
+/* ── Individual card ── */
+.rental-card {
+  background: #12161c;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-left: 4px solid var(--status-color, rgba(255,255,255,0.1));
+  border-radius: 14px;
+  overflow: hidden;
+  padding: 20px 20px 16px;
+  transition: border-color 0.2s;
+}
+
+.rental-card[data-status="submitted"]      { --status-color: #e7d2a0; }
+.rental-card[data-status="pending_review"] { --status-color: #f2994a; }
+.rental-card[data-status="confirmed"]      { --status-color: #6fcf97; }
+.rental-card[data-status="rejected"]       { --status-color: #eb5757; }
+.rental-card[data-status="canceled"]       { --status-color: #555; }
+
+.rental-card-highlight {
+  box-shadow: 0 0 0 2px #6fcf97, 0 8px 32px rgba(111,207,151,0.15);
+  animation: rentalCardPulse 1.2s ease-out;
+}
+
+@keyframes rentalCardPulse {
+  0%   { box-shadow: 0 0 0 4px rgba(111,207,151,0.5); }
+  100% { box-shadow: 0 0 0 2px #6fcf97; }
+}
+
+.rental-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.rental-card-type-badge {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #8a97a8;
+  background: rgba(255,255,255,0.06);
+  border-radius: 999px;
+  padding: 3px 10px;
+}
+
+.rental-card-status-pill {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--status-color, #8a97a8);
+  background: color-mix(in srgb, var(--status-color, #8a97a8) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--status-color, #8a97a8) 35%, transparent);
+  border-radius: 999px;
+  padding: 3px 11px;
+}
+
+.rental-card-title {
+  font-size: 19px;
+  font-weight: 700;
+  color: #f5f5f5;
+  margin: 0 0 3px;
+  line-height: 1.25;
+}
+
+.rental-card-contact-name {
+  font-size: 13px;
+  color: #8a97a8;
+  margin: 0 0 14px;
+}
+
+.rental-card-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.07);
+  margin: 14px 0;
+}
+
+/* ── Data grid ── */
+.rental-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px 8px;
+  margin: 0 0 4px;
+}
+
+.rental-card-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rental-card-field dt {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6b7785;
+}
+
+.rental-card-field dd {
+  font-size: 13.5px;
+  color: #e0e6ee;
+  margin: 0;
+}
+
+.rental-card-pill {
+  display: inline-block;
+  background: rgba(231,210,160,0.12);
+  color: #e7d2a0;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rental-card-total {
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  color: #e7d2a0 !important;
+}
+
+/* ── Add-on chips ── */
+.rental-card-addons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.rental-card-addon-chip {
+  font-size: 11.5px;
+  color: #c2cad6;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 6px;
+  padding: 3px 9px;
+}
+
+/* ── Contact block ── */
+.rental-card-contact {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.rental-card-contact-row {
+  display: flex;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.rental-card-contact-row dt {
+  width: 90px;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #6b7785;
+  padding-top: 1px;
+}
+
+.rental-card-contact-row dd {
+  color: #c2cad6;
+  margin: 0;
+  word-break: break-word;
+}
+
+.rental-card-contact-row a {
+  color: #c2cad6;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(194,202,214,0.2);
+}
+
+.rental-card-contact-row a:hover { color: #f5f5f5; }
+
+/* ── Admin notes ── */
+.rental-card-notes {
+  margin-top: 14px;
+  background: rgba(231,210,160,0.06);
+  border: 1px solid rgba(231,210,160,0.18);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.rental-card-notes-label {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #e7d2a0;
+  margin-bottom: 6px;
+}
+
+.rental-card-notes-text {
+  font-size: 13px;
+  color: #d4c496;
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* ── Footer ── */
+.rental-card-footer {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.rental-card-timestamp {
+  font-size: 11.5px;
+  color: #555e6b;
+}
+
+/* ── Actions ── */
+.rental-card-actions {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+
+.rental-card-btn-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.rental-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+  line-height: 1;
+}
+
+.rental-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.rental-btn-ghost {
+  background: transparent;
+  border-color: rgba(255,255,255,0.15);
+  color: #c2cad6;
+}
+.rental-btn-ghost:hover { border-color: rgba(255,255,255,0.3); color: #f5f5f5; }
+
+.rental-btn-confirm {
+  background: rgba(111,207,151,0.15);
+  border-color: rgba(111,207,151,0.4);
+  color: #6fcf97;
+}
+.rental-btn-confirm:hover { background: rgba(111,207,151,0.25); }
+
+.rental-btn-decline {
+  background: rgba(235,87,87,0.12);
+  border-color: rgba(235,87,87,0.3);
+  color: #eb5757;
+}
+.rental-btn-decline:hover { background: rgba(235,87,87,0.22); }
+
+.rental-btn-cancel {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(255,255,255,0.12);
+  color: #8a97a8;
+}
+.rental-btn-cancel:hover { background: rgba(255,255,255,0.1); color: #f5f5f5; }
+
+.rental-btn-view-cal {
+  background: rgba(86,204,242,0.1);
+  border-color: rgba(86,204,242,0.3);
+  color: #56ccf2;
+}
+.rental-btn-view-cal:hover { background: rgba(86,204,242,0.18); }
+
+/* ── Inline notes form ── */
+.rental-action-form {
+  display: grid;
+  gap: 12px;
+}
+
+.rental-action-label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13px;
+  color: #8a97a8;
+}
+
+.rental-action-required {
+  color: #eb5757;
+  font-size: 11px;
+}
+
+.rental-action-textarea {
+  width: 100%;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  color: #f5f5f5;
+  font-size: 13.5px;
+  font-family: inherit;
+  padding: 10px 12px;
+  resize: vertical;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.rental-action-textarea:focus {
+  outline: none;
+  border-color: rgba(231,210,160,0.45);
+}
+
+.rental-action-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.rental-action-error {
+  font-size: 12.5px;
+  color: #eb5757;
+  margin: 0;
+}
+
+/* ── Calendar → Rental link ── */
+.cal-rental-link {
+  color: #56ccf2 !important;
+  font-weight: 600;
+  font-size: 11px !important;
+  letter-spacing: 0.04em;
+  text-transform: none !important;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.cal-rental-link:hover { color: #a8e8f8 !important; }
+
+/* ── Mobile ── */
+@media (max-width: 520px) {
+  .rental-card-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .rental-card-btn-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .rental-btn {
+    justify-content: center;
+  }
+
+  .rental-filter-tab {
+    font-size: 12px;
+    padding: 6px 11px;
+  }
+}

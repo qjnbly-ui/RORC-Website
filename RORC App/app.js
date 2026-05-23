@@ -212,7 +212,8 @@ const accountManagerOnlyRoutes = new Set([
   "messageCompose",
   "contracts",
   "adminNotes",
-  "rentalReviews"
+  "rentalReviews",
+  "calendar"
 ]);
 
 const kioskAllowedRoutes = new Set([
@@ -340,6 +341,11 @@ const routes = {
     title: "Rentals",
     template: "feedbackTemplate",
     afterRender: renderRentalReviewsPage
+  },
+  calendar: {
+    title: "Calendar",
+    template: "feedbackTemplate",
+    afterRender: renderCalendarPage
   },
   about: {
     title: "About",
@@ -3474,210 +3480,689 @@ async function refreshRentalReviewsBadge() {
   updateRentalReviewsBadge();
 }
 
+// ─────────────────────────────────────────────
+// Rental Reviews — premium admin UI
+// ─────────────────────────────────────────────
+
+let rentalAllRequests  = [];
+let rentalActiveFilter = "action"; // action | confirmed | declined | all
+let highlightRentalId  = null;     // deeplink from calendar
+
+const RENTAL_STATUS_LABEL = {
+  submitted:      "Submitted",
+  pending_review: "In Review",
+  confirmed:      "Confirmed",
+  rejected:       "Declined",
+  canceled:       "Canceled"
+};
+
+const RENTAL_STATUS_COLOR = {
+  submitted:      "#e7d2a0",
+  pending_review: "#f2994a",
+  confirmed:      "#6fcf97",
+  rejected:       "#eb5757",
+  canceled:       "#8a97a8"
+};
+
 async function renderRentalReviewsPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
 
-  root.innerHTML = `
-    <section class="live-record-page">
-      <header class="account-page-heading">
-        <div>
-          <p class="eyebrow">Facility Rentals</p>
-          <h2>Rental Requests</h2>
-          <p>Review and respond to rental inquiries submitted from the RORC website.</p>
-        </div>
-      </header>
-      <section class="empty-state"><p>Loading rental requests…</p></section>
-    </section>
-  `;
+  root.innerHTML = `<p class="feedback-loading">Loading rental requests…</p>`;
 
   try {
     const token = currentAuthSession?.access_token || "";
-    if (!token) throw new Error("Log in again before loading rental requests.");
+    if (!token) throw new Error("Sign in to view rental requests.");
 
-    const response = await fetch("/api/rental-reviews", {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok || body.success === false) {
-      throw new Error(body.error || "Could not load rental requests.");
-    }
+    const res  = await fetch("/api/rental-reviews", { headers: { Authorization: `Bearer ${token}` } });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || body.success === false) throw new Error(body.error || "Could not load rental requests.");
 
-    renderRentalReviewList(body.requests || []);
-  } catch (error) {
-    root.innerHTML = `
-      <section class="live-record-page">
-        <section class="empty-state"><p>${escapeHtml(error.message || "Could not load rental requests.")}</p></section>
-      </section>
-    `;
+    rentalAllRequests = body.requests || [];
+    rentalReviewsPendingCount = rentalAllRequests.filter(
+      (r) => r.rentalStatus === "submitted" || r.rentalStatus === "pending_review"
+    ).length;
+    updateRentalReviewsBadge();
+    renderRentalPipeline(root);
+  } catch (err) {
+    root.innerHTML = `<p class="feedback-empty">${escapeHtml(err.message)}</p>`;
   }
 }
 
-function renderRentalReviewList(requests) {
-  const root = document.getElementById("feedbackContent");
-  if (!root) return;
+function renderRentalPipeline(root) {
+  const all       = rentalAllRequests;
+  const action    = all.filter((r) => r.rentalStatus === "submitted" || r.rentalStatus === "pending_review");
+  const confirmed = all.filter((r) => r.rentalStatus === "confirmed");
+  const declined  = all.filter((r) => r.rentalStatus === "rejected" || r.rentalStatus === "canceled");
 
-  const pending = requests.filter((r) => r.rentalStatus === "submitted" || r.rentalStatus === "pending_review");
-  const history = requests.filter((r) => r.rentalStatus !== "submitted" && r.rentalStatus !== "pending_review").slice(0, 50);
+  const filtered = rentalActiveFilter === "action"    ? action
+                 : rentalActiveFilter === "confirmed" ? confirmed
+                 : rentalActiveFilter === "declined"  ? declined
+                 : all;
 
-  rentalReviewsPendingCount = pending.length;
-  updateRentalReviewsBadge();
+  const tabs = [
+    { key: "action",    label: "Needs Action", count: action.length },
+    { key: "confirmed", label: "Confirmed",    count: confirmed.length },
+    { key: "declined",  label: "Declined",     count: declined.length },
+    { key: "all",       label: "All",          count: all.length }
+  ];
 
   root.innerHTML = `
-    <section class="live-record-page">
-      <header class="account-page-heading">
-        <div>
-          <p class="eyebrow">Facility Rentals</p>
-          <h2>Rental Requests</h2>
-          <p>Review and respond to rental inquiries.</p>
-        </div>
-        <div class="account-summary-strip">
-          <span><strong>${pending.length}</strong> pending</span>
-          <span><strong>${history.length}</strong> reviewed</span>
-        </div>
-      </header>
-      <p id="rentalReviewResult" class="auth-message" aria-live="polite"></p>
-      ${pending.length ? `
-        <div class="detail-card">
-          <ol class="record-list heater-record-list">
-            ${pending.map((r) => renderRentalReviewCard(r, true)).join("")}
-          </ol>
-        </div>
-      ` : `
-        <section class="empty-state"><p>No pending rental requests.</p></section>
-      `}
-      ${history.length ? `
-        <header class="account-page-heading contract-review-history-heading">
-          <div>
-            <p class="eyebrow">History</p>
-            <h2>Recent Reviews</h2>
-          </div>
-        </header>
-        <div class="detail-card">
-          <ol class="record-list heater-record-list">
-            ${history.map((r) => renderRentalReviewCard(r, false)).join("")}
-          </ol>
-        </div>
-      ` : ""}
-    </section>
+    <p class="feedback-eyebrow">Facility Rentals</p>
+    <h2 class="feedback-title">Rental Requests</h2>
+
+    <div class="rental-filter-tabs" role="tablist">
+      ${tabs.map((t) => `
+        <button class="rental-filter-tab${rentalActiveFilter === t.key ? " is-active" : ""}"
+                data-filter="${escapeAttribute(t.key)}" role="tab"
+                aria-selected="${rentalActiveFilter === t.key}">
+          ${escapeHtml(t.label)}
+          ${t.count ? `<span class="rental-filter-count">${t.count}</span>` : ""}
+        </button>`).join("")}
+    </div>
+
+    <div id="rental-cards-list" class="rental-cards">
+      ${filtered.length
+        ? filtered.map((r) => buildRentalCard(r)).join("")
+        : `<div class="rental-empty">No ${rentalActiveFilter === "all" ? "" : rentalActiveFilter + " "}requests.</div>`}
+    </div>
   `;
 
-  bindRentalReviewActions();
+  // Filter tabs
+  root.querySelectorAll(".rental-filter-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      rentalActiveFilter = btn.dataset.filter;
+      renderRentalPipeline(root);
+    });
+  });
+
+  // All inline action buttons
+  root.querySelectorAll("[data-rental-action]").forEach((btn) => {
+    btn.addEventListener("click", () => handleRentalAction(btn, root));
+  });
+
+  // Calendar crosslinks
+  root.querySelectorAll("[data-rental-view-calendar]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const date = btn.dataset.rentalViewCalendar;
+      calendarJumpToDate(date);
+      navigateTo("calendar");
+    });
+  });
+
+  // Scroll to highlighted request if coming from calendar
+  if (highlightRentalId) {
+    const card = root.querySelector(`[data-rental-id="${highlightRentalId}"]`);
+    if (card) {
+      card.classList.add("rental-card-highlight");
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    highlightRentalId = null;
+  }
 }
 
-function renderRentalReviewCard(request, isPending) {
-  const statusLabel = {
-    submitted: "Pending",
-    pending_review: "In Review",
-    confirmed: "Confirmed",
-    rejected: "Declined",
-    canceled: "Canceled"
-  }[request.rentalStatus] || request.rentalStatus;
+function buildRentalCard(r) {
+  const status      = r.rentalStatus || "submitted";
+  const statusLabel = RENTAL_STATUS_LABEL[status] || status;
+  const statusColor = RENTAL_STATUS_COLOR[status] || "#8a97a8";
 
-  const statusClass = {
-    submitted: "currently-on",
-    pending_review: "currently-on",
-    confirmed: "paid",
-    rejected: "overdue",
-    canceled: "overdue"
-  }[request.rentalStatus] || "";
+  const totalDollars = r.estimatedTotalCents
+    ? `$${(r.estimatedTotalCents / 100).toLocaleString("en-US", { minimumFractionDigits: 0 })}`
+    : null;
 
-  const totalDollars = request.estimatedTotalCents
-    ? `$${(request.estimatedTotalCents / 100).toLocaleString("en-US")}`
-    : "";
+  const rentalTypeLabel = r.rentalType === "hourly"
+    ? `${r.rentalHours || 1} hr${(r.rentalHours || 1) !== 1 ? "s" : ""} @ $10/hr`
+    : "All Day";
+
+  const eventDate = r.eventDate
+    ? new Date(r.eventDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "long", day: "numeric", year: "numeric" })
+    : "—";
+
+  const timeRange = (r.eventStartTime && r.eventEndTime)
+    ? `${r.eventStartTime} – ${r.eventEndTime}`
+    : r.eventStartTime || "";
 
   const addons = [
-    request.addonTables && "Tables",
-    request.addonChairs && "Chairs",
-    request.addonTarp && "Tarp",
-    request.addonHeater && "Heater",
-    request.addonEarlySetup && "Early Setup",
-    request.addonEarlyDayRental && "Extra Day (Early)",
-    request.addonLateCleanup && "Late Cleanup",
-    request.addonLateDayRental && "Extra Day (Late)"
+    r.addonTables        && "Tables",
+    r.addonChairs        && "Chairs",
+    r.addonTarp          && "Tarp",
+    r.addonHeater        && "Heater",
+    r.addonEarlySetup    && "Early Setup",
+    r.addonEarlyDayRental && "Extra Day (Early)",
+    r.addonLateCleanup   && "Late Cleanup",
+    r.addonLateDayRental && "Extra Day (Late)"
   ].filter(Boolean);
 
-  const eventLine = [
-    escapeHtml(request.eventType || ""),
-    escapeHtml(request.eventDate || ""),
-    (request.eventStartTime && request.eventEndTime)
-      ? `${escapeHtml(request.eventStartTime)} – ${escapeHtml(request.eventEndTime)}`
-      : "",
-    request.estimatedAttendance ? `${request.estimatedAttendance} guests` : ""
-  ].filter(Boolean).join(" · ");
+  const isActionable = status === "submitted" || status === "pending_review";
+  const isConfirmed  = status === "confirmed";
+
+  const actionsHtml = isActionable ? `
+    <div class="rental-card-actions" id="rental-actions-${escapeAttribute(r.id)}">
+      <div class="rental-card-btn-row">
+        ${status === "submitted" ? `
+          <button class="rental-btn rental-btn-ghost" data-rental-action="pending_review" data-rental-id="${escapeAttribute(r.id)}">Mark In Review</button>
+        ` : ""}
+        <button class="rental-btn rental-btn-decline" data-rental-action="decline" data-rental-id="${escapeAttribute(r.id)}">Decline</button>
+        <button class="rental-btn rental-btn-confirm" data-rental-action="confirm" data-rental-id="${escapeAttribute(r.id)}">Confirm Booking</button>
+      </div>
+    </div>
+  ` : isConfirmed ? `
+    <div class="rental-card-actions" id="rental-actions-${escapeAttribute(r.id)}">
+      <div class="rental-card-btn-row">
+        <button class="rental-btn rental-btn-view-cal" data-rental-view-calendar="${escapeAttribute(r.eventDate || "")}">View on Calendar</button>
+        <button class="rental-btn rental-btn-cancel" data-rental-action="cancel" data-rental-id="${escapeAttribute(r.id)}">Cancel Booking</button>
+      </div>
+    </div>
+  ` : "";
 
   return `
-    <li data-rental-review-id="${escapeAttribute(request.id)}">
-      <strong class="heater-record-event">${escapeHtml(request.contactName || "Unknown")}</strong>
-      <span class="heater-record-meta">${eventLine}</span>
-      <button class="heater-state-action is-${escapeAttribute(statusClass)}" type="button" disabled>${escapeHtml(statusLabel)}</button>
-      <p class="heater-record-message">
-        ${escapeHtml(request.contactPhone || "")} · ${escapeHtml(request.contactEmail || "")}<br />
-        ${escapeHtml(request.contactAddress || "")}<br />
-        Food/drinks: ${request.foodOrDrinks ? "Yes" : "No"} · Alcohol: ${escapeHtml(request.alcohol || "No")}
-        ${addons.length ? `<br />Add-ons: ${addons.map(escapeHtml).join(", ")}` : ""}
-        ${totalDollars ? `<br />Est. total: ${totalDollars}` : ""}
-        ${request.adminNotes ? `<br />Notes: ${escapeHtml(request.adminNotes)}` : ""}
-        <br /><span style="color:var(--muted,#888);font-size:12px;">Submitted ${formatShortDateTime(request.createdAt)}</span>
-      </p>
-      ${isPending ? `
-        <div class="form-actions contract-review-actions">
-          <button class="text-action" data-rental-review-action="decline" data-rental-review-id="${escapeAttribute(request.id)}" type="button">Decline</button>
-          <button class="save-action" data-rental-review-action="confirm" data-rental-review-id="${escapeAttribute(request.id)}" type="button">Confirm</button>
+    <article class="rental-card" data-rental-id="${escapeAttribute(r.id)}" data-status="${escapeAttribute(status)}">
+
+      <div class="rental-card-head">
+        <span class="rental-card-type-badge">${escapeHtml(r.eventType || "Event")}</span>
+        <span class="rental-card-status-pill" style="--status-color:${statusColor}">${escapeHtml(statusLabel)}</span>
+      </div>
+
+      <h3 class="rental-card-title">${escapeHtml(r.eventName || r.eventType || "Rental Request")}</h3>
+      <p class="rental-card-contact-name">${escapeHtml(r.contactName || "")}</p>
+
+      <div class="rental-card-divider"></div>
+
+      <dl class="rental-card-grid">
+        <div class="rental-card-field">
+          <dt>Date</dt>
+          <dd>${escapeHtml(eventDate)}</dd>
         </div>
-      ` : ""}
-    </li>
+        ${timeRange ? `
+        <div class="rental-card-field">
+          <dt>Time</dt>
+          <dd>${escapeHtml(timeRange)}</dd>
+        </div>` : ""}
+        <div class="rental-card-field">
+          <dt>Attendance</dt>
+          <dd>${r.estimatedAttendance ? `${r.estimatedAttendance} guests` : "—"}</dd>
+        </div>
+        <div class="rental-card-field">
+          <dt>Rental</dt>
+          <dd>
+            <span class="rental-card-pill">${escapeHtml(rentalTypeLabel)}</span>
+          </dd>
+        </div>
+        <div class="rental-card-field">
+          <dt>Est. Total</dt>
+          <dd class="rental-card-total">${escapeHtml(totalDollars || "—")}</dd>
+        </div>
+        <div class="rental-card-field">
+          <dt>Alcohol</dt>
+          <dd>${escapeHtml(r.alcohol || "No")}</dd>
+        </div>
+      </dl>
+
+      ${addons.length ? `
+      <div class="rental-card-addons">
+        ${addons.map((a) => `<span class="rental-card-addon-chip">${escapeHtml(a)}</span>`).join("")}
+      </div>` : ""}
+
+      <div class="rental-card-divider"></div>
+
+      <dl class="rental-card-contact">
+        <div class="rental-card-contact-row">
+          <dt>Phone</dt><dd><a href="tel:${escapeAttribute(r.contactPhone || "")}">${escapeHtml(r.contactPhone || "—")}</a></dd>
+        </div>
+        <div class="rental-card-contact-row">
+          <dt>Email</dt><dd><a href="mailto:${escapeAttribute(r.contactEmail || "")}">${escapeHtml(r.contactEmail || "—")}</a></dd>
+        </div>
+        <div class="rental-card-contact-row">
+          <dt>Address</dt><dd>${escapeHtml(r.contactAddress || "—")}</dd>
+        </div>
+        <div class="rental-card-contact-row">
+          <dt>Food / Drinks</dt><dd>${r.foodOrDrinks ? "Yes" : "No"}</dd>
+        </div>
+      </dl>
+
+      ${r.adminNotes ? `
+      <div class="rental-card-notes">
+        <span class="rental-card-notes-label">Admin Notes</span>
+        <p class="rental-card-notes-text">${escapeHtml(r.adminNotes)}</p>
+      </div>` : ""}
+
+      <div class="rental-card-footer">
+        <span class="rental-card-timestamp">Submitted ${formatShortDateTime(r.createdAt)}</span>
+        ${r.reviewedAt ? `<span class="rental-card-timestamp">Reviewed ${formatShortDateTime(r.reviewedAt)}</span>` : ""}
+      </div>
+
+      ${actionsHtml}
+    </article>
   `;
 }
 
-function bindRentalReviewActions() {
-  document.querySelectorAll("[data-rental-review-action]").forEach((button) => {
-    button.addEventListener("click", () => {
-      submitRentalReview(button.dataset.rentalReviewId, button.dataset.rentalReviewAction);
+function handleRentalAction(btn, root) {
+  const action = btn.dataset.rentalAction;
+  const id     = btn.dataset.rentalId;
+  const actionsEl = root.querySelector(`#rental-actions-${id}`);
+  if (!actionsEl) return;
+
+  if (action === "pending_review") {
+    submitRentalStatusChange(id, "pending_review", null, root);
+    return;
+  }
+
+  const isDecline = action === "decline";
+  const isCancel  = action === "cancel";
+
+  actionsEl.innerHTML = `
+    <div class="rental-action-form">
+      <label class="rental-action-label">
+        ${isDecline ? "Reason for declining <span class='rental-action-required'>(required)</span>" : isCancel ? "Cancellation note (optional)" : "Confirmation notes (optional)"}
+        <textarea class="rental-action-textarea" id="rental-notes-${escapeAttribute(id)}" rows="3"
+          placeholder="${isDecline ? "Explain why this request is being declined…" : isCancel ? "Any notes for the cancellation…" : "Any details for the applicant…"}"></textarea>
+      </label>
+      <div class="rental-action-btns">
+        <button class="rental-btn rental-btn-ghost" id="rental-cancel-form-${escapeAttribute(id)}">← Back</button>
+        <button class="rental-btn ${isDecline || isCancel ? "rental-btn-decline" : "rental-btn-confirm"}"
+                id="rental-submit-${escapeAttribute(id)}">
+          ${isDecline ? "Decline Booking" : isCancel ? "Cancel Booking" : "Confirm Booking"}
+        </button>
+      </div>
+      <p class="rental-action-error" id="rental-action-err-${escapeAttribute(id)}" hidden></p>
+    </div>
+  `;
+
+  root.querySelector(`#rental-cancel-form-${id}`).addEventListener("click", () => renderRentalPipeline(root));
+
+  root.querySelector(`#rental-submit-${id}`).addEventListener("click", async () => {
+    const notes   = root.querySelector(`#rental-notes-${id}`)?.value.trim() || "";
+    const errEl   = root.querySelector(`#rental-action-err-${id}`);
+    if (isDecline && !notes) {
+      errEl.textContent = "A reason is required when declining.";
+      errEl.hidden = false;
+      return;
+    }
+
+    const statusMap = { confirm: "confirmed", decline: "rejected", cancel: "canceled" };
+    await submitRentalStatusChange(id, statusMap[action], notes || null, root);
+  });
+}
+
+async function submitRentalStatusChange(id, status, notes, root) {
+  const submitBtn = root.querySelector(`#rental-submit-${id}`);
+  const errEl     = root.querySelector(`#rental-action-err-${id}`);
+  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Saving…"; }
+
+  try {
+    const token = currentAuthSession?.access_token || "";
+    const res   = await fetch("/api/rental-reviews", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ id, status, adminNotes: notes })
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || body.success === false) throw new Error(body.error || "Could not update request.");
+
+    // Update local cache so filter re-render is instant
+    const idx = rentalAllRequests.findIndex((r) => r.id === id);
+    if (idx !== -1) {
+      rentalAllRequests[idx].rentalStatus = status;
+      rentalAllRequests[idx].adminNotes   = notes ?? rentalAllRequests[idx].adminNotes;
+      rentalAllRequests[idx].reviewedAt   = new Date().toISOString();
+    }
+
+    rentalReviewsPendingCount = rentalAllRequests.filter(
+      (r) => r.rentalStatus === "submitted" || r.rentalStatus === "pending_review"
+    ).length;
+    updateRentalReviewsBadge();
+    renderRentalPipeline(root);
+  } catch (err) {
+    if (errEl) { errEl.textContent = err.message || "Could not update request."; errEl.hidden = false; }
+    if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "Try Again"; }
+  }
+}
+
+// ─────────────────────────────────────────────
+// Calendar
+// ─────────────────────────────────────────────
+
+const EVENT_COLORS = {
+  rental:        "#e7d2a0",
+  open_gym:      "#6fcf97",
+  maintenance:   "#f2994a",
+  private_event: "#56ccf2",
+  public_event:  "#bb87fc",
+  general:       "#8a97a8"
+};
+
+const EVENT_LABELS = {
+  rental:        "Rental",
+  open_gym:      "Open Gym",
+  maintenance:   "Maintenance",
+  private_event: "Private Event",
+  public_event:  "Public Event",
+  general:       "General"
+};
+
+let calendarEvents = [];
+let calendarYear   = new Date().getFullYear();
+let calendarMonth  = new Date().getMonth(); // 0-based
+
+async function renderCalendarPage() {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+  root.innerHTML = `<p class="feedback-loading">Loading calendar…</p>`;
+
+  try {
+    const token = appUserSession?.access_token;
+    const res   = await fetch("/api/events", {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const body  = await res.json();
+    if (!res.ok || !body.success) throw new Error(body.error || "Could not load events");
+    calendarEvents = body.events || [];
+    renderCalendarView(root);
+  } catch (err) {
+    root.innerHTML = `<p class="feedback-empty">Could not load calendar: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function renderCalendarView(root) {
+  const now   = new Date();
+  const year  = calendarYear;
+  const month = calendarMonth;
+
+  const firstDay   = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const monthName   = new Date(year, month, 1).toLocaleString("en-US", { month: "long" });
+
+  // Group events by date string "YYYY-MM-DD"
+  const byDate = {};
+  calendarEvents.forEach((ev) => {
+    const d = ev.startAt.slice(0, 10);
+    if (!byDate[d]) byDate[d] = [];
+    byDate[d].push(ev);
+  });
+
+  // Build day cells
+  let cells = "";
+  for (let blank = 0; blank < firstDay; blank++) {
+    cells += `<div class="cal-cell cal-cell-blank"></div>`;
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    const iso     = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const dayEvs  = byDate[iso] || [];
+    const isToday = iso === now.toISOString().slice(0, 10);
+    const dots    = dayEvs.map((ev) =>
+      `<span class="cal-dot" style="background:${EVENT_COLORS[ev.eventType] || "#8a97a8"}"></span>`
+    ).join("");
+
+    cells += `
+      <div class="cal-cell${isToday ? " cal-today" : ""}" data-cal-date="${iso}">
+        <span class="cal-day-num">${d}</span>
+        <div class="cal-dots">${dots}</div>
+      </div>`;
+  }
+
+  root.innerHTML = `
+    <p class="feedback-eyebrow">Admin</p>
+    <h2 class="feedback-title">Calendar</h2>
+
+    <div class="cal-toolbar">
+      <button class="rorc-btn rorc-btn-ghost cal-nav" id="calPrev">&#8249;</button>
+      <span class="cal-month-label">${monthName} ${year}</span>
+      <button class="rorc-btn rorc-btn-ghost cal-nav" id="calNext">&#8250;</button>
+      <button class="rorc-btn rorc-btn-accent cal-new-btn" id="calNewEvent">+ New Event</button>
+    </div>
+
+    <div class="cal-grid">
+      <div class="cal-header">Sun</div>
+      <div class="cal-header">Mon</div>
+      <div class="cal-header">Tue</div>
+      <div class="cal-header">Wed</div>
+      <div class="cal-header">Thu</div>
+      <div class="cal-header">Fri</div>
+      <div class="cal-header">Sat</div>
+      ${cells}
+    </div>
+
+    <div id="calDayPanel" class="cal-day-panel" hidden></div>
+
+    <div id="calEventModal" class="cal-modal" hidden>
+      <div class="cal-modal-inner">
+        <h3 id="calModalTitle" class="cal-modal-heading">New Event</h3>
+        <div id="calModalError" class="feedback-error" hidden></div>
+
+        <label class="cal-field-label">Title
+          <input id="calEvTitle" class="rorc-input" type="text" maxlength="200" placeholder="Event title" />
+        </label>
+        <label class="cal-field-label">Type
+          <select id="calEvType" class="rorc-input">
+            ${Object.entries(EVENT_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}
+          </select>
+        </label>
+        <label class="cal-field-label">Date
+          <input id="calEvDate" class="rorc-input" type="date" />
+        </label>
+        <div class="cal-field-row">
+          <label class="cal-field-label">Start Time
+            <input id="calEvStart" class="rorc-input" type="time" />
+          </label>
+          <label class="cal-field-label">End Time
+            <input id="calEvEnd" class="rorc-input" type="time" />
+          </label>
+        </div>
+        <label class="cal-field-label cal-field-check">
+          <input id="calEvAllDay" type="checkbox" />
+          All Day
+        </label>
+        <label class="cal-field-label cal-field-check">
+          <input id="calEvPublic" type="checkbox" />
+          Show on public events page
+        </label>
+        <label class="cal-field-label">Description (optional)
+          <textarea id="calEvDesc" class="rorc-input" rows="3" placeholder="Any notes…"></textarea>
+        </label>
+
+        <div class="cal-modal-actions">
+          <button class="rorc-btn rorc-btn-neutral" id="calModalCancel">Cancel</button>
+          <button class="rorc-btn rorc-btn-accent" id="calModalSave">Save Event</button>
+          <button class="rorc-btn rorc-btn-danger" id="calModalDelete" hidden>Delete</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  bindCalendarEvents(root);
+}
+
+function bindCalendarEvents(root) {
+  root.querySelector("#calPrev").addEventListener("click", () => {
+    calendarMonth--;
+    if (calendarMonth < 0) { calendarMonth = 11; calendarYear--; }
+    renderCalendarView(root);
+  });
+
+  root.querySelector("#calNext").addEventListener("click", () => {
+    calendarMonth++;
+    if (calendarMonth > 11) { calendarMonth = 0; calendarYear++; }
+    renderCalendarView(root);
+  });
+
+  root.querySelector("#calNewEvent").addEventListener("click", () => {
+    openCalendarModal(root, null, null);
+  });
+
+  root.querySelectorAll(".cal-cell[data-cal-date]").forEach((cell) => {
+    cell.addEventListener("click", () => {
+      const date = cell.dataset.calDate;
+      showCalDayPanel(root, date);
+    });
+  });
+
+  root.querySelector("#calModalCancel").addEventListener("click", () => {
+    root.querySelector("#calEventModal").hidden = true;
+  });
+
+  root.querySelector("#calModalSave").addEventListener("click", () => saveCalendarEvent(root));
+  root.querySelector("#calModalDelete").addEventListener("click", () => deleteCalendarEvent(root));
+}
+
+function calendarJumpToDate(dateIso) {
+  if (!dateIso) return;
+  const d = new Date(dateIso + "T12:00:00");
+  calendarYear  = d.getFullYear();
+  calendarMonth = d.getMonth();
+}
+
+function showCalDayPanel(root, dateIso) {
+  const panel  = root.querySelector("#calDayPanel");
+  const dayEvs = calendarEvents.filter((ev) => ev.startAt.slice(0, 10) === dateIso);
+  const label  = new Date(dateIso + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+
+  const evHtml = dayEvs.length
+    ? dayEvs.map((ev) => `
+        <div class="cal-day-event" data-ev-id="${ev.id}">
+          <span class="cal-day-event-dot" style="background:${EVENT_COLORS[ev.eventType] || "#8a97a8"}"></span>
+          <div class="cal-day-event-info">
+            <strong>${escapeHtml(ev.title)}</strong>
+            <span>${ev.allDay ? "All Day" : (ev.startAt.slice(11, 16) + " – " + ev.endAt.slice(11, 16))}</span>
+            ${ev.eventType === "rental" && ev.rentalRequestId ? `<span class="cal-day-event-badge cal-rental-link" data-rental-id="${escapeAttribute(ev.rentalRequestId)}">View Rental Request →</span>` : ""}
+          </div>
+          <button class="cal-day-edit-btn" data-ev-id="${ev.id}" title="Edit">✏️</button>
+        </div>`)
+      .join("")
+    : `<p class="cal-day-empty">No events on this day.</p>`;
+
+  panel.hidden = false;
+  panel.innerHTML = `
+    <div class="cal-day-header">
+      <strong>${escapeHtml(label)}</strong>
+      <button class="cal-day-add-btn" data-date="${dateIso}">+ Add Event</button>
+    </div>
+    ${evHtml}
+  `;
+
+  panel.querySelector(".cal-day-add-btn").addEventListener("click", (e) => {
+    openCalendarModal(root, null, e.currentTarget.dataset.date);
+  });
+
+  panel.querySelectorAll(".cal-day-edit-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const ev = calendarEvents.find((e) => e.id === btn.dataset.evId);
+      if (ev) openCalendarModal(root, ev, null);
+    });
+  });
+
+  panel.querySelectorAll(".cal-rental-link").forEach((link) => {
+    link.style.cursor = "pointer";
+    link.addEventListener("click", () => {
+      highlightRentalId  = link.dataset.rentalId;
+      rentalActiveFilter = "confirmed";
+      navigateTo("rentalReviews");
     });
   });
 }
 
-async function submitRentalReview(rentalId, action) {
-  const result = document.getElementById("rentalReviewResult");
-  const notes = action === "decline"
-    ? String(window.prompt("Reason for declining? (Required)") || "").trim()
-    : String(window.prompt("Confirmation notes? (Optional)") || "").trim();
+function openCalendarModal(root, event, prefillDate) {
+  const modal     = root.querySelector("#calEventModal");
+  const titleEl   = root.querySelector("#calModalTitle");
+  const deleteBtn = root.querySelector("#calModalDelete");
+  const errEl     = root.querySelector("#calModalError");
 
-  if (action === "decline" && !notes) {
-    if (result) result.textContent = "A reason is required when declining.";
-    return;
-  }
+  errEl.hidden = true;
+  modal.dataset.evId = event ? event.id : "";
 
-  if (result) result.textContent = action === "confirm" ? "Confirming…" : "Declining…";
+  titleEl.textContent = event ? "Edit Event" : "New Event";
+  deleteBtn.hidden    = !event;
+
+  root.querySelector("#calEvTitle").value   = event ? event.title : "";
+  root.querySelector("#calEvType").value    = event ? event.eventType : "general";
+  root.querySelector("#calEvDate").value    = event ? event.startAt.slice(0, 10) : (prefillDate || "");
+  root.querySelector("#calEvStart").value   = event ? event.startAt.slice(11, 16) : "";
+  root.querySelector("#calEvEnd").value     = event ? event.endAt.slice(11, 16) : "";
+  root.querySelector("#calEvAllDay").checked  = event ? event.allDay : false;
+  root.querySelector("#calEvPublic").checked  = event ? event.isPublic : false;
+  root.querySelector("#calEvDesc").value    = event ? (event.description || "") : "";
+
+  modal.hidden = false;
+}
+
+async function saveCalendarEvent(root) {
+  const modal  = root.querySelector("#calEventModal");
+  const errEl  = root.querySelector("#calModalError");
+  const saveBtn = root.querySelector("#calModalSave");
+  const evId   = modal.dataset.evId;
+
+  const title   = root.querySelector("#calEvTitle").value.trim();
+  const type    = root.querySelector("#calEvType").value;
+  const date    = root.querySelector("#calEvDate").value;
+  const start   = root.querySelector("#calEvStart").value;
+  const end     = root.querySelector("#calEvEnd").value;
+  const allDay  = root.querySelector("#calEvAllDay").checked;
+  const isPublic = root.querySelector("#calEvPublic").checked;
+  const desc    = root.querySelector("#calEvDesc").value.trim();
+
+  if (!title) { showCalError(errEl, "Title is required."); return; }
+  if (!date)  { showCalError(errEl, "Date is required.");  return; }
+
+  const startAt = allDay
+    ? new Date(date + "T00:00:00").toISOString()
+    : new Date(date + "T" + (start || "00:00") + ":00").toISOString();
+  const endAt = allDay
+    ? new Date(date + "T23:59:59").toISOString()
+    : new Date(date + "T" + (end   || "23:59") + ":00").toISOString();
+
+  errEl.hidden = true;
+  saveBtn.disabled = true;
+  saveBtn.textContent = "Saving…";
 
   try {
-    const token = currentAuthSession?.access_token || "";
-    if (!token) throw new Error("Log in again before reviewing rental requests.");
+    const token  = appUserSession?.access_token;
+    const method = evId ? "PATCH" : "POST";
+    const payload = { title, event_type: type, start_at: startAt, end_at: endAt, all_day: allDay, is_public: isPublic, description: desc || null };
+    if (evId) payload.id = evId;
 
-    const response = await fetch("/api/rental-reviews", {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        id: rentalId,
-        status: action === "confirm" ? "confirmed" : "rejected",
-        adminNotes: notes || null
-      })
+    const res  = await fetch("/api/events", {
+      method,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload)
     });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok || body.success === false) {
-      throw new Error(body.error || "Could not update rental request.");
-    }
+    const body = await res.json();
+    if (!res.ok || !body.success) throw new Error(body.error || "Save failed");
 
-    if (result) result.textContent = action === "confirm" ? "Request confirmed." : "Request declined.";
-    await refreshRentalReviewsBadge();
-    window.setTimeout(() => renderRentalReviewsPage(), 250);
-  } catch (error) {
-    if (result) result.textContent = error.message || "Could not update rental request.";
+    modal.hidden = true;
+    await renderCalendarPage();
+  } catch (err) {
+    showCalError(errEl, err.message || "Could not save event.");
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Save Event";
   }
+}
+
+async function deleteCalendarEvent(root) {
+  const modal = root.querySelector("#calEventModal");
+  const errEl = root.querySelector("#calModalError");
+  const evId  = modal.dataset.evId;
+  if (!evId) return;
+  if (!confirm("Delete this event?")) return;
+
+  try {
+    const token = appUserSession?.access_token;
+    const res   = await fetch("/api/events", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ id: evId })
+    });
+    const body = await res.json();
+    if (!res.ok || !body.success) throw new Error(body.error || "Delete failed");
+    modal.hidden = true;
+    await renderCalendarPage();
+  } catch (err) {
+    showCalError(errEl, err.message || "Could not delete event.");
+  }
+}
+
+function showCalError(el, msg) {
+  el.textContent = msg;
+  el.hidden = false;
 }
 
 function createHttpError(message, statusCode) {

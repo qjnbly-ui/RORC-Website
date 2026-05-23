@@ -5,7 +5,42 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Gym Rentals | RORC</title>
   <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/dark.css" />
   <script src="/scripts/rorc-auth-nav.js" defer></script>
+  <style>
+    .flatpickr-calendar {
+      background: #1b1b1b;
+      border: 1px solid rgba(231, 210, 160, 0.3);
+      border-radius: 14px;
+      box-shadow: 0 20px 55px rgba(0,0,0,0.65);
+      font-family: inherit;
+    }
+    .flatpickr-day.selected,
+    .flatpickr-day.selected:hover,
+    .flatpickr-day.selected:focus {
+      background: rgba(231, 210, 160, 0.9);
+      border-color: rgba(231, 210, 160, 0.9);
+      color: #111;
+    }
+    .flatpickr-day:hover,
+    .flatpickr-day:focus {
+      background: rgba(231, 210, 160, 0.14);
+      border-color: transparent;
+    }
+    .flatpickr-day.today {
+      border-color: rgba(231, 210, 160, 0.5);
+    }
+    .flatpickr-months .flatpickr-month,
+    .flatpickr-weekdays,
+    span.flatpickr-weekday {
+      background: #1b1b1b;
+    }
+    .numInputWrapper:hover,
+    .flatpickr-time input:hover,
+    .flatpickr-time input:focus {
+      background: rgba(231, 210, 160, 0.08);
+    }
+  </style>
   <!-- Google tag (gtag.js) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-EGC30XZVXV"></script>
   <script>
@@ -15,7 +50,7 @@
     gtag('config', 'G-EGC30XZVXV');
   </script>
 </head>
-<body>
+<body class="interior-page">
   <div class="site-menu">
     <input type="checkbox" id="site-menu-toggle" class="site-menu-toggle" />
     <div class="site-menu-bar">
@@ -37,6 +72,7 @@
           <a href="/sponsors/">Sponsors</a>
           <a href="/projects/">Projects</a>
           <a href="/news-updates/">News & Updates</a>
+          <a href="/events/">Events</a>
         </nav>
       </div>
       <div class="site-menu-legal" aria-label="Legal">
@@ -49,6 +85,7 @@
 
   <main class="page-content rentals-page">
     <header class="rentals-hero">
+      <p class="page-kicker">Ruth Obenchain Recreation Center</p>
       <h1>Rent the RORC</h1>
       <p>
         The Ruth Obenchain Recreation Center is available for private rentals including birthday parties, community
@@ -57,8 +94,11 @@
     </header>
 
     <section class="rental-photos" aria-label="Facility photos">
-      <img src="../Images/Rental Images/Rental.Example.1.jpg" alt="RORC facility rental space" class="rental-photo" />
-      <img src="../Images/Rental Images/Rental.Example.2.jpg" alt="RORC facility rental space" class="rental-photo" />
+      <div class="rental-photos-track">
+        <img src="../Images/Rental Images/Rental.Example.1.jpg" alt="RORC facility rental space" class="rental-photo" />
+        <img src="../Images/Rental Images/Rental.Example.2.jpg" alt="RORC facility rental space" class="rental-photo" />
+        <div class="rental-photos-veil"></div>
+      </div>
     </section>
 
     <section class="rentals-section" aria-label="Rental process">
@@ -128,6 +168,10 @@
               <div class="rental-form-section">
                 <h3 class="rental-form-section-title">Event Details</h3>
                 <div class="rental-field-grid">
+                  <label class="rental-label rental-label-wide">
+                    <span>Event Name</span>
+                    <input class="rental-input" type="text" name="eventName" required placeholder="e.g. Smith Family Reunion" maxlength="120" />
+                  </label>
                   <label class="rental-label">
                     <span>Type of Event</span>
                     <select class="rental-input rental-select" name="eventType" required>
@@ -194,18 +238,54 @@
                   <h3 class="rental-form-section-title">Equipment &amp; Add-Ons</h3>
                   <div class="rental-estimator-badge">
                     <span class="rental-estimator-label">Est. Total</span>
-                    <span class="rental-estimator-value" id="rental-total-display">$130</span>
+                    <span class="rental-estimator-value" id="rental-total-display">$120</span>
                   </div>
+                </div>
+
+                <div class="rental-type-grid">
+                  <label class="rental-type-card is-checked" id="rental-type-card-allday">
+                    <input type="radio" name="rentalType" value="all_day" checked />
+                    <div class="rental-type-info">
+                      <span class="rental-type-name">All Day</span>
+                      <span class="rental-type-desc">7 AM – 9 PM</span>
+                      <span class="rental-type-price">$100</span>
+                    </div>
+                  </label>
+                  <label class="rental-type-card" id="rental-type-card-hourly">
+                    <input type="radio" name="rentalType" value="hourly" />
+                    <div class="rental-type-info">
+                      <span class="rental-type-name">By the Hour</span>
+                      <span class="rental-type-desc">Up to 9 hours</span>
+                      <span class="rental-type-price">$10 / hr</span>
+                    </div>
+                  </label>
+                </div>
+
+                <div id="rental-hours-wrap" hidden>
+                  <label class="rental-label" style="margin-bottom: 12px;">
+                    <span>Number of Hours</span>
+                    <select class="rental-input rental-select" name="rentalHours" id="rentalHoursInput">
+                      <option value="1">1 hour — $10</option>
+                      <option value="2">2 hours — $20</option>
+                      <option value="3">3 hours — $30</option>
+                      <option value="4">4 hours — $40</option>
+                      <option value="5">5 hours — $50</option>
+                      <option value="6">6 hours — $60</option>
+                      <option value="7">7 hours — $70</option>
+                      <option value="8">8 hours — $80</option>
+                      <option value="9">9 hours — $90</option>
+                    </select>
+                  </label>
                 </div>
 
                 <div class="rental-base-list">
                   <div class="rental-base-row">
-                    <span>Standard Day Rental</span>
-                    <span>$100</span>
+                    <span id="rental-base-label">Standard Day Rental</span>
+                    <span id="rental-base-price">$100</span>
                   </div>
                   <div class="rental-base-row">
                     <span>Cleaning &amp; Maintenance</span>
-                    <span>$30</span>
+                    <span>$20</span>
                   </div>
                 </div>
 
@@ -393,27 +473,99 @@
 
   <script>
     (function () {
-      const BASE_CENTS = 13000; // $100 rental + $30 cleaning
+      var photos = document.querySelectorAll(".rental-photo");
+      var veil   = document.querySelector(".rental-photos-veil");
+      var total  = photos.length;
+      var current = 0;
+      var dir     = "zoom-in";
+      var DURATION    = 10000;
+      var DIM_SPEED   = "0.9s ease-in";
+      var CLEAR_SPEED = "2s ease-out";
+      var DIM_WAIT    = 950;
 
-      const form = document.getElementById("rental-form");
-      const totalDisplay = document.getElementById("rental-total-display");
-      const submitBtn = document.getElementById("rental-submit-btn");
-      const errorBox = document.getElementById("rental-form-error");
-      const errorText = document.getElementById("rental-form-error-text");
-      const mainSection = document.getElementById("rental-app-main");
+      function swapSlide(idx, direction) {
+        veil.style.transition = "opacity " + DIM_SPEED;
+        veil.style.opacity    = "1";
+
+        setTimeout(function () {
+          photos.forEach(function (p) { p.classList.remove("is-active", "zoom-in", "zoom-out"); });
+          void photos[idx].offsetWidth;
+          photos[idx].classList.add("is-active", direction);
+          current = idx;
+
+          veil.style.transition = "opacity " + CLEAR_SPEED;
+          veil.style.opacity    = "0";
+        }, DIM_WAIT);
+      }
+
+      if (total < 2) return;
+      photos[0].classList.add("is-active", "zoom-in");
+
+      setInterval(function () {
+        dir = dir === "zoom-in" ? "zoom-out" : "zoom-in";
+        swapSlide((current + 1) % total, dir);
+      }, DURATION);
+    })();
+  </script>
+
+  <script>
+    (function () {
+      const CLEANING_CENTS = 2000; // $20 always included
+      const ALLDAY_CENTS   = 10000; // $100 flat day rate
+
+      const form          = document.getElementById("rental-form");
+      const totalDisplay  = document.getElementById("rental-total-display");
+      const submitBtn     = document.getElementById("rental-submit-btn");
+      const errorBox      = document.getElementById("rental-form-error");
+      const errorText     = document.getElementById("rental-form-error-text");
+      const mainSection   = document.getElementById("rental-app-main");
       const successSection = document.getElementById("rental-success");
+      const hoursWrap     = document.getElementById("rental-hours-wrap");
+      const hoursInput    = document.getElementById("rentalHoursInput");
+      const baseLabel     = document.getElementById("rental-base-label");
+      const basePrice     = document.getElementById("rental-base-price");
 
-      // Live cost estimator
+      function getRentalType() {
+        return (form.querySelector('input[name="rentalType"]:checked') || {}).value || "all_day";
+      }
+
+      function getBaseCents() {
+        if (getRentalType() === "hourly") {
+          const hours = Math.min(9, Math.max(1, Number(hoursInput.value) || 1));
+          return (hours * 10 * 100) + CLEANING_CENTS;
+        }
+        return ALLDAY_CENTS + CLEANING_CENTS;
+      }
+
+      function updateBaseDisplay() {
+        const isHourly = getRentalType() === "hourly";
+        hoursWrap.hidden = !isHourly;
+        if (isHourly) {
+          const hours = Math.min(9, Math.max(1, Number(hoursInput.value) || 1));
+          baseLabel.textContent = "Hourly Rental (" + hours + " hr" + (hours > 1 ? "s" : "") + ")";
+          basePrice.textContent = "$" + (hours * 10);
+        } else {
+          baseLabel.textContent = "Standard Day Rental";
+          basePrice.textContent = "$100";
+        }
+      }
+
+      function syncTypeCards() {
+        form.querySelectorAll(".rental-type-card").forEach(function (card) {
+          const radio = card.querySelector("input[type=radio]");
+          if (radio) card.classList.toggle("is-checked", radio.checked);
+        });
+      }
+
       function updateTotal() {
         let extra = 0;
         form.querySelectorAll("input[type=checkbox][data-price]").forEach(function (cb) {
           if (cb.checked) extra += Number(cb.dataset.price) * 100;
         });
-        const total = (BASE_CENTS + extra) / 100;
+        const total = (getBaseCents() + extra) / 100;
         totalDisplay.textContent = "$" + total.toLocaleString("en-US");
       }
 
-      // Toggle checked style on add-on cards
       function syncAddonCards() {
         form.querySelectorAll(".rental-addon-card").forEach(function (card) {
           const cb = card.querySelector("input[type=checkbox]");
@@ -422,7 +574,15 @@
       }
 
       form.addEventListener("change", function (e) {
-        if (e.target.dataset.price !== undefined) {
+        const t = e.target;
+        if (t.name === "rentalType") {
+          syncTypeCards();
+          updateBaseDisplay();
+          updateTotal();
+        } else if (t === hoursInput) {
+          updateBaseDisplay();
+          updateTotal();
+        } else if (t.dataset.price !== undefined) {
           updateTotal();
           syncAddonCards();
         }
@@ -431,43 +591,47 @@
       // Form submission
       form.addEventListener("submit", async function (e) {
         e.preventDefault();
-
         hideError();
 
         const fd = new FormData(form);
-        const foodVal = fd.get("foodOrDrinks");
-        const alcohol = fd.get("alcohol") || "";
+        const foodVal    = fd.get("foodOrDrinks");
+        const alcohol    = fd.get("alcohol") || "";
+        const rentalType = getRentalType();
+        const rentalHours = rentalType === "hourly" ? (Number(hoursInput.value) || 1) : null;
 
         const payload = {
-          contactName: fd.get("contactName") || "",
-          contactPhone: fd.get("contactPhone") || "",
-          contactEmail: fd.get("contactEmail") || "",
+          contactName:    fd.get("contactName") || "",
+          contactPhone:   fd.get("contactPhone") || "",
+          contactEmail:   fd.get("contactEmail") || "",
           contactAddress: fd.get("contactAddress") || "",
 
-          eventType: fd.get("eventType") || "",
-          eventDate: fd.get("eventDate") || "",
-          eventStartTime: fd.get("eventStartTime") || "",
-          eventEndTime: fd.get("eventEndTime") || "",
-          estimatedAttendance: Number(fd.get("estimatedAttendance")) || 0,
-          foodOrDrinks: foodVal === "yes",
-          alcohol: alcohol,
+          eventName:            fd.get("eventName") || "",
+          eventType:            fd.get("eventType") || "",
+          eventDate:            fd.get("eventDate") || "",
+          eventStartTime:       fd.get("eventStartTime") || "",
+          eventEndTime:         fd.get("eventEndTime") || "",
+          estimatedAttendance:  Number(fd.get("estimatedAttendance")) || 0,
+          foodOrDrinks:         foodVal === "yes",
+          alcohol:              alcohol,
 
-          addonTables: fd.get("addonTables") === "on",
-          addonChairs: fd.get("addonChairs") === "on",
-          addonTarp: fd.get("addonTarp") === "on",
-          addonHeater: fd.get("addonHeater") === "on",
-          addonEarlySetup: fd.get("addonEarlySetup") === "on",
+          rentalType:  rentalType,
+          rentalHours: rentalHours,
+
+          addonTables:       fd.get("addonTables") === "on",
+          addonChairs:       fd.get("addonChairs") === "on",
+          addonTarp:         fd.get("addonTarp") === "on",
+          addonHeater:       fd.get("addonHeater") === "on",
+          addonEarlySetup:   fd.get("addonEarlySetup") === "on",
           addonEarlyDayRental: fd.get("addonEarlyDayRental") === "on",
-          addonLateCleanup: fd.get("addonLateCleanup") === "on",
+          addonLateCleanup:  fd.get("addonLateCleanup") === "on",
           addonLateDayRental: fd.get("addonLateDayRental") === "on",
 
           estimatedTotalCents: calcTotal(),
 
           agreedToNoGuarantee: fd.get("agreedToNoGuarantee") === "on",
-          agreedToGuidelines: fd.get("agreedToGuidelines") === "on"
+          agreedToGuidelines:  fd.get("agreedToGuidelines") === "on"
         };
 
-        // Basic client-side checks before sending
         const clientErrors = clientValidate(payload, foodVal);
         if (clientErrors.length) {
           showError(clientErrors.join(" "));
@@ -478,7 +642,7 @@
         submitBtn.textContent = "Submitting…";
 
         try {
-          const res = await fetch("/api/rental-request", {
+          const res  = await fetch("/api/rental-request", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
@@ -493,10 +657,9 @@
             return;
           }
 
-          // Show success
-          document.getElementById("rental-success-name").textContent = payload.contactName;
+          document.getElementById("rental-success-name").textContent  = payload.contactName;
           document.getElementById("rental-success-email").textContent = payload.contactEmail;
-          mainSection.hidden = true;
+          mainSection.hidden   = true;
           successSection.hidden = false;
           successSection.scrollIntoView({ behavior: "smooth", block: "start" });
         } catch (err) {
@@ -511,7 +674,7 @@
         form.querySelectorAll("input[type=checkbox][data-price]").forEach(function (cb) {
           if (cb.checked) extra += Number(cb.dataset.price) * 100;
         });
-        return BASE_CENTS + extra;
+        return getBaseCents() + extra;
       }
 
       function clientValidate(p, foodVal) {
@@ -520,6 +683,7 @@
         if (!p.contactPhone) errs.push("Phone number is required.");
         if (!p.contactEmail || !p.contactEmail.includes("@")) errs.push("A valid email is required.");
         if (!p.contactAddress) errs.push("Mailing address is required.");
+        if (!p.eventName) errs.push("Event name is required.");
         if (!p.eventType) errs.push("Event type is required.");
         if (!p.eventDate) errs.push("Event date is required.");
         if (!p.eventStartTime) errs.push("Start time is required.");
@@ -527,6 +691,7 @@
         if (!p.estimatedAttendance || p.estimatedAttendance < 1) errs.push("Attendance must be at least 1.");
         if (!foodVal) errs.push("Please indicate whether food or drinks will be served.");
         if (!p.alcohol) errs.push("Please indicate whether alcohol will be at the event.");
+        if (p.rentalType === "hourly" && (!p.rentalHours || p.rentalHours < 1 || p.rentalHours > 9)) errs.push("Please select a valid number of hours (1–9).");
         if (!p.agreedToNoGuarantee) errs.push("Please acknowledge the booking terms.");
         if (!p.agreedToGuidelines) errs.push("Please agree to the rental guidelines.");
         return errs;
@@ -543,6 +708,48 @@
         errorText.textContent = "";
       }
     })();
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  <script>
+    (function () {
+      var bookedDates = [];
+
+      fetch("/api/events?booked=true")
+        .then(function (r) { return r.json(); })
+        .then(function (data) { bookedDates = data.dates || []; })
+        .catch(function () {})
+        .finally(function () {
+          flatpickr('input[name="eventDate"]', {
+            altInput: true,
+            altInputClass: "rental-input",
+            altFormat: "F j, Y",
+            dateFormat: "Y-m-d",
+            minDate: "today",
+            disableMobile: true,
+            disable: bookedDates,
+            onDayCreate: function (dObj, dStr, fp, dayElem) {
+              var d = dayElem.dateObj;
+              var iso = d.getFullYear() + "-" +
+                String(d.getMonth() + 1).padStart(2, "0") + "-" +
+                String(d.getDate()).padStart(2, "0");
+              if (bookedDates.indexOf(iso) !== -1) {
+                dayElem.title = "Already booked";
+              }
+            }
+          });
+        });
+    })();
+
+    var timeCfg = {
+      enableTime: true,
+      noCalendar: true,
+      dateFormat: "H:i",
+      time_24hr: false,
+      disableMobile: true
+    };
+    flatpickr('input[name="eventStartTime"]', timeCfg);
+    flatpickr('input[name="eventEndTime"]', timeCfg);
   </script>
 </body>
 </html>
