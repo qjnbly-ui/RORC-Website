@@ -94,6 +94,7 @@ module.exports = async (req, res) => {
     if (fields.is_public   !== undefined) patch.is_public   = Boolean(fields.is_public);
     if (fields.status      !== undefined && VALID_STATUSES.includes(fields.status)) patch.status = fields.status;
     if (fields.rental_request_id !== undefined) patch.rental_request_id = fields.rental_request_id || null;
+    if (fields.created_by  !== undefined) patch.created_by  = String(fields.created_by || "admin").trim();
     patch.updated_at = new Date().toISOString();
 
     try {
@@ -184,6 +185,9 @@ function buildInsert(body) {
 function mapEvent(row) {
   if (!row) return null;
   const normalizedType = normalizeEventType(row.event_type);
+  const createdBy = String(row.created_by || "");
+  const seriesMatch = createdBy.match(/^series:([a-zA-Z0-9_-]+)/);
+  const detailOnly = /(^|[:;|])detail(?:$|[:;|])/.test(createdBy);
   return {
     id:               row.id,
     title:            row.title,
@@ -196,6 +200,9 @@ function mapEvent(row) {
     status:           row.status,
     rentalRequestId:  row.rental_request_id,
     createdBy:        row.created_by,
+    detailOnly,
+    isRecurring:      Boolean(seriesMatch),
+    recurringSeriesId: seriesMatch ? seriesMatch[1] : "",
     createdAt:        row.created_at,
     updatedAt:        row.updated_at
   };

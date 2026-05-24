@@ -3649,6 +3649,59 @@ const RENTAL_PRICE_CENTS = {
   lateDayRental: 10000
 };
 
+function openLinkedDeleteDialog({
+  title = "Delete item?",
+  message = "This action cannot be undone.",
+  confirmLabel = "Delete",
+  cancelLabel = "Cancel"
+} = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "member-delete-confirm-overlay";
+    overlay.style.position = "fixed";
+    overlay.style.zIndex = "1200";
+    overlay.innerHTML = `
+      <section class="member-delete-confirm-dialog" role="dialog" aria-modal="true" aria-label="Delete confirmation">
+        <h3>${escapeHtml(title)}</h3>
+        <p>${escapeHtml(message)}</p>
+        <footer>
+          <button class="member-delete-confirm-cancel" type="button">${escapeHtml(cancelLabel)}</button>
+          <button class="member-delete-confirm-accept" type="button">${escapeHtml(confirmLabel)}</button>
+        </footer>
+      </section>
+    `;
+
+    const close = (confirmed) => {
+      overlay.remove();
+      document.removeEventListener("keydown", onKeydown);
+      resolve(confirmed);
+    };
+    const onKeydown = (event) => {
+      if (event.key === "Escape") close(false);
+    };
+
+    overlay.querySelector(".member-delete-confirm-cancel")?.addEventListener("click", () => close(false));
+    overlay.querySelector(".member-delete-confirm-accept")?.addEventListener("click", () => close(true));
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close(false);
+    });
+    document.addEventListener("keydown", onKeydown);
+    document.body.appendChild(overlay);
+  });
+}
+
+async function fetchLinkedCalendarEventIdForRental(rentalRequestId) {
+  const token = currentAuthSession?.access_token || "";
+  if (!token || !rentalRequestId) return "";
+  const res = await fetch("/api/events", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body.success) return "";
+  const linked = (body.events || []).find((ev) => ev.rentalRequestId === rentalRequestId && ev.status !== "cancelled");
+  return linked?.id || "";
+}
+
 function calculateRentalTotalCents(values) {
   const rentalType = values?.rentalType === "hourly" ? "hourly" : "all_day";
   const hours = Math.min(9, Math.max(1, Number(values?.rentalHours || 1) || 1));
@@ -3736,13 +3789,6 @@ function renderRentalPipeline(root) {
 
   root.innerHTML = `
     <section class="live-record-page rental-admin-shell">
-      <header class="account-page-heading">
-        <div>
-          <p class="eyebrow">Facility Rentals</p>
-          <h2>Rentals</h2>
-        </div>
-      </header>
-
       ${rentalAutomationNotice ? `<p class="feedback-error rental-automation-notice">${escapeHtml(rentalAutomationNotice)}</p>` : ""}
 
       <div class="detail-card">
@@ -3861,6 +3907,7 @@ function buildRentalCard(r) {
         ` : ""}
         <button class="rental-btn rental-btn-decline" data-rental-action="decline" data-rental-id="${escapeAttribute(r.id)}">Decline</button>
         <button class="rental-btn rental-btn-confirm" data-rental-action="confirm" data-rental-id="${escapeAttribute(r.id)}">Confirm Booking</button>
+        <button class="rental-btn rental-btn-decline" data-rental-action="delete" data-rental-id="${escapeAttribute(r.id)}">Delete Request</button>
       </div>
     </div>
   ` : isConfirmed ? `
@@ -3869,12 +3916,14 @@ function buildRentalCard(r) {
         ${editButton}
         <button class="rental-btn rental-btn-view-cal" data-rental-view-calendar="${escapeAttribute(r.eventDate || "")}">View on Calendar</button>
         <button class="rental-btn rental-btn-cancel" data-rental-action="cancel" data-rental-id="${escapeAttribute(r.id)}">Cancel Booking</button>
+        <button class="rental-btn rental-btn-decline" data-rental-action="delete" data-rental-id="${escapeAttribute(r.id)}">Delete Request</button>
       </div>
     </div>
   ` : `
     <div class="rental-card-actions" id="rental-actions-${escapeAttribute(r.id)}">
       <div class="rental-card-btn-row">
         ${editButton}
+        <button class="rental-btn rental-btn-decline" data-rental-action="delete" data-rental-id="${escapeAttribute(r.id)}">Delete Request</button>
       </div>
     </div>
   `;
@@ -4267,6 +4316,11 @@ function handleRentalAction(btn, root) {
   const actionsEl = root.querySelector(`#rental-actions-${id}`);
   if (!actionsEl) return;
 
+  if (action === "delete") {
+    void deleteRentalRequest(id, root);
+    return;
+  }
+
   if (action === "pending_review") {
     submitRentalStatusChange(id, "pending_review", null, root);
     return;
@@ -4312,6 +4366,53 @@ function handleRentalAction(btn, root) {
     const statusMap = { confirm: "confirmed", decline: "rejected", cancel: "canceled" };
     await submitRentalStatusChange(id, statusMap[action], notes || null, root);
   });
+}
+
+async function deleteRentalRequest(id, root) {
+  const rental = rentalAllRequests.find((item) => item.id === id);
+  if (!rental) return;
+
+  const deleteRentalConfirmed = await openLinkedDeleteDialog({
+    title: "Delete rental request?",
+    message: "This will permanently delete the rental request from the rentals page.",
+    confirmLabel: "Delete",
+    cancelLabel: "Cancel"
+  });
+  if (!deleteRentalConfirmed) return;
+
+  const linkedEventId = await fetchLinkedCalendarEventIdForRental(id);
+  let deleteCalendarToo = false;
+  if (linkedEventId) {
+    deleteCalendarToo = await openLinkedDeleteDialog({
+      title: "Delete linked calendar event too?",
+      message: "Do you want to delete this booking from the calendar as well?",
+      confirmLabel: "Yes",
+      cancelLabel: "No"
+    });
+  }
+
+  try {
+    const token = currentAuthSession?.access_token || "";
+    if (!token) throw new Error("Please sign in again before deleting.");
+
+    const res = await fetch("/api/rental-reviews", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ id, deleteLinkedEvent: deleteCalendarToo })
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || body.success === false) throw new Error(body.error || "Could not delete rental request.");
+
+    rentalAllRequests = rentalAllRequests.filter((item) => item.id !== id);
+    rentalReviewsPendingCount = rentalAllRequests.filter(
+      (r) => r.rentalStatus === "submitted" || r.rentalStatus === "pending_review"
+    ).length;
+    updateRentalReviewsBadge();
+    renderRentalPipeline(root);
+  } catch (err) {
+    rentalAutomationNotice = err.message || "Could not delete rental request.";
+    renderRentalPipeline(root);
+  }
 }
 
 async function submitRentalStatusChange(id, status, notes, root) {
@@ -4481,6 +4582,54 @@ const initialFacilityDate = facilityDateParts(new Date());
 let calendarYear = Number(initialFacilityDate?.year || new Date().getFullYear());
 let calendarMonth = Number(initialFacilityDate?.month || (new Date().getMonth() + 1)) - 1;
 let pendingCalendarRentalCreate = false;
+const DEFAULT_FACILITY_HOURS = {
+  start: "07:00",
+  end: "21:00"
+};
+let facilityHours = { ...DEFAULT_FACILITY_HOURS };
+
+function normalizeHourValue(raw, fallback) {
+  const match = String(raw || "").match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  return match ? `${match[1]}:${match[2]}` : fallback;
+}
+
+function normalizeFacilityHours(settings) {
+  return {
+    start: normalizeHourValue(settings?.start ?? settings?.facility_start, DEFAULT_FACILITY_HOURS.start),
+    end: normalizeHourValue(settings?.end ?? settings?.facility_end, DEFAULT_FACILITY_HOURS.end)
+  };
+}
+
+function formatHourLabel(timeValue) {
+  const [hourStr, minuteStr] = String(timeValue || "").split(":");
+  const hour = Number(hourStr);
+  const minute = Number(minuteStr);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return String(timeValue || "");
+  const period = hour >= 12 ? "PM" : "AM";
+  const h12 = hour % 12 || 12;
+  const mm = String(minute).padStart(2, "0");
+  return `${h12}:${mm} ${period}`;
+}
+
+async function loadFacilityHoursFromServer() {
+  try {
+    const settings = await loadAutomationSettings();
+    return normalizeFacilityHours(settings?.calendar_settings || {});
+  } catch {
+    return { ...DEFAULT_FACILITY_HOURS };
+  }
+}
+
+async function saveFacilityHoursToServer(hours) {
+  const normalized = normalizeFacilityHours(hours);
+  await saveAutomationSettings({
+    calendar_settings: {
+      facility_start: normalized.start,
+      facility_end: normalized.end
+    }
+  });
+  facilityHours = normalized;
+}
 
 async function renderCalendarPage() {
   const root = document.getElementById("feedbackContent");
@@ -4491,11 +4640,15 @@ async function renderCalendarPage() {
   try {
     const token = currentAuthSession?.access_token || "";
     if (!token) throw new Error("Please sign in again.");
-    const res   = await fetch("/api/events", {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+    const [res, sharedHours] = await Promise.all([
+      fetch("/api/events", {
+        headers: { Authorization: `Bearer ${token}` }
+      }),
+      loadFacilityHoursFromServer()
+    ]);
     const body  = await res.json();
     if (!res.ok || !body.success) throw new Error(body.error || "Could not load events");
+    facilityHours = normalizeFacilityHours(sharedHours);
     calendarEvents = body.events || [];
     renderCalendarView(root);
     if (pendingCalendarRentalCreate) {
@@ -4509,23 +4662,7 @@ async function renderCalendarPage() {
 }
 
 function getRecurringEventsForMonth(year, month) {
-  const recurring = [];
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  for (let d = 1; d <= daysInMonth; d++) {
-    const dow = new Date(year, month, d).getDay();
-    if (dow === 2 || dow === 4) { // Tuesday or Thursday
-      const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-      recurring.push({
-        id: null, isRecurring: true,
-        title: "Open Gym",
-        eventType: "rorc",
-        startAt: `${iso}T18:00:00`,
-        endAt:   `${iso}T20:00:00`,
-        allDay: false, isPublic: true
-      });
-    }
-  }
-  return recurring;
+  return [];
 }
 
 function renderCalendarView(root) {
@@ -4559,7 +4696,7 @@ function renderCalendarView(root) {
   }
   for (let d = 1; d <= daysInMonth; d++) {
     const iso     = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-    const dayEvs  = byDate[iso] || [];
+    const dayEvs  = (byDate[iso] || []).filter((ev) => !ev.detailOnly);
     const isToday = iso === facilityDateKey(now);
     const dayEventRows = dayEvs.slice(0, 3).map((ev) => {
       const color = EVENT_COLORS[ev.eventType] || "#8a97a8";
@@ -4603,6 +4740,25 @@ function renderCalendarView(root) {
 
     <div id="calDayPanel" class="cal-day-panel" hidden></div>
 
+    <div id="calHoursModal" class="cal-modal" hidden>
+      <div class="cal-modal-inner">
+        <h3 class="cal-modal-heading">Facility Hours</h3>
+        <div id="calHoursError" class="feedback-error" hidden></div>
+        <div class="cal-field-row">
+          <label class="cal-field-label">Start
+            <input id="calHoursStart" class="rorc-input" type="time" />
+          </label>
+          <label class="cal-field-label">End
+            <input id="calHoursEnd" class="rorc-input" type="time" />
+          </label>
+        </div>
+        <div class="cal-modal-actions">
+          <button class="app-admin-btn app-admin-btn-secondary" id="calHoursCancel">Cancel</button>
+          <button class="app-admin-btn app-admin-btn-primary" id="calHoursSave">Save Hours</button>
+        </div>
+      </div>
+    </div>
+
     <div id="calEventModal" class="cal-modal" hidden>
       <div class="cal-modal-inner">
         <h3 id="calModalTitle" class="cal-modal-heading">New Event</h3>
@@ -4635,9 +4791,34 @@ function renderCalendarView(root) {
           <input id="calEvPublic" type="checkbox" />
           Public event (visible on website)
         </label>
+        <label class="cal-field-label cal-field-check">
+          <input id="calEvDetailOnly" type="checkbox" />
+          Show only in day details (hide from month cells)
+        </label>
         <label class="cal-field-label">Description (optional)
           <textarea id="calEvDesc" class="rorc-input" rows="3" placeholder="Any notes…"></textarea>
         </label>
+        <div class="cal-recurring-box">
+          <label class="cal-field-label cal-field-check">
+            <input id="calEvRecurring" type="checkbox" />
+            Is this recurring?
+          </label>
+          <div id="calRecurringFields" class="cal-recurring-fields" hidden>
+            <div class="cal-recurring-days" role="group" aria-label="Recurring days">
+              <label><input type="checkbox" data-rec-day="0" />S</label>
+              <label><input type="checkbox" data-rec-day="1" />M</label>
+              <label><input type="checkbox" data-rec-day="2" />T</label>
+              <label><input type="checkbox" data-rec-day="3" />W</label>
+              <label><input type="checkbox" data-rec-day="4" />T</label>
+              <label><input type="checkbox" data-rec-day="5" />F</label>
+              <label><input type="checkbox" data-rec-day="6" />S</label>
+            </div>
+            <label class="cal-field-label">Occurrences
+              <input id="calRecurringCount" class="rorc-input" type="number" min="2" max="60" value="12" />
+            </label>
+            <p class="cal-recurring-note">Creates separate events for each date so each one can be edited/deleted independently.</p>
+          </div>
+        </div>
 
         <details id="calRentalDetails" class="cal-rental-details" hidden>
           <summary>Booking details</summary>
@@ -4724,6 +4905,7 @@ function renderCalendarView(root) {
         </div>
       </div>
     </div>
+
   `;
 
   bindCalendarEvents(root);
@@ -4759,7 +4941,17 @@ function bindCalendarEvents(root) {
 
   root.querySelector("#calModalSave").addEventListener("click", () => saveCalendarEvent(root));
   root.querySelector("#calModalDelete").addEventListener("click", () => deleteCalendarEvent(root));
-  root.querySelector("#calEvType").addEventListener("change", () => syncCalendarRentalDetailsVisibility(root));
+  root.querySelector("#calHoursCancel").addEventListener("click", () => {
+    root.querySelector("#calHoursModal").hidden = true;
+  });
+  root.querySelector("#calHoursSave").addEventListener("click", () => {
+    saveFacilityHoursFromModal(root);
+  });
+  root.querySelector("#calEvType").addEventListener("change", () => {
+    syncCalendarRentalDetailsVisibility(root);
+    syncRecurringVisibility(root);
+  });
+  root.querySelector("#calEvRecurring").addEventListener("change", () => syncRecurringVisibility(root));
   root.querySelector("#calRentalType").addEventListener("change", () => setCalendarRentalHoursState(root));
   [
     "calRentalType",
@@ -4789,16 +4981,7 @@ function calendarJumpToDate(dateIso) {
 
 function showCalDayPanel(root, dateIso) {
   const panel  = root.querySelector("#calDayPanel");
-  const dow    = new Date(dateIso + "T12:00:00").getDay();
-  const recurringToday = (dow === 2 || dow === 4) ? [{
-    id: null, isRecurring: true,
-    title: "Open Gym",
-    eventType: "rorc",
-    startAt: `${dateIso}T18:00:00`,
-    endAt:   `${dateIso}T20:00:00`,
-    allDay: false
-  }] : [];
-  const dayEvs = [...recurringToday, ...calendarEvents.filter((ev) => calendarTimestampDateKey(ev.startAt, ev.allDay) === dateIso)];
+  const dayEvs = calendarEvents.filter((ev) => calendarTimestampDateKey(ev.startAt, ev.allDay) === dateIso);
   const label  = new Date(dateIso + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
   const evHtml = dayEvs.length
@@ -4825,13 +5008,17 @@ function showCalDayPanel(root, dateIso) {
     </div>
     <div class="cal-hours-strip">
       <span class="cal-hours-label">Facility hours</span>
-      <span class="cal-hours-value">7:00 AM – 9:00 PM</span>
+      <span class="cal-hours-value">${escapeHtml(formatHourLabel(facilityHours.start))} – ${escapeHtml(formatHourLabel(facilityHours.end))}</span>
+      <button class="cal-hours-edit-btn" type="button">Edit</button>
     </div>
     ${evHtml}
   `;
 
   panel.querySelector(".cal-day-add-btn").addEventListener("click", (e) => {
     openCalendarModal(root, null, e.currentTarget.dataset.date);
+  });
+  panel.querySelector(".cal-hours-edit-btn")?.addEventListener("click", () => {
+    openFacilityHoursModal(root);
   });
 
   panel.querySelectorAll(".cal-day-edit-btn").forEach((btn) => {
@@ -4851,6 +5038,31 @@ function showCalDayPanel(root, dateIso) {
   });
 }
 
+function openFacilityHoursModal(root) {
+  const modal = root.querySelector("#calHoursModal");
+  const errEl = root.querySelector("#calHoursError");
+  if (!modal) return;
+  if (errEl) errEl.hidden = true;
+  root.querySelector("#calHoursStart").value = facilityHours.start;
+  root.querySelector("#calHoursEnd").value = facilityHours.end;
+  modal.hidden = false;
+}
+
+async function saveFacilityHoursFromModal(root) {
+  const errEl = root.querySelector("#calHoursError");
+  if (errEl) errEl.hidden = true;
+  const start = root.querySelector("#calHoursStart")?.value || DEFAULT_FACILITY_HOURS.start;
+  const end = root.querySelector("#calHoursEnd")?.value || DEFAULT_FACILITY_HOURS.end;
+  try {
+    await saveFacilityHoursToServer({ start, end });
+    root.querySelector("#calHoursModal").hidden = true;
+    const selectedDate = root.querySelector("#calDayPanel .cal-day-add-btn")?.getAttribute("data-date");
+    if (selectedDate) showCalDayPanel(root, selectedDate);
+  } catch (error) {
+    showCalError(errEl, error.message || "Could not save facility hours.");
+  }
+}
+
 function openCalendarModal(root, event, prefillDate) {
   const modal     = root.querySelector("#calEventModal");
   const titleEl   = root.querySelector("#calModalTitle");
@@ -4861,6 +5073,8 @@ function openCalendarModal(root, event, prefillDate) {
   errEl.hidden = true;
   modal.dataset.evId = event ? event.id : "";
   modal.dataset.rentalRequestId = event?.rentalRequestId || "";
+  modal.dataset.seriesId = event ? parseSeriesToken(event.createdBy) : "";
+  modal.dataset.createdBy = event?.createdBy || "admin";
   modal.dataset.rentalLoaded = "";
 
   titleEl.textContent = event ? "Edit Event" : "New Event";
@@ -4873,10 +5087,23 @@ function openCalendarModal(root, event, prefillDate) {
   root.querySelector("#calEvEnd").value     = event ? facilityTimeInputValue(event.endAt) : "";
   root.querySelector("#calEvAllDay").checked  = event ? event.allDay : false;
   root.querySelector("#calEvPublic").checked  = event ? event.isPublic : false;
+  root.querySelector("#calEvDetailOnly").checked = event ? Boolean(event.detailOnly) : false;
   root.querySelector("#calEvDesc").value    = event ? (event.description || "") : "";
+  root.querySelector("#calEvRecurring").checked = false;
+  root.querySelector("#calRecurringCount").value = "12";
+  root.querySelectorAll("[data-rec-day]").forEach((input) => {
+    input.checked = false;
+  });
+  const seedDate = root.querySelector("#calEvDate").value;
+  if (seedDate) {
+    const seedDow = new Date(`${seedDate}T12:00:00`).getDay();
+    const seedInput = root.querySelector(`[data-rec-day="${seedDow}"]`);
+    if (seedInput) seedInput.checked = true;
+  }
 
   resetCalendarRentalFields(root, event?.title || "");
   syncCalendarRentalDetailsVisibility(root, !event && normalizeEventTypeForUi(root.querySelector("#calEvType").value) === "rental");
+  syncRecurringVisibility(root);
 
   rentalInfo.hidden = true;
   rentalInfo.innerHTML = "";
@@ -4886,6 +5113,92 @@ function openCalendarModal(root, event, prefillDate) {
   }
 
   modal.hidden = false;
+}
+
+function syncRecurringVisibility(root) {
+  const modal = root.querySelector("#calEventModal");
+  const recurringToggle = root.querySelector("#calEvRecurring");
+  const recurringFields = root.querySelector("#calRecurringFields");
+  const isRental = normalizeEventTypeForUi(root.querySelector("#calEvType")?.value) === "rental";
+  const isEditing = Boolean(modal?.dataset?.evId);
+  const allowed = !isRental && !isEditing;
+  recurringToggle.disabled = !allowed;
+  if (!allowed) recurringToggle.checked = false;
+  recurringFields.hidden = !(allowed && recurringToggle.checked);
+}
+
+function buildRecurringDateList(seedDate, selectedDays, maxOccurrences) {
+  const dates = [];
+  const startDate = new Date(`${seedDate}T12:00:00`);
+  if (Number.isNaN(startDate.getTime())) return dates;
+  const targetDays = new Set(selectedDays);
+  const cursor = new Date(startDate);
+  let guard = 0;
+  while (dates.length < maxOccurrences && guard < 420) {
+    guard += 1;
+    const dow = cursor.getDay();
+    if (targetDays.has(dow)) {
+      dates.push(cursor.toISOString().slice(0, 10));
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+
+function uidSeriesToken() {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function parseSeriesToken(createdBy) {
+  const match = String(createdBy || "").match(/^series:([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : "";
+}
+
+function isSameOrAfterFacilityDate(aIso, bIso) {
+  return calendarTimestampDateKey(aIso) >= calendarTimestampDateKey(bIso);
+}
+
+async function openRecurringDeleteScopeDialog() {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "member-delete-confirm-overlay";
+    overlay.style.position = "fixed";
+    overlay.style.zIndex = "1200";
+    overlay.innerHTML = `
+      <section class="member-delete-confirm-dialog" role="dialog" aria-modal="true" aria-label="Delete recurring event">
+        <h3>Delete recurring event</h3>
+        <div class="recurring-delete-options">
+          <label><input type="radio" name="recurringDeleteScope" value="this" checked /> This event</label>
+          <label><input type="radio" name="recurringDeleteScope" value="following" /> This and following events</label>
+          <label><input type="radio" name="recurringDeleteScope" value="all" /> All events</label>
+        </div>
+        <footer>
+          <button class="member-delete-confirm-cancel" type="button">Cancel</button>
+          <button class="member-delete-confirm-accept" type="button">OK</button>
+        </footer>
+      </section>
+    `;
+
+    const close = (scope) => {
+      overlay.remove();
+      document.removeEventListener("keydown", onKeydown);
+      resolve(scope);
+    };
+    const onKeydown = (event) => {
+      if (event.key === "Escape") close("");
+    };
+
+    overlay.querySelector(".member-delete-confirm-cancel")?.addEventListener("click", () => close(""));
+    overlay.querySelector(".member-delete-confirm-accept")?.addEventListener("click", () => {
+      const selected = overlay.querySelector("input[name='recurringDeleteScope']:checked");
+      close(selected?.value || "this");
+    });
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close("");
+    });
+    document.addEventListener("keydown", onKeydown);
+    document.body.appendChild(overlay);
+  });
 }
 
 function openNewRentalCalendarModal(root) {
@@ -5126,10 +5439,17 @@ async function saveCalendarEvent(root) {
   const end     = root.querySelector("#calEvEnd").value;
   const allDay  = root.querySelector("#calEvAllDay").checked;
   const isPublic = root.querySelector("#calEvPublic").checked;
+  const detailOnly = root.querySelector("#calEvDetailOnly").checked;
   const desc    = root.querySelector("#calEvDesc").value.trim();
+  const recurringEnabled = root.querySelector("#calEvRecurring").checked && !evId && normalizeEventTypeForUi(type) !== "rental";
+  const recurringCount = Math.min(60, Math.max(2, Number(root.querySelector("#calRecurringCount")?.value || 12) || 12));
+  const recurringDays = [...root.querySelectorAll("[data-rec-day]:checked")]
+    .map((input) => Number(input.getAttribute("data-rec-day")))
+    .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6);
 
   if (!title) { showCalError(errEl, "Title is required."); return; }
   if (!date)  { showCalError(errEl, "Date is required.");  return; }
+  if (recurringEnabled && !recurringDays.length) { showCalError(errEl, "Select at least one recurring day."); return; }
 
   const startAt = allDay
     ? facilityWallTimeToIso(date, "00:00")
@@ -5146,8 +5466,11 @@ async function saveCalendarEvent(root) {
     const token  = currentAuthSession?.access_token || "";
     if (!token) throw new Error("Please sign in again before saving.");
     const method = evId ? "PATCH" : "POST";
-    const payload = { title, event_type: type, start_at: startAt, end_at: endAt, all_day: allDay, is_public: isPublic, description: desc || null };
-    if (evId) payload.id = evId;
+    const existingCreatedBy = String(modal.dataset.createdBy || "admin");
+    const createdByCore = existingCreatedBy.replace(/(^|[:;|])detail(?:$|[:;|])/g, "").replace(/[:;|]{2,}/g, ":").replace(/^[:;|]|[:;|]$/g, "") || "admin";
+    const createdBy = detailOnly ? `${createdByCore}:detail` : createdByCore;
+    const basePayload = { title, event_type: type, start_at: startAt, end_at: endAt, all_day: allDay, is_public: isPublic, description: desc || null, created_by: createdBy };
+    const payload = evId ? { ...basePayload, id: evId } : { ...basePayload };
 
     if (type === "rental") {
       const rentalDefaults = { title, date, start, end, allDay };
@@ -5165,13 +5488,34 @@ async function saveCalendarEvent(root) {
       payload.rental_request_id = existingRentalId || rrBody.id;
     }
 
-    const res  = await fetch("/api/events", {
-      method,
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify(payload)
-    });
-    const body = await res.json();
-    if (!res.ok || !body.success) throw new Error(body.error || "Save failed");
+    if (recurringEnabled && !evId) {
+      const dateList = buildRecurringDateList(date, recurringDays, recurringCount);
+      const seriesId = uidSeriesToken();
+      const seriesCreatedBy = detailOnly ? `series:${seriesId}:detail` : `series:${seriesId}`;
+      for (const dateKey of dateList) {
+        const itemStart = allDay
+          ? facilityWallTimeToIso(dateKey, "00:00")
+          : facilityWallTimeToIso(dateKey, start || "00:00");
+        const itemEnd = allDay
+          ? facilityWallTimeToIso(dateKey, "23:59")
+          : facilityWallTimeToIso(dateKey, end || "23:59");
+        const res = await fetch("/api/events", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ ...payload, start_at: itemStart, end_at: itemEnd, created_by: seriesCreatedBy })
+        });
+        const body = await res.json();
+        if (!res.ok || !body.success) throw new Error(body.error || "Save failed");
+      }
+    } else {
+      const res  = await fetch("/api/events", {
+        method,
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload)
+      });
+      const body = await res.json();
+      if (!res.ok || !body.success) throw new Error(body.error || "Save failed");
+    }
 
     modal.hidden = true;
     await renderCalendarPage();
@@ -5187,19 +5531,73 @@ async function deleteCalendarEvent(root) {
   const modal = root.querySelector("#calEventModal");
   const errEl = root.querySelector("#calModalError");
   const evId  = modal.dataset.evId;
+  const rentalRequestId = modal.dataset.rentalRequestId || "";
+  const seriesId = modal.dataset.seriesId || "";
   if (!evId) return;
-  if (!confirm("Delete this event?")) return;
+
+  let recurringScope = "this";
+  if (seriesId) {
+    const pickedScope = await openRecurringDeleteScopeDialog();
+    if (!pickedScope) return;
+    recurringScope = pickedScope;
+  } else {
+    const deleteEventConfirmed = await openLinkedDeleteDialog({
+      title: "Delete calendar event?",
+      message: "This will remove the event from the calendar.",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel"
+    });
+    if (!deleteEventConfirmed) return;
+  }
+
+  let deleteRentalToo = false;
+  if (rentalRequestId) {
+    deleteRentalToo = await openLinkedDeleteDialog({
+      title: "Delete linked rental request too?",
+      message: "Do you want to delete this booking from the rentals page as well?",
+      confirmLabel: "Yes",
+      cancelLabel: "No"
+    });
+  }
 
   try {
     const token = currentAuthSession?.access_token || "";
     if (!token) throw new Error("Please sign in again before deleting.");
-    const res   = await fetch("/api/events", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ id: evId })
-    });
-    const body = await res.json();
-    if (!res.ok || !body.success) throw new Error(body.error || "Delete failed");
+    const targetEvent = calendarEvents.find((ev) => ev.id === evId);
+    const deleteIds = !seriesId
+      ? [evId]
+      : recurringScope === "all"
+        ? calendarEvents
+          .filter((ev) => parseSeriesToken(ev.createdBy) === seriesId)
+          .map((ev) => ev.id)
+        : recurringScope === "following" && targetEvent
+          ? calendarEvents
+            .filter((ev) => parseSeriesToken(ev.createdBy) === seriesId && isSameOrAfterFacilityDate(ev.startAt, targetEvent.startAt))
+            .map((ev) => ev.id)
+          : [evId];
+
+    for (const id of deleteIds) {
+      const res   = await fetch("/api/events", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ id })
+      });
+      const body = await res.json();
+      if (!res.ok || !body.success) throw new Error(body.error || "Delete failed");
+    }
+
+    if (deleteRentalToo && rentalRequestId) {
+      const rentalRes = await fetch("/api/rental-reviews", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ id: rentalRequestId, deleteLinkedEvent: false })
+      });
+      const rentalBody = await rentalRes.json().catch(() => ({}));
+      if (!rentalRes.ok || rentalBody.success === false) {
+        throw new Error(rentalBody.error || "Event deleted, but linked rental could not be deleted.");
+      }
+    }
+
     modal.hidden = true;
     await renderCalendarPage();
   } catch (err) {
@@ -5208,6 +5606,7 @@ async function deleteCalendarEvent(root) {
 }
 
 function showCalError(el, msg) {
+  if (!el) return;
   el.textContent = msg;
   el.hidden = false;
 }

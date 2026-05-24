@@ -116,6 +116,55 @@ module.exports = async (req, res) => {
     }
   }
 
+  if (req.method === "DELETE") {
+    const { id, delete_linked_event, deleteLinkedEvent } = req.body || {};
+    if (!id || typeof id !== "string") {
+      return res.status(400).json({ success: false, error: "Missing rental request ID" });
+    }
+
+    try {
+      const removeLinkedEvent = Boolean(delete_linked_event ?? deleteLinkedEvent);
+
+      if (removeLinkedEvent) {
+        const eventDeleteRes = await fetch(
+          `${SUPABASE_URL}/rest/v1/events?rental_request_id=eq.${encodeURIComponent(id)}`,
+          {
+            method: "DELETE",
+            headers: {
+              apikey: SERVICE_ROLE_KEY,
+              Authorization: `Bearer ${SERVICE_ROLE_KEY}`
+            }
+          }
+        );
+        if (!eventDeleteRes.ok) {
+          const text = await eventDeleteRes.text();
+          throw new Error(`Linked event delete failed: ${eventDeleteRes.status} ${text}`);
+        }
+      }
+
+      const deleteRes = await fetch(
+        `${SUPABASE_URL}/rest/v1/rental_requests?id=eq.${encodeURIComponent(id)}`,
+        {
+          method: "DELETE",
+          headers: {
+            apikey: SERVICE_ROLE_KEY,
+            Authorization: `Bearer ${SERVICE_ROLE_KEY}`
+          }
+        }
+      );
+
+      if (!deleteRes.ok) {
+        const text = await deleteRes.text();
+        throw new Error(`Rental request delete failed: ${deleteRes.status} ${text}`);
+      }
+
+      return res.status(200).json({ success: true });
+    } catch (err) {
+      console.error("rental-reviews DELETE error:", err);
+      return res.status(500).json({ success: false, error: "Could not delete rental request" });
+    }
+  }
+
   return res.status(405).json({ success: false, error: "Method not allowed" });
 };
 
