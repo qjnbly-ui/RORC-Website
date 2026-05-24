@@ -30,7 +30,7 @@ module.exports = async (req, res) => {
   if (req.method === "GET") {
     try {
       const rows = await supabaseRest(
-        "rental_requests?select=*&order=created_at.desc&limit=200"
+        "rental_requests?select=*&order=event_date.asc&order=created_at.asc&limit=200"
       );
       return res.status(200).json({ success: true, requests: rows.map(mapRow) });
     } catch (err) {
