@@ -1649,7 +1649,8 @@
       for (let day = 1; day <= daysInMonth; day++) {
         const dateKey = `${homeCalYear}-${String(homeCalMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
         const dayEvents = eventsByDate[dateKey] || [];
-        const eventHtml = dayEvents.slice(0, 3).map((ev) => {
+        const monthCellEvents = dayEvents.filter((ev) => !ev.detailOnly);
+        const eventHtml = monthCellEvents.slice(0, 3).map((ev) => {
           const type = homeCalNormalizeType(ev.eventType);
           const color = HOME_CAL_EVENT_COLORS[type] || "#6b7280";
           const time = ev.allDay ? "" : `${homeCalTimeLabel(ev.startAt)} `;
@@ -1657,7 +1658,7 @@
           return `<div class="cal-day-mini-event"><span class="cal-dot" style="background:${color}"></span><span class="cal-day-mini-title">${time}${title}</span></div>`;
         }).join("");
 
-        const overflowCount = dayEvents.length - 3;
+        const overflowCount = monthCellEvents.length - 3;
         const overflow = overflowCount > 0 ? `<div class="cal-day-mini-more">+${overflowCount} more</div>` : "";
         const todayClass = dateKey === todayKey ? " cal-today" : "";
         const selectedClass = dateKey === homeCalSelectedDate ? " cal-selected" : "";
