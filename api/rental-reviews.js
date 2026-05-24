@@ -44,6 +44,11 @@ module.exports = async (req, res) => {
     if (!event_date) {
       return res.status(400).json({ success: false, error: "event_date is required" });
     }
+    const publicStart = str(req.body?.public_event_start_time || req.body?.publicEventStartTime);
+    const publicEnd = str(req.body?.public_event_end_time || req.body?.publicEventEndTime);
+    if (Boolean(publicStart) !== Boolean(publicEnd)) {
+      return res.status(400).json({ success: false, error: "public event start/end must both be set or both be blank" });
+    }
     try {
       const insertRes = await fetch(`${SUPABASE_URL}/rest/v1/rental_requests`, {
         method: "POST",
@@ -63,7 +68,7 @@ module.exports = async (req, res) => {
       return res.status(200).json({ success: true, id: rows[0]?.id });
     } catch (err) {
       console.error("rental-reviews POST error:", err);
-      return res.status(500).json({ success: false, error: "Could not create rental request" });
+      return res.status(500).json({ success: false, error: err.message || "Could not create rental request" });
     }
   }
 
@@ -75,6 +80,12 @@ module.exports = async (req, res) => {
     }
     if (status !== undefined && !VALID_STATUSES.includes(status)) {
       return res.status(400).json({ success: false, error: `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}` });
+    }
+    const patchPublicStart = req.body?.public_event_start_time ?? req.body?.publicEventStartTime;
+    const patchPublicEnd = req.body?.public_event_end_time ?? req.body?.publicEventEndTime;
+    if ((patchPublicStart !== undefined || patchPublicEnd !== undefined)
+      && Boolean(str(patchPublicStart)) !== Boolean(str(patchPublicEnd))) {
+      return res.status(400).json({ success: false, error: "public event start/end must both be set or both be blank" });
     }
 
     try {
@@ -112,7 +123,7 @@ module.exports = async (req, res) => {
       });
     } catch (err) {
       console.error("rental-reviews PATCH error:", err);
-      return res.status(500).json({ success: false, error: "Could not update rental request" });
+      return res.status(500).json({ success: false, error: err.message || "Could not update rental request" });
     }
   }
 
@@ -170,11 +181,15 @@ module.exports = async (req, res) => {
 
 async function createOrUpdateCalendarEvent(record) {
   const dateStr = record.event_date; // "YYYY-MM-DD"
-  const startTime = record.event_start_time || "07:00";
-  const endTime   = record.event_end_time   || "21:00";
+  const rentalStartTime = record.event_start_time || "07:00";
+  const rentalEndTime   = record.event_end_time   || "21:00";
+  const publicStartTime = str(record.public_event_start_time || "");
+  const publicEndTime   = str(record.public_event_end_time || "");
+  const usePublicWindow = Boolean(publicStartTime && publicEndTime);
   const isAllDayRental = record.rental_type !== "hourly";
-  const startAt = buildIsoTimestamp(dateStr, isAllDayRental ? "07:00" : startTime);
-  const endAt   = buildIsoTimestamp(dateStr, isAllDayRental ? "21:00" : endTime);
+  const renderAsAllDay = isAllDayRental && !usePublicWindow;
+  const startAt = buildIsoTimestamp(dateStr, renderAsAllDay ? "07:00" : (publicStartTime || rentalStartTime));
+  const endAt   = buildIsoTimestamp(dateStr, renderAsAllDay ? "21:00" : (publicEndTime || rentalEndTime));
 
   const title = record.event_name
     ? `${record.event_name} (${record.event_type})`
@@ -185,7 +200,7 @@ async function createOrUpdateCalendarEvent(record) {
     event_type: "rental",
     start_at: startAt,
     end_at:   endAt,
-    all_day:  isAllDayRental,
+    all_day:  renderAsAllDay,
     is_public: false,
     status: "confirmed",
     rental_request_id: record.id,
@@ -309,6 +324,8 @@ function facilityWallTimeToIso(dateStr, timeStr = "00:00") {
 }
 
 function buildRentalRecord(body) {
+  const publicStart = str(body.public_event_start_time || body.publicEventStartTime);
+  const publicEnd = str(body.public_event_end_time || body.publicEventEndTime);
   return {
     contact_name: str(body.contact_name || body.contactName || body.title || "Admin Booking"),
     contact_phone: str(body.contact_phone || body.contactPhone),
@@ -319,6 +336,10 @@ function buildRentalRecord(body) {
     event_date: str(body.event_date),
     event_start_time: str(body.event_start_time || body.eventStartTime || "07:00") || "07:00",
     event_end_time: str(body.event_end_time || body.eventEndTime || "21:00") || "21:00",
+    ...(publicStart && publicEnd ? {
+      public_event_start_time: publicStart,
+      public_event_end_time: publicEnd
+    } : {}),
     estimated_attendance: Math.max(1, Number(body.estimated_attendance ?? body.estimatedAttendance ?? 1) || 1),
     food_or_drinks: Boolean(body.food_or_drinks ?? body.foodOrDrinks),
     alcohol: str(body.alcohol || "No") || "No",
@@ -359,12 +380,25 @@ function buildRentalPatch(body) {
     ["event_date", body.event_date ?? body.eventDate],
     ["event_start_time", body.event_start_time ?? body.eventStartTime],
     ["event_end_time", body.event_end_time ?? body.eventEndTime],
+    ["public_event_start_time", body.public_event_start_time ?? body.publicEventStartTime],
+    ["public_event_end_time", body.public_event_end_time ?? body.publicEventEndTime],
     ["alcohol", body.alcohol]
   ];
 
   allowedFields.forEach(([key, value]) => {
     if (value !== undefined) patch[key] = key === "contact_email" ? str(value).toLowerCase() : str(value);
   });
+  if (patch.public_event_start_time !== undefined || patch.public_event_end_time !== undefined) {
+    const nextPublicStart = str(patch.public_event_start_time);
+    const nextPublicEnd = str(patch.public_event_end_time);
+    if (nextPublicStart && nextPublicEnd) {
+      patch.public_event_start_time = nextPublicStart;
+      patch.public_event_end_time = nextPublicEnd;
+    } else {
+      delete patch.public_event_start_time;
+      delete patch.public_event_end_time;
+    }
+  }
 
   if (body.estimated_attendance !== undefined || body.estimatedAttendance !== undefined) {
     patch.estimated_attendance = Math.max(1, Number(body.estimated_attendance ?? body.estimatedAttendance ?? 1) || 1);
@@ -415,6 +449,8 @@ function mapRow(row) {
     eventDate: row.event_date,
     eventStartTime: row.event_start_time,
     eventEndTime: row.event_end_time,
+    publicEventStartTime: row.public_event_start_time,
+    publicEventEndTime: row.public_event_end_time,
     estimatedAttendance: row.estimated_attendance,
     foodOrDrinks: row.food_or_drinks,
     alcohol: row.alcohol,

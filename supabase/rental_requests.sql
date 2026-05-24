@@ -26,6 +26,8 @@ create table if not exists public.rental_requests (
   event_date date not null,
   event_start_time text not null,
   event_end_time text not null,
+  public_event_start_time text,
+  public_event_end_time text,
   estimated_attendance integer not null,
   food_or_drinks boolean not null default false,
   alcohol text not null default 'No',
@@ -123,6 +125,8 @@ begin
       'event_date', new.event_date::text,
       'event_start_time', new.event_start_time,
       'event_end_time', new.event_end_time,
+      'public_event_start_time', new.public_event_start_time,
+      'public_event_end_time', new.public_event_end_time,
       'estimated_attendance', new.estimated_attendance,
       'estimated_total_cents', new.estimated_total_cents,
       'submitted_at', new.created_at

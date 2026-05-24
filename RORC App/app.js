@@ -3333,7 +3333,6 @@ function showAppShell() {
 
 function setRouteViewPending(isPending) {
   if (view) {
-    view.hidden = Boolean(isPending);
     if (isPending) {
       view.setAttribute("aria-busy", "true");
     } else {
@@ -3386,7 +3385,11 @@ function showRouteLoading(routeName) {
     navControl.setAttribute("aria-label", backRoute ? "Go back" : "Open menu");
   }
   if (view) {
-    view.innerHTML = "";
+    view.innerHTML = `
+      <section class="empty-state">
+        <p>Loading ${escapeHtml((route.title || "page").toLowerCase())}…</p>
+      </section>
+    `;
   }
   setRouteViewPending(true);
 
@@ -4053,11 +4056,17 @@ function buildRentalEditForm(r) {
         <label class="rental-edit-field">Date
           <input id="rental-edit-date-${id}" class="rental-edit-input" type="date" value="${escapeAttribute(r.eventDate || "")}" />
         </label>
-        <label class="rental-edit-field">Start Time
+        <label class="rental-edit-field">Rental Access Start
           <input id="rental-edit-start-${id}" class="rental-edit-input" type="time" value="${escapeAttribute(rentalTimeInputValue(r.eventStartTime || "07:00"))}" />
         </label>
-        <label class="rental-edit-field">End Time
+        <label class="rental-edit-field">Rental Access End
           <input id="rental-edit-end-${id}" class="rental-edit-input" type="time" value="${escapeAttribute(rentalTimeInputValue(r.eventEndTime || "21:00"))}" />
+        </label>
+        <label class="rental-edit-field">Public Event Start
+          <input id="rental-edit-public-start-${id}" class="rental-edit-input" type="time" value="${escapeAttribute(rentalTimeInputValue(r.publicEventStartTime || ""))}" />
+        </label>
+        <label class="rental-edit-field">Public Event End
+          <input id="rental-edit-public-end-${id}" class="rental-edit-input" type="time" value="${escapeAttribute(rentalTimeInputValue(r.publicEventEndTime || ""))}" />
         </label>
         <label class="rental-edit-field">Contact Name
           <input id="rental-edit-contact-name-${id}" class="rental-edit-input" type="text" value="${escapeAttribute(r.contactName || "")}" />
@@ -4205,6 +4214,8 @@ function collectRentalEditPayload(id, root) {
     event_date: field("date")?.value || "",
     event_start_time: field("start")?.value || "07:00",
     event_end_time: field("end")?.value || "21:00",
+    public_event_start_time: normalizeTimeFieldValue(field("public-start")?.value || "") || undefined,
+    public_event_end_time: normalizeTimeFieldValue(field("public-end")?.value || "") || undefined,
     contact_name: field("contact-name")?.value.trim() || "",
     contact_phone: field("phone")?.value.trim() || "",
     contact_email: field("email")?.value.trim() || "",
@@ -4247,6 +4258,8 @@ function applyRentalEditToCache(id, payload, updatedRequest) {
     eventDate: payload.event_date,
     eventStartTime: payload.event_start_time,
     eventEndTime: payload.event_end_time,
+    publicEventStartTime: payload.public_event_start_time,
+    publicEventEndTime: payload.public_event_end_time,
     contactName: payload.contact_name,
     contactPhone: payload.contact_phone,
     contactEmail: payload.contact_email,
@@ -4282,6 +4295,10 @@ async function submitRentalEdit(id, root) {
   }
   if (!payload.event_date) {
     if (errEl) { errEl.textContent = "Date is required."; errEl.hidden = false; }
+    return;
+  }
+  if (Boolean(payload.public_event_start_time) !== Boolean(payload.public_event_end_time)) {
+    if (errEl) { errEl.textContent = "Public event start/end must both be filled or both be blank."; errEl.hidden = false; }
     return;
   }
 
@@ -4894,6 +4911,14 @@ function renderCalendarView(root) {
                 </select>
               </label>
             </div>
+            <div class="cal-field-row">
+              <label class="cal-field-label">Public Event Start (calendar display)
+                <input id="calRentalPublicStart" class="rorc-input" type="time" />
+              </label>
+              <label class="cal-field-label">Public Event End (calendar display)
+                <input id="calRentalPublicEnd" class="rorc-input" type="time" />
+              </label>
+            </div>
             <div class="cal-rental-addon-grid">
               <label><input id="calRentalCleaning" type="checkbox" /> Cleaning &amp; Maintenance</label>
               <label><input id="calRentalTables" type="checkbox" /> Tables</label>
@@ -5404,6 +5429,8 @@ function resetCalendarRentalFields(root, title = "") {
     calRentalHours: "",
     calRentalFood: "false",
     calRentalAlcohol: "No",
+    calRentalPublicStart: "",
+    calRentalPublicEnd: "",
     calRentalAdminNotes: ""
   };
 
@@ -5441,6 +5468,8 @@ function populateCalendarRentalFields(root, rental) {
     calRentalHours: rental.rentalHours || "",
     calRentalFood: rental.foodOrDrinks ? "true" : "false",
     calRentalAlcohol: rental.alcohol === "Yes" ? "Yes" : "No",
+    calRentalPublicStart: rental.publicEventStartTime || "",
+    calRentalPublicEnd: rental.publicEventEndTime || "",
     calRentalAdminNotes: rental.adminNotes || ""
   };
 
@@ -5483,6 +5512,8 @@ function collectCalendarRentalPayload(root, defaults) {
     event_date: defaults.date,
     event_start_time: defaults.allDay ? "07:00" : (defaults.start || "07:00"),
     event_end_time: defaults.allDay ? "21:00" : (defaults.end || "21:00"),
+    public_event_start_time: normalizeTimeFieldValue(root.querySelector("#calRentalPublicStart")?.value || "") || undefined,
+    public_event_end_time: normalizeTimeFieldValue(root.querySelector("#calRentalPublicEnd")?.value || "") || undefined,
     estimated_attendance: Math.max(1, Number(root.querySelector("#calRentalAttendance")?.value || 1) || 1),
     food_or_drinks: root.querySelector("#calRentalFood")?.value === "true",
     alcohol: root.querySelector("#calRentalAlcohol")?.value || "No",
@@ -5546,6 +5577,7 @@ async function loadCalRentalInfo(root, rentalRequestId) {
       <div class="cal-rental-divider">Linked Rental</div>
       <div class="cal-rental-row"><span class="cal-rental-label">Contact</span><span>${escapeHtml(rental.contactName || "—")}${rental.contactPhone ? " · " + escapeHtml(rental.contactPhone) : ""}${rental.contactEmail ? " · " + escapeHtml(rental.contactEmail) : ""}</span></div>
       <div class="cal-rental-row"><span class="cal-rental-label">Event</span><span>${escapeHtml(rental.eventType || "—")} · Est. attendance: ${rental.estimatedAttendance ?? "—"}</span></div>
+      ${rental.publicEventStartTime && rental.publicEventEndTime ? `<div class="cal-rental-row"><span class="cal-rental-label">Public Time</span><span>${escapeHtml(rental.publicEventStartTime)} – ${escapeHtml(rental.publicEventEndTime)}</span></div>` : ""}
       ${addons.length ? `<div class="cal-rental-row"><span class="cal-rental-label">Add-ons</span><span>${escapeHtml(addons.join(", "))}</span></div>` : ""}
       <div class="cal-rental-row"><span class="cal-rental-label">Total</span><span>${totalDollars}</span></div>
       <div class="cal-rental-row"><span class="cal-rental-label">Status</span><span class="cal-rental-status">${escapeHtml(statusLabel)}</span></div>
@@ -5588,6 +5620,8 @@ async function saveCalendarEvent(root) {
     .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6);
   const recurringEndMode = root.querySelector("input[name='calRecurringEndsMode']:checked")?.value || "never";
   const recurringEndDate = root.querySelector("#calRecurringEndDate")?.value || "";
+  const rentalPublicStart = normalizeTimeFieldValue(root.querySelector("#calRentalPublicStart")?.value || "");
+  const rentalPublicEnd = normalizeTimeFieldValue(root.querySelector("#calRentalPublicEnd")?.value || "");
 
   if (!title) { showCalError(errEl, "Title is required."); return; }
   if (!date)  { showCalError(errEl, "Date is required.");  return; }
@@ -5595,6 +5629,10 @@ async function saveCalendarEvent(root) {
   if (!allDay && !end) { showCalError(errEl, "Valid end time is required."); return; }
   if (recurringEnabled && recurringUnit === "week" && !recurringDays.length) { showCalError(errEl, "Select at least one recurring day."); return; }
   if (recurringEnabled && recurringEndMode === "on" && !recurringEndDate) { showCalError(errEl, "Select an end date."); return; }
+  if (normalizeEventTypeForUi(type) === "rental" && Boolean(rentalPublicStart) !== Boolean(rentalPublicEnd)) {
+    showCalError(errEl, "Public event start/end must both be filled or both be blank.");
+    return;
+  }
 
   const startAt = allDay
     ? facilityWallTimeToIso(date, "00:00")

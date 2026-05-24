@@ -88,6 +88,11 @@ function validate(body) {
   if (!str(body.eventDate) || isNaN(Date.parse(body.eventDate))) errors.push("A valid event date is required.");
   if (!str(body.eventStartTime)) errors.push("Event start time is required.");
   if (!str(body.eventEndTime)) errors.push("Event end time is required.");
+  const publicStart = str(body.publicEventStartTime);
+  const publicEnd = str(body.publicEventEndTime);
+  if ((publicStart && !publicEnd) || (!publicStart && publicEnd)) {
+    errors.push("Public calendar start/end time must both be set, or both be blank.");
+  }
 
   const attendance = Number(body.estimatedAttendance);
   if (!Number.isInteger(attendance) || attendance < 1) errors.push("Estimated attendance must be at least 1.");
@@ -109,6 +114,8 @@ function validate(body) {
 }
 
 function buildRecord(body) {
+  const publicStart = str(body.publicEventStartTime);
+  const publicEnd = str(body.publicEventEndTime);
   return {
     contact_name: str(body.contactName),
     contact_phone: str(body.contactPhone),
@@ -120,6 +127,10 @@ function buildRecord(body) {
     event_date: str(body.eventDate),
     event_start_time: str(body.eventStartTime),
     event_end_time: str(body.eventEndTime),
+    ...(publicStart && publicEnd ? {
+      public_event_start_time: publicStart,
+      public_event_end_time: publicEnd
+    } : {}),
     estimated_attendance: Number(body.estimatedAttendance),
     food_or_drinks: body.foodOrDrinks === true,
     alcohol: str(body.alcohol),
@@ -187,7 +198,10 @@ async function sendNotificationEmail(record) {
   <tr><td style="padding:6px 12px 6px 0;color:#888;">Type</td><td style="padding:6px 0;">${esc(record?.event_type)}</td></tr>
   <tr><td style="padding:6px 12px 6px 0;color:#888;">Rental</td><td style="padding:6px 0;">${esc(rentalTypeLabel)}</td></tr>
   <tr><td style="padding:6px 12px 6px 0;color:#888;">Date</td><td style="padding:6px 0;">${esc(record?.event_date)}</td></tr>
-  <tr><td style="padding:6px 12px 6px 0;color:#888;">Time</td><td style="padding:6px 0;">${esc(record?.event_start_time)} – ${esc(record?.event_end_time)}</td></tr>
+  <tr><td style="padding:6px 12px 6px 0;color:#888;">Rental Time</td><td style="padding:6px 0;">${esc(record?.event_start_time)} – ${esc(record?.event_end_time)}</td></tr>
+  ${record?.public_event_start_time && record?.public_event_end_time
+    ? `<tr><td style="padding:6px 12px 6px 0;color:#888;">Public Event Time</td><td style="padding:6px 0;">${esc(record?.public_event_start_time)} – ${esc(record?.public_event_end_time)}</td></tr>`
+    : ""}
   <tr><td style="padding:6px 12px 6px 0;color:#888;">Attendance</td><td style="padding:6px 0;">${esc(String(record?.estimated_attendance || ""))}</td></tr>
   ${addons.length ? `<tr><td style="padding:6px 12px 6px 0;color:#888;vertical-align:top;">Add-Ons</td><td style="padding:6px 0;">${addons.map(esc).join("<br>")}</td></tr>` : ""}
   <tr><td style="padding:18px 12px 8px 0;border-top:1px solid #333;color:#888;font-weight:600;">Est. Total</td><td style="padding:18px 0 8px;font-weight:600;color:#fff;">${esc(totalDollars)}</td></tr>

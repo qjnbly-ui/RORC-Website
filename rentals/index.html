@@ -188,12 +188,20 @@
                     <input class="rental-input" type="date" name="eventDate" required />
                   </label>
                   <label class="rental-label">
-                    <span>Event Start Time</span>
+                    <span>Rental Access Start Time</span>
                     <input class="rental-input" type="time" name="eventStartTime" required />
                   </label>
                   <label class="rental-label">
-                    <span>Event End Time</span>
+                    <span>Rental Access End Time</span>
                     <input class="rental-input" type="time" name="eventEndTime" required />
+                  </label>
+                  <label class="rental-label">
+                    <span>Actual Event Start Time (public calendar)</span>
+                    <input class="rental-input" type="time" name="publicEventStartTime" />
+                  </label>
+                  <label class="rental-label">
+                    <span>Actual Event End Time (public calendar)</span>
+                    <input class="rental-input" type="time" name="publicEventEndTime" />
                   </label>
                   <label class="rental-label">
                     <span>Estimated Attendance</span>
@@ -668,6 +676,8 @@
           eventDate:            fd.get("eventDate") || "",
           eventStartTime:       fd.get("eventStartTime") || "",
           eventEndTime:         fd.get("eventEndTime") || "",
+          publicEventStartTime: fd.get("publicEventStartTime") || "",
+          publicEventEndTime:   fd.get("publicEventEndTime") || "",
           estimatedAttendance:  Number(fd.get("estimatedAttendance")) || 0,
           foodOrDrinks:         foodVal === "yes",
           alcohol:              alcohol,
@@ -752,6 +762,14 @@
           const end = parseTimeMinutes(p.eventEndTime);
           if (start !== null && end !== null && end <= start) errs.push("End time must be after start time.");
         }
+        if (Boolean(p.publicEventStartTime) !== Boolean(p.publicEventEndTime)) {
+          errs.push("Public calendar event start and end times must both be filled or both be blank.");
+        }
+        if (p.publicEventStartTime && p.publicEventEndTime) {
+          const publicStart = parseTimeMinutes(p.publicEventStartTime);
+          const publicEnd = parseTimeMinutes(p.publicEventEndTime);
+          if (publicStart !== null && publicEnd !== null && publicEnd <= publicStart) errs.push("Public event end time must be after public event start time.");
+        }
         if (!p.estimatedAttendance || p.estimatedAttendance < 1) errs.push("Attendance must be at least 1.");
         if (!foodVal) errs.push("Please indicate whether food or drinks will be served.");
         if (!p.alcohol) errs.push("Please indicate whether alcohol will be at the event.");
@@ -814,6 +832,8 @@
     };
     flatpickr('input[name="eventStartTime"]', timeCfg);
     flatpickr('input[name="eventEndTime"]', timeCfg);
+    flatpickr('input[name="publicEventStartTime"]', timeCfg);
+    flatpickr('input[name="publicEventEndTime"]', timeCfg);
   </script>
 </body>
 </html>

@@ -75,7 +75,7 @@ module.exports = async (req, res) => {
       return res.status(200).json({ success: true, event: mapEvent(rows[0]) });
     } catch (err) {
       console.error("events POST error:", err);
-      return res.status(500).json({ success: false, error: "Could not create event" });
+      return res.status(500).json({ success: false, error: err.message || "Could not create event" });
     }
   }
 
