@@ -2,6 +2,7 @@ const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const VALID_TYPES   = ["rental", "maintenance", "rorc"];
+const DB_EVENT_TYPES = ["rental", "maintenance", "open_gym", "private_event", "public_event", "general"];
 const VALID_STATUSES = ["confirmed", "cancelled"];
 const RENTAL_BLOCKING_TYPES = ["rental", "maintenance"];
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
@@ -87,7 +88,7 @@ module.exports = async (req, res) => {
     const patch = {};
     if (fields.title       !== undefined) patch.title       = String(fields.title || "").trim().slice(0, 200);
     if (fields.description !== undefined) patch.description = String(fields.description || "").trim() || null;
-    if (fields.event_type  !== undefined && VALID_TYPES.includes(fields.event_type))   patch.event_type = fields.event_type;
+    if (fields.event_type  !== undefined) patch.event_type = canonicalDbEventType(fields.event_type);
     if (fields.start_at    !== undefined) patch.start_at    = fields.start_at;
     if (fields.end_at      !== undefined) patch.end_at      = fields.end_at;
     if (fields.all_day     !== undefined) patch.all_day     = Boolean(fields.all_day);
@@ -160,7 +161,7 @@ module.exports = async (req, res) => {
 function validateBody(body) {
   const errors = [];
   if (!String(body.title || "").trim()) errors.push("Title is required.");
-  if (!VALID_TYPES.includes(body.event_type)) errors.push("Invalid event type.");
+  if (!DB_EVENT_TYPES.includes(canonicalDbEventType(body.event_type))) errors.push("Invalid event type.");
   if (!body.start_at || isNaN(Date.parse(body.start_at))) errors.push("Valid start date/time is required.");
   if (!body.end_at   || isNaN(Date.parse(body.end_at)))   errors.push("Valid end date/time is required.");
   if (new Date(body.start_at) >= new Date(body.end_at))   errors.push("End must be after start.");
@@ -171,7 +172,7 @@ function buildInsert(body) {
   return {
     title:       String(body.title || "").trim().slice(0, 200),
     description: String(body.description || "").trim() || null,
-    event_type:  body.event_type,
+    event_type:  canonicalDbEventType(body.event_type),
     start_at:    body.start_at,
     end_at:      body.end_at,
     all_day:     Boolean(body.all_day),
@@ -180,6 +181,13 @@ function buildInsert(body) {
     rental_request_id: body.rental_request_id || null,
     created_by:  String(body.created_by || "admin").trim()
   };
+}
+
+function canonicalDbEventType(value) {
+  const raw = String(value || "").trim();
+  if (raw === "rorc") return "public_event";
+  if (DB_EVENT_TYPES.includes(raw)) return raw;
+  return "public_event";
 }
 
 function mapEvent(row) {
