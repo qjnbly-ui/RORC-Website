@@ -5139,7 +5139,7 @@ function openCalendarModal(root, event, prefillDate) {
   root.querySelector("#calEvRecurring").checked = false;
   root.querySelector("#calRecurringEvery").value = "1";
   root.querySelector("#calRecurringUnit").value = "week";
-  root.querySelector("input[name='calRecurringEndsMode'][value='never']").checked = true;
+  root.querySelector("input[name='calRecurringEndsMode'][value='after']").checked = true;
   root.querySelector("#calRecurringEndDate").value = "";
   root.querySelector("#calRecurringEndDate").disabled = true;
   root.querySelector("#calRecurringCount").value = "12";
@@ -5252,7 +5252,7 @@ function buildRecurringDateSeries({
   const maxCount = Math.max(1, Number(occurrences) || 1);
   const endDateObj = endDate ? new Date(`${endDate}T12:00:00`) : null;
   const hasEndDate = endDateObj && !Number.isNaN(endDateObj.getTime());
-  const hardLimit = endMode === "never" ? 365 : 220;
+  const hardLimit = endMode === "never" ? 120 : 220;
   const out = [];
 
   if (unit === "day") {
@@ -5684,20 +5684,26 @@ async function saveCalendarEvent(root) {
       if (!dateList.length) throw new Error("Could not create recurrence from current settings.");
       const seriesId = uidSeriesToken();
       const seriesCreatedBy = detailOnly ? `series:${seriesId}:detail` : `series:${seriesId}`;
-      for (const dateKey of dateList) {
-        const itemStart = allDay
-          ? facilityWallTimeToIso(dateKey, "00:00")
-          : facilityWallTimeToIso(dateKey, start || "00:00");
-        const itemEnd = allDay
-          ? facilityWallTimeToIso(dateKey, "23:59")
-          : facilityWallTimeToIso(dateKey, end || "23:59");
-        const res = await fetch("/api/events", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ ...payload, start_at: itemStart, end_at: itemEnd, created_by: seriesCreatedBy })
-        });
-        const body = await res.json();
-        if (!res.ok || !body.success) throw new Error(body.error || "Save failed");
+      const concurrency = 8;
+      for (let i = 0; i < dateList.length; i += concurrency) {
+        const chunk = dateList.slice(i, i + concurrency);
+        const results = await Promise.all(chunk.map(async (dateKey) => {
+          const itemStart = allDay
+            ? facilityWallTimeToIso(dateKey, "00:00")
+            : facilityWallTimeToIso(dateKey, start || "00:00");
+          const itemEnd = allDay
+            ? facilityWallTimeToIso(dateKey, "23:59")
+            : facilityWallTimeToIso(dateKey, end || "23:59");
+          const res = await fetch("/api/events", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ ...payload, start_at: itemStart, end_at: itemEnd, created_by: seriesCreatedBy })
+          });
+          const body = await res.json().catch(() => ({}));
+          return { ok: res.ok && body.success !== false, body };
+        }));
+        const failed = results.find((result) => !result.ok);
+        if (failed) throw new Error(failed.body?.error || "Save failed");
       }
     } else {
       const res  = await fetch("/api/events", {
