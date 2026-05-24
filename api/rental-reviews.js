@@ -101,27 +101,15 @@ module.exports = async (req, res) => {
       const rows = await patchRes.json();
       const record = rows[0];
 
-      if (record && status === "confirmed") {
-        createOrUpdateCalendarEvent(record).catch((err) => {
-          console.error("Calendar event creation failed:", err);
-        });
-        sendApplicantEmail(record, status, adminNotes).catch((err) => {
-          console.error("Rental applicant email failed:", err);
-        });
-      } else if (record && (status === "rejected" || status === "canceled")) {
-        syncLinkedCalendarEventStatus(record.id, "cancelled").catch((err) => {
-          console.error("Linked calendar event status sync failed:", err);
-        });
-        sendApplicantEmail(record, status, adminNotes).catch((err) => {
-          console.error("Rental applicant email failed:", err);
-        });
-      } else if (record && record.rental_status === "confirmed") {
-        createOrUpdateCalendarEvent(record).catch((err) => {
-          console.error("Linked calendar event update failed:", err);
-        });
-      }
+      const automationWarnings = record
+        ? await runRentalReviewAutomations(record, status, adminNotes)
+        : [];
 
-      return res.status(200).json({ success: true, request: record ? mapRow(record) : null });
+      return res.status(200).json({
+        success: true,
+        request: record ? mapRow(record) : null,
+        automationWarnings
+      });
     } catch (err) {
       console.error("rental-reviews PATCH error:", err);
       return res.status(500).json({ success: false, error: "Could not update rental request" });
@@ -203,6 +191,39 @@ async function syncLinkedCalendarEventStatus(rentalRequestId, eventStatus) {
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Event status sync failed: ${res.status} ${text}`);
+  }
+}
+
+async function runRentalReviewAutomations(record, requestedStatus, adminNotes) {
+  const warnings = [];
+
+  if (requestedStatus === "confirmed") {
+    const calendarWarning = await runAutomation("Calendar event creation", () => createOrUpdateCalendarEvent(record));
+    if (calendarWarning) warnings.push(calendarWarning);
+
+    const emailWarning = await runAutomation("Rental applicant email", () => sendApplicantEmail(record, requestedStatus, adminNotes));
+    if (emailWarning) warnings.push(emailWarning);
+  } else if (requestedStatus === "rejected" || requestedStatus === "canceled") {
+    const calendarWarning = await runAutomation("Linked calendar event status sync", () => syncLinkedCalendarEventStatus(record.id, "cancelled"));
+    if (calendarWarning) warnings.push(calendarWarning);
+
+    const emailWarning = await runAutomation("Rental applicant email", () => sendApplicantEmail(record, requestedStatus, adminNotes));
+    if (emailWarning) warnings.push(emailWarning);
+  } else if (record.rental_status === "confirmed") {
+    const calendarWarning = await runAutomation("Linked calendar event update", () => createOrUpdateCalendarEvent(record));
+    if (calendarWarning) warnings.push(calendarWarning);
+  }
+
+  return warnings;
+}
+
+async function runAutomation(label, task) {
+  try {
+    await task();
+    return null;
+  } catch (err) {
+    console.error(`${label} failed:`, err);
+    return `${label} failed`;
   }
 }
 
@@ -405,11 +426,18 @@ async function supabaseRest(path) {
 }
 
 async function sendApplicantEmail(record, status, adminNotes) {
-  if (!RESEND_API_KEY || !record?.contact_email) return;
+  if (!RESEND_API_KEY) {
+    console.warn("Rental applicant email skipped: RESEND_API_KEY is not configured.");
+    return null;
+  }
+  if (!record?.contact_email) {
+    console.warn("Rental applicant email skipped: contact_email is missing.");
+    return null;
+  }
 
   const email = buildRentalApplicantEmail({ record, status, adminNotes });
 
-  await fetch("https://api.resend.com/emails", {
+  const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${RESEND_API_KEY}`,
@@ -423,4 +451,17 @@ async function sendApplicantEmail(record, status, adminNotes) {
       html: email.html
     })
   });
+
+  const responseText = await response.text();
+  let responseBody = null;
+  try {
+    responseBody = responseText ? JSON.parse(responseText) : null;
+  } catch {}
+
+  if (!response.ok) {
+    throw new Error(`Resend rental applicant email failed: ${response.status} ${responseText}`);
+  }
+
+  console.info(`Rental applicant email sent to ${record.contact_email}.`, responseBody?.id ? `Resend id: ${responseBody.id}` : "");
+  return responseBody;
 }

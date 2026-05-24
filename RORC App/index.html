@@ -281,6 +281,7 @@
             <span>Guest Name</span>
             <input id="guestNameInput" type="text" list="recentGuestNames" />
             <datalist id="recentGuestNames"></datalist>
+            <div id="recentGuestWindowList" class="recent-guest-window-list" hidden></div>
           </label>
           <label>
             <span>Member Entered With: Day Pass guest permission applies outside Open Gym. Open Gym guests may enter with any eligible member during Open Gym.</span>
@@ -300,7 +301,7 @@
             </button>
           </label>
           <div class="segmented-field">
-            <p>Day Pass: Select to bring in a guest outside Open Gym. First 10 per account each month are free, then $0.25 per guest billed monthly.</p>
+            <p>Day Pass: Select to bring in a guest outside Open Gym. First 10 guest days per account each month are free, then $0.25 per guest day billed monthly. The same guest can be reused for 24 hours under the same account.</p>
             <p>Open Gym: Select to bring a guest into open gym nights FREE.</p>
             <div class="segmented-control" role="group" aria-label="Guest pass type">
               <button class="segment" type="button">Day Pass</button>

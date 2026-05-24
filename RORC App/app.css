@@ -3756,6 +3756,51 @@ textarea:focus-visible,
   letter-spacing: 0;
 }
 
+.recent-guest-window-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.recent-guest-window-list[hidden] {
+  display: none;
+}
+
+.recent-guest-window-note {
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.recent-guest-window-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recent-guest-chip {
+  appearance: none;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 12px;
+}
+
+.recent-guest-name {
+  font-weight: 800;
+}
+
+.recent-guest-time {
+  color: var(--muted);
+  font-weight: 700;
+}
+
 .form-actions {
   align-items: center;
   background: var(--panel-bg);

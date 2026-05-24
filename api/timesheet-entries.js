@@ -1,5 +1,6 @@
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const FACILITY_TIME_ZONE = "America/Los_Angeles";
 
 module.exports = async (req, res) => {
   if (!SERVICE_ROLE_KEY) {
@@ -203,9 +204,9 @@ function defaultAccountTypePolicies() {
     "Account Manager": { canSignIn: true, bypassTimeWindows: true, allowedDays: [], allowedStartTime: null, allowedEndTime: null },
     "Kiosk Account": { canSignIn: true, bypassTimeWindows: true, allowedDays: [], allowedStartTime: null, allowedEndTime: null },
     "Special Access Account": { canSignIn: true, bypassTimeWindows: true, allowedDays: [], allowedStartTime: null, allowedEndTime: null },
-    "Active Membership": { canSignIn: true, bypassTimeWindows: false, allowedDays: [0, 1, 2, 3, 4, 5, 6], allowedStartTime: "07:00", allowedEndTime: "21:00" },
-    "Weight Room Only": { canSignIn: true, bypassTimeWindows: false, allowedDays: [0, 1, 2, 3, 4, 5, 6], allowedStartTime: "07:00", allowedEndTime: "21:00" },
-    "Open Gym Only": { canSignIn: true, bypassTimeWindows: false, allowedDays: [2, 4], allowedStartTime: "18:00", allowedEndTime: "20:00" },
+    "Active Membership": { canSignIn: true, bypassTimeWindows: false, allowedDays: [0, 1, 2, 3, 4, 5, 6], allowedStartTime: "06:50", allowedEndTime: "21:10" },
+    "Weight Room Only": { canSignIn: true, bypassTimeWindows: false, allowedDays: [0, 1, 2, 3, 4, 5, 6], allowedStartTime: "06:50", allowedEndTime: "21:10" },
+    "Open Gym Only": { canSignIn: true, bypassTimeWindows: false, allowedDays: [2, 4], allowedStartTime: "17:50", allowedEndTime: "20:10" },
     "RESTRICTED ACCOUNT": { canSignIn: false, bypassTimeWindows: false, allowedDays: [], allowedStartTime: null, allowedEndTime: null }
   };
 }
@@ -222,13 +223,13 @@ function canMemberSignInNow(member, signedInAt, policies) {
     return { allowed: true, reason: "" };
   }
 
-  const weekday = signedInAt.getDay();
+  const weekday = facilityWeekdayIndex(signedInAt);
   const allowedDays = Array.isArray(policy.allowedDays) ? policy.allowedDays : [];
   if (allowedDays.length && !allowedDays.includes(weekday)) {
     return { allowed: false, reason: `${type} cannot sign in on this day.` };
   }
 
-  const nowMinutes = (signedInAt.getHours() * 60) + signedInAt.getMinutes();
+  const nowMinutes = minuteOfDayFacility(signedInAt);
   const startMinutes = parseTimeStringToMinutes(policy.allowedStartTime);
   const endMinutes = parseTimeStringToMinutes(policy.allowedEndTime);
   if (!isWithinTimeWindow(nowMinutes, startMinutes, endMinutes)) {
@@ -253,6 +254,44 @@ function isWithinTimeWindow(nowMinutes, startMinutes, endMinutes) {
     return nowMinutes >= startMinutes && nowMinutes <= endMinutes;
   }
   return nowMinutes >= startMinutes || nowMinutes <= endMinutes;
+}
+
+function facilityClockParts(dateLike) {
+  const date = dateLike instanceof Date ? dateLike : new Date(dateLike);
+  if (Number.isNaN(date.getTime())) {
+    return { weekday: "", weekdayIndex: null, hour: 0, minute: 0 };
+  }
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: FACILITY_TIME_ZONE,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(date).reduce((acc, part) => {
+    if (part.type !== "literal") acc[part.type] = part.value;
+    return acc;
+  }, {});
+
+  const weekdayIndexes = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const hour = parts.hour === "24" ? 0 : Number(parts.hour || 0);
+  const minute = Number(parts.minute || 0);
+  return {
+    weekday: parts.weekday || "",
+    weekdayIndex: Object.prototype.hasOwnProperty.call(weekdayIndexes, parts.weekday) ? weekdayIndexes[parts.weekday] : null,
+    hour: Number.isFinite(hour) ? hour : 0,
+    minute: Number.isFinite(minute) ? minute : 0
+  };
+}
+
+function facilityWeekdayIndex(date) {
+  const parts = facilityClockParts(date);
+  return parts.weekdayIndex ?? date.getDay();
+}
+
+function minuteOfDayFacility(date) {
+  const parts = facilityClockParts(date);
+  return (parts.hour * 60) + parts.minute;
 }
 
 function canonicalAccountType(accountType) {

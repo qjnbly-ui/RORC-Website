@@ -19,6 +19,7 @@ const drawerUserEmail = document.getElementById("drawerUserEmail");
 const supabaseSettings = window.RORC_SUPABASE_CONFIG || {};
 const STRIPE_FALLBACK_PORTAL = "https://payments.ruthobenchainrc.com/p/login/eVaeWh2tN0vxgSs288";
 const APP_REFRESH_ROUTE_KEY = "rorc-app-refresh-route";
+const FACILITY_TIME_ZONE = "America/Los_Angeles";
 let supabaseClient = null;
 let currentAuthSession = null;
 let deferredInstallPrompt = null;
@@ -51,10 +52,12 @@ let heaterEntriesRealtimeRetryTimer = null;
 let heaterEntriesSyncInFlight = false;
 let heaterEntriesSyncPending = false;
 let heaterEntriesSyncNeedsRender = false;
+let recentGuestWindowTimer = null;
 let heaterCountdownTimer = null;
 let thermostatStatus = null;
 let thermostatStatusFetchedAt = 0;
 const THERMOSTAT_STATUS_CACHE_MS = 60 * 1000;
+const GUEST_DAY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const pendingHeaterAutoOffIds = new Set();
 let thermostatActionFeedback = null;
 let notifiedIds = new Set();
@@ -3614,6 +3617,7 @@ async function refreshRentalReviewsBadge() {
 let rentalAllRequests  = [];
 let rentalActiveFilter = "action"; // action | confirmed | declined | all
 let highlightRentalId  = null;     // deeplink from calendar
+let rentalAutomationNotice = "";
 
 const RENTAL_STATUS_LABEL = {
   submitted:      "Submitted",
@@ -3738,6 +3742,8 @@ function renderRentalPipeline(root) {
           <h2>Rentals</h2>
         </div>
       </header>
+
+      ${rentalAutomationNotice ? `<p class="feedback-error rental-automation-notice">${escapeHtml(rentalAutomationNotice)}</p>` : ""}
 
       <div class="detail-card">
         <div class="rental-filter-tabs master-logs-tabs" role="tablist" aria-label="Rental request filters">
@@ -4243,6 +4249,9 @@ async function submitRentalEdit(id, root) {
     const body = await res.json().catch(() => ({}));
     if (!res.ok || body.success === false) throw new Error(body.error || "Could not update rental.");
 
+    rentalAutomationNotice = Array.isArray(body.automationWarnings) && body.automationWarnings.length
+      ? `Saved, but automation needs attention: ${body.automationWarnings.join(", ")}. Check Vercel logs for details.`
+      : "";
     applyRentalEditToCache(id, payload, body.request);
     highlightRentalId = id;
     renderRentalPipeline(root);
@@ -4338,6 +4347,10 @@ async function submitRentalStatusChange(id, status, notes, root) {
     const body = await res.json().catch(() => ({}));
     if (!res.ok || body.success === false) throw new Error(body.error || "Could not update request.");
 
+    rentalAutomationNotice = Array.isArray(body.automationWarnings) && body.automationWarnings.length
+      ? `Saved, but automation needs attention: ${body.automationWarnings.join(", ")}. Check Vercel logs for details.`
+      : "";
+
     // Update local cache so filter re-render is instant
     const idx = rentalAllRequests.findIndex((r) => r.id === id);
     if (idx !== -1) {
@@ -4360,8 +4373,6 @@ async function submitRentalStatusChange(id, status, notes, root) {
 // ─────────────────────────────────────────────
 // Calendar
 // ─────────────────────────────────────────────
-
-const FACILITY_TIME_ZONE = "America/Los_Angeles";
 
 function facilityDateParts(dateLike) {
   const date = dateLike instanceof Date ? dateLike : new Date(dateLike);
@@ -6435,8 +6446,10 @@ function setMemberPickerValue(inputId, memberId) {
   if (!input || !button || !label) return;
 
   input.value = member?.id || "";
+  input.dispatchEvent(new Event("change", { bubbles: true }));
   label.innerHTML = memberPickerLabel(member);
   button.classList.toggle("has-value", Boolean(member));
+  if (inputId === "guestMemberSelect") renderRecentGuestWindowOptions();
 }
 
 function selectedMemberIdsFromInput(input) {
@@ -6790,20 +6803,51 @@ function formatDuration(start, end) {
   return `${hours}h ${remainingMinutes}m`;
 }
 
-function isOpenGymWindow(date) {
+function facilityClockParts(dateLike) {
+  const date = dateLike instanceof Date ? dateLike : new Date(dateLike);
+  if (Number.isNaN(date.getTime())) {
+    return { weekday: "", weekdayIndex: null, hour: 0, minute: 0 };
+  }
+
   const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: FACILITY_TIME_ZONE,
     weekday: "short",
     hour: "2-digit",
     minute: "2-digit",
     hour12: false
-  }).formatToParts(date);
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  const weekday = values.weekday;
-  const minutes = Number(values.hour) * 60 + Number(values.minute);
+  }).formatToParts(date).reduce((acc, part) => {
+    if (part.type !== "literal") acc[part.type] = part.value;
+    return acc;
+  }, {});
+
+  const weekdayIndexes = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const hour = parts.hour === "24" ? 0 : Number(parts.hour || 0);
+  const minute = Number(parts.minute || 0);
+  return {
+    weekday: parts.weekday || "",
+    weekdayIndex: Object.prototype.hasOwnProperty.call(weekdayIndexes, parts.weekday) ? weekdayIndexes[parts.weekday] : null,
+    hour: Number.isFinite(hour) ? hour : 0,
+    minute: Number.isFinite(minute) ? minute : 0
+  };
+}
+
+function facilityWeekdayIndex(date) {
+  const parts = facilityClockParts(date);
+  return parts.weekdayIndex ?? date.getDay();
+}
+
+function minuteOfDayFacility(date) {
+  const parts = facilityClockParts(date);
+  return (parts.hour * 60) + parts.minute;
+}
+
+function isOpenGymWindow(date) {
+  const parts = facilityClockParts(date);
+  const minutes = (parts.hour * 60) + parts.minute;
   const startsAt = (17 * 60) + 50;
   const endsAt = (20 * 60) + 10;
 
-  return ["Tue", "Thu"].includes(weekday) && minutes >= startsAt && minutes <= endsAt;
+  return ["Tue", "Thu"].includes(parts.weekday) && minutes >= startsAt && minutes <= endsAt;
 }
 
 function accountTypeTone(accountType) {
@@ -9577,30 +9621,132 @@ function populateMemberSignIn() {
 function populateGuestSignIn() {
   const input = document.getElementById("guestMemberSelect");
   const dateTimeIn = document.getElementById("guestDateTimeIn");
-  const recentGuests = document.getElementById("recentGuestNames");
 
   if (!input || !dateTimeIn) return;
 
   dateTimeIn.value = formatDateTime(new Date());
   setMemberPickerValue(input.id, input.value);
+  renderRecentGuestWindowOptions();
+  startRecentGuestWindowTimer();
+}
 
-  if (recentGuests) {
-    const threshold = Date.now() - (24 * 60 * 60 * 1000);
-    const recentNames = [...new Set(
-      timesheetEntries
-        .filter((entry) => (
-          entry.memberOrGuest === "Guest"
-          && entry.guestName
-          && new Date(entry.signedInAt).getTime() >= threshold
-        ))
-        .map((entry) => String(entry.guestName || "").trim())
-        .filter(Boolean)
-    )].slice(0, 30);
+function normalizeGuestDayName(name) {
+  return String(name || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
 
-    recentGuests.innerHTML = recentNames
-      .map((name) => `<option value="${escapeAttribute(name)}"></option>`)
+function accountIdForMemberId(memberId) {
+  return findMember(memberId)?.accountId || "";
+}
+
+function memberIdsForAccountId(accountId) {
+  if (!accountId) return new Set();
+  const members = globalMemberDirectory.length ? globalMemberDirectory : accountMembers;
+  return new Set(members.filter((member) => member.accountId === accountId).map((member) => member.id));
+}
+
+function recentDayPassGuestWindows(referenceDate = new Date(), sponsorMemberId = "") {
+  const nowMs = referenceDate.getTime();
+  const byGuest = new Map();
+  const sponsorAccountId = accountIdForMemberId(sponsorMemberId);
+  const sameAccountMemberIds = memberIdsForAccountId(sponsorAccountId);
+
+  timesheetEntries
+    .filter((entry) => (
+      entry.memberOrGuest === "Guest"
+      && entry.dayPassOrOpenGym === "Day Pass"
+      && entry.guestName
+      && entry.signedInAt
+      && (!sponsorAccountId || sameAccountMemberIds.has(entry.memberEnteredWithId))
+    ))
+    .forEach((entry) => {
+      const signedInMs = new Date(entry.signedInAt).getTime();
+      if (!Number.isFinite(signedInMs)) return;
+      const expiresAtMs = signedInMs + GUEST_DAY_WINDOW_MS;
+      if (expiresAtMs <= nowMs) return;
+
+      const name = String(entry.guestName || "").trim().replace(/\s+/g, " ");
+      const key = normalizeGuestDayName(name);
+      if (!key) return;
+
+      const existing = byGuest.get(key);
+      if (!existing || signedInMs > existing.signedInMs) {
+        byGuest.set(key, { name, signedInMs, expiresAtMs });
+      }
+    });
+
+  return [...byGuest.values()]
+    .sort((a, b) => a.expiresAtMs - b.expiresAtMs)
+    .slice(0, 30);
+}
+
+function formatGuestWindowRemaining(expiresAtMs, referenceDate = new Date()) {
+  const remainingMs = Math.max(0, expiresAtMs - referenceDate.getTime());
+  const totalMinutes = Math.ceil(remainingMs / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours <= 0) return `${minutes}m left`;
+  if (minutes === 0) return `${hours}h left`;
+  return `${hours}h ${minutes}m left`;
+}
+
+function renderRecentGuestWindowOptions() {
+  const datalist = document.getElementById("recentGuestNames");
+  const list = document.getElementById("recentGuestWindowList");
+  if (!datalist && !list) return;
+
+  const now = new Date();
+  const sponsorMemberId = String(document.getElementById("guestMemberSelect")?.value || "").trim();
+  const windows = recentDayPassGuestWindows(now, sponsorMemberId);
+
+  if (datalist) {
+    datalist.innerHTML = windows
+      .map((guest) => `<option value="${escapeAttribute(guest.name)}" label="${escapeAttribute(formatGuestWindowRemaining(guest.expiresAtMs, now))}"></option>`)
       .join("");
   }
+
+  if (!list) return;
+  list.hidden = windows.length === 0;
+  if (!windows.length) {
+    list.innerHTML = "";
+    return;
+  }
+
+  const recentGuestNote = sponsorMemberId
+    ? "Recent Day Pass guests stay reusable for 24 hours under the same account without using another free guest day or adding another $0.25 charge."
+    : "Select the member entered with to narrow recent Day Pass guests to that account. Reuse lasts 24 hours under the same account.";
+
+  list.innerHTML = `
+    <p class="recent-guest-window-note">${escapeHtml(recentGuestNote)}</p>
+    <div class="recent-guest-window-items">
+      ${windows.map((guest) => `
+        <button class="recent-guest-chip" type="button" data-recent-guest="${escapeAttribute(guest.name)}">
+          <span class="recent-guest-name">${escapeHtml(guest.name)}</span>
+          <span class="recent-guest-time">${escapeHtml(formatGuestWindowRemaining(guest.expiresAtMs, now))}</span>
+        </button>
+      `).join("")}
+    </div>
+  `;
+
+  list.querySelectorAll("[data-recent-guest]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const guestNameInput = document.getElementById("guestNameInput");
+      if (!guestNameInput) return;
+      guestNameInput.value = button.dataset.recentGuest || "";
+      guestNameInput.focus();
+    });
+  });
+}
+
+function startRecentGuestWindowTimer() {
+  if (recentGuestWindowTimer) window.clearInterval(recentGuestWindowTimer);
+  recentGuestWindowTimer = window.setInterval(() => {
+    if (!document.getElementById("recentGuestWindowList")) {
+      window.clearInterval(recentGuestWindowTimer);
+      recentGuestWindowTimer = null;
+      return;
+    }
+    renderRecentGuestWindowOptions();
+  }, 60000);
 }
 
 function updateOpenGymWarning(selectedButton) {
@@ -9768,10 +9914,6 @@ function parseTimeStringToMinutes(value) {
   return (hours * 60) + minutes;
 }
 
-function minuteOfDayLocal(date) {
-  return (date.getHours() * 60) + date.getMinutes();
-}
-
 function isWithinTimeWindow(nowMinutes, startMinutes, endMinutes) {
   if (startMinutes === null || endMinutes === null) return true;
   if (startMinutes <= endMinutes) {
@@ -9796,13 +9938,13 @@ function canMemberSignInNow(member, signedInAt) {
     return { allowed: true, reason: "" };
   }
 
-  const weekday = signedInAt.getDay();
+  const weekday = facilityWeekdayIndex(signedInAt);
   const allowedDays = Array.isArray(policy.allowedDays) ? policy.allowedDays : [];
   if (allowedDays.length && !allowedDays.includes(weekday)) {
     return { allowed: false, reason: `${type} cannot sign in on this day.` };
   }
 
-  const nowMinutes = minuteOfDayLocal(signedInAt);
+  const nowMinutes = minuteOfDayFacility(signedInAt);
   const startMinutes = parseTimeStringToMinutes(policy.allowedStartTime);
   const endMinutes = parseTimeStringToMinutes(policy.allowedEndTime);
   if (!isWithinTimeWindow(nowMinutes, startMinutes, endMinutes)) {
