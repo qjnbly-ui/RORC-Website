@@ -58,10 +58,15 @@ module.exports = async (req, res) => {
     const rows = await response.json();
     const savedRecord = rows[0];
 
-    // Fire-and-forget email — never block or fail the response
-    sendNotificationEmail(savedRecord).catch((err) => {
+    // Wait for the notification attempt so serverless runtimes do not drop it after the response.
+    try {
+      await sendNotificationEmail({
+        ...savedRecord,
+        addon_cleaning_maintenance: body.addonCleaningMaintenance === true
+      });
+    } catch (err) {
       console.error("Rental notification email failed:", err);
-    });
+    }
 
     return res.status(200).json({ success: true, id: savedRecord?.id });
   } catch (err) {
@@ -143,11 +148,19 @@ function str(value) {
 }
 
 async function sendNotificationEmail(record) {
-  if (!RESEND_API_KEY || !RORC_NOTIFY_EMAIL) return;
+  if (!RESEND_API_KEY) {
+    console.warn("Rental notification email skipped: RESEND_API_KEY is not configured.");
+    return null;
+  }
+  if (!RORC_NOTIFY_EMAIL) {
+    console.warn("Rental notification email skipped: RORC_NOTIFY_EMAIL is not configured.");
+    return null;
+  }
 
   const totalDollars = ((record?.estimated_total_cents || 0) / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
 
   const addons = [
+    record?.addon_cleaning_maintenance && "Cleaning & Maintenance ($20)",
     record?.addon_tables && "Tables ($20)",
     record?.addon_chairs && "Chairs ($20)",
     record?.addon_tarp && "Tarp ($20)",
@@ -184,7 +197,7 @@ async function sendNotificationEmail(record) {
 <p style="margin:24px 0 0;color:#888;font-size:13px;">Review this request in the RORC app under <strong style="color:#ccc;">Rentals</strong>.</p>
 `;
 
-  await fetch("https://api.resend.com/emails", {
+  const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${RESEND_API_KEY}`,
@@ -197,6 +210,19 @@ async function sendNotificationEmail(record) {
       html: buildEmailTemplate({ title: "New Rental Request", bodyHtml })
     })
   });
+
+  const responseText = await response.text();
+  let responseBody = null;
+  try {
+    responseBody = responseText ? JSON.parse(responseText) : null;
+  } catch {}
+
+  if (!response.ok) {
+    throw new Error(`Resend rental notification failed: ${response.status} ${responseText}`);
+  }
+
+  console.info(`Rental notification email sent to ${RORC_NOTIFY_EMAIL}.`, responseBody?.id ? `Resend id: ${responseBody.id}` : "");
+  return responseBody;
 }
 
 function esc(value) {

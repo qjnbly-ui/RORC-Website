@@ -75,10 +75,103 @@ function buildSignupReviewEmail({ contract, approved, notes }) {
   };
 }
 
+function formatRentalDate(value) {
+  if (!value) return "TBD";
+  const date = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric"
+  }).format(date);
+}
+
+function formatRentalTime(value) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return String(value || "");
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) return String(value || "");
+  const date = new Date(2026, 0, 1, hours, minutes);
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
+}
+
+function rentalYesNo(value) {
+  return value ? "Yes" : "No";
+}
+
+function rentalAddons(record) {
+  return [
+    record?.addon_tables && "Tables",
+    record?.addon_chairs && "Chairs",
+    record?.addon_tarp && "Tarp",
+    record?.addon_heater && "Heater Use",
+    record?.addon_early_setup && "Early Setup",
+    record?.addon_early_day_rental && "Extra Day (Early)",
+    record?.addon_late_cleanup && "Late Cleanup",
+    record?.addon_late_day_rental && "Extra Day (Late)"
+  ].filter(Boolean);
+}
+
+function rentalDetailRows(record) {
+  const rentalType = record?.rental_type === "hourly"
+    ? `By the Hour (${record?.rental_hours || 1} hr${Number(record?.rental_hours || 1) === 1 ? "" : "s"})`
+    : "All Day";
+  const start = formatRentalTime(record?.event_start_time);
+  const end = formatRentalTime(record?.event_end_time);
+  const addons = rentalAddons(record);
+  const totalDollars = Number(record?.estimated_total_cents || 0) > 0
+    ? (Number(record.estimated_total_cents) / 100).toLocaleString("en-US", { style: "currency", currency: "USD" })
+    : "TBD";
+
+  return [
+    ["Event Name", record?.event_name || "TBD"],
+    ["Rental Category", record?.event_type || "TBD"],
+    ["Date", formatRentalDate(record?.event_date)],
+    ["Time", start && end ? `${start} - ${end}` : "TBD"],
+    ["Rental Type", rentalType],
+    ["Estimated Attendance", record?.estimated_attendance ? String(record.estimated_attendance) : "TBD"],
+    ["Food / Drinks", rentalYesNo(record?.food_or_drinks)],
+    ["Alcohol", record?.alcohol || "No"],
+    ["Add-ons", addons.length ? addons.join(", ") : "None"],
+    ["Estimated Total", totalDollars]
+  ];
+}
+
+function buildRentalDetailsHtml(record) {
+  return `
+<div style="margin:22px 0;padding:16px;background:#151515;border:1px solid #333;border-radius:10px;">
+  <p style="margin:0 0 12px;color:#fff;font-size:16px;font-weight:700;">Confirmed Booking Details</p>
+  <table role="presentation" style="width:100%;border-collapse:collapse;color:#ddd;font-size:14px;">
+    ${rentalDetailRows(record).map(([label, value]) => `
+      <tr>
+        <td style="padding:6px 10px 6px 0;color:#888;vertical-align:top;width:42%;">${escapeHtml(label)}</td>
+        <td style="padding:6px 0;color:#f5f5f5;vertical-align:top;">${escapeHtml(value)}</td>
+      </tr>
+    `).join("")}
+  </table>
+</div>
+<p style="margin:0 0 16px;color:#ccc;font-size:14px;">Please review the confirmed details above and contact RORC if anything looks incorrect.</p>`;
+}
+
+function buildRentalDetailsText(record) {
+  return [
+    "Confirmed Booking Details:",
+    ...rentalDetailRows(record).map(([label, value]) => `${label}: ${value}`),
+    "",
+    "Please review the confirmed details above and contact RORC if anything looks incorrect."
+  ].join("\n");
+}
+
 function buildRentalApplicantEmail({ record, status, adminNotes }) {
   const firstName = (record?.contact_name || "").split(" ")[0] || "there";
   const isConfirmed = status === "confirmed";
   const trimmedNotes = typeof adminNotes === "string" ? adminNotes.trim() : "";
+  const detailsHtml = isConfirmed ? buildRentalDetailsHtml(record) : "";
+  const detailsText = isConfirmed ? buildRentalDetailsText(record) : "";
 
   const notesHtml = trimmedNotes
     ? `<p style="margin:16px 0 0;padding:14px 16px;background:#222;border-radius:8px;color:#ccc;font-size:14px;text-align:left;">${escapeHtml(trimmedNotes)}</p>`
@@ -89,6 +182,7 @@ function buildRentalApplicantEmail({ record, status, adminNotes }) {
 <p style="margin:0 0 16px;color:#ccc;font-size:15px;">Hi ${escapeHtml(firstName)},</p>
 <p style="margin:0 0 16px;color:#ccc;font-size:15px;">Great news — your rental request for a <strong style="color:#fff;">${escapeHtml(record?.event_type)}</strong> on <strong style="color:#fff;">${escapeHtml(record?.event_date)}</strong> has been <strong style="color:#fff;">confirmed</strong>.</p>
 <p style="margin:0 0 16px;color:#ccc;font-size:15px;">RORC staff will be in touch with next steps and payment details. If you have any questions, please reach out to us directly.</p>
+${detailsHtml}
 ${notesHtml}
 <p style="margin:24px 0 0;color:#888;font-size:13px;">We look forward to hosting your event!</p>
 `
@@ -106,6 +200,7 @@ ${notesHtml}
       "",
       `Great news — your rental request for a ${record?.event_type || "rental"} on ${record?.event_date || "the requested date"} has been confirmed.`,
       "RORC staff will be in touch with next steps and payment details. If you have any questions, please reach out to us directly.",
+      detailsText,
       trimmedNotes ? `Notes: ${trimmedNotes}` : "",
       "",
       "We look forward to hosting your event!"

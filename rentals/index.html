@@ -238,7 +238,7 @@
                   <h3 class="rental-form-section-title">Equipment &amp; Add-Ons</h3>
                   <div class="rental-estimator-badge">
                     <span class="rental-estimator-label">Est. Total</span>
-                    <span class="rental-estimator-value" id="rental-total-display">$120</span>
+                    <span class="rental-estimator-value" id="rental-total-display">$100</span>
                   </div>
                 </div>
 
@@ -283,13 +283,16 @@
                     <span id="rental-base-label">Standard Day Rental</span>
                     <span id="rental-base-price">$100</span>
                   </div>
-                  <div class="rental-base-row">
-                    <span>Cleaning &amp; Maintenance</span>
-                    <span>$20</span>
-                  </div>
                 </div>
 
                 <div class="rental-addon-grid">
+                  <label class="rental-addon-card" id="addon-card-cleaning">
+                    <input type="checkbox" name="addonCleaningMaintenance" data-price="20" />
+                    <div class="rental-addon-info">
+                      <span class="rental-addon-name">Cleaning &amp; Maintenance</span>
+                      <span class="rental-addon-price">+$20</span>
+                    </div>
+                  </label>
                   <label class="rental-addon-card" id="addon-card-tables">
                     <input type="checkbox" name="addonTables" data-price="20" />
                     <div class="rental-addon-info">
@@ -510,7 +513,6 @@
 
   <script>
     (function () {
-      const CLEANING_CENTS = 2000; // $20 always included
       const ALLDAY_CENTS   = 10000; // $100 flat day rate
       const ALLDAY_START_MINUTES = 7 * 60;
       const ALLDAY_END_MINUTES   = 21 * 60;
@@ -537,9 +539,9 @@
       function getBaseCents() {
         if (getRentalType() === "hourly") {
           const hours = Math.min(9, Math.max(1, Number(hoursInput.value) || 1));
-          return (hours * 10 * 100) + CLEANING_CENTS;
+          return hours * 10 * 100;
         }
-        return ALLDAY_CENTS + CLEANING_CENTS;
+        return ALLDAY_CENTS;
       }
 
       function updateBaseDisplay() {
@@ -676,6 +678,7 @@
 
           rentalType:  rentalType,
           rentalHours: rentalHours,
+          addonCleaningMaintenance: fd.get("addonCleaningMaintenance") === "on",
 
           addonTables:       fd.get("addonTables") === "on",
           addonChairs:       fd.get("addonChairs") === "on",
