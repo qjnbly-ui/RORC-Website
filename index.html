@@ -796,6 +796,118 @@
       .rorc-logo-white { font-size: 26px; }
       .rorc-logo-address { font-size: 14px; }
     }
+
+    .home-calendar {
+      width: 100%;
+      max-width: 1100px;
+      margin: 0 auto 40px;
+      border: 1px solid #ddd;
+      border-radius: 20px;
+      overflow: hidden;
+      background: #f3f4f6;
+      color: #1f2937;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+    }
+    .cal-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 14px;
+      background: #e5e7eb;
+      border-bottom: 1px solid #c7cdd6;
+    }
+    .cal-month-label {
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      text-align: center;
+      flex: 1;
+    }
+    .cal-nav {
+      border: 1px solid #b6bec8;
+      border-radius: 10px;
+      background: #fff;
+      color: #111827;
+      min-width: 40px;
+      height: 38px;
+      font-size: 24px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+    }
+    .cal-header {
+      text-align: center;
+      font-weight: 800;
+      font-size: 16px;
+      padding: 10px 6px;
+      border-right: 1px solid #c7cdd6;
+      border-bottom: 1px solid #c7cdd6;
+      background: #e5e7eb;
+    }
+    .cal-header:nth-child(7n) { border-right: 0; }
+    .cal-cell {
+      min-height: 138px;
+      padding: 8px 8px 10px;
+      border-right: 1px solid #c7cdd6;
+      border-bottom: 1px solid #c7cdd6;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      background: #f3f4f6;
+    }
+    .cal-cell:nth-child(7n) { border-right: 0; }
+    .cal-cell-blank { background: #eceff3; }
+    .cal-today { background: #e8eefc; }
+    .cal-day-num {
+      text-align: center;
+      font-weight: 700;
+      font-size: 17px;
+      color: #111827;
+      display: block;
+    }
+    .cal-dots {
+      display: grid;
+      gap: 3px;
+      margin-top: 6px;
+    }
+    .cal-day-mini-event {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      font-size: 15px;
+      line-height: 1.25;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .cal-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: #6b7280;
+      flex-shrink: 0;
+      margin-top: 4px;
+    }
+    .cal-day-mini-title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .cal-day-mini-more {
+      font-size: 12px;
+      color: #6b7280;
+    }
+    @media (max-width: 860px) {
+      .cal-month-label { font-size: 18px; }
+      .cal-header { font-size: 13px; }
+      .cal-cell { min-height: 116px; padding: 6px; }
+      .cal-day-mini-event { font-size: 12px; }
+      .cal-day-num { font-size: 15px; }
+    }
   </style>
   <!-- Google tag (gtag.js) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-EGC30XZVXV"></script>
@@ -981,12 +1093,13 @@
     </div>
   </section>
 
-  <div style="width: 100%; max-width: 900px; margin: 0 auto 40px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-    <iframe
-      src="https://calendar.google.com/calendar/embed?src=c_76h3q12d2p9m1m49omkcarh2nc%40group.calendar.google.com&ctz=America%2FLos_Angeles&mode=MONTH&showTitle=0&showPrint=0&showTabs=0&showCalendars=0"
-      style="border: 0; width: 100%; height: 700px;"
-      frameborder="0">
-    </iframe>
+  <div class="home-calendar" aria-label="RORC Calendar">
+    <div class="cal-toolbar">
+      <button class="cal-nav" id="homeCalPrev" type="button" aria-label="Previous month">&#8249;</button>
+      <div class="cal-month-label" id="homeCalMonth">Calendar</div>
+      <button class="cal-nav" id="homeCalNext" type="button" aria-label="Next month">&#8250;</button>
+    </div>
+    <div class="cal-grid" id="homeCalGrid"></div>
   </div>
 
   <footer class="site-footer">
@@ -1358,6 +1471,155 @@
       return `Best low-traffic windows: ${label}`;
     }
 
+    const HOME_CAL_TZ = "America/Los_Angeles";
+    const HOME_CAL_EVENT_COLORS = {
+      rental: "#eab308",
+      maintenance: "#f97316",
+      rorc: "#6b7bd1"
+    };
+    let homeCalYear = new Date().getFullYear();
+    let homeCalMonth = new Date().getMonth();
+    let homeCalEvents = [];
+
+    function homeCalNormalizeType(value) {
+      const raw = String(value || "").trim();
+      if (raw === "rental" || raw === "maintenance" || raw === "rorc") return raw;
+      if (raw === "open_gym" || raw === "private_event" || raw === "public_event" || raw === "general") return "rorc";
+      return "rorc";
+    }
+
+    function homeCalFacilityDateKey(value, allDay = false) {
+      if (allDay) return String(value || "").slice(0, 10);
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: HOME_CAL_TZ,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).formatToParts(date).reduce((acc, part) => {
+        if (part.type !== "literal") acc[part.type] = part.value;
+        return acc;
+      }, {});
+      return `${parts.year}-${parts.month}-${parts.day}`;
+    }
+
+    function homeCalTimeLabel(value) {
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      return date.toLocaleTimeString("en-US", {
+        timeZone: HOME_CAL_TZ,
+        hour: "numeric",
+        minute: "2-digit"
+      }).toLowerCase().replace(":00", "");
+    }
+
+    function homeCalGetMonthEvents(year, month) {
+      const events = [];
+      const start = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+      const end = new Date(year, month + 1, 0).getDate();
+      const endIso = `${year}-${String(month + 1).padStart(2, "0")}-${String(end).padStart(2, "0")}`;
+
+      homeCalEvents.forEach((ev) => {
+        const key = homeCalFacilityDateKey(ev.startAt, ev.allDay);
+        if (key >= start && key <= endIso) events.push(ev);
+      });
+
+      return events;
+    }
+
+    function homeCalRender() {
+      const monthLabel = document.getElementById("homeCalMonth");
+      const grid = document.getElementById("homeCalGrid");
+      if (!monthLabel || !grid) return;
+
+      monthLabel.textContent = new Date(homeCalYear, homeCalMonth, 1).toLocaleDateString("en-US", {
+        month: "long",
+        year: "numeric"
+      });
+
+      const heads = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+        .map((d) => `<div class="cal-header">${d}</div>`)
+        .join("");
+
+      const eventsByDate = {};
+      homeCalGetMonthEvents(homeCalYear, homeCalMonth).forEach((ev) => {
+        const key = homeCalFacilityDateKey(ev.startAt, ev.allDay);
+        if (!key) return;
+        if (!eventsByDate[key]) eventsByDate[key] = [];
+        eventsByDate[key].push(ev);
+      });
+
+      Object.keys(eventsByDate).forEach((key) => {
+        eventsByDate[key].sort((a, b) => new Date(a.startAt) - new Date(b.startAt));
+      });
+
+      const firstDay = new Date(homeCalYear, homeCalMonth, 1).getDay();
+      const daysInMonth = new Date(homeCalYear, homeCalMonth + 1, 0).getDate();
+      const todayKey = homeCalFacilityDateKey(new Date().toISOString());
+      const cells = [];
+
+      for (let i = 0; i < firstDay; i++) {
+        cells.push(`<div class="cal-cell cal-cell-blank"></div>`);
+      }
+
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dateKey = `${homeCalYear}-${String(homeCalMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+        const dayEvents = eventsByDate[dateKey] || [];
+        const eventHtml = dayEvents.slice(0, 3).map((ev) => {
+          const type = homeCalNormalizeType(ev.eventType);
+          const color = HOME_CAL_EVENT_COLORS[type] || "#6b7280";
+          const time = ev.allDay ? "" : `${homeCalTimeLabel(ev.startAt)} `;
+          const title = String(ev.title || "Event");
+          return `<div class="cal-day-mini-event"><span class="cal-dot" style="background:${color}"></span><span class="cal-day-mini-title">${time}${title}</span></div>`;
+        }).join("");
+
+        const overflowCount = dayEvents.length - 3;
+        const overflow = overflowCount > 0 ? `<div class="cal-day-mini-more">+${overflowCount} more</div>` : "";
+        const todayClass = dateKey === todayKey ? " cal-today" : "";
+        cells.push(`
+          <div class="cal-cell${todayClass}">
+            <span class="cal-day-num">${day}</span>
+            <div class="cal-dots">${eventHtml}${overflow}</div>
+          </div>
+        `);
+      }
+
+      grid.innerHTML = heads + cells.join("");
+    }
+
+    async function homeCalLoadEvents() {
+      try {
+        const response = await fetch("/api/events", { cache: "no-store" });
+        const body = await response.json();
+        if (!response.ok || body.success === false) throw new Error(body.error || "Could not load events");
+        homeCalEvents = (body.events || []).filter((ev) => String(ev.status || "confirmed") === "confirmed");
+      } catch (error) {
+        console.warn("Homepage calendar failed:", error);
+        homeCalEvents = [];
+      }
+      homeCalRender();
+    }
+
+    function homeCalBindNav() {
+      document.getElementById("homeCalPrev")?.addEventListener("click", () => {
+        homeCalMonth -= 1;
+        if (homeCalMonth < 0) {
+          homeCalMonth = 11;
+          homeCalYear -= 1;
+        }
+        homeCalRender();
+      });
+      document.getElementById("homeCalNext")?.addEventListener("click", () => {
+        homeCalMonth += 1;
+        if (homeCalMonth > 11) {
+          homeCalMonth = 0;
+          homeCalYear += 1;
+        }
+        homeCalRender();
+      });
+    }
+
     function rorcLiveLoaded(data) {
       rorcRenderLiveStatus(data);
     }
@@ -1481,6 +1743,8 @@
     renderRorcCarousel();
     startRorcCarousel();
     rorcLoadLiveStatus();
+    homeCalBindNav();
+    homeCalLoadEvents();
   </script>
 </body>
 </html>

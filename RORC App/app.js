@@ -4561,14 +4561,24 @@ function renderCalendarView(root) {
     const iso     = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     const dayEvs  = byDate[iso] || [];
     const isToday = iso === facilityDateKey(now);
-    const dots    = dayEvs.map((ev) =>
-      `<span class="cal-dot" style="background:${EVENT_COLORS[ev.eventType] || "#8a97a8"}"></span>`
-    ).join("");
+    const dayEventRows = dayEvs.slice(0, 3).map((ev) => {
+      const color = EVENT_COLORS[ev.eventType] || "#8a97a8";
+      const title = escapeHtml(ev.title || "Event");
+      return `
+        <div class="cal-day-mini-event">
+          <span class="cal-dot" style="background:${color}"></span>
+          <span class="cal-day-mini-title">${title}</span>
+        </div>`;
+    }).join("");
+    const overflowCount = dayEvs.length - 3;
+    const overflowRow = overflowCount > 0
+      ? `<div class="cal-day-mini-more">+${overflowCount} more</div>`
+      : "";
 
     cells += `
       <div class="cal-cell${isToday ? " cal-today" : ""}" data-cal-date="${iso}">
         <span class="cal-day-num">${d}</span>
-        <div class="cal-dots">${dots}</div>
+        <div class="cal-dots">${dayEventRows}${overflowRow}</div>
       </div>`;
   }
 
