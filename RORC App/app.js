@@ -3631,6 +3631,58 @@ const RENTAL_STATUS_COLOR = {
   canceled:       "#737373"
 };
 
+const RENTAL_PRICE_CENTS = {
+  allDay: 10000,
+  hourlyRate: 1000,
+  cleaningMaintenance: 2000,
+  tables: 2000,
+  chairs: 2000,
+  tarp: 2000,
+  heater: 0,
+  earlySetup: 5000,
+  earlyDayRental: 10000,
+  lateCleanup: 5000,
+  lateDayRental: 10000
+};
+
+function calculateRentalTotalCents(values) {
+  const rentalType = values?.rentalType === "hourly" ? "hourly" : "all_day";
+  const hours = Math.min(9, Math.max(1, Number(values?.rentalHours || 1) || 1));
+  let total = rentalType === "hourly"
+    ? hours * RENTAL_PRICE_CENTS.hourlyRate
+    : RENTAL_PRICE_CENTS.allDay;
+
+  if (values?.addonCleaningMaintenance) total += RENTAL_PRICE_CENTS.cleaningMaintenance;
+  if (values?.addonTables) total += RENTAL_PRICE_CENTS.tables;
+  if (values?.addonChairs) total += RENTAL_PRICE_CENTS.chairs;
+  if (values?.addonTarp) total += RENTAL_PRICE_CENTS.tarp;
+  if (values?.addonHeater) total += RENTAL_PRICE_CENTS.heater;
+  if (values?.addonEarlySetup) total += RENTAL_PRICE_CENTS.earlySetup;
+  if (values?.addonEarlyDayRental) total += RENTAL_PRICE_CENTS.earlyDayRental;
+  if (values?.addonLateCleanup) total += RENTAL_PRICE_CENTS.lateCleanup;
+  if (values?.addonLateDayRental) total += RENTAL_PRICE_CENTS.lateDayRental;
+  return total;
+}
+
+function inferRentalCleaningMaintenance(rental) {
+  if (typeof rental?.addonCleaningMaintenance === "boolean") return rental.addonCleaningMaintenance;
+  const storedTotal = Number(rental?.estimatedTotalCents || 0);
+  if (!storedTotal) return false;
+  const totalWithoutCleaning = calculateRentalTotalCents({
+    rentalType: rental.rentalType,
+    rentalHours: rental.rentalHours,
+    addonTables: rental.addonTables,
+    addonChairs: rental.addonChairs,
+    addonTarp: rental.addonTarp,
+    addonHeater: rental.addonHeater,
+    addonEarlySetup: rental.addonEarlySetup,
+    addonEarlyDayRental: rental.addonEarlyDayRental,
+    addonLateCleanup: rental.addonLateCleanup,
+    addonLateDayRental: rental.addonLateDayRental
+  });
+  return storedTotal >= totalWithoutCleaning + RENTAL_PRICE_CENTS.cleaningMaintenance;
+}
+
 async function renderRentalReviewsPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
@@ -3783,6 +3835,7 @@ function buildRentalCard(r) {
     r.addonChairs        && "Chairs",
     r.addonTarp          && "Tarp",
     r.addonHeater        && "Heater",
+    inferRentalCleaningMaintenance(r) && "Cleaning & Maintenance",
     r.addonEarlySetup    && "Early Setup",
     r.addonEarlyDayRental && "Extra Day (Early)",
     r.addonLateCleanup   && "Late Cleanup",
@@ -3857,10 +3910,6 @@ function buildRentalCard(r) {
           <dt>Est. Total</dt>
           <dd class="rental-card-total">${escapeHtml(totalDollars || "—")}</dd>
         </div>
-        <div class="rental-card-field">
-          <dt>Alcohol</dt>
-          <dd>${escapeHtml(r.alcohol || "No")}</dd>
-        </div>
       </dl>
 
       ${addons.length ? `
@@ -3879,9 +3928,6 @@ function buildRentalCard(r) {
         </div>
         <div class="rental-card-contact-row">
           <dt>Address</dt><dd>${escapeHtml(r.contactAddress || "—")}</dd>
-        </div>
-        <div class="rental-card-contact-row">
-          <dt>Food / Drinks</dt><dd>${r.foodOrDrinks ? "Yes" : "No"}</dd>
         </div>
       </dl>
 
@@ -3908,6 +3954,7 @@ function showRentalEditForm(id, root) {
 
   actionsEl.innerHTML = buildRentalEditForm(rental);
   setRentalEditHoursState(root, id);
+  bindRentalEditCalculations(root, id);
 
   root.querySelector(`#rental-edit-type-${id}`)?.addEventListener("change", () => {
     setRentalEditHoursState(root, id);
@@ -3918,10 +3965,24 @@ function showRentalEditForm(id, root) {
 
 function buildRentalEditForm(r) {
   const id = escapeAttribute(r.id);
-  const totalDollars = r.estimatedTotalCents ? String(Math.round(r.estimatedTotalCents / 100)) : "";
   const scheduleNote = r.rentalStatus === "confirmed"
     ? "Saving updates this rental and its linked calendar event."
     : "Saving updates this rental record.";
+  const hasCleaningMaintenance = inferRentalCleaningMaintenance(r);
+  const alcoholValue = r.alcohol === "Yes" ? "Yes" : "No";
+  const totalDollars = String(Math.round(calculateRentalTotalCents({
+    rentalType: r.rentalType,
+    rentalHours: r.rentalHours,
+    addonCleaningMaintenance: hasCleaningMaintenance,
+    addonTables: r.addonTables,
+    addonChairs: r.addonChairs,
+    addonTarp: r.addonTarp,
+    addonHeater: r.addonHeater,
+    addonEarlySetup: r.addonEarlySetup,
+    addonEarlyDayRental: r.addonEarlyDayRental,
+    addonLateCleanup: r.addonLateCleanup,
+    addonLateDayRental: r.addonLateDayRental
+  }) / 100));
 
   return `
     <div class="rental-action-form rental-edit-form">
@@ -3958,6 +4019,12 @@ function buildRentalEditForm(r) {
         <label class="rental-edit-field">Attendance
           <input id="rental-edit-attendance-${id}" class="rental-edit-input" type="number" min="1" inputmode="numeric" value="${escapeAttribute(r.estimatedAttendance || 1)}" />
         </label>
+        <label class="rental-edit-field">Food or Drinks
+          <select id="rental-edit-food-${id}" class="rental-edit-input">
+            <option value="false"${r.foodOrDrinks ? "" : " selected"}>No</option>
+            <option value="true"${r.foodOrDrinks ? " selected" : ""}>Yes</option>
+          </select>
+        </label>
         <label class="rental-edit-field">Rental Type
           <select id="rental-edit-type-${id}" class="rental-edit-input">
             <option value="all_day"${r.rentalType !== "hourly" ? " selected" : ""}>All Day</option>
@@ -3969,16 +4036,16 @@ function buildRentalEditForm(r) {
         </label>
         <label class="rental-edit-field">Alcohol
           <select id="rental-edit-alcohol-${id}" class="rental-edit-input">
-            ${["No", "Yes", "Maybe"].map((value) => `<option value="${value}"${String(r.alcohol || "No") === value ? " selected" : ""}>${value}</option>`).join("")}
+            ${["No", "Yes"].map((value) => `<option value="${value}"${alcoholValue === value ? " selected" : ""}>${value}</option>`).join("")}
           </select>
         </label>
         <label class="rental-edit-field">Estimated Total
-          <input id="rental-edit-total-${id}" class="rental-edit-input" type="number" min="0" step="1" inputmode="numeric" value="${escapeAttribute(totalDollars)}" />
+          <input id="rental-edit-total-${id}" class="rental-edit-input" type="number" min="0" step="1" inputmode="numeric" value="${escapeAttribute(totalDollars)}" readonly aria-readonly="true" />
         </label>
       </div>
 
       <div class="rental-edit-checks">
-        ${rentalEditCheck(id, "food", "Food or drinks", r.foodOrDrinks)}
+        ${rentalEditCheck(id, "cleaning", "Cleaning & Maintenance", hasCleaningMaintenance)}
         ${rentalEditCheck(id, "tables", "Tables", r.addonTables)}
         ${rentalEditCheck(id, "chairs", "Chairs", r.addonChairs)}
         ${rentalEditCheck(id, "tarp", "Tarp", r.addonTarp)}
@@ -4032,12 +4099,49 @@ function setRentalEditHoursState(root, id) {
   hoursEl.disabled = !isHourly;
   if (isHourly && !hoursEl.value) hoursEl.value = "1";
   if (!isHourly) hoursEl.value = "";
+  updateRentalEditTotal(root, id);
+}
+
+function rentalEditTotalValues(root, id) {
+  const field = (name) => root.querySelector(`#rental-edit-${name}-${id}`);
+  return {
+    rentalType: field("type")?.value === "hourly" ? "hourly" : "all_day",
+    rentalHours: Number(field("hours")?.value || 1) || 1,
+    addonCleaningMaintenance: Boolean(field("cleaning")?.checked),
+    addonTables: Boolean(field("tables")?.checked),
+    addonChairs: Boolean(field("chairs")?.checked),
+    addonTarp: Boolean(field("tarp")?.checked),
+    addonHeater: Boolean(field("heater")?.checked),
+    addonEarlySetup: Boolean(field("early-setup")?.checked),
+    addonEarlyDayRental: Boolean(field("early-day")?.checked),
+    addonLateCleanup: Boolean(field("late-cleanup")?.checked),
+    addonLateDayRental: Boolean(field("late-day")?.checked)
+  };
+}
+
+function calculateRentalEditTotalCents(root, id) {
+  return calculateRentalTotalCents(rentalEditTotalValues(root, id));
+}
+
+function updateRentalEditTotal(root, id) {
+  const totalEl = root.querySelector(`#rental-edit-total-${id}`);
+  if (!totalEl) return;
+  totalEl.value = String(Math.round(calculateRentalEditTotalCents(root, id) / 100));
+}
+
+function bindRentalEditCalculations(root, id) {
+  const actionsEl = root.querySelector(`#rental-actions-${id}`);
+  if (!actionsEl) return;
+  actionsEl.querySelectorAll("input, select").forEach((field) => {
+    field.addEventListener("input", () => updateRentalEditTotal(root, id));
+    field.addEventListener("change", () => updateRentalEditTotal(root, id));
+  });
+  updateRentalEditTotal(root, id);
 }
 
 function collectRentalEditPayload(id, root) {
   const field = (name) => root.querySelector(`#rental-edit-${name}-${id}`);
   const rentalType = field("type")?.value === "hourly" ? "hourly" : "all_day";
-  const totalDollars = Number(field("total")?.value || 0) || 0;
   const hours = Math.min(9, Math.max(1, Number(field("hours")?.value || 1) || 1));
 
   return {
@@ -4054,7 +4158,8 @@ function collectRentalEditPayload(id, root) {
     rental_type: rentalType,
     rental_hours: rentalType === "hourly" ? hours : null,
     alcohol: field("alcohol")?.value || "No",
-    food_or_drinks: Boolean(field("food")?.checked),
+    food_or_drinks: field("food")?.value === "true",
+    addon_cleaning_maintenance: Boolean(field("cleaning")?.checked),
     addon_tables: Boolean(field("tables")?.checked),
     addon_chairs: Boolean(field("chairs")?.checked),
     addon_tarp: Boolean(field("tarp")?.checked),
@@ -4063,7 +4168,7 @@ function collectRentalEditPayload(id, root) {
     addon_early_day_rental: Boolean(field("early-day")?.checked),
     addon_late_cleanup: Boolean(field("late-cleanup")?.checked),
     addon_late_day_rental: Boolean(field("late-day")?.checked),
-    estimated_total_cents: Math.max(0, Math.round(totalDollars * 100)),
+    estimated_total_cents: calculateRentalEditTotalCents(root, id),
     adminNotes: field("notes")?.value.trim() || null
   };
 }
@@ -4072,7 +4177,11 @@ function applyRentalEditToCache(id, payload, updatedRequest) {
   const idx = rentalAllRequests.findIndex((r) => r.id === id);
   if (idx === -1) return;
   if (updatedRequest) {
-    rentalAllRequests[idx] = { ...rentalAllRequests[idx], ...updatedRequest };
+    rentalAllRequests[idx] = {
+      ...rentalAllRequests[idx],
+      ...updatedRequest,
+      addonCleaningMaintenance: payload.addon_cleaning_maintenance
+    };
     return;
   }
 
@@ -4090,6 +4199,7 @@ function applyRentalEditToCache(id, payload, updatedRequest) {
     estimatedAttendance: payload.estimated_attendance,
     rentalType: payload.rental_type,
     rentalHours: payload.rental_hours,
+    addonCleaningMaintenance: payload.addon_cleaning_maintenance,
     alcohol: payload.alcohol,
     foodOrDrinks: payload.food_or_drinks,
     addonTables: payload.addon_tables,
@@ -4251,6 +4361,89 @@ async function submitRentalStatusChange(id, status, notes, root) {
 // Calendar
 // ─────────────────────────────────────────────
 
+const FACILITY_TIME_ZONE = "America/Los_Angeles";
+
+function facilityDateParts(dateLike) {
+  const date = dateLike instanceof Date ? dateLike : new Date(dateLike);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: FACILITY_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(date).reduce((acc, part) => {
+    if (part.type !== "literal") acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return {
+    year: parts.year,
+    month: parts.month,
+    day: parts.day,
+    hour: parts.hour === "24" ? "00" : parts.hour,
+    minute: parts.minute
+  };
+}
+
+function facilityDateKey(dateLike) {
+  const parts = facilityDateParts(dateLike);
+  return parts ? `${parts.year}-${parts.month}-${parts.day}` : "";
+}
+
+function calendarTimestampDateKey(value, allDay = false) {
+  const raw = String(value || "");
+  if (allDay && /^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    return raw.slice(0, 10);
+  }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)) {
+    return raw.slice(0, 10);
+  }
+  return facilityDateKey(raw);
+}
+
+function facilityTimeInputValue(value) {
+  const raw = String(value || "");
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)) {
+    return raw.slice(11, 16);
+  }
+  const parts = facilityDateParts(raw);
+  return parts ? `${parts.hour}:${parts.minute}` : "";
+}
+
+function facilityTimeRange(startAt, endAt) {
+  const start = facilityTimeInputValue(startAt);
+  const end = facilityTimeInputValue(endAt);
+  return start && end ? `${start} – ${end}` : "";
+}
+
+function getFacilityTimeZoneOffsetMs(date) {
+  const zoneName = new Intl.DateTimeFormat("en-US", {
+    timeZone: FACILITY_TIME_ZONE,
+    timeZoneName: "shortOffset"
+  }).formatToParts(date).find((part) => part.type === "timeZoneName")?.value || "GMT";
+  const match = zoneName.match(/^GMT([+-])(\d{1,2})(?::?(\d{2}))?$/);
+  if (!match) return 0;
+  const sign = match[1] === "-" ? -1 : 1;
+  const hours = Number(match[2] || 0);
+  const minutes = Number(match[3] || 0);
+  return sign * ((hours * 60) + minutes) * 60000;
+}
+
+function facilityWallTimeToIso(dateStr, timeStr = "00:00") {
+  const [year, month, day] = String(dateStr || "").split("-").map(Number);
+  const [hour, minute] = String(timeStr || "00:00").split(":").map(Number);
+  if (![year, month, day, hour, minute].every(Number.isFinite)) return "";
+
+  const wallTime = Date.UTC(year, month - 1, day, hour, minute, 0);
+  let utcTime = wallTime;
+  for (let i = 0; i < 3; i += 1) {
+    utcTime = wallTime - getFacilityTimeZoneOffsetMs(new Date(utcTime));
+  }
+  return new Date(utcTime).toISOString();
+}
+
 const EVENT_COLORS = {
   rental:        "#ef3b36",
   maintenance:   "#f59e0b",
@@ -4273,8 +4466,9 @@ function normalizeEventTypeForUi(type) {
 }
 
 let calendarEvents = [];
-let calendarYear   = new Date().getFullYear();
-let calendarMonth  = new Date().getMonth(); // 0-based
+const initialFacilityDate = facilityDateParts(new Date());
+let calendarYear = Number(initialFacilityDate?.year || new Date().getFullYear());
+let calendarMonth = Number(initialFacilityDate?.month || (new Date().getMonth() + 1)) - 1;
 let pendingCalendarRentalCreate = false;
 
 async function renderCalendarPage() {
@@ -4342,7 +4536,7 @@ function renderCalendarView(root) {
     byDate[d].push(ev);
   });
   calendarEvents.forEach((ev) => {
-    const d = ev.startAt.slice(0, 10);
+    const d = calendarTimestampDateKey(ev.startAt, ev.allDay);
     if (!byDate[d]) byDate[d] = [];
     byDate[d].push(ev);
   });
@@ -4355,7 +4549,7 @@ function renderCalendarView(root) {
   for (let d = 1; d <= daysInMonth; d++) {
     const iso     = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
     const dayEvs  = byDate[iso] || [];
-    const isToday = iso === now.toISOString().slice(0, 10);
+    const isToday = iso === facilityDateKey(now);
     const dots    = dayEvs.map((ev) =>
       `<span class="cal-dot" style="background:${EVENT_COLORS[ev.eventType] || "#8a97a8"}"></span>`
     ).join("");
@@ -4467,19 +4661,21 @@ function renderCalendarView(root) {
               </label>
             </div>
             <div class="cal-field-row">
-              <label class="cal-field-label cal-field-check">
-                <input id="calRentalFood" type="checkbox" />
-                Food or drinks
+              <label class="cal-field-label">Food or drinks
+                <select id="calRentalFood" class="rorc-input">
+                  <option value="false">No</option>
+                  <option value="true">Yes</option>
+                </select>
               </label>
               <label class="cal-field-label">Alcohol
                 <select id="calRentalAlcohol" class="rorc-input">
                   <option>No</option>
                   <option>Yes</option>
-                  <option>Maybe</option>
                 </select>
               </label>
             </div>
             <div class="cal-rental-addon-grid">
+              <label><input id="calRentalCleaning" type="checkbox" /> Cleaning &amp; Maintenance</label>
               <label><input id="calRentalTables" type="checkbox" /> Tables</label>
               <label><input id="calRentalChairs" type="checkbox" /> Chairs</label>
               <label><input id="calRentalTarp" type="checkbox" /> Tarp</label>
@@ -4490,7 +4686,7 @@ function renderCalendarView(root) {
               <label><input id="calRentalLateDay" type="checkbox" /> Extra day late</label>
             </div>
             <label class="cal-field-label">Estimated Total
-              <input id="calRentalTotal" class="rorc-input" type="number" min="0" step="1" inputmode="numeric" />
+              <input id="calRentalTotal" class="rorc-input" type="number" min="0" step="1" inputmode="numeric" readonly aria-readonly="true" />
             </label>
             <label class="cal-field-label">Admin Notes
               <textarea id="calRentalAdminNotes" class="rorc-input" rows="3"></textarea>
@@ -4544,6 +4740,23 @@ function bindCalendarEvents(root) {
   root.querySelector("#calModalDelete").addEventListener("click", () => deleteCalendarEvent(root));
   root.querySelector("#calEvType").addEventListener("change", () => syncCalendarRentalDetailsVisibility(root));
   root.querySelector("#calRentalType").addEventListener("change", () => setCalendarRentalHoursState(root));
+  [
+    "calRentalType",
+    "calRentalHours",
+    "calRentalCleaning",
+    "calRentalTables",
+    "calRentalChairs",
+    "calRentalTarp",
+    "calRentalHeater",
+    "calRentalEarlySetup",
+    "calRentalEarlyDay",
+    "calRentalLateCleanup",
+    "calRentalLateDay"
+  ].forEach((id) => {
+    const field = root.querySelector(`#${id}`);
+    field?.addEventListener("input", () => updateCalendarRentalTotal(root));
+    field?.addEventListener("change", () => updateCalendarRentalTotal(root));
+  });
 }
 
 function calendarJumpToDate(dateIso) {
@@ -4564,7 +4777,7 @@ function showCalDayPanel(root, dateIso) {
     endAt:   `${dateIso}T20:00:00`,
     allDay: false
   }] : [];
-  const dayEvs = [...recurringToday, ...calendarEvents.filter((ev) => ev.startAt.slice(0, 10) === dateIso)];
+  const dayEvs = [...recurringToday, ...calendarEvents.filter((ev) => calendarTimestampDateKey(ev.startAt, ev.allDay) === dateIso)];
   const label  = new Date(dateIso + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 
   const evHtml = dayEvs.length
@@ -4573,7 +4786,7 @@ function showCalDayPanel(root, dateIso) {
           <span class="cal-day-event-dot" style="background:${EVENT_COLORS[ev.eventType] || "#8a97a8"}"></span>
           <div class="cal-day-event-info">
             <strong>${escapeHtml(ev.title)}</strong>
-            <span>${ev.allDay ? "All Day" : (ev.startAt.slice(11, 16) + " – " + ev.endAt.slice(11, 16))}</span>
+            <span>${ev.allDay ? "All Day" : escapeHtml(facilityTimeRange(ev.startAt, ev.endAt))}</span>
             ${ev.isRecurring ? `<span class="cal-recurring-badge">Recurring</span>` : ""}
             ${ev.id ? `<span class="cal-day-event-badge">${ev.isPublic ? "Public" : "Private"}</span>` : ""}
             ${ev.eventType === "rental" && ev.rentalRequestId ? `<span class="cal-day-event-badge cal-rental-link" data-rental-id="${escapeAttribute(ev.rentalRequestId)}">View Rental Request →</span>` : ""}
@@ -4634,9 +4847,9 @@ function openCalendarModal(root, event, prefillDate) {
 
   root.querySelector("#calEvTitle").value   = event ? event.title : "";
   root.querySelector("#calEvType").value    = event ? normalizeEventTypeForUi(event.eventType) : "rorc";
-  root.querySelector("#calEvDate").value    = event ? event.startAt.slice(0, 10) : (prefillDate || "");
-  root.querySelector("#calEvStart").value   = event ? event.startAt.slice(11, 16) : "";
-  root.querySelector("#calEvEnd").value     = event ? event.endAt.slice(11, 16) : "";
+  root.querySelector("#calEvDate").value    = event ? calendarTimestampDateKey(event.startAt, event.allDay) : (prefillDate || "");
+  root.querySelector("#calEvStart").value   = event ? facilityTimeInputValue(event.startAt) : "";
+  root.querySelector("#calEvEnd").value     = event ? facilityTimeInputValue(event.endAt) : "";
   root.querySelector("#calEvAllDay").checked  = event ? event.allDay : false;
   root.querySelector("#calEvPublic").checked  = event ? event.isPublic : false;
   root.querySelector("#calEvDesc").value    = event ? (event.description || "") : "";
@@ -4677,6 +4890,34 @@ function setCalendarRentalHoursState(root) {
   hoursInput.disabled = rentalType !== "hourly";
   if (rentalType !== "hourly") hoursInput.value = "";
   if (rentalType === "hourly" && !hoursInput.value) hoursInput.value = "1";
+  updateCalendarRentalTotal(root);
+}
+
+function calendarRentalTotalValues(root) {
+  const rentalType = root.querySelector("#calRentalType")?.value === "hourly" ? "hourly" : "all_day";
+  return {
+    rentalType,
+    rentalHours: Number(root.querySelector("#calRentalHours")?.value || 1) || 1,
+    addonCleaningMaintenance: Boolean(root.querySelector("#calRentalCleaning")?.checked),
+    addonTables: Boolean(root.querySelector("#calRentalTables")?.checked),
+    addonChairs: Boolean(root.querySelector("#calRentalChairs")?.checked),
+    addonTarp: Boolean(root.querySelector("#calRentalTarp")?.checked),
+    addonHeater: Boolean(root.querySelector("#calRentalHeater")?.checked),
+    addonEarlySetup: Boolean(root.querySelector("#calRentalEarlySetup")?.checked),
+    addonEarlyDayRental: Boolean(root.querySelector("#calRentalEarlyDay")?.checked),
+    addonLateCleanup: Boolean(root.querySelector("#calRentalLateCleanup")?.checked),
+    addonLateDayRental: Boolean(root.querySelector("#calRentalLateDay")?.checked)
+  };
+}
+
+function calculateCalendarRentalTotalCents(root) {
+  return calculateRentalTotalCents(calendarRentalTotalValues(root));
+}
+
+function updateCalendarRentalTotal(root) {
+  const totalEl = root.querySelector("#calRentalTotal");
+  if (!totalEl) return;
+  totalEl.value = String(Math.round(calculateCalendarRentalTotalCents(root) / 100));
 }
 
 function resetCalendarRentalFields(root, title = "") {
@@ -4689,8 +4930,8 @@ function resetCalendarRentalFields(root, title = "") {
     calRentalAttendance: "1",
     calRentalType: "all_day",
     calRentalHours: "",
+    calRentalFood: "false",
     calRentalAlcohol: "No",
-    calRentalTotal: "",
     calRentalAdminNotes: ""
   };
 
@@ -4700,7 +4941,7 @@ function resetCalendarRentalFields(root, title = "") {
   });
 
   [
-    "calRentalFood",
+    "calRentalCleaning",
     "calRentalTables",
     "calRentalChairs",
     "calRentalTarp",
@@ -4713,6 +4954,7 @@ function resetCalendarRentalFields(root, title = "") {
     const el = root.querySelector(`#${id}`);
     if (el) el.checked = false;
   });
+  updateCalendarRentalTotal(root);
 }
 
 function populateCalendarRentalFields(root, rental) {
@@ -4725,8 +4967,8 @@ function populateCalendarRentalFields(root, rental) {
     calRentalAttendance: rental.estimatedAttendance ?? "",
     calRentalType: rental.rentalType || "all_day",
     calRentalHours: rental.rentalHours || "",
-    calRentalAlcohol: rental.alcohol || "No",
-    calRentalTotal: rental.estimatedTotalCents ? String(Math.round(rental.estimatedTotalCents / 100)) : "",
+    calRentalFood: rental.foodOrDrinks ? "true" : "false",
+    calRentalAlcohol: rental.alcohol === "Yes" ? "Yes" : "No",
     calRentalAdminNotes: rental.adminNotes || ""
   };
 
@@ -4736,7 +4978,7 @@ function populateCalendarRentalFields(root, rental) {
   });
 
   const checks = {
-    calRentalFood: rental.foodOrDrinks,
+    calRentalCleaning: inferRentalCleaningMaintenance(rental),
     calRentalTables: rental.addonTables,
     calRentalChairs: rental.addonChairs,
     calRentalTarp: rental.addonTarp,
@@ -4753,11 +4995,11 @@ function populateCalendarRentalFields(root, rental) {
   });
 
   setCalendarRentalHoursState(root);
+  updateCalendarRentalTotal(root);
 }
 
 function collectCalendarRentalPayload(root, defaults) {
   const rentalType = root.querySelector("#calRentalType")?.value || "all_day";
-  const totalDollars = Number(root.querySelector("#calRentalTotal")?.value || 0) || 0;
   return {
     title: defaults.title,
     contact_name: root.querySelector("#calRentalContactName")?.value.trim() || defaults.title || "Admin Booking",
@@ -4770,10 +5012,11 @@ function collectCalendarRentalPayload(root, defaults) {
     event_start_time: defaults.allDay ? "07:00" : (defaults.start || "07:00"),
     event_end_time: defaults.allDay ? "21:00" : (defaults.end || "21:00"),
     estimated_attendance: Math.max(1, Number(root.querySelector("#calRentalAttendance")?.value || 1) || 1),
-    food_or_drinks: Boolean(root.querySelector("#calRentalFood")?.checked),
+    food_or_drinks: root.querySelector("#calRentalFood")?.value === "true",
     alcohol: root.querySelector("#calRentalAlcohol")?.value || "No",
     rental_type: rentalType,
     rental_hours: rentalType === "hourly" ? (Number(root.querySelector("#calRentalHours")?.value || 1) || 1) : null,
+    addon_cleaning_maintenance: Boolean(root.querySelector("#calRentalCleaning")?.checked),
     addon_tables: Boolean(root.querySelector("#calRentalTables")?.checked),
     addon_chairs: Boolean(root.querySelector("#calRentalChairs")?.checked),
     addon_tarp: Boolean(root.querySelector("#calRentalTarp")?.checked),
@@ -4782,7 +5025,7 @@ function collectCalendarRentalPayload(root, defaults) {
     addon_early_day_rental: Boolean(root.querySelector("#calRentalEarlyDay")?.checked),
     addon_late_cleanup: Boolean(root.querySelector("#calRentalLateCleanup")?.checked),
     addon_late_day_rental: Boolean(root.querySelector("#calRentalLateDay")?.checked),
-    estimated_total_cents: Math.max(0, Math.round(totalDollars * 100)),
+    estimated_total_cents: calculateCalendarRentalTotalCents(root),
     adminNotes: root.querySelector("#calRentalAdminNotes")?.value.trim() || null,
     rental_status: "confirmed"
   };
@@ -4813,6 +5056,7 @@ async function loadCalRentalInfo(root, rentalRequestId) {
     root.querySelector("#calEventModal").dataset.rentalLoaded = "true";
 
     const addons = [
+      inferRentalCleaningMaintenance(rental) && "Cleaning & Maintenance",
       rental.addonTables && "Tables",
       rental.addonChairs && "Chairs",
       rental.addonTarp && "Tarp",
@@ -4867,11 +5111,11 @@ async function saveCalendarEvent(root) {
   if (!date)  { showCalError(errEl, "Date is required.");  return; }
 
   const startAt = allDay
-    ? new Date(date + "T00:00:00").toISOString()
-    : new Date(date + "T" + (start || "00:00") + ":00").toISOString();
+    ? facilityWallTimeToIso(date, "00:00")
+    : facilityWallTimeToIso(date, start || "00:00");
   const endAt = allDay
-    ? new Date(date + "T23:59:59").toISOString()
-    : new Date(date + "T" + (end   || "23:59") + ":00").toISOString();
+    ? facilityWallTimeToIso(date, "23:59")
+    : facilityWallTimeToIso(date, end || "23:59");
 
   errEl.hidden = true;
   saveBtn.disabled = true;

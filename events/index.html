@@ -94,6 +94,7 @@
       public_event:  "#bb87fc",
       general:       "#8a97a8"
     };
+    const FACILITY_TIME_ZONE = "America/Los_Angeles";
 
     async function loadEvents() {
       const loading = document.getElementById("events-loading");
@@ -123,12 +124,12 @@
           const color   = EVENT_COLORS[ev.eventType] || "#8a97a8";
           const label   = EVENT_LABELS[ev.eventType] || ev.eventType;
 
-          const dateStr = start.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+          const dateStr = eventDateLabel(ev);
           const timeStr = ev.allDay
             ? "All Day"
-            : start.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+            : start.toLocaleTimeString("en-US", { timeZone: FACILITY_TIME_ZONE, hour: "numeric", minute: "2-digit" })
               + " – "
-              + end.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+              + end.toLocaleTimeString("en-US", { timeZone: FACILITY_TIME_ZONE, hour: "numeric", minute: "2-digit" });
 
           return `
             <li class="events-item">
@@ -153,6 +154,25 @@
 
     function esc(v) {
       return String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    function eventDateLabel(ev) {
+      if (ev.allDay) {
+        const dateKey = String(ev.startAt || "").slice(0, 10);
+        return new Date(`${dateKey}T12:00:00`).toLocaleDateString("en-US", {
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+          year: "numeric"
+        });
+      }
+      return new Date(ev.startAt).toLocaleDateString("en-US", {
+        timeZone: FACILITY_TIME_ZONE,
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric"
+      });
     }
 
     loadEvents();

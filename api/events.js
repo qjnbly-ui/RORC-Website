@@ -4,6 +4,7 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const VALID_TYPES   = ["rental", "maintenance", "rorc"];
 const VALID_STATUSES = ["confirmed", "cancelled"];
 const RENTAL_BLOCKING_TYPES = ["rental", "maintenance"];
+const FACILITY_TIME_ZONE = "America/Los_Angeles";
 
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -23,7 +24,7 @@ module.exports = async (req, res) => {
 
       if (bookedOnly) {
         // Return dates that should block new rentals — no auth required.
-        path = `events?select=start_at,end_at,event_type&event_type=in.(${RENTAL_BLOCKING_TYPES.join(",")})&status=eq.confirmed&order=start_at.asc`;
+        path = `events?select=start_at,end_at,event_type,all_day&event_type=in.(${RENTAL_BLOCKING_TYPES.join(",")})&status=eq.confirmed&order=start_at.asc`;
         const rows = await supabaseRest(path);
         const dates = [...collectBlockedDates(rows)];
         return res.status(200).json({ success: true, dates });
@@ -212,12 +213,12 @@ function normalizeEventType(value) {
 function collectBlockedDates(rows) {
   const blocked = new Set();
   (rows || []).forEach((row) => {
-    const start = new Date(row.start_at);
-    const end = new Date(row.end_at);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
+    const startKey = row.all_day ? rawDateKey(row.start_at) : facilityDateKey(row.start_at);
+    const endKey = facilityDateKey(row.end_at);
+    if (!startKey || !endKey) return;
 
-    const cursor = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
-    const endDay = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+    const cursor = parseDateKeyAsUtcNoon(startKey);
+    const endDay = parseDateKeyAsUtcNoon(endKey);
 
     while (cursor <= endDay) {
       blocked.add(cursor.toISOString().slice(0, 10));
@@ -225,6 +226,35 @@ function collectBlockedDates(rows) {
     }
   });
   return blocked;
+}
+
+function facilityDateKey(value) {
+  const raw = String(value || "");
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)) {
+    return raw.slice(0, 10);
+  }
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: FACILITY_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date).reduce((acc, part) => {
+    if (part.type !== "literal") acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function rawDateKey(value) {
+  const match = String(value || "").match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : "";
+}
+
+function parseDateKeyAsUtcNoon(dateKey) {
+  const [year, month, day] = String(dateKey || "").split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day, 12));
 }
 
 // Returns the authed member if admin, null otherwise — never throws

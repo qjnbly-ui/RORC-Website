@@ -5,6 +5,7 @@ const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@r
 const { buildRentalApplicantEmail } = require("./_communication-templates");
 
 const VALID_STATUSES = ["submitted", "pending_review", "confirmed", "rejected", "canceled"];
+const FACILITY_TIME_ZONE = "America/Los_Angeles";
 
 module.exports = async (req, res) => {
   if (!SERVICE_ROLE_KEY) {
@@ -206,7 +207,35 @@ async function syncLinkedCalendarEventStatus(rentalRequestId, eventStatus) {
 }
 
 function buildIsoTimestamp(dateStr, hhmm) {
-  return `${String(dateStr || "")}T${String(hhmm || "00:00")}:00`;
+  return facilityWallTimeToIso(dateStr, hhmm || "00:00");
+}
+
+function getFacilityTimeZoneOffsetMs(date) {
+  const zoneName = new Intl.DateTimeFormat("en-US", {
+    timeZone: FACILITY_TIME_ZONE,
+    timeZoneName: "shortOffset"
+  }).formatToParts(date).find((part) => part.type === "timeZoneName")?.value || "GMT";
+  const match = zoneName.match(/^GMT([+-])(\d{1,2})(?::?(\d{2}))?$/);
+  if (!match) return 0;
+  const sign = match[1] === "-" ? -1 : 1;
+  const hours = Number(match[2] || 0);
+  const minutes = Number(match[3] || 0);
+  return sign * ((hours * 60) + minutes) * 60000;
+}
+
+function facilityWallTimeToIso(dateStr, timeStr = "00:00") {
+  const [year, month, day] = String(dateStr || "").split("-").map(Number);
+  const [hour, minute] = String(timeStr || "00:00").split(":").map(Number);
+  if (![year, month, day, hour, minute].every(Number.isFinite)) {
+    return `${String(dateStr || "")}T${String(timeStr || "00:00")}:00`;
+  }
+
+  const wallTime = Date.UTC(year, month - 1, day, hour, minute, 0);
+  let utcTime = wallTime;
+  for (let i = 0; i < 3; i += 1) {
+    utcTime = wallTime - getFacilityTimeZoneOffsetMs(new Date(utcTime));
+  }
+  return new Date(utcTime).toISOString();
 }
 
 function buildRentalRecord(body) {

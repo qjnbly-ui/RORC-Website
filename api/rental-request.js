@@ -10,7 +10,7 @@ const RORC_NOTIFY_EMAIL = process.env.RORC_NOTIFY_EMAIL;
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@ruthobenchainrc.com>";
 
 const VALID_EVENT_TYPES = ["Birthday Party", "Private Party", "Meeting", "Memorial Service", "Other"];
-const VALID_ALCOHOL_VALUES = ["Yes", "No", "Maybe"];
+const VALID_ALCOHOL_VALUES = ["Yes", "No"];
 
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -189,8 +189,6 @@ async function sendNotificationEmail(record) {
   <tr><td style="padding:6px 12px 6px 0;color:#888;">Date</td><td style="padding:6px 0;">${esc(record?.event_date)}</td></tr>
   <tr><td style="padding:6px 12px 6px 0;color:#888;">Time</td><td style="padding:6px 0;">${esc(record?.event_start_time)} – ${esc(record?.event_end_time)}</td></tr>
   <tr><td style="padding:6px 12px 6px 0;color:#888;">Attendance</td><td style="padding:6px 0;">${esc(String(record?.estimated_attendance || ""))}</td></tr>
-  <tr><td style="padding:6px 12px 6px 0;color:#888;">Food/Drinks</td><td style="padding:6px 0;">${record?.food_or_drinks ? "Yes" : "No"}</td></tr>
-  <tr><td style="padding:6px 12px 6px 0;color:#888;">Alcohol</td><td style="padding:6px 0;">${esc(record?.alcohol)}</td></tr>
   ${addons.length ? `<tr><td style="padding:6px 12px 6px 0;color:#888;vertical-align:top;">Add-Ons</td><td style="padding:6px 0;">${addons.map(esc).join("<br>")}</td></tr>` : ""}
   <tr><td style="padding:18px 12px 8px 0;border-top:1px solid #333;color:#888;font-weight:600;">Est. Total</td><td style="padding:18px 0 8px;font-weight:600;color:#fff;">${esc(totalDollars)}</td></tr>
 </table>

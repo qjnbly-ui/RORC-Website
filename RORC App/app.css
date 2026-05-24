@@ -4992,6 +4992,12 @@ textarea:focus-visible,
   opacity: 0.55;
 }
 
+.rental-edit-input[readonly],
+.rorc-input[readonly] {
+  cursor: default;
+  opacity: 0.82;
+}
+
 .rental-edit-input:focus {
   border-color: rgba(239, 59, 54,0.45);
   outline: none;

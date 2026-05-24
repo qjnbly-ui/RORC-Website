@@ -99,12 +99,29 @@ function formatRentalTime(value) {
   }).format(date);
 }
 
-function rentalYesNo(value) {
-  return value ? "Yes" : "No";
+function calculateRentalTotalWithoutCleaning(record) {
+  const rentalType = record?.rental_type === "hourly" ? "hourly" : "all_day";
+  const hours = Math.min(9, Math.max(1, Number(record?.rental_hours || 1) || 1));
+  let total = rentalType === "hourly" ? hours * 1000 : 10000;
+  if (record?.addon_tables) total += 2000;
+  if (record?.addon_chairs) total += 2000;
+  if (record?.addon_tarp) total += 2000;
+  if (record?.addon_early_setup) total += 5000;
+  if (record?.addon_early_day_rental) total += 10000;
+  if (record?.addon_late_cleanup) total += 5000;
+  if (record?.addon_late_day_rental) total += 10000;
+  return total;
+}
+
+function rentalHasCleaningMaintenance(record) {
+  if (typeof record?.addon_cleaning_maintenance === "boolean") return record.addon_cleaning_maintenance;
+  const storedTotal = Number(record?.estimated_total_cents || 0);
+  return Boolean(storedTotal && storedTotal >= calculateRentalTotalWithoutCleaning(record) + 2000);
 }
 
 function rentalAddons(record) {
   return [
+    rentalHasCleaningMaintenance(record) && "Cleaning & Maintenance",
     record?.addon_tables && "Tables",
     record?.addon_chairs && "Chairs",
     record?.addon_tarp && "Tarp",
@@ -134,8 +151,6 @@ function rentalDetailRows(record) {
     ["Time", start && end ? `${start} - ${end}` : "TBD"],
     ["Rental Type", rentalType],
     ["Estimated Attendance", record?.estimated_attendance ? String(record.estimated_attendance) : "TBD"],
-    ["Food / Drinks", rentalYesNo(record?.food_or_drinks)],
-    ["Alcohol", record?.alcohol || "No"],
     ["Add-ons", addons.length ? addons.join(", ") : "None"],
     ["Estimated Total", totalDollars]
   ];
