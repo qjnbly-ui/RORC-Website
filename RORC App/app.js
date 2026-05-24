@@ -231,6 +231,7 @@ const kioskAllowedRoutes = new Set([
 
 let frontDoorSession = buildSession("");
 let appUserSession = buildSession("");
+let routeRenderSequence = 0;
 
 const routes = {
   memberSignIn: {
@@ -1079,9 +1080,11 @@ async function loadThermostatSystemAccess() {
   return normalizeThermostatSystemAccess(body.settings || {});
 }
 
-function renderAutomationSettingsPage() {
+async function renderAutomationSettingsPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
+
+  deferContentUntilReady(root);
 
   root.innerHTML = `
     <section class="feedback-shell automation-shell">
@@ -1235,7 +1238,8 @@ function renderAutomationSettingsPage() {
     </section>
   `;
 
-  bindAutomationSettingsActions();
+  await bindAutomationSettingsActions({ silentInitialLoad: true });
+  revealReadyContent(root);
 }
 
 function renderAccountTypePolicyFields() {
@@ -1284,20 +1288,7 @@ async function renderContractReviewsPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
 
-  root.innerHTML = `
-    <section class="live-record-page">
-      <header class="account-page-heading">
-        <div>
-          <p class="eyebrow">Admin Approval</p>
-          <h2>Account Reviews</h2>
-          <p>Approve or reject new membership contracts and invited account users before facility access is enabled.</p>
-        </div>
-      </header>
-      <section class="empty-state">
-        <p>Loading account reviews...</p>
-      </section>
-    </section>
-  `;
+  deferContentUntilReady(root);
 
   try {
     const token = currentAuthSession?.access_token || "";
@@ -1315,6 +1306,7 @@ async function renderContractReviewsPage() {
 
     renderContractReviewList(body.reviews || []);
   } catch (error) {
+    revealReadyContent(root);
     root.innerHTML = `
       <section class="empty-state">
         <p>${escapeHtml(error.message || "Could not load account reviews.")}</p>
@@ -1326,6 +1318,7 @@ async function renderContractReviewsPage() {
 function renderContractReviewList(reviews) {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
+  revealReadyContent(root);
 
   const pending = reviews.filter((review) => review.adminReviewStatus === "pending");
   const reviewed = reviews.filter((review) => review.adminReviewStatus !== "pending").slice(0, 50);
@@ -1651,25 +1644,13 @@ async function renderAdminNotesPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
 
-  root.innerHTML = `
-    <section class="live-record-page">
-      <header class="account-page-heading">
-        <div>
-          <p class="eyebrow">Admin Workflow</p>
-          <h2>Admin Notes</h2>
-          <p>Track messages to send, site edits, and operations follow-ups.</p>
-        </div>
-      </header>
-      <section class="empty-state">
-        <p>Loading admin notes...</p>
-      </section>
-    </section>
-  `;
+  deferContentUntilReady(root);
 
   try {
     adminNotes = await fetchAdminNotes();
     drawAdminNotesPage();
   } catch (error) {
+    revealReadyContent(root);
     root.innerHTML = `
       <section class="empty-state">
         <p>${escapeHtml(error.message || "Could not load admin notes.")}</p>
@@ -1681,6 +1662,7 @@ async function renderAdminNotesPage() {
 function drawAdminNotesPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
+  revealReadyContent(root);
 
   const openNotes = adminNotes.filter((note) => !note.archivedAt);
   const completedCount = openNotes.filter((note) => note.isDone).length;
@@ -3201,7 +3183,7 @@ function refreshAutomationSectionStates() {
   });
 }
 
-async function bindAutomationSettingsActions() {
+async function bindAutomationSettingsActions({ silentInitialLoad = false } = {}) {
   const form = document.getElementById("automationSettingsForm");
   const saveButton = document.getElementById("automationSettingsSave");
   if (!form || !saveButton) return;
@@ -3209,12 +3191,12 @@ async function bindAutomationSettingsActions() {
   const advancedFields = document.getElementById("automationAdvancedFields");
 
   try {
-    automationResult("Loading settings...");
+    if (!silentInitialLoad) automationResult("Loading settings...");
     const settings = await loadAutomationSettings();
     thermostatSystemAccess = normalizeThermostatSystemAccess(settings.thermostat_system_access || {});
     applyAutomationSettingsToForm(settings);
     refreshAutomationSectionStates();
-    automationResult("Loaded.", "success");
+    if (!silentInitialLoad) automationResult("Loaded.", "success");
   } catch (error) {
     automationResult(error.message || "Could not load settings.", "error");
   }
@@ -3344,6 +3326,73 @@ function showAppShell() {
   if (appShell) {
     appShell.hidden = false;
   }
+}
+
+function setRouteViewPending(isPending) {
+  if (view) {
+    view.hidden = Boolean(isPending);
+    if (isPending) {
+      view.setAttribute("aria-busy", "true");
+    } else {
+      view.removeAttribute("aria-busy");
+    }
+  }
+
+  if (appShell) {
+    appShell.classList.toggle("is-route-pending", Boolean(isPending));
+  }
+}
+
+function deferContentUntilReady(element) {
+  if (!element) return;
+  element.innerHTML = "";
+  element.hidden = true;
+  element.setAttribute("aria-busy", "true");
+}
+
+function revealReadyContent(element) {
+  if (!element) return;
+  element.hidden = false;
+  element.removeAttribute("aria-busy");
+}
+
+function renderRouteLoadError(route, error) {
+  if (!view) return;
+  view.innerHTML = `
+    <section class="empty-state">
+      <p>${escapeHtml(error?.message || `Could not load ${route?.title || "this page"}.`)}</p>
+    </section>
+  `;
+}
+
+function showRouteLoading(routeName) {
+  routeRenderSequence += 1;
+  const route = routes[routeName] || routes.currentlySignedIn;
+  const activeRouteName = routeName === "accountDetails" ? appState.detailReturnRoute : routeName;
+  const backRoute = Boolean(route.formRoute || route.detailRoute);
+
+  if (screenTitle) {
+    screenTitle.textContent = route.title || "";
+  }
+  if (appShell) {
+    appShell.classList.toggle("is-form-route", Boolean(route.formRoute));
+    appShell.classList.toggle("is-detail-route", Boolean(route.detailRoute));
+  }
+  if (navControl) {
+    navControl.classList.toggle("is-back", backRoute);
+    navControl.setAttribute("aria-label", backRoute ? "Go back" : "Open menu");
+  }
+  if (view) {
+    view.innerHTML = "";
+  }
+  setRouteViewPending(true);
+
+  navItems.forEach((item) => {
+    item.classList.toggle("is-active", item.dataset.route === activeRouteName);
+  });
+  drawerItems.forEach((item) => {
+    item.classList.toggle("is-active", item.dataset.route === activeRouteName);
+  });
 }
 
 function hasSupabaseConfig() {
@@ -3587,7 +3636,7 @@ async function renderRentalReviewsPage() {
   if (!root) return;
   root.classList.add("rental-admin-page");
 
-  root.innerHTML = `<p class="feedback-loading">Loading rental requests…</p>`;
+  deferContentUntilReady(root);
 
   try {
     const token = currentAuthSession?.access_token || "";
@@ -3604,11 +3653,14 @@ async function renderRentalReviewsPage() {
     updateRentalReviewsBadge();
     renderRentalPipeline(root);
   } catch (err) {
+    revealReadyContent(root);
     root.innerHTML = `<p class="feedback-empty">${escapeHtml(err.message)}</p>`;
   }
 }
 
 function renderRentalPipeline(root) {
+  revealReadyContent(root);
+
   const all       = rentalAllRequests;
   const action    = all.filter((r) => r.rentalStatus === "submitted" || r.rentalStatus === "pending_review");
   const confirmed = all.filter((r) => r.rentalStatus === "confirmed");
@@ -3657,8 +3709,7 @@ function renderRentalPipeline(root) {
         </section>
       `}
 
-      <button class="heater-fab rental-fab" type="button" aria-label="Create new rental">
-        <span class="heater-fab-label">New</span>
+      <button class="heater-fab rental-fab is-icon-only" type="button" aria-label="Create new rental">
         <span class="heater-fab-icon" aria-hidden="true">+</span>
       </button>
     </section>
@@ -3675,6 +3726,10 @@ function renderRentalPipeline(root) {
   // All inline action buttons
   root.querySelectorAll("[data-rental-action]").forEach((btn) => {
     btn.addEventListener("click", () => handleRentalAction(btn, root));
+  });
+
+  root.querySelectorAll("[data-rental-edit]").forEach((btn) => {
+    btn.addEventListener("click", () => showRentalEditForm(btn.dataset.rentalEdit, root));
   });
 
   // Calendar crosslinks
@@ -3736,10 +3791,12 @@ function buildRentalCard(r) {
 
   const isActionable = status === "submitted" || status === "pending_review";
   const isConfirmed  = status === "confirmed";
+  const editButton = `<button class="rental-btn rental-btn-ghost" data-rental-edit="${escapeAttribute(r.id)}" type="button">Edit Booking</button>`;
 
   const actionsHtml = isActionable ? `
     <div class="rental-card-actions" id="rental-actions-${escapeAttribute(r.id)}">
       <div class="rental-card-btn-row">
+        ${editButton}
         ${status === "submitted" ? `
           <button class="rental-btn rental-btn-ghost" data-rental-action="pending_review" data-rental-id="${escapeAttribute(r.id)}">Mark In Review</button>
         ` : ""}
@@ -3750,11 +3807,18 @@ function buildRentalCard(r) {
   ` : isConfirmed ? `
     <div class="rental-card-actions" id="rental-actions-${escapeAttribute(r.id)}">
       <div class="rental-card-btn-row">
+        ${editButton}
         <button class="rental-btn rental-btn-view-cal" data-rental-view-calendar="${escapeAttribute(r.eventDate || "")}">View on Calendar</button>
         <button class="rental-btn rental-btn-cancel" data-rental-action="cancel" data-rental-id="${escapeAttribute(r.id)}">Cancel Booking</button>
       </div>
     </div>
-  ` : "";
+  ` : `
+    <div class="rental-card-actions" id="rental-actions-${escapeAttribute(r.id)}">
+      <div class="rental-card-btn-row">
+        ${editButton}
+      </div>
+    </div>
+  `;
 
   return `
     <article class="rental-card" data-rental-id="${escapeAttribute(r.id)}" data-status="${escapeAttribute(status)}">
@@ -3835,6 +3899,247 @@ function buildRentalCard(r) {
       ${actionsHtml}
     </article>
   `;
+}
+
+function showRentalEditForm(id, root) {
+  const rental = rentalAllRequests.find((item) => item.id === id);
+  const actionsEl = root.querySelector(`#rental-actions-${id}`);
+  if (!rental || !actionsEl) return;
+
+  actionsEl.innerHTML = buildRentalEditForm(rental);
+  setRentalEditHoursState(root, id);
+
+  root.querySelector(`#rental-edit-type-${id}`)?.addEventListener("change", () => {
+    setRentalEditHoursState(root, id);
+  });
+  root.querySelector(`#rental-edit-cancel-${id}`)?.addEventListener("click", () => renderRentalPipeline(root));
+  root.querySelector(`#rental-edit-save-${id}`)?.addEventListener("click", () => submitRentalEdit(id, root));
+}
+
+function buildRentalEditForm(r) {
+  const id = escapeAttribute(r.id);
+  const totalDollars = r.estimatedTotalCents ? String(Math.round(r.estimatedTotalCents / 100)) : "";
+  const scheduleNote = r.rentalStatus === "confirmed"
+    ? "Saving updates this rental and its linked calendar event."
+    : "Saving updates this rental record.";
+
+  return `
+    <div class="rental-action-form rental-edit-form">
+      <div class="rental-edit-grid">
+        <label class="rental-edit-field">Event Name
+          <input id="rental-edit-event-name-${id}" class="rental-edit-input" type="text" value="${escapeAttribute(r.eventName || "")}" />
+        </label>
+        <label class="rental-edit-field">Rental Category
+          <select id="rental-edit-event-type-${id}" class="rental-edit-input">
+            ${renderRentalCategoryOptions(r.eventType)}
+          </select>
+        </label>
+        <label class="rental-edit-field">Date
+          <input id="rental-edit-date-${id}" class="rental-edit-input" type="date" value="${escapeAttribute(r.eventDate || "")}" />
+        </label>
+        <label class="rental-edit-field">Start Time
+          <input id="rental-edit-start-${id}" class="rental-edit-input" type="time" value="${escapeAttribute(rentalTimeInputValue(r.eventStartTime || "07:00"))}" />
+        </label>
+        <label class="rental-edit-field">End Time
+          <input id="rental-edit-end-${id}" class="rental-edit-input" type="time" value="${escapeAttribute(rentalTimeInputValue(r.eventEndTime || "21:00"))}" />
+        </label>
+        <label class="rental-edit-field">Contact Name
+          <input id="rental-edit-contact-name-${id}" class="rental-edit-input" type="text" value="${escapeAttribute(r.contactName || "")}" />
+        </label>
+        <label class="rental-edit-field">Phone
+          <input id="rental-edit-phone-${id}" class="rental-edit-input" type="tel" value="${escapeAttribute(r.contactPhone || "")}" />
+        </label>
+        <label class="rental-edit-field">Email
+          <input id="rental-edit-email-${id}" class="rental-edit-input" type="email" value="${escapeAttribute(r.contactEmail || "")}" />
+        </label>
+        <label class="rental-edit-field rental-edit-field-wide">Mailing Address
+          <input id="rental-edit-address-${id}" class="rental-edit-input" type="text" value="${escapeAttribute(r.contactAddress || "")}" />
+        </label>
+        <label class="rental-edit-field">Attendance
+          <input id="rental-edit-attendance-${id}" class="rental-edit-input" type="number" min="1" inputmode="numeric" value="${escapeAttribute(r.estimatedAttendance || 1)}" />
+        </label>
+        <label class="rental-edit-field">Rental Type
+          <select id="rental-edit-type-${id}" class="rental-edit-input">
+            <option value="all_day"${r.rentalType !== "hourly" ? " selected" : ""}>All Day</option>
+            <option value="hourly"${r.rentalType === "hourly" ? " selected" : ""}>Hourly</option>
+          </select>
+        </label>
+        <label class="rental-edit-field">Hours
+          <input id="rental-edit-hours-${id}" class="rental-edit-input" type="number" min="1" max="9" inputmode="numeric" value="${escapeAttribute(r.rentalHours || "")}" />
+        </label>
+        <label class="rental-edit-field">Alcohol
+          <select id="rental-edit-alcohol-${id}" class="rental-edit-input">
+            ${["No", "Yes", "Maybe"].map((value) => `<option value="${value}"${String(r.alcohol || "No") === value ? " selected" : ""}>${value}</option>`).join("")}
+          </select>
+        </label>
+        <label class="rental-edit-field">Estimated Total
+          <input id="rental-edit-total-${id}" class="rental-edit-input" type="number" min="0" step="1" inputmode="numeric" value="${escapeAttribute(totalDollars)}" />
+        </label>
+      </div>
+
+      <div class="rental-edit-checks">
+        ${rentalEditCheck(id, "food", "Food or drinks", r.foodOrDrinks)}
+        ${rentalEditCheck(id, "tables", "Tables", r.addonTables)}
+        ${rentalEditCheck(id, "chairs", "Chairs", r.addonChairs)}
+        ${rentalEditCheck(id, "tarp", "Tarp", r.addonTarp)}
+        ${rentalEditCheck(id, "heater", "Heater", r.addonHeater)}
+        ${rentalEditCheck(id, "early-setup", "Early setup", r.addonEarlySetup)}
+        ${rentalEditCheck(id, "early-day", "Extra day early", r.addonEarlyDayRental)}
+        ${rentalEditCheck(id, "late-cleanup", "Late cleanup", r.addonLateCleanup)}
+        ${rentalEditCheck(id, "late-day", "Extra day late", r.addonLateDayRental)}
+      </div>
+
+      <label class="rental-edit-field">Admin Notes
+        <textarea id="rental-edit-notes-${id}" class="rental-edit-input rental-action-textarea" rows="3">${escapeHtml(r.adminNotes || "")}</textarea>
+      </label>
+
+      <p class="rental-edit-help">${escapeHtml(scheduleNote)}</p>
+      <p class="rental-action-error" id="rental-edit-err-${id}" hidden></p>
+
+      <div class="rental-action-btns">
+        <button class="rental-btn rental-btn-ghost" id="rental-edit-cancel-${id}" type="button">Back</button>
+        <button class="rental-btn rental-btn-confirm" id="rental-edit-save-${id}" type="button">Save Booking</button>
+      </div>
+    </div>
+  `;
+}
+
+function rentalEditCheck(id, key, label, checked) {
+  return `
+    <label class="rental-edit-check">
+      <input id="rental-edit-${key}-${id}" type="checkbox"${checked ? " checked" : ""} />
+      ${escapeHtml(label)}
+    </label>
+  `;
+}
+
+function renderRentalCategoryOptions(selected) {
+  return ["Birthday Party", "Private Party", "Meeting", "Memorial Service", "Other"]
+    .map((value) => `<option value="${escapeAttribute(value)}"${String(selected || "Other") === value ? " selected" : ""}>${escapeHtml(value)}</option>`)
+    .join("");
+}
+
+function rentalTimeInputValue(value) {
+  const match = String(value || "").match(/^(\d{2}:\d{2})/);
+  return match ? match[1] : "";
+}
+
+function setRentalEditHoursState(root, id) {
+  const typeEl = root.querySelector(`#rental-edit-type-${id}`);
+  const hoursEl = root.querySelector(`#rental-edit-hours-${id}`);
+  if (!typeEl || !hoursEl) return;
+  const isHourly = typeEl.value === "hourly";
+  hoursEl.disabled = !isHourly;
+  if (isHourly && !hoursEl.value) hoursEl.value = "1";
+  if (!isHourly) hoursEl.value = "";
+}
+
+function collectRentalEditPayload(id, root) {
+  const field = (name) => root.querySelector(`#rental-edit-${name}-${id}`);
+  const rentalType = field("type")?.value === "hourly" ? "hourly" : "all_day";
+  const totalDollars = Number(field("total")?.value || 0) || 0;
+  const hours = Math.min(9, Math.max(1, Number(field("hours")?.value || 1) || 1));
+
+  return {
+    event_name: field("event-name")?.value.trim() || "",
+    event_type: field("event-type")?.value || "Other",
+    event_date: field("date")?.value || "",
+    event_start_time: field("start")?.value || "07:00",
+    event_end_time: field("end")?.value || "21:00",
+    contact_name: field("contact-name")?.value.trim() || "",
+    contact_phone: field("phone")?.value.trim() || "",
+    contact_email: field("email")?.value.trim() || "",
+    contact_address: field("address")?.value.trim() || "",
+    estimated_attendance: Math.max(1, Number(field("attendance")?.value || 1) || 1),
+    rental_type: rentalType,
+    rental_hours: rentalType === "hourly" ? hours : null,
+    alcohol: field("alcohol")?.value || "No",
+    food_or_drinks: Boolean(field("food")?.checked),
+    addon_tables: Boolean(field("tables")?.checked),
+    addon_chairs: Boolean(field("chairs")?.checked),
+    addon_tarp: Boolean(field("tarp")?.checked),
+    addon_heater: Boolean(field("heater")?.checked),
+    addon_early_setup: Boolean(field("early-setup")?.checked),
+    addon_early_day_rental: Boolean(field("early-day")?.checked),
+    addon_late_cleanup: Boolean(field("late-cleanup")?.checked),
+    addon_late_day_rental: Boolean(field("late-day")?.checked),
+    estimated_total_cents: Math.max(0, Math.round(totalDollars * 100)),
+    adminNotes: field("notes")?.value.trim() || null
+  };
+}
+
+function applyRentalEditToCache(id, payload, updatedRequest) {
+  const idx = rentalAllRequests.findIndex((r) => r.id === id);
+  if (idx === -1) return;
+  if (updatedRequest) {
+    rentalAllRequests[idx] = { ...rentalAllRequests[idx], ...updatedRequest };
+    return;
+  }
+
+  rentalAllRequests[idx] = {
+    ...rentalAllRequests[idx],
+    eventName: payload.event_name,
+    eventType: payload.event_type,
+    eventDate: payload.event_date,
+    eventStartTime: payload.event_start_time,
+    eventEndTime: payload.event_end_time,
+    contactName: payload.contact_name,
+    contactPhone: payload.contact_phone,
+    contactEmail: payload.contact_email,
+    contactAddress: payload.contact_address,
+    estimatedAttendance: payload.estimated_attendance,
+    rentalType: payload.rental_type,
+    rentalHours: payload.rental_hours,
+    alcohol: payload.alcohol,
+    foodOrDrinks: payload.food_or_drinks,
+    addonTables: payload.addon_tables,
+    addonChairs: payload.addon_chairs,
+    addonTarp: payload.addon_tarp,
+    addonHeater: payload.addon_heater,
+    addonEarlySetup: payload.addon_early_setup,
+    addonEarlyDayRental: payload.addon_early_day_rental,
+    addonLateCleanup: payload.addon_late_cleanup,
+    addonLateDayRental: payload.addon_late_day_rental,
+    estimatedTotalCents: payload.estimated_total_cents,
+    adminNotes: payload.adminNotes,
+    reviewedAt: new Date().toISOString()
+  };
+}
+
+async function submitRentalEdit(id, root) {
+  const saveBtn = root.querySelector(`#rental-edit-save-${id}`);
+  const errEl = root.querySelector(`#rental-edit-err-${id}`);
+  const payload = collectRentalEditPayload(id, root);
+
+  if (!payload.event_name) {
+    if (errEl) { errEl.textContent = "Event name is required."; errEl.hidden = false; }
+    return;
+  }
+  if (!payload.event_date) {
+    if (errEl) { errEl.textContent = "Date is required."; errEl.hidden = false; }
+    return;
+  }
+
+  try {
+    if (errEl) errEl.hidden = true;
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "Saving..."; }
+
+    const token = currentAuthSession?.access_token || "";
+    const res = await fetch("/api/rental-reviews", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ id, ...payload })
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || body.success === false) throw new Error(body.error || "Could not update rental.");
+
+    applyRentalEditToCache(id, payload, body.request);
+    highlightRentalId = id;
+    renderRentalPipeline(root);
+  } catch (err) {
+    if (errEl) { errEl.textContent = err.message || "Could not update rental."; errEl.hidden = false; }
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = "Try Again"; }
+  }
 }
 
 function handleRentalAction(btn, root) {
@@ -3976,7 +4281,7 @@ async function renderCalendarPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
   root.classList.add("calendar-admin-page");
-  root.innerHTML = `<p class="feedback-loading">Loading calendar…</p>`;
+  deferContentUntilReady(root);
 
   try {
     const token = currentAuthSession?.access_token || "";
@@ -3993,6 +4298,7 @@ async function renderCalendarPage() {
       openNewRentalCalendarModal(root);
     }
   } catch (err) {
+    revealReadyContent(root);
     root.innerHTML = `<p class="feedback-empty">Could not load calendar: ${escapeHtml(err.message)}</p>`;
   }
 }
@@ -4018,6 +4324,8 @@ function getRecurringEventsForMonth(year, month) {
 }
 
 function renderCalendarView(root) {
+  revealReadyContent(root);
+
   const now   = new Date();
   const year  = calendarYear;
   const month = calendarMonth;
@@ -4060,9 +4368,6 @@ function renderCalendarView(root) {
   }
 
   root.innerHTML = `
-    <p class="feedback-eyebrow">Admin</p>
-    <h2 class="feedback-title">Calendar</h2>
-
     <div class="cal-toolbar">
       <button class="app-admin-btn app-admin-btn-secondary cal-nav" id="calPrev">&#8249;</button>
       <span class="cal-month-label">${monthName} ${year}</span>
@@ -5427,7 +5732,7 @@ async function hydrateFromSupabase() {
 
   showAppShell();
   appState.dataStatus = "loading";
-  render(appState.currentRoute);
+  showRouteLoading(appState.currentRoute);
 
   try {
     const profilesResult = await client
@@ -5786,14 +6091,14 @@ function dataSourceNotice() {
   }
 
   if (appState.dataStatus === "loading") {
-    return `<p class="data-source-note">Loading data...</p>`;
+    return "";
   }
 
   if (appState.dataStatus === "error") {
     return `<p class="data-source-note is-warning">Could not load data. ${escapeHtml(appState.dataError)}</p>`;
   }
 
-  return `<p class="data-source-note is-warning">Waiting for data...</p>`;
+  return "";
 }
 
 function openDrawer() {
@@ -10004,6 +10309,14 @@ function bindAuthActions() {
 }
 
 function render(routeName) {
+  if (appState.dataStatus === "loading") {
+    const pendingRouteName = routes[routeName] ? routeName : "currentlySignedIn";
+    appState.currentRoute = pendingRouteName;
+    rememberRefreshRoute(pendingRouteName);
+    showRouteLoading(pendingRouteName);
+    return;
+  }
+
   let resolvedRouteName = routeName;
 
   if (isKioskModeSession(appUserSession) && !kioskAllowedRoutes.has(resolvedRouteName)) {
@@ -10032,6 +10345,7 @@ function render(routeName) {
   closeDrawer();
   appState.currentRoute = resolvedRouteName;
   rememberRefreshRoute(resolvedRouteName);
+  const renderSequence = ++routeRenderSequence;
 
   const backRoute = Boolean(route.formRoute || route.detailRoute);
   const activeRouteName = resolvedRouteName === "accountDetails" ? appState.detailReturnRoute : resolvedRouteName;
@@ -10043,6 +10357,7 @@ function render(routeName) {
   navControl.setAttribute("aria-label", backRoute ? "Go back" : "Open menu");
 
   resetScrollTop();
+  setRouteViewPending(true);
 
   view.innerHTML = "";
   view.appendChild(template.content.cloneNode(true));
@@ -10055,12 +10370,37 @@ function render(routeName) {
     item.classList.toggle("is-active", item.dataset.route === activeRouteName);
   });
 
-  route.afterRender?.();
+  let afterRenderResult;
+  try {
+    afterRenderResult = route.afterRender?.();
+  } catch (error) {
+    console.error(`Route render failed for ${resolvedRouteName}.`, error);
+    renderRouteLoadError(route, error);
+  }
+
   resetScrollTop();
   populateMemberSignIn();
   populateGuestSignIn();
   bindMemberPickers();
   bindRouteActions();
+
+  if (afterRenderResult && typeof afterRenderResult.then === "function") {
+    Promise.resolve(afterRenderResult)
+      .catch((error) => {
+        console.error(`Route render failed for ${resolvedRouteName}.`, error);
+        if (renderSequence === routeRenderSequence) {
+          renderRouteLoadError(route, error);
+        }
+      })
+      .finally(() => {
+        if (renderSequence === routeRenderSequence) {
+          setRouteViewPending(false);
+          resetScrollTop();
+        }
+      });
+  } else {
+    setRouteViewPending(false);
+  }
 }
 
 function navigateTo(routeName) {

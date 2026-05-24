@@ -4957,6 +4957,70 @@ textarea:focus-visible,
   color: #8a97a8;
 }
 
+.rental-edit-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.rental-edit-field {
+  color: #8a97a8;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  gap: 7px;
+}
+
+.rental-edit-field-wide {
+  grid-column: 1 / -1;
+}
+
+.rental-edit-input {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  box-sizing: border-box;
+  color: #f5f5f5;
+  font: inherit;
+  min-height: 40px;
+  padding: 10px 12px;
+  width: 100%;
+}
+
+.rental-edit-input:disabled {
+  color: #6b7785;
+  opacity: 0.55;
+}
+
+.rental-edit-input:focus {
+  border-color: rgba(239, 59, 54,0.45);
+  outline: none;
+}
+
+.rental-edit-checks {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+}
+
+.rental-edit-check {
+  align-items: center;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 10px;
+  color: #c2cad6;
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+  padding: 9px 10px;
+}
+
+.rental-edit-help {
+  color: #8a97a8;
+  font-size: 12.5px;
+  margin: 0;
+}
+
 .rental-action-required {
   color: #eb5757;
   font-size: 11px;
@@ -5047,6 +5111,10 @@ textarea:focus-visible,
     align-items: stretch;
   }
 
+  .rental-edit-grid {
+    grid-template-columns: 1fr;
+  }
+
   .rental-btn {
     justify-content: center;
   }
@@ -5085,6 +5153,11 @@ textarea:focus-visible,
   font-weight: 800;
   line-height: 1.1;
   margin: -6px 0 4px;
+}
+
+.calendar-admin-page,
+.feedback-page:has(.cal-toolbar) {
+  padding-top: 12px;
 }
 
 .feedback-loading,
@@ -5570,7 +5643,28 @@ textarea:focus-visible,
   border-radius: 4px;
 }
 
+.rental-edit-input {
+  background: var(--field-bg);
+  border-color: #515863;
+  border-radius: 4px;
+}
+
+.rental-edit-check {
+  background: #202020;
+  border-color: #333;
+  border-radius: 4px;
+  color: var(--text);
+}
+
+.rental-edit-help {
+  color: var(--muted);
+}
+
 .rental-action-textarea:focus {
+  border-color: var(--accent);
+}
+
+.rental-edit-input:focus {
   border-color: var(--accent);
 }
 

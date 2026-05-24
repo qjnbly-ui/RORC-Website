@@ -114,9 +114,13 @@ module.exports = async (req, res) => {
         sendApplicantEmail(record, status, adminNotes).catch((err) => {
           console.error("Rental applicant email failed:", err);
         });
+      } else if (record && record.rental_status === "confirmed") {
+        createOrUpdateCalendarEvent(record).catch((err) => {
+          console.error("Linked calendar event update failed:", err);
+        });
       }
 
-      return res.status(200).json({ success: true });
+      return res.status(200).json({ success: true, request: record ? mapRow(record) : null });
     } catch (err) {
       console.error("rental-reviews PATCH error:", err);
       return res.status(500).json({ success: false, error: "Could not update rental request" });

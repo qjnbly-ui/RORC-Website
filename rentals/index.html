@@ -512,6 +512,8 @@
     (function () {
       const CLEANING_CENTS = 2000; // $20 always included
       const ALLDAY_CENTS   = 10000; // $100 flat day rate
+      const ALLDAY_START_MINUTES = 7 * 60;
+      const ALLDAY_END_MINUTES   = 21 * 60;
 
       const form          = document.getElementById("rental-form");
       const totalDisplay  = document.getElementById("rental-total-display");
@@ -524,6 +526,9 @@
       const hoursInput    = document.getElementById("rentalHoursInput");
       const baseLabel     = document.getElementById("rental-base-label");
       const basePrice     = document.getElementById("rental-base-price");
+      const startTimeInput = form.querySelector('input[name="eventStartTime"]');
+      const endTimeInput   = form.querySelector('input[name="eventEndTime"]');
+      let manualAllDayOverride = false;
 
       function getRentalType() {
         return (form.querySelector('input[name="rentalType"]:checked') || {}).value || "all_day";
@@ -557,6 +562,57 @@
         });
       }
 
+      function setRentalType(value) {
+        const radio = form.querySelector('input[name="rentalType"][value="' + value + '"]');
+        if (!radio) return;
+        radio.checked = true;
+        syncTypeCards();
+        updateBaseDisplay();
+        updateTotal();
+      }
+
+      function parseTimeMinutes(value) {
+        const match = String(value || "").match(/^(\d{1,2}):(\d{2})/);
+        if (!match) return null;
+        const hours = Number(match[1]);
+        const minutes = Number(match[2]);
+        if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+        return (hours * 60) + minutes;
+      }
+
+      function getSelectedTimeRange() {
+        const start = parseTimeMinutes(startTimeInput && startTimeInput.value);
+        const end = parseTimeMinutes(endTimeInput && endTimeInput.value);
+        if (start === null || end === null || end <= start) return null;
+        return {
+          start: start,
+          end: end,
+          hours: Math.min(9, Math.max(1, Math.ceil((end - start) / 60)))
+        };
+      }
+
+      function syncRentalTypeFromTimes() {
+        const range = getSelectedTimeRange();
+        if (!range) return;
+
+        const isStandardAllDay = range.start === ALLDAY_START_MINUTES && range.end === ALLDAY_END_MINUTES;
+        if (isStandardAllDay) {
+          manualAllDayOverride = false;
+          setRentalType("all_day");
+          return;
+        }
+
+        if ((range.end - range.start) <= (9 * 60)) {
+          hoursInput.value = String(range.hours);
+          if (!manualAllDayOverride) {
+            setRentalType("hourly");
+          } else {
+            updateBaseDisplay();
+            updateTotal();
+          }
+        }
+      }
+
       function updateTotal() {
         let extra = 0;
         form.querySelectorAll("input[type=checkbox][data-price]").forEach(function (cb) {
@@ -576,9 +632,13 @@
       form.addEventListener("change", function (e) {
         const t = e.target;
         if (t.name === "rentalType") {
+          manualAllDayOverride = t.value === "all_day";
+          if (t.value === "hourly") syncRentalTypeFromTimes();
           syncTypeCards();
           updateBaseDisplay();
           updateTotal();
+        } else if (t.name === "eventStartTime" || t.name === "eventEndTime") {
+          syncRentalTypeFromTimes();
         } else if (t === hoursInput) {
           updateBaseDisplay();
           updateTotal();
@@ -688,6 +748,11 @@
         if (!p.eventDate) errs.push("Event date is required.");
         if (!p.eventStartTime) errs.push("Start time is required.");
         if (!p.eventEndTime) errs.push("End time is required.");
+        if (p.eventStartTime && p.eventEndTime) {
+          const start = parseTimeMinutes(p.eventStartTime);
+          const end = parseTimeMinutes(p.eventEndTime);
+          if (start !== null && end !== null && end <= start) errs.push("End time must be after start time.");
+        }
         if (!p.estimatedAttendance || p.estimatedAttendance < 1) errs.push("Attendance must be at least 1.");
         if (!foodVal) errs.push("Please indicate whether food or drinks will be served.");
         if (!p.alcohol) errs.push("Please indicate whether alcohol will be at the event.");
