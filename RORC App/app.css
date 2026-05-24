@@ -4620,6 +4620,28 @@ textarea:focus-visible,
   margin: -2px 0 2px;
 }
 
+.cal-recurring-ends {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.cal-recurring-ends legend {
+  color: #c2cad6;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.cal-recurring-ends label {
+  align-items: center;
+  color: #c2cad6;
+  display: flex;
+  gap: 8px;
+}
+
 .recurring-delete-options {
   display: grid;
   gap: 10px;
