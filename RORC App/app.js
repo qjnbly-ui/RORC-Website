@@ -1383,7 +1383,7 @@ function renderContractReviewCard(review) {
   ].filter(Boolean).join(" · ");
 
   return `
-    <li data-contract-review-id="${escapeAttribute(review.id)}">
+    <li data-contract-review-id="${escapeAttribute(review.id)}" data-contract-review-email="${escapeAttribute(review.applicantEmail || "")}">
       <strong class="heater-record-event">${escapeHtml(review.applicantName || "Unknown applicant")}</strong>
       <span class="heater-record-meta">${escapeHtml(meta)}</span>
       <button class="heater-state-action is-${escapeAttribute(statusClass)}" type="button" disabled>${escapeHtml(statusLabel)}</button>
@@ -1398,6 +1398,7 @@ function renderContractReviewCard(review) {
           <button class="text-action" data-contract-review-action="reject" data-contract-review-id="${escapeAttribute(review.id)}" type="button">Reject</button>
           <button class="save-action" data-contract-review-action="approve" data-contract-review-id="${escapeAttribute(review.id)}" type="button">Approve</button>
         </div>
+        <div class="contract-review-action-panel" data-contract-review-panel="${escapeAttribute(review.id)}"></div>
       ` : ""}
     </li>
   `;
@@ -1406,19 +1407,80 @@ function renderContractReviewCard(review) {
 function bindContractReviewActions() {
   document.querySelectorAll("[data-contract-review-action]").forEach((button) => {
     button.addEventListener("click", () => {
-      submitContractReview(button.dataset.contractReviewId, button.dataset.contractReviewAction);
+      showContractReviewActionForm(button);
     });
   });
 }
 
-async function submitContractReview(contractId, action) {
+function showContractReviewActionForm(button) {
+  const contractId = button.dataset.contractReviewId;
+  const action = button.dataset.contractReviewAction;
+  const row = button.closest("[data-contract-review-id]");
+  const panel = row?.querySelector(`[data-contract-review-panel="${CSS.escape(contractId)}"]`);
+  if (!contractId || !action || !panel) return;
+
+  const isReject = action === "reject";
+  const hasEmail = Boolean(String(row.dataset.contractReviewEmail || "").trim());
+  panel.innerHTML = `
+      <div class="admin-message-action-form">
+        <div class="admin-message-description">
+          <span class="admin-message-label-row">
+            <span>Description ${isReject ? "<mark>*</mark>" : ""}</span>
+            ${hasEmail ? "" : "<span class=\"admin-delivery-notice is-muted\">No email address on file</span>"}
+          </span>
+          <textarea class="rental-action-textarea" id="contract-review-notes-${escapeAttribute(contractId)}" rows="3"
+            placeholder="${isReject ? "Reason for rejecting this account..." : "Optional approval note..."}"></textarea>
+        </div>
+        <div class="rental-action-btns">
+          <button class="rental-btn rental-btn-ghost" data-contract-review-back="${escapeAttribute(contractId)}" type="button">Back</button>
+          <button class="rental-btn ${isReject ? "rental-btn-decline" : "rental-btn-confirm"}" data-contract-review-submit="${escapeAttribute(contractId)}" type="button">
+            ${isReject ? "Reject Account" : "Approve Account"}
+          </button>
+        </div>
+        <p class="rental-action-error" id="contract-review-error-${escapeAttribute(contractId)}" hidden></p>
+    </div>
+  `;
+
+  const textarea = panel.querySelector(`#contract-review-notes-${CSS.escape(contractId)}`);
+  const error = panel.querySelector(`#contract-review-error-${CSS.escape(contractId)}`);
+
+  panel.querySelector("[data-contract-review-back]")?.addEventListener("click", () => {
+    panel.innerHTML = "";
+  });
+
+  panel.querySelector("[data-contract-review-submit]")?.addEventListener("click", () => {
+    const notes = textarea?.value.trim() || "";
+    if (isReject && !notes) {
+      if (error) {
+        error.textContent = "Description is required when rejecting.";
+        error.hidden = false;
+      }
+      return;
+    }
+    submitContractReview(contractId, action, notes);
+  });
+}
+
+async function submitContractReview(contractId, action, notes = "") {
   const result = document.getElementById("contractReviewResult");
-  const notes = action === "reject"
-    ? String(window.prompt("Reason for rejection?") || "").trim()
-    : String(window.prompt("Approval notes? Optional.") || "").trim();
 
   if (action === "reject" && !notes) {
     if (result) result.textContent = "Rejection notes are required.";
+    return;
+  }
+
+  const automationConfirmed = await confirmAutomatedEmailBeforeSave({
+    type: "signup_review",
+    contractId,
+    action,
+    notes
+  }, {
+    title: action === "approve" ? "Approve Account?" : "Reject Account?",
+    message: "This admin action has an automated email scheduled for the applicant.",
+    confirmLabel: action === "approve" ? "Approve & Send Email" : "Reject & Send Email"
+  });
+  if (!automationConfirmed) {
+    if (result) result.textContent = "No changes saved.";
     return;
   }
 
@@ -3788,22 +3850,27 @@ function handleRentalAction(btn, root) {
 
   const isDecline = action === "decline";
   const isCancel  = action === "cancel";
+  const rental = rentalAllRequests.find((item) => item.id === id);
+  const hasEmail = Boolean(String(rental?.contactEmail || "").trim());
 
   actionsEl.innerHTML = `
-    <div class="rental-action-form">
-      <label class="rental-action-label">
-        ${isDecline ? "Reason for declining <span class='rental-action-required'>(required)</span>" : isCancel ? "Cancellation note (optional)" : "Confirmation notes (optional)"}
-        <textarea class="rental-action-textarea" id="rental-notes-${escapeAttribute(id)}" rows="3"
-          placeholder="${isDecline ? "Explain why this request is being declined…" : isCancel ? "Any notes for the cancellation…" : "Any details for the applicant…"}"></textarea>
-      </label>
-      <div class="rental-action-btns">
-        <button class="rental-btn rental-btn-ghost" id="rental-cancel-form-${escapeAttribute(id)}">← Back</button>
-        <button class="rental-btn ${isDecline || isCancel ? "rental-btn-decline" : "rental-btn-confirm"}"
-                id="rental-submit-${escapeAttribute(id)}">
-          ${isDecline ? "Decline Booking" : isCancel ? "Cancel Booking" : "Confirm Booking"}
-        </button>
-      </div>
-      <p class="rental-action-error" id="rental-action-err-${escapeAttribute(id)}" hidden></p>
+      <div class="rental-action-form">
+        <div class="rental-action-label">
+          <span class="admin-message-label-row">
+            <span>Description ${isDecline ? "<span class='rental-action-required'>(required)</span>" : ""}</span>
+            ${hasEmail ? "" : "<span class=\"admin-delivery-notice is-muted\">No email address on file</span>"}
+          </span>
+          <textarea class="rental-action-textarea" id="rental-notes-${escapeAttribute(id)}" rows="3"
+            placeholder="${isDecline ? "Explain why this request is being declined..." : isCancel ? "Any notes for the cancellation..." : "Any confirmation details..."}"></textarea>
+        </div>
+        <div class="rental-action-btns">
+          <button class="rental-btn rental-btn-ghost" id="rental-cancel-form-${escapeAttribute(id)}" type="button">Back</button>
+          <button class="rental-btn ${isDecline || isCancel ? "rental-btn-decline" : "rental-btn-confirm"}"
+                  id="rental-submit-${escapeAttribute(id)}" type="button">
+            ${isDecline ? "Decline Booking" : isCancel ? "Cancel Booking" : "Confirm Booking"}
+          </button>
+        </div>
+        <p class="rental-action-error" id="rental-action-err-${escapeAttribute(id)}" hidden></p>
     </div>
   `;
 
@@ -3826,9 +3893,27 @@ function handleRentalAction(btn, root) {
 async function submitRentalStatusChange(id, status, notes, root) {
   const submitBtn = root.querySelector(`#rental-submit-${id}`);
   const errEl     = root.querySelector(`#rental-action-err-${id}`);
-  if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Saving…"; }
 
   try {
+    if (["confirmed", "rejected", "canceled"].includes(status)) {
+      const actionLabel = status === "confirmed" ? "Confirm Booking"
+        : status === "rejected" ? "Decline Booking"
+          : "Cancel Booking";
+      const automationConfirmed = await confirmAutomatedEmailBeforeSave({
+        type: "rental_review",
+        id,
+        status,
+        adminNotes: notes || ""
+      }, {
+        title: `${actionLabel}?`,
+        message: "This admin action has an automated email scheduled for the rental contact.",
+        confirmLabel: `${actionLabel} & Send Email`
+      });
+      if (!automationConfirmed) return;
+    }
+
+    if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Saving…"; }
+
     const token = currentAuthSession?.access_token || "";
     const res   = await fetch("/api/rental-reviews", {
       method: "PATCH",
@@ -7796,6 +7881,118 @@ function showAppNotice(message, title = "Notice") {
   overlay.querySelector(".app-notice-ok")?.addEventListener("click", close);
   document.addEventListener("keydown", onKeydown);
   document.body.appendChild(overlay);
+}
+
+async function fetchAutomatedMessagePreview(payload) {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) throw new Error("Log in again before confirming this automation.");
+
+  const response = await fetch("/api/communication-preview", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not build email preview.");
+  }
+  return body.preview;
+}
+
+async function confirmAutomatedEmailBeforeSave(payload, options = {}) {
+  try {
+    const preview = await fetchAutomatedMessagePreview(payload);
+    if (!preview?.willSend) return true;
+    return showAutomationConfirmDialog(preview, options);
+  } catch (error) {
+    showAppNotice(error.message || "Could not verify the automated email. No changes were saved.");
+    return false;
+  }
+}
+
+function showAutomationConfirmDialog(preview, options = {}) {
+  const existing = document.querySelector(".communication-preview-overlay");
+  if (existing) existing.remove();
+
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "communication-preview-overlay";
+    overlay.innerHTML = `
+      <section class="communication-preview-dialog automation-confirm-dialog" role="dialog" aria-modal="true" aria-label="Confirm automated email">
+        <header>
+          <div>
+            <p class="eyebrow">Automation Check</p>
+            <h3>${escapeHtml(options.title || "Continue with this save?")}</h3>
+          </div>
+        </header>
+        <div class="automation-confirm-banner">
+          <span class="admin-delivery-check" aria-hidden="true">&#10003;</span>
+          <div>
+            <strong>Email will be sent</strong>
+            <p>${escapeHtml(options.message || "This admin action has an automated email scheduled after save.")}</p>
+          </div>
+        </div>
+        <div class="communication-preview-meta">
+          <span><strong>To</strong>${escapeHtml(preview?.to || "No recipient on file")}</span>
+          <span><strong>Subject</strong>${escapeHtml(preview?.subject || "Email Preview")}</span>
+        </div>
+        <label class="automation-confirm-checkbox">
+          <input class="automation-confirm-check" type="checkbox" />
+          <span>Yes, send this automated email when I save.</span>
+        </label>
+        <button class="admin-message-more automation-preview-toggle" type="button">More Info</button>
+        <div class="automation-preview-panel" hidden>
+          <iframe class="communication-preview-frame" title="Email preview"></iframe>
+          <details class="communication-preview-text">
+            <summary>Plain text version</summary>
+            <pre>${escapeHtml(preview?.text || "")}</pre>
+          </details>
+        </div>
+        <footer class="communication-preview-actions">
+          <button class="communication-preview-cancel" type="button">Cancel</button>
+          <button class="communication-preview-confirm" type="button" disabled>${escapeHtml(options.confirmLabel || "Save & Send Email")}</button>
+        </footer>
+      </section>
+    `;
+
+    const close = (confirmed) => {
+      overlay.remove();
+      document.removeEventListener("keydown", onKeydown);
+      resolve(Boolean(confirmed));
+    };
+    const onKeydown = (event) => {
+      if (event.key === "Escape") close(false);
+    };
+
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close(false);
+    });
+    const checkbox = overlay.querySelector(".automation-confirm-check");
+    const confirmButton = overlay.querySelector(".communication-preview-confirm");
+    checkbox?.addEventListener("change", () => {
+      if (confirmButton) confirmButton.disabled = !checkbox.checked;
+    });
+    overlay.querySelector(".communication-preview-cancel")?.addEventListener("click", () => close(false));
+    confirmButton?.addEventListener("click", () => close(true));
+    overlay.querySelector(".automation-preview-toggle")?.addEventListener("click", (event) => {
+      const panel = overlay.querySelector(".automation-preview-panel");
+      if (!panel) return;
+      const nextHidden = !panel.hidden;
+      panel.hidden = nextHidden;
+      event.currentTarget.textContent = nextHidden ? "More Info" : "Hide Info";
+    });
+    document.addEventListener("keydown", onKeydown);
+    document.body.appendChild(overlay);
+
+    const frame = overlay.querySelector(".communication-preview-frame");
+    if (frame) {
+      frame.srcdoc = preview?.html || `<pre>${escapeHtml(preview?.text || "")}</pre>`;
+    }
+  });
 }
 
 async function syncStripeMembershipForProfile(profile) {

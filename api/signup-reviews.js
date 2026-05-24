@@ -2,6 +2,7 @@ const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@ruthobenchainrc.com>";
+const { buildSignupReviewEmail } = require("./_communication-templates");
 
 module.exports = async (req, res) => {
   if (!SERVICE_ROLE_KEY) {
@@ -156,30 +157,7 @@ function contractMemberIds(contract) {
 async function sendApplicantReviewEmail({ contract, approved, notes }) {
   if (!RESEND_API_KEY || !contract.applicant_email) return;
 
-  const subject = approved ? "Your RORC account was approved" : "RORC account review update";
-  const title = approved ? "RORC Account Approved" : "RORC Account Review";
-  const bodyText = approved
-    ? "Your RORC account has been approved. You can now use your RORC login for approved account access."
-    : "Your RORC account was not approved at this time.";
-  const text = [
-    bodyText,
-    notes ? `Notes: ${notes}` : "",
-    "",
-    "Open the member login: https://ruthobenchainrc.com/membership-login/"
-  ].filter(Boolean).join("\n");
-
-  const html = buildEmailTemplate({
-    title: escapeHtml(title),
-    bodyHtml: `
-      <p style="margin:0 0 16px;color:#d1d5db;line-height:1.65;font-size:16px;text-align:center;">${escapeHtml(bodyText)}</p>
-      ${notes ? `<p style="margin:0 0 16px;color:#d1d5db;line-height:1.65;font-size:15px;text-align:center;"><strong>Notes:</strong> ${escapeHtml(notes)}</p>` : ""}
-      <p style="margin:0;text-align:center;">
-        <a href="https://ruthobenchainrc.com/membership-login/" style="display:inline-block;background:#f23a36;color:#fff;text-decoration:none;border-radius:999px;padding:13px 22px;font-weight:700;">
-          Open Member Login
-        </a>
-      </p>
-    `
-  });
+  const email = buildSignupReviewEmail({ contract, approved, notes });
 
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -190,9 +168,9 @@ async function sendApplicantReviewEmail({ contract, approved, notes }) {
     body: JSON.stringify({
       from: RESEND_FROM_EMAIL,
       to: [contract.applicant_email],
-      subject,
-      text,
-      html
+      subject: email.subject,
+      text: email.text,
+      html: email.html
     })
   });
 
@@ -200,38 +178,6 @@ async function sendApplicantReviewEmail({ contract, approved, notes }) {
     const errorText = await response.text();
     throw new Error(`Resend request failed: ${response.status} ${errorText}`);
   }
-}
-
-function buildEmailTemplate({ title, bodyHtml }) {
-  return `
-    <div style="font-family:Arial,sans-serif;background:#111;color:#f5f5f5;padding:28px;line-height:1.55;text-align:center;">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#1b1b1b;border:1px solid #333;border-radius:14px;overflow:hidden;text-align:center;">
-        <tr>
-          <td style="padding:28px 28px 16px;border-bottom:1px solid #333;text-align:center;">
-            <h2 style="margin:0;color:#fff;font-size:32px;line-height:1.15;text-align:center;">${title}</h2>
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:20px 28px;text-align:center;">
-            ${bodyHtml}
-          </td>
-        </tr>
-        <tr>
-          <td style="padding:24px 28px;border-top:1px solid #333;color:#888;font-size:13px;line-height:1.6;text-align:center;">
-            <p style="margin:0 0 8px;text-align:center;">&copy; 2026 Ruth Obenchain Recreation Center</p>
-            <p style="margin:0 0 8px;text-align:center;">
-              <a href="https://ruthobenchainrc.com/support/" style="color:#bbb;text-decoration:none;">Support</a>
-              &nbsp;|&nbsp;
-              <a href="https://ruthobenchainrc.com/privacy-policy/" style="color:#bbb;text-decoration:none;">Privacy Policy</a>
-              &nbsp;|&nbsp;
-              <a href="https://ruthobenchainrc.com/terms-of-service/" style="color:#bbb;text-decoration:none;">Terms of Service</a>
-            </p>
-            <p style="margin:0;text-align:center;">Operated by Bly Community Action Team<br />Designed &amp; Built by N3XRA</p>
-          </td>
-        </tr>
-      </table>
-    </div>
-  `;
 }
 
 function bearerToken(req) {
@@ -300,15 +246,6 @@ function unique(values) {
 
 function stringValue(value) {
   return String(value || "").trim();
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }
 
 function httpError(statusCode, message) {

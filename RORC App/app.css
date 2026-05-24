@@ -2341,6 +2341,289 @@ h1 {
   padding: 0 16px;
 }
 
+.admin-message-action-form {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px;
+}
+
+.admin-message-description {
+  display: grid;
+  gap: 8px;
+}
+
+.admin-message-label-row {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  font-weight: 900;
+  gap: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-delivery-notice {
+  align-items: center;
+  background: rgba(56, 189, 125, 0.12);
+  border: 1px solid rgba(56, 189, 125, 0.35);
+  border-radius: 999px;
+  color: #9cf2c1;
+  display: inline-flex;
+  font-size: 0.72rem;
+  gap: 6px;
+  letter-spacing: 0.02em;
+  padding: 5px 9px;
+  text-transform: none;
+}
+
+.admin-delivery-notice.is-muted {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #aeb6c4;
+}
+
+.admin-delivery-check {
+  background: #38bd7d;
+  border-radius: 999px;
+  color: #07150d;
+  display: inline-grid;
+  font-size: 0.68rem;
+  height: 16px;
+  place-items: center;
+  width: 16px;
+}
+
+.admin-message-more {
+  appearance: none;
+  background: rgba(141, 168, 207, 0.12);
+  border: 1px solid rgba(141, 168, 207, 0.34);
+  border-radius: 999px;
+  color: #cfe0fb;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  min-height: 28px;
+  padding: 0 10px;
+  text-transform: uppercase;
+}
+
+.admin-message-more:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.communication-preview-overlay {
+  align-items: center;
+  background: rgba(0, 0, 0, 0.78);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 20px;
+  position: fixed;
+  z-index: 140;
+}
+
+.communication-preview-dialog {
+  background:
+    radial-gradient(circle at top right, rgba(239, 59, 54, 0.14), transparent 35%),
+    #121212;
+  border: 1px solid #444;
+  border-radius: 20px;
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.58);
+  display: grid;
+  gap: 14px;
+  max-height: min(92vh, 940px);
+  max-width: 900px;
+  overflow-y: auto;
+  padding: 20px;
+  width: 100%;
+}
+
+.communication-preview-dialog header {
+  align-items: flex-start;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+}
+
+.communication-preview-dialog h3 {
+  font-size: clamp(1.25rem, 4vw, 2rem);
+  line-height: 1.1;
+  margin: 4px 0 0;
+}
+
+.automation-confirm-dialog {
+  max-width: 720px;
+}
+
+.communication-preview-close {
+  appearance: none;
+  background: #1c1c1c;
+  border: 1px solid #4c4c4c;
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 900;
+  min-height: 38px;
+  padding: 0 16px;
+  text-transform: uppercase;
+}
+
+.communication-preview-meta {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.communication-preview-meta span {
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: #d1d5db;
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  word-break: break-word;
+}
+
+.communication-preview-meta strong {
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.automation-confirm-banner {
+  align-items: flex-start;
+  background: rgba(56, 189, 125, 0.12);
+  border: 1px solid rgba(56, 189, 125, 0.32);
+  border-radius: 14px;
+  color: #d8fbe7;
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+}
+
+.automation-confirm-banner .admin-delivery-check {
+  flex: 0 0 auto;
+  height: 22px;
+  margin-top: 1px;
+  width: 22px;
+}
+
+.automation-confirm-banner strong {
+  color: #f4fff8;
+  display: block;
+  font-weight: 900;
+  margin-bottom: 3px;
+}
+
+.automation-confirm-banner p {
+  color: #b9d9c7;
+  margin: 0;
+}
+
+.automation-preview-toggle {
+  justify-self: start;
+}
+
+.automation-confirm-checkbox {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  color: #f5f5f5;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+}
+
+.automation-confirm-checkbox input {
+  accent-color: var(--accent);
+  height: 18px;
+  width: 18px;
+}
+
+.automation-confirm-checkbox span {
+  font-weight: 900;
+}
+
+.automation-preview-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.communication-preview-frame {
+  background: #111;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  min-height: 460px;
+  width: 100%;
+}
+
+.communication-preview-text {
+  color: var(--muted);
+}
+
+.communication-preview-text summary {
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.communication-preview-text pre {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: #d1d5db;
+  overflow-x: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+}
+
+.communication-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.communication-preview-actions button {
+  appearance: none;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 900;
+  min-height: 42px;
+  padding: 0 18px;
+  text-transform: uppercase;
+}
+
+.communication-preview-cancel {
+  background: #1c1c1c;
+  border: 1px solid #4c4c4c;
+  color: var(--text);
+}
+
+.communication-preview-confirm {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #fff;
+}
+
+.communication-preview-confirm:disabled {
+  cursor: not-allowed;
+  filter: grayscale(0.55);
+  opacity: 0.45;
+}
+
 .detail-tabs {
   background: #171717;
   border: 1px solid #3d3d3d;
@@ -5342,5 +5625,20 @@ textarea:focus-visible,
 
   .rental-filter-tabs {
     display: grid;
+  }
+
+  .admin-message-label-row,
+  .rental-action-btns,
+  .communication-preview-dialog header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .communication-preview-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .communication-preview-frame {
+    min-height: 380px;
   }
 }
