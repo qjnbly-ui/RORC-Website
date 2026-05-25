@@ -2902,13 +2902,13 @@ function bindMessageComposerActions() {
           email: includeEmail,
           inApp: includeInApp
         },
-        sendAt
+        sendAt: fromDatetimeLocalValue(sendAt) || sendAt
       });
 
-      setResult(
-        `Sent. Texts: ${response.sentTextCount || 0}, Emails: ${response.sentEmailCount || 0}, In-App: ${response.sentInAppCount || 0}.`,
-        "success"
-      );
+      setResult(response.scheduled
+        ? `Scheduled for ${formatShortDateTime(response.scheduledFor)}.`
+        : `Sent. Texts: ${response.sentTextCount || 0}, Emails: ${response.sentEmailCount || 0}, In-App: ${response.sentInAppCount || 0}.`,
+        "success");
       addNotificationDispatchRecord({
         title,
         message,
@@ -3842,6 +3842,10 @@ function renderRentalPipeline(root) {
     btn.addEventListener("click", () => showRentalEditForm(btn.dataset.rentalEdit, root));
   });
 
+  root.querySelectorAll("[data-rental-notify]").forEach((btn) => {
+    btn.addEventListener("click", () => openRentalNotifyDialog(btn.dataset.rentalNotify));
+  });
+
   // Calendar crosslinks
   root.querySelectorAll("[data-rental-view-calendar]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -3904,6 +3908,7 @@ function buildRentalCard(r) {
   const isActionable = status === "submitted" || status === "pending_review";
   const isConfirmed  = status === "confirmed";
   const editButton = `<button class="rental-btn rental-btn-ghost" data-rental-edit="${escapeAttribute(r.id)}" type="button">Edit Booking</button>`;
+  const notifyButton = `<button class="rental-btn rental-btn-ghost" data-rental-notify="${escapeAttribute(r.id)}" type="button">Notify Members</button>`;
 
   const actionsHtml = isActionable ? `
     <div class="rental-card-actions" id="rental-actions-${escapeAttribute(r.id)}">
@@ -3921,6 +3926,7 @@ function buildRentalCard(r) {
     <div class="rental-card-actions" id="rental-actions-${escapeAttribute(r.id)}">
       <div class="rental-card-btn-row">
         ${editButton}
+        ${notifyButton}
         <button class="rental-btn rental-btn-view-cal" data-rental-view-calendar="${escapeAttribute(r.eventDate || "")}">View on Calendar</button>
         <button class="rental-btn rental-btn-cancel" data-rental-action="cancel" data-rental-id="${escapeAttribute(r.id)}">Cancel Booking</button>
         <button class="rental-btn rental-btn-decline" data-rental-action="delete" data-rental-id="${escapeAttribute(r.id)}">Delete Request</button>
@@ -4007,6 +4013,410 @@ function buildRentalCard(r) {
       ${actionsHtml}
     </article>
   `;
+}
+
+function openRentalNotifyDialog(rentalId) {
+  const rental = rentalAllRequests.find((item) => item.id === rentalId);
+  if (!rental) {
+    showAppNotice("Rental request not found.");
+    return;
+  }
+
+  const existing = document.querySelector(".rental-notify-overlay");
+  if (existing) existing.remove();
+
+  const defaults = rentalNotifyDefaults(rental);
+  const scheduleOptions = rentalNotifyScheduleOptions(rental);
+  const overlay = document.createElement("div");
+  overlay.className = "communication-preview-overlay rental-notify-overlay";
+  overlay.innerHTML = `
+    <section class="communication-preview-dialog automation-confirm-dialog rental-notify-dialog" role="dialog" aria-modal="true" aria-label="Notify members of this event">
+      <header>
+        <div>
+          <p class="eyebrow">Rental Notification</p>
+          <h3>Notify members of this event</h3>
+        </div>
+      </header>
+
+      <div class="communication-preview-meta">
+        <span><strong>Rental</strong>${escapeHtml(rental.eventName || rental.eventType || "Rental")}</span>
+        <span><strong>Date</strong>${escapeHtml(defaults.dateLabel)}</span>
+      </div>
+
+      <label class="cal-field-label">Title
+        <input id="rentalNotifyTitle" class="rorc-input" type="text" value="${escapeAttribute(defaults.title)}" />
+      </label>
+
+      <div class="segmented-field">
+        <span>Delivery Channels</span>
+        <div class="segmented-control" data-multi-select="true">
+          <button id="rentalNotifyText" class="segment" type="button" aria-pressed="false">Text</button>
+          <button id="rentalNotifyEmail" class="segment is-selected" type="button" aria-pressed="true">Email</button>
+          <button id="rentalNotifyInApp" class="segment is-selected" type="button" aria-pressed="true">In-App</button>
+        </div>
+      </div>
+
+      <label class="cal-field-label">To Members
+        <input id="rentalNotifyMembers" class="member-picker-value" type="hidden" />
+        <button
+          id="rentalNotifyMembersPicker"
+          class="member-picker-button multi-member-picker-button"
+          data-member-multi-picker="rentalNotifyMembers"
+          data-member-picker-source="memberSignIn"
+          data-member-picker-placeholder="Select members"
+          data-member-picker-title="Notify Members"
+          type="button"
+        >
+          <span class="member-picker-selected">
+            <span class="member-picker-placeholder">Select members</span>
+          </span>
+          <span class="member-picker-plus" aria-hidden="true">+</span>
+        </button>
+      </label>
+      <div class="rental-card-btn-row">
+        <button id="rentalNotifySelectAll" class="rental-btn rental-btn-ghost" type="button">Select All Members</button>
+        <button id="rentalNotifyClearMembers" class="rental-btn rental-btn-ghost" type="button">Clear</button>
+      </div>
+      <p id="rentalNotifyRecipientSummary" class="auth-message">No members selected.</p>
+
+      <fieldset class="cal-recurring-ends">
+        <legend>Send Timing</legend>
+        ${scheduleOptions.map((option) => `
+          <label>
+            <input type="radio" name="rentalNotifyTiming" value="${escapeAttribute(option.key)}" data-send-at="${escapeAttribute(option.value || "")}" ${option.checked ? "checked" : ""} ${option.disabled ? "disabled" : ""} />
+            ${escapeHtml(option.label)}
+          </label>
+        `).join("")}
+        <input id="rentalNotifyCustomAt" class="rorc-input" type="datetime-local" value="${escapeAttribute(defaults.customLocal)}" disabled />
+      </fieldset>
+
+      <label class="cal-field-label">Message
+        <textarea id="rentalNotifyMessage" class="rorc-input" rows="7">${escapeHtml(defaults.message)}</textarea>
+      </label>
+
+      <button class="admin-message-more rental-notify-preview-toggle" type="button">More Info</button>
+      <div class="automation-preview-panel rental-notify-preview-panel" hidden>
+        <iframe class="communication-preview-frame" title="Member message preview"></iframe>
+        <details class="communication-preview-text">
+          <summary>Plain text version</summary>
+          <pre id="rentalNotifyPlainPreview"></pre>
+        </details>
+      </div>
+
+      <label class="automation-confirm-checkbox">
+        <input id="rentalNotifyConfirm" type="checkbox" />
+        <span>Yes, send or schedule this member notification.</span>
+      </label>
+
+      <p id="rentalNotifyResult" class="auth-message" aria-live="polite"></p>
+
+      <footer class="communication-preview-actions">
+        <button class="communication-preview-cancel" type="button">Cancel</button>
+        <button id="rentalNotifySubmit" class="communication-preview-confirm" type="button" disabled>Send / Schedule</button>
+      </footer>
+    </section>
+  `;
+
+  document.body.appendChild(overlay);
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener("keydown", onKeydown);
+  };
+  const onKeydown = (event) => {
+    if (event.key === "Escape") close();
+  };
+
+  let includeText = false;
+  let includeEmail = true;
+  let includeInApp = true;
+  const textToggle = overlay.querySelector("#rentalNotifyText");
+  const emailToggle = overlay.querySelector("#rentalNotifyEmail");
+  const inAppToggle = overlay.querySelector("#rentalNotifyInApp");
+  const confirm = overlay.querySelector("#rentalNotifyConfirm");
+  const submit = overlay.querySelector("#rentalNotifySubmit");
+  const customAt = overlay.querySelector("#rentalNotifyCustomAt");
+
+  const renderChannels = () => {
+    [
+      [textToggle, includeText],
+      [emailToggle, includeEmail],
+      [inAppToggle, includeInApp]
+    ].forEach(([button, active]) => {
+      button?.classList.toggle("is-selected", active);
+      button?.setAttribute("aria-pressed", String(active));
+    });
+    updateRentalNotifyPreview(overlay);
+  };
+
+  textToggle?.addEventListener("click", () => { includeText = !includeText; renderChannels(); });
+  emailToggle?.addEventListener("click", () => { includeEmail = !includeEmail; renderChannels(); });
+  inAppToggle?.addEventListener("click", () => { includeInApp = !includeInApp; renderChannels(); });
+
+  confirm?.addEventListener("change", () => {
+    if (submit) submit.disabled = !confirm.checked;
+  });
+  overlay.querySelector(".communication-preview-cancel")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  document.addEventListener("keydown", onKeydown);
+
+  const picker = overlay.querySelector("#rentalNotifyMembersPicker");
+  picker?.addEventListener("click", () => openMultiMemberPicker(picker));
+  overlay.querySelector("#rentalNotifyMembers")?.addEventListener("change", () => setRentalNotifyRecipientSummary(overlay));
+  setMultiMemberPickerValue("rentalNotifyMembers", []);
+
+  overlay.querySelector("#rentalNotifySelectAll")?.addEventListener("click", () => {
+    setMultiMemberPickerValue("rentalNotifyMembers", rentalNotifyEligibleMemberIds());
+    setRentalNotifyRecipientSummary(overlay);
+  });
+  overlay.querySelector("#rentalNotifyClearMembers")?.addEventListener("click", () => {
+    setMultiMemberPickerValue("rentalNotifyMembers", []);
+    setRentalNotifyRecipientSummary(overlay);
+  });
+
+  overlay.querySelectorAll('input[name="rentalNotifyTiming"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      if (customAt) customAt.disabled = input.value !== "custom";
+    });
+  });
+  customAt?.addEventListener("input", () => updateRentalNotifyPreview(overlay));
+  overlay.querySelector("#rentalNotifyTitle")?.addEventListener("input", () => updateRentalNotifyPreview(overlay));
+  overlay.querySelector("#rentalNotifyMessage")?.addEventListener("input", () => updateRentalNotifyPreview(overlay));
+
+  overlay.querySelector(".rental-notify-preview-toggle")?.addEventListener("click", (event) => {
+    const panel = overlay.querySelector(".rental-notify-preview-panel");
+    if (!panel) return;
+    const nextHidden = !panel.hidden;
+    panel.hidden = nextHidden;
+    event.currentTarget.textContent = nextHidden ? "More Info" : "Hide Info";
+    updateRentalNotifyPreview(overlay);
+  });
+
+  submit?.addEventListener("click", async () => {
+    const title = String(overlay.querySelector("#rentalNotifyTitle")?.value || "").trim();
+    const message = String(overlay.querySelector("#rentalNotifyMessage")?.value || "").trim();
+    const memberIds = selectedMemberIdsFromInput(overlay.querySelector("#rentalNotifyMembers"));
+    const timing = selectedRentalNotifyTiming(overlay);
+
+    if (!title) {
+      setRentalNotifyResult(overlay, "Title is required.", "error");
+      return;
+    }
+    if (!message) {
+      setRentalNotifyResult(overlay, "Message is required.", "error");
+      return;
+    }
+    if (!memberIds.length) {
+      setRentalNotifyResult(overlay, "Select at least one member.", "error");
+      return;
+    }
+    if (!includeText && !includeEmail && !includeInApp) {
+      setRentalNotifyResult(overlay, "Select at least one delivery channel.", "error");
+      return;
+    }
+
+    submit.disabled = true;
+    setRentalNotifyResult(overlay, timing.isFuture ? "Scheduling..." : "Sending...");
+
+    try {
+      const response = await sendMemberMessage({
+        title,
+        message,
+        memberIds,
+        channels: {
+          text: includeText,
+          email: includeEmail,
+          inApp: includeInApp
+        },
+        sendAt: timing.sendAt,
+        scheduleLabel: timing.label,
+        source: "rental",
+        rentalRequestId: rental.id
+      });
+
+      addNotificationDispatchRecord({
+        title,
+        message,
+        includeText,
+        includeEmail,
+        includeInApp,
+        selectedCount: memberIds.length,
+        sentTextCount: response.sentTextCount || 0,
+        sentEmailCount: response.sentEmailCount || 0,
+        sentInAppCount: response.sentInAppCount || 0,
+        warnings: response.warnings || [],
+        historyRecord: response.historyRecord || null
+      });
+      try {
+        await refreshMessageHistory();
+      } catch (historyError) {
+        console.warn("Could not refresh message history.", historyError);
+      }
+
+      setRentalNotifyResult(overlay, response.scheduled
+        ? `Scheduled for ${formatShortDateTime(response.scheduledFor)}.`
+        : `Sent. Texts: ${response.sentTextCount || 0}, Emails: ${response.sentEmailCount || 0}, In-App: ${response.sentInAppCount || 0}.`,
+        "success");
+      window.setTimeout(close, 900);
+    } catch (error) {
+      setRentalNotifyResult(overlay, error.message || "Could not send message.", "error");
+      submit.disabled = false;
+    }
+  });
+
+  renderChannels();
+  setRentalNotifyRecipientSummary(overlay);
+  updateRentalNotifyPreview(overlay);
+}
+
+function rentalNotifyEligibleMemberIds() {
+  return memberPickerOptions("memberSignIn")
+    .filter((member) => !["Kiosk Account", "RESTRICTED ACCOUNT", "Account Past Due NO ACCESS ALLOWED"].includes(canonicalAccountType(member.accountType)))
+    .map((member) => member.id)
+    .filter(Boolean);
+}
+
+function rentalNotifyDefaults(rental) {
+  const eventName = rental.eventName || rental.eventType || "RORC event";
+  const dateLabel = rental.eventDate
+    ? new Date(`${rental.eventDate}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+    : "Date TBD";
+  const publicTime = rental.publicEventStartTime && rental.publicEventEndTime
+    ? `${formatRentalNotifyTime(rental.publicEventStartTime)} - ${formatRentalNotifyTime(rental.publicEventEndTime)}`
+    : rental.eventStartTime && rental.eventEndTime
+      ? `${formatRentalNotifyTime(rental.eventStartTime)} - ${formatRentalNotifyTime(rental.eventEndTime)}`
+      : "";
+  const timeSentence = publicTime ? ` from ${publicTime}` : "";
+  const message = [
+    `RORC notice: ${eventName} is scheduled for ${dateLabel}${timeSentence}.`,
+    "The gym may be unavailable during this rental. Please check the calendar before visiting."
+  ].join("\n\n");
+  const eventDateTime = rentalNotifyEventDateTime(rental);
+  const customLocal = eventDateTime ? toDatetimeLocalValue(eventDateTime.toISOString()) : toDatetimeLocalValue(new Date().toISOString());
+
+  return {
+    title: `RORC Event Notice: ${eventName}`,
+    message,
+    dateLabel,
+    customLocal
+  };
+}
+
+function formatRentalNotifyTime(value) {
+  const normalized = normalizeTimeFieldValue(value);
+  if (!normalized) return "";
+  const [hourValue, minuteValue = "00"] = normalized.split(":");
+  const hour = Number(hourValue);
+  if (!Number.isFinite(hour)) return normalized;
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}:${minuteValue.padStart(2, "0")} ${suffix}`;
+}
+
+function rentalNotifyEventDateTime(rental) {
+  const date = String(rental?.eventDate || "").slice(0, 10);
+  if (!date) return null;
+  const time = normalizeTimeFieldValue(rental?.publicEventStartTime || rental?.eventStartTime || "09:00") || "09:00";
+  const iso = facilityWallTimeToIso(date, time);
+  const value = iso ? new Date(iso) : new Date(`${date}T${time}:00`);
+  return Number.isNaN(value.getTime()) ? null : value;
+}
+
+function rentalNotifyScheduleOptions(rental) {
+  const eventDateTime = rentalNotifyEventDateTime(rental);
+  const now = new Date();
+  const options = [
+    { key: "now", label: "Send now", value: new Date().toISOString(), checked: true }
+  ];
+
+  if (eventDateTime) {
+    [
+      ["week", "Schedule 1 week before event", 7],
+      ["day", "Schedule 1 day before event", 1]
+    ].forEach(([key, label, days]) => {
+      const sendAt = new Date(eventDateTime.getTime() - (days * 24 * 60 * 60 * 1000));
+      const disabled = sendAt.getTime() <= now.getTime() + 60000;
+      options.push({
+        key,
+        label: disabled ? `${label} (past)` : `${label}: ${formatShortDateTime(sendAt.toISOString())}`,
+        value: sendAt.toISOString(),
+        disabled
+      });
+    });
+  }
+
+  options.push({
+    key: "custom",
+    label: "Custom time",
+    value: "",
+    disabled: false
+  });
+
+  return options;
+}
+
+function selectedRentalNotifyTiming(overlay) {
+  const selected = overlay.querySelector('input[name="rentalNotifyTiming"]:checked');
+  const key = selected?.value || "now";
+  if (key === "custom") {
+    const localValue = String(overlay.querySelector("#rentalNotifyCustomAt")?.value || "").trim();
+    const iso = fromDatetimeLocalValue(localValue) || new Date().toISOString();
+    return {
+      sendAt: iso,
+      isFuture: new Date(iso).getTime() > Date.now() + 60000,
+      label: "Custom time"
+    };
+  }
+  const sendAt = selected?.dataset.sendAt || new Date().toISOString();
+  return {
+    sendAt,
+    isFuture: new Date(sendAt).getTime() > Date.now() + 60000,
+    label: selected?.parentElement?.textContent?.trim() || "Send now"
+  };
+}
+
+function setRentalNotifyRecipientSummary(overlay) {
+  const summary = overlay.querySelector("#rentalNotifyRecipientSummary");
+  const selectedMembers = selectedMemberIdsFromInput(overlay.querySelector("#rentalNotifyMembers"))
+    .map((id) => findMember(id))
+    .filter(Boolean);
+
+  if (!summary) return;
+  if (!selectedMembers.length) {
+    summary.textContent = "No members selected.";
+    return;
+  }
+
+  const phones = new Set(selectedMembers.map((member) => String(member.phoneNumber || "").trim()).filter(Boolean));
+  const emails = new Set(selectedMembers.map((member) => String(member.emailAddress || "").trim().toLowerCase()).filter(Boolean));
+  summary.textContent = `${selectedMembers.length} members selected · ${phones.size} phone numbers · ${emails.size} emails`;
+}
+
+function setRentalNotifyResult(overlay, message, tone = "default") {
+  const result = overlay.querySelector("#rentalNotifyResult");
+  if (!result) return;
+  result.textContent = message;
+  result.classList.toggle("is-error", tone === "error");
+  result.classList.toggle("is-success", tone === "success");
+}
+
+function updateRentalNotifyPreview(overlay) {
+  const title = String(overlay.querySelector("#rentalNotifyTitle")?.value || "").trim() || "RORC Event Notice";
+  const message = String(overlay.querySelector("#rentalNotifyMessage")?.value || "").trim();
+  const html = `
+    <div style="font-family:Arial,sans-serif;background:#111;color:#f5f5f5;padding:28px;line-height:1.55;text-align:center;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#1b1b1b;border:1px solid #333;border-radius:14px;overflow:hidden;text-align:center;">
+        <tr><td style="padding:28px 28px 16px;border-bottom:1px solid #333;text-align:center;"><h2 style="margin:0;color:#fff;font-size:32px;line-height:1.15;text-align:center;">${escapeHtml(title)}</h2></td></tr>
+        <tr><td style="padding:20px 28px;text-align:center;"><p style="margin:0;color:#d1d5db;line-height:1.65;font-size:16px;text-align:center;">${escapeHtml(message).replaceAll("\n", "<br />")}</p></td></tr>
+      </table>
+    </div>
+  `;
+  const frame = overlay.querySelector(".communication-preview-frame");
+  if (frame) frame.srcdoc = html;
+  const plain = overlay.querySelector("#rentalNotifyPlainPreview");
+  if (plain) plain.textContent = `${title}\n\n${message}`;
 }
 
 function showRentalEditForm(id, root) {
@@ -6366,6 +6776,8 @@ function normalizeMessageHistoryRecord(row) {
   const sentTextCount = Number(row.sentTextCount ?? row.sent_text_count ?? 0) || 0;
   const sentEmailCount = Number(row.sentEmailCount ?? row.sent_email_count ?? 0) || 0;
   const sentInAppCount = Number(row.sentInAppCount ?? row.sent_in_app_count ?? 0) || 0;
+  const scheduledFor = row.scheduledFor || row.scheduled_for || channels.scheduledFor || "";
+  const isScheduled = Boolean(row.scheduled || channels.scheduled);
   const warnings = Array.isArray(row.warnings)
     ? row.warnings
     : Array.isArray(row.errorMessages)
@@ -6378,13 +6790,15 @@ function normalizeMessageHistoryRecord(row) {
     message: row.message || "",
     channelsLabel: activeChannels.join(" + ") || "Unspecified",
     recipientsLabel: `${recipientCount} ${recipientCount === 1 ? "member" : "members"}`,
-    statusLabel: `Text ${sentTextCount} · Email ${sentEmailCount} · In-App ${sentInAppCount}`,
+    statusLabel: isScheduled ? `Scheduled ${formatShortDateTime(scheduledFor)}` : `Text ${sentTextCount} · Email ${sentEmailCount} · In-App ${sentInAppCount}`,
     warningsLabel: warnings.length ? `Warnings: ${warnings.join("; ")}` : "",
     createdAt: row.createdAt || row.created_at || new Date().toISOString(),
+    scheduledFor,
     rawChannels: {
       text: Boolean(channels.text),
       email: Boolean(channels.email),
-      inApp: Boolean(channels.inApp)
+      inApp: Boolean(channels.inApp),
+      scheduled: isScheduled
     },
     warnings
   };

@@ -56,6 +56,79 @@ module.exports = async (req, res) => {
       return res.status(404).json({ success: false, error: "No members found for selection." });
     }
 
+    const scheduledFor = futureSendAtIso(requestedSendAt);
+    if (scheduledFor) {
+      await createScheduledMemberMessage({
+        createdByMemberId: manager.id,
+        rentalRequestId: String(req.body?.rentalRequestId || "").trim() || null,
+        title,
+        message,
+        memberIds: members.map((member) => member.id),
+        channels: {
+          text: sendText,
+          email: sendEmail,
+          inApp: sendInApp
+        },
+        scheduledFor,
+        scheduleLabel: String(req.body?.scheduleLabel || "").trim() || null,
+        dispatchId
+      });
+
+      await createMessageHistoryRows({
+        memberIds: [manager.id],
+        title,
+        message,
+        createdByMemberId: manager.id,
+        channels: {
+          text: sendText,
+          email: sendEmail,
+          inApp: sendInApp,
+          dispatchHistory: true,
+          dispatchId,
+          recipientCount: members.length,
+          sentTextCount: 0,
+          sentEmailCount: 0,
+          sentInAppCount: 0,
+          requestedSendAt,
+          scheduled: true,
+          scheduledFor,
+          scheduleLabel: String(req.body?.scheduleLabel || "").trim() || "",
+          rentalRequestId: String(req.body?.rentalRequestId || "").trim() || "",
+          source: String(req.body?.source || "").trim() || "",
+          errorMessages: []
+        }
+      });
+
+      return res.status(200).json({
+        success: true,
+        scheduled: true,
+        scheduledFor,
+        sentTextCount: 0,
+        sentEmailCount: 0,
+        sentInAppCount: 0,
+        historyRecord: {
+          id: dispatchId,
+          title,
+          message,
+          channels: {
+            text: sendText,
+            email: sendEmail,
+            inApp: sendInApp,
+            scheduled: true,
+            scheduledFor,
+            scheduleLabel: String(req.body?.scheduleLabel || "").trim() || ""
+          },
+          recipientCount: members.length,
+          sentTextCount: 0,
+          sentEmailCount: 0,
+          sentInAppCount: 0,
+          warnings: [],
+          createdAt: new Date().toISOString()
+        },
+        warnings: []
+      });
+    }
+
     const uniquePhones = [...new Set(members.map((m) => normalizePhone(m.phone_number)).filter(Boolean))];
     const uniqueEmails = [...new Set(members.map((m) => String(m.email_address || "").trim().toLowerCase()).filter(Boolean))];
 
@@ -185,6 +258,14 @@ async function getAccountMemberByAuthUserId(authUserId) {
   return rows[0] || null;
 }
 
+function futureSendAtIso(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.getTime() > Date.now() + 60000 ? parsed.toISOString() : "";
+}
+
 async function loadMembers(memberIds) {
   const idList = memberIds
     .map((id) => id.replace(/[^a-zA-Z0-9-_]/g, ""))
@@ -193,6 +274,43 @@ async function loadMembers(memberIds) {
   if (!idList) return [];
 
   return supabaseRest(`account_members?select=id,member_name,phone_number,email_address&id=in.(${idList})`);
+}
+
+async function createScheduledMemberMessage({
+  createdByMemberId,
+  rentalRequestId,
+  title,
+  message,
+  memberIds,
+  channels,
+  scheduledFor,
+  scheduleLabel,
+  dispatchId
+}) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/scheduled_member_messages`, {
+    method: "POST",
+    headers: {
+      apikey: SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      created_by_member_id: createdByMemberId || null,
+      rental_request_id: rentalRequestId || null,
+      title,
+      message,
+      member_ids: memberIds || [],
+      channels: channels || {},
+      scheduled_for: scheduledFor,
+      schedule_label: scheduleLabel || null,
+      dispatch_id: dispatchId
+    })
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Could not schedule message: ${response.status} ${text}`);
+  }
 }
 
 async function sendTwilioText(to, body) {

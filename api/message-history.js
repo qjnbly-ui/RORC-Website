@@ -60,6 +60,7 @@ function aggregateMessageHistory(rows) {
       ].join("|");
 
     if (!groups.has(key)) {
+      const isScheduledPlaceholder = Boolean(channels.scheduled);
       groups.set(key, {
         id: key,
         title: row.title || "Message",
@@ -67,8 +68,14 @@ function aggregateMessageHistory(rows) {
         channels: {
           text: Boolean(channels.text),
           email: Boolean(channels.email),
-          inApp: Boolean(channels.inApp || channels.browser)
+          inApp: Boolean(channels.inApp || channels.browser),
+          scheduled: isScheduledPlaceholder,
+          scheduledFor: channels.scheduledFor || "",
+          scheduleLabel: channels.scheduleLabel || "",
+          rentalRequestId: channels.rentalRequestId || "",
+          source: channels.source || ""
         },
+        hasDeliveryRecord: isHistoryRecord && !isScheduledPlaceholder,
         recipientMemberIds: new Set(),
         recipientCount: Number(channels.recipientCount || 0) || 0,
         sentTextCount: Number(channels.sentTextCount || 0) || 0,
@@ -85,6 +92,19 @@ function aggregateMessageHistory(rows) {
     }
     if (new Date(row.created_at) > new Date(group.createdAt)) {
       group.createdAt = row.created_at;
+    }
+    if (isHistoryRecord && !channels.scheduled) {
+      group.hasDeliveryRecord = true;
+      group.channels.scheduled = false;
+      group.recipientCount = Number(channels.recipientCount || group.recipientCount || 0) || 0;
+      group.sentTextCount = Number(channels.sentTextCount || group.sentTextCount || 0) || 0;
+      group.sentEmailCount = Number(channels.sentEmailCount || group.sentEmailCount || 0) || 0;
+      group.sentInAppCount = Number(channels.sentInAppCount || group.sentInAppCount || 0) || 0;
+      group.warnings = Array.isArray(channels.errorMessages) ? channels.errorMessages : group.warnings;
+    } else if (channels.scheduled && !group.hasDeliveryRecord) {
+      group.channels.scheduled = true;
+      group.channels.scheduledFor = channels.scheduledFor || group.channels.scheduledFor || "";
+      group.channels.scheduleLabel = channels.scheduleLabel || group.channels.scheduleLabel || "";
     }
   });
 

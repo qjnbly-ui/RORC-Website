@@ -27,7 +27,7 @@ module.exports = async (req, res) => {
       );
       const visibleRows = (rows || []).filter((row) => {
         const channels = row.channels || {};
-        return !channels.dispatchHistory || Boolean(channels.inApp || channels.browser);
+        return !channels.dispatchHistory || (Boolean(channels.inApp || channels.browser) && !channels.scheduled);
       });
       return res.status(200).json({ success: true, notifications: visibleRows });
     }
