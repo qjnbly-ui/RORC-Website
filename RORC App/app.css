@@ -4701,6 +4701,15 @@ textarea:focus-visible,
   flex-wrap: wrap;
 }
 
+.cal-checkbox-line {
+  align-items: center;
+  color: #c2cad6;
+  display: flex;
+  gap: 8px;
+  font-weight: 700;
+  margin: 0 0 12px;
+}
+
 .cal-rental-info {
   margin-top: 16px;
   background: rgba(239, 59, 54, 0.08);

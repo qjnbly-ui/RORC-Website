@@ -32,13 +32,22 @@ module.exports = async (req, res) => {
       }
 
       if (isAdmin) {
-        path = "events?select=*&order=start_at.asc&limit=500";
+        path = "events?select=*,rental_requests(event_date,event_start_time,event_end_time,rental_type)&order=start_at.asc&limit=500";
       } else {
         path = "events?select=*&is_public=eq.true&status=eq.confirmed&order=start_at.asc&limit=200";
       }
 
-      const rows = await supabaseRest(path);
-      return res.status(200).json({ success: true, events: rows.map(mapEvent) });
+      const [rows, calendarSettings, facilityBlocks] = await Promise.all([
+        supabaseRest(path),
+        loadCalendarSettings(),
+        isAdmin ? Promise.resolve([]) : loadFacilityBlocks()
+      ]);
+      return res.status(200).json({
+        success: true,
+        events: rows.map(mapEvent),
+        facilityHours: calendarSettings,
+        facilityBlocks
+      });
     } catch (err) {
       console.error("events GET error:", err);
       return res.status(500).json({ success: false, error: "Could not load events" });
@@ -196,6 +205,9 @@ function mapEvent(row) {
   const createdBy = String(row.created_by || "");
   const seriesMatch = createdBy.match(/^series:([a-zA-Z0-9_-]+)/);
   const detailOnly = /(^|[:;|])detail(?:$|[:;|])/.test(createdBy);
+  const rentalTiming = row.rental_requests || null;
+  const rentalAccessStartAt = buildLocalDateTime(rentalTiming?.event_date, rentalTiming?.event_start_time);
+  const rentalAccessEndAt = buildLocalDateTime(rentalTiming?.event_date, rentalTiming?.event_end_time);
   return {
     id:               row.id,
     title:            row.title,
@@ -207,6 +219,8 @@ function mapEvent(row) {
     isPublic:         row.is_public,
     status:           row.status,
     rentalRequestId:  row.rental_request_id,
+    rentalAccessStartAt,
+    rentalAccessEndAt,
     createdBy:        row.created_by,
     detailOnly,
     isRecurring:      Boolean(seriesMatch),
@@ -308,4 +322,60 @@ async function supabaseRest(path) {
     throw new Error(`REST failed: ${response.status} ${text}`);
   }
   return response.json();
+}
+
+async function loadCalendarSettings() {
+  try {
+    const rows = await supabaseRest("automation_settings?select=config&id=eq.calendar_settings&limit=1");
+    const config = rows[0]?.config || {};
+    return {
+      facility_start: normalizeHourValue(config.facility_start || config.start, "07:00"),
+      facility_end: normalizeHourValue(config.facility_end || config.end, "21:00"),
+      overrides: normalizeFacilityHourOverrides(config.overrides || {})
+    };
+  } catch {
+    return { facility_start: "07:00", facility_end: "21:00", overrides: {} };
+  }
+}
+
+async function loadFacilityBlocks() {
+  const rows = await supabaseRest(
+    `events?select=start_at,end_at,event_type,all_day,rental_requests(event_date,event_start_time,event_end_time,rental_type)&event_type=in.(${RENTAL_BLOCKING_TYPES.join(",")})&status=eq.confirmed&order=start_at.asc&limit=500`
+  );
+  return (rows || []).map((row) => {
+    const rentalTiming = row.rental_requests || null;
+    return {
+      startAt: buildLocalDateTime(rentalTiming?.event_date, rentalTiming?.event_start_time) || row.start_at,
+      endAt: buildLocalDateTime(rentalTiming?.event_date, rentalTiming?.event_end_time) || row.end_at,
+      eventType: normalizeEventType(row.event_type),
+      allDay: Boolean(row.all_day && !rentalTiming)
+    };
+  });
+}
+
+function buildLocalDateTime(dateValue, timeValue) {
+  const date = String(dateValue || "").slice(0, 10);
+  const time = normalizeHourValue(timeValue, "");
+  return date && time ? `${date}T${time}:00` : "";
+}
+
+function normalizeHourValue(raw, fallback) {
+  const match = String(raw || "").match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  return match ? `${match[1]}:${match[2]}` : fallback;
+}
+
+function normalizeFacilityHourOverrides(raw) {
+  const out = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  Object.entries(raw).forEach(([dateKey, value]) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || !value || typeof value !== "object") return;
+    if (value.closed === true) {
+      out[dateKey] = { closed: true };
+      return;
+    }
+    const start = normalizeHourValue(value.start || value.facility_start, "");
+    const end = normalizeHourValue(value.end || value.facility_end, "");
+    if (start && end) out[dateKey] = { start, end };
+  });
+  return out;
 }

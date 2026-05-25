@@ -1521,11 +1521,18 @@
       maintenance: "#f97316",
       rorc: "#6b7bd1"
     };
+    const HOME_CAL_DEFAULT_HOURS = {
+      start: "07:00",
+      end: "21:00"
+    };
     let homeCalYear = new Date().getFullYear();
     let homeCalMonth = new Date().getMonth();
     let homeCalEvents = [];
     let homeCalEventsByDate = {};
     let homeCalSelectedDate = "";
+    let homeCalFacilityHours = { ...HOME_CAL_DEFAULT_HOURS };
+    let homeCalFacilityHourOverrides = {};
+    let homeCalFacilityBlocks = [];
 
     function homeCalNormalizeType(value) {
       const raw = String(value || "").trim();
@@ -1535,7 +1542,11 @@
     }
 
     function homeCalFacilityDateKey(value, allDay = false) {
+      const raw = String(value || "");
       if (allDay) return String(value || "").slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)) {
+        return raw.slice(0, 10);
+      }
       const date = new Date(value);
       if (Number.isNaN(date.getTime())) return "";
       const parts = new Intl.DateTimeFormat("en-US", {
@@ -1558,6 +1569,129 @@
         hour: "numeric",
         minute: "2-digit"
       }).toLowerCase().replace(":00", "");
+    }
+
+    function homeCalNormalizeHour(raw, fallback) {
+      const match = String(raw || "").match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+      return match ? `${match[1]}:${match[2]}` : fallback;
+    }
+
+    function homeCalNormalizeFacilityHours(raw) {
+      return {
+        start: homeCalNormalizeHour(raw?.facility_start || raw?.start, HOME_CAL_DEFAULT_HOURS.start),
+        end: homeCalNormalizeHour(raw?.facility_end || raw?.end, HOME_CAL_DEFAULT_HOURS.end)
+      };
+    }
+
+    function homeCalNormalizeHourOverrides(raw) {
+      const out = {};
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+      Object.entries(raw).forEach(([dateKey, value]) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || !value || typeof value !== "object") return;
+        if (value.closed === true) {
+          out[dateKey] = { closed: true };
+          return;
+        }
+        const start = homeCalNormalizeHour(value.start || value.facility_start, "");
+        const end = homeCalNormalizeHour(value.end || value.facility_end, "");
+        if (start && end) out[dateKey] = { start, end };
+      });
+      return out;
+    }
+
+    function homeCalMinutesFromTime(timeValue) {
+      const match = String(timeValue || "").match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+      return match ? (Number(match[1]) * 60) + Number(match[2]) : null;
+    }
+
+    function homeCalTimeFromMinutes(totalMinutes) {
+      const safe = Math.max(0, Math.min(1439, Number(totalMinutes) || 0));
+      const hour = Math.floor(safe / 60);
+      const minute = safe % 60;
+      return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+    }
+
+    function homeCalFormatHourLabel(timeValue) {
+      const [hourStr, minuteStr] = String(timeValue || "").split(":");
+      const hour = Number(hourStr);
+      const minute = Number(minuteStr);
+      if (!Number.isFinite(hour) || !Number.isFinite(minute)) return String(timeValue || "");
+      const period = hour >= 12 ? "PM" : "AM";
+      const h12 = hour % 12 || 12;
+      return `${h12}:${String(minute).padStart(2, "0")} ${period}`;
+    }
+
+    function homeCalFacilityHoursForDate(dateKey) {
+      const override = homeCalFacilityHourOverrides[dateKey];
+      if (override?.closed) return { closed: true };
+      if (override?.start && override?.end) return override;
+      return homeCalFacilityHours;
+    }
+
+    function homeCalBlockIntervalForDate(block, dateKey) {
+      if (homeCalNormalizeType(block.eventType) !== "rental" && homeCalNormalizeType(block.eventType) !== "maintenance") return null;
+      if (homeCalFacilityDateKey(block.startAt, block.allDay) !== dateKey) return null;
+      if (block.allDay) return { start: 0, end: 1440 };
+      const start = homeCalMinutesFromTime(homeCalTimeInputValue(block.startAt));
+      const end = homeCalMinutesFromTime(homeCalTimeInputValue(block.endAt));
+      if (start === null || end === null || end <= start) return null;
+      return { start, end };
+    }
+
+    function homeCalTimeInputValue(value) {
+      const raw = String(value || "");
+      if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)) {
+        return raw.slice(11, 16);
+      }
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return "";
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: HOME_CAL_TZ,
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
+      }).formatToParts(date).reduce((acc, part) => {
+        if (part.type !== "literal") acc[part.type] = part.value;
+        return acc;
+      }, {});
+      return `${parts.hour === "24" ? "00" : parts.hour}:${parts.minute}`;
+    }
+
+    function homeCalFacilityOpenWindows(dateKey) {
+      const base = homeCalFacilityHoursForDate(dateKey);
+      if (base.closed) return [];
+      const start = homeCalMinutesFromTime(base.start);
+      const end = homeCalMinutesFromTime(base.end);
+      if (start === null || end === null || end <= start) return [];
+
+      let windows = [{ start, end }];
+      homeCalFacilityBlocks
+        .map((block) => homeCalBlockIntervalForDate(block, dateKey))
+        .filter(Boolean)
+        .sort((a, b) => a.start - b.start)
+        .forEach((block) => {
+          const next = [];
+          windows.forEach((window) => {
+            const blockStart = Math.max(block.start, window.start);
+            const blockEnd = Math.min(block.end, window.end);
+            if (blockEnd <= window.start || blockStart >= window.end) {
+              next.push(window);
+              return;
+            }
+            if (blockStart > window.start) next.push({ start: window.start, end: blockStart });
+            if (blockEnd < window.end) next.push({ start: blockEnd, end: window.end });
+          });
+          windows = next;
+        });
+      return windows;
+    }
+
+    function homeCalFacilityHoursDisplay(dateKey) {
+      const windows = homeCalFacilityOpenWindows(dateKey);
+      if (!windows.length) return "Closed";
+      return windows.map((window) => {
+        return `${homeCalFormatHourLabel(homeCalTimeFromMinutes(window.start))} - ${homeCalFormatHourLabel(homeCalTimeFromMinutes(window.end))}`;
+      }).join(", ");
     }
 
     function homeCalGetMonthEvents(year, month) {
@@ -1605,7 +1739,7 @@
       detail.hidden = false;
       detail.innerHTML = `
         <h4>${homeCalDateLabel(dateKey)}</h4>
-        <div class="home-cal-hours"><span>Facility Hours</span><span>7:00 AM - 9:00 PM</span></div>
+        <div class="home-cal-hours"><span>Facility Hours</span><span>${homeCalFacilityHoursDisplay(dateKey)}</span></div>
         ${list}
       `;
     }
@@ -1688,9 +1822,15 @@
         const body = await response.json();
         if (!response.ok || body.success === false) throw new Error(body.error || "Could not load events");
         homeCalEvents = (body.events || []).filter((ev) => String(ev.status || "confirmed") === "confirmed");
+        homeCalFacilityHours = homeCalNormalizeFacilityHours(body.facilityHours || {});
+        homeCalFacilityHourOverrides = homeCalNormalizeHourOverrides(body.facilityHours?.overrides || {});
+        homeCalFacilityBlocks = Array.isArray(body.facilityBlocks) ? body.facilityBlocks : [];
       } catch (error) {
         console.warn("Homepage calendar failed:", error);
         homeCalEvents = [];
+        homeCalFacilityHours = { ...HOME_CAL_DEFAULT_HOURS };
+        homeCalFacilityHourOverrides = {};
+        homeCalFacilityBlocks = [];
       }
       homeCalRender();
     }

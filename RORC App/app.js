@@ -4604,6 +4604,7 @@ const DEFAULT_FACILITY_HOURS = {
   end: "21:00"
 };
 let facilityHours = { ...DEFAULT_FACILITY_HOURS };
+let facilityHourOverrides = {};
 
 function normalizeHourValue(raw, fallback) {
   const match = String(raw || "").match(/^([01]\d|2[0-3]):([0-5]\d)$/);
@@ -4614,6 +4615,30 @@ function normalizeFacilityHours(settings) {
   return {
     start: normalizeHourValue(settings?.start ?? settings?.facility_start, DEFAULT_FACILITY_HOURS.start),
     end: normalizeHourValue(settings?.end ?? settings?.facility_end, DEFAULT_FACILITY_HOURS.end)
+  };
+}
+
+function normalizeFacilityHourOverrides(raw) {
+  const out = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  Object.entries(raw).forEach(([dateKey, value]) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || !value || typeof value !== "object") return;
+    if (value.closed === true) {
+      out[dateKey] = { closed: true };
+      return;
+    }
+    const start = normalizeHourValue(value.start ?? value.facility_start, "");
+    const end = normalizeHourValue(value.end ?? value.facility_end, "");
+    if (start && end) out[dateKey] = { start, end };
+  });
+  return out;
+}
+
+function calendarSettingsPayload() {
+  return {
+    facility_start: facilityHours.start,
+    facility_end: facilityHours.end,
+    overrides: facilityHourOverrides
   };
 }
 
@@ -4628,24 +4653,113 @@ function formatHourLabel(timeValue) {
   return `${h12}:${mm} ${period}`;
 }
 
+function minutesFromTimeValue(timeValue) {
+  const match = String(timeValue || "").match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  if (!match) return null;
+  return (Number(match[1]) * 60) + Number(match[2]);
+}
+
+function timeValueFromMinutes(totalMinutes) {
+  const safe = Math.max(0, Math.min(1439, Number(totalMinutes) || 0));
+  const hour = Math.floor(safe / 60);
+  const minute = safe % 60;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function facilityHoursForDate(dateIso) {
+  const override = facilityHourOverrides[dateIso];
+  if (override?.closed) return { closed: true };
+  if (override?.start && override?.end) return normalizeFacilityHours(override);
+  return { ...facilityHours };
+}
+
+function blockingEventIntervalForDate(ev, dateIso) {
+  if (!["rental", "maintenance"].includes(normalizeEventTypeForUi(ev.eventType))) return null;
+  if (String(ev.status || "confirmed") !== "confirmed") return null;
+  const blockStartAt = ev.eventType === "rental" && ev.rentalAccessStartAt ? ev.rentalAccessStartAt : ev.startAt;
+  const blockEndAt = ev.eventType === "rental" && ev.rentalAccessEndAt ? ev.rentalAccessEndAt : ev.endAt;
+  if (calendarTimestampDateKey(blockStartAt, ev.allDay) !== dateIso) return null;
+  if (ev.allDay) return { start: 0, end: 1440 };
+  const start = minutesFromTimeValue(facilityTimeInputValue(blockStartAt));
+  const end = minutesFromTimeValue(facilityTimeInputValue(blockEndAt));
+  if (start === null || end === null || end <= start) return null;
+  return { start, end };
+}
+
+function facilityOpenWindowsForDate(dateIso, events = calendarEvents) {
+  const base = facilityHoursForDate(dateIso);
+  if (base.closed) return [];
+  const start = minutesFromTimeValue(base.start);
+  const end = minutesFromTimeValue(base.end);
+  if (start === null || end === null || end <= start) return [];
+
+  let windows = [{ start, end }];
+  (events || [])
+    .map((ev) => blockingEventIntervalForDate(ev, dateIso))
+    .filter(Boolean)
+    .sort((a, b) => a.start - b.start)
+    .forEach((block) => {
+      const next = [];
+      windows.forEach((window) => {
+        const blockStart = Math.max(block.start, window.start);
+        const blockEnd = Math.min(block.end, window.end);
+        if (blockEnd <= window.start || blockStart >= window.end) {
+          next.push(window);
+          return;
+        }
+        if (blockStart > window.start) next.push({ start: window.start, end: blockStart });
+        if (blockEnd < window.end) next.push({ start: blockEnd, end: window.end });
+      });
+      windows = next;
+    });
+
+  return windows;
+}
+
+function formatFacilityWindow(window) {
+  return `${formatHourLabel(timeValueFromMinutes(window.start))} - ${formatHourLabel(timeValueFromMinutes(window.end))}`;
+}
+
+function facilityHoursDisplayForDate(dateIso) {
+  const windows = facilityOpenWindowsForDate(dateIso);
+  return windows.length ? windows.map(formatFacilityWindow).join(", ") : "Closed";
+}
+
 async function loadFacilityHoursFromServer() {
   try {
     const settings = await loadAutomationSettings();
-    return normalizeFacilityHours(settings?.calendar_settings || {});
+    const calendarSettings = settings?.calendar_settings || {};
+    return {
+      hours: normalizeFacilityHours(calendarSettings),
+      overrides: normalizeFacilityHourOverrides(calendarSettings.overrides || {})
+    };
   } catch {
-    return { ...DEFAULT_FACILITY_HOURS };
+    return { hours: { ...DEFAULT_FACILITY_HOURS }, overrides: {} };
   }
 }
 
 async function saveFacilityHoursToServer(hours) {
   const normalized = normalizeFacilityHours(hours);
-  await saveAutomationSettings({
-    calendar_settings: {
-      facility_start: normalized.start,
-      facility_end: normalized.end
-    }
-  });
   facilityHours = normalized;
+  await saveAutomationSettings({
+    calendar_settings: calendarSettingsPayload()
+  });
+}
+
+async function saveFacilityHourOverrideToServer(dateIso, override) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateIso || ""))) {
+    throw new Error("Valid date is required.");
+  }
+  if (override) {
+    facilityHourOverrides = { ...facilityHourOverrides, [dateIso]: override };
+  } else {
+    const next = { ...facilityHourOverrides };
+    delete next[dateIso];
+    facilityHourOverrides = next;
+  }
+  await saveAutomationSettings({
+    calendar_settings: calendarSettingsPayload()
+  });
 }
 
 async function renderCalendarPage() {
@@ -4665,7 +4779,8 @@ async function renderCalendarPage() {
     ]);
     const body  = await res.json();
     if (!res.ok || !body.success) throw new Error(body.error || "Could not load events");
-    facilityHours = normalizeFacilityHours(sharedHours);
+    facilityHours = normalizeFacilityHours(sharedHours.hours);
+    facilityHourOverrides = normalizeFacilityHourOverrides(sharedHours.overrides);
     calendarEvents = body.events || [];
     renderCalendarView(root);
     if (pendingCalendarRentalCreate) {
@@ -4759,8 +4874,12 @@ function renderCalendarView(root) {
 
     <div id="calHoursModal" class="cal-modal" hidden>
       <div class="cal-modal-inner">
-        <h3 class="cal-modal-heading">Facility Hours</h3>
+        <h3 id="calHoursTitle" class="cal-modal-heading">Facility Hours</h3>
         <div id="calHoursError" class="feedback-error" hidden></div>
+        <label class="cal-checkbox-line">
+          <input id="calHoursClosed" type="checkbox" />
+          Closed this day
+        </label>
         <div class="cal-field-row">
           <label class="cal-field-label">Start
             <input id="calHoursStart" class="rorc-input" type="time" />
@@ -4770,6 +4889,7 @@ function renderCalendarView(root) {
           </label>
         </div>
         <div class="cal-modal-actions">
+          <button class="app-admin-btn app-admin-btn-secondary" id="calHoursDefault" type="button">Use Default</button>
           <button class="app-admin-btn app-admin-btn-secondary" id="calHoursCancel">Cancel</button>
           <button class="app-admin-btn app-admin-btn-primary" id="calHoursSave">Save Hours</button>
         </div>
@@ -4990,6 +5110,12 @@ function bindCalendarEvents(root) {
   root.querySelector("#calHoursSave").addEventListener("click", () => {
     saveFacilityHoursFromModal(root);
   });
+  root.querySelector("#calHoursDefault").addEventListener("click", () => {
+    saveFacilityHoursDefaultFromModal(root);
+  });
+  root.querySelector("#calHoursClosed").addEventListener("change", () => {
+    syncFacilityHoursModalState(root);
+  });
   root.querySelector("#calEvType").addEventListener("change", () => {
     syncCalendarRentalDetailsVisibility(root);
     syncRecurringVisibility(root);
@@ -5030,6 +5156,7 @@ function showCalDayPanel(root, dateIso) {
   const panel  = root.querySelector("#calDayPanel");
   const dayEvs = calendarEvents.filter((ev) => calendarTimestampDateKey(ev.startAt, ev.allDay) === dateIso);
   const label  = new Date(dateIso + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  const hasHourOverride = Boolean(facilityHourOverrides[dateIso]);
 
   const evHtml = dayEvs.length
     ? dayEvs.map((ev) => `
@@ -5055,7 +5182,7 @@ function showCalDayPanel(root, dateIso) {
     </div>
     <div class="cal-hours-strip">
       <span class="cal-hours-label">Facility hours</span>
-      <span class="cal-hours-value">${escapeHtml(formatHourLabel(facilityHours.start))} – ${escapeHtml(formatHourLabel(facilityHours.end))}</span>
+      <span class="cal-hours-value">${escapeHtml(facilityHoursDisplayForDate(dateIso))}${hasHourOverride ? " (custom)" : ""}</span>
       <button class="cal-hours-edit-btn" type="button">Edit</button>
     </div>
     ${evHtml}
@@ -5065,7 +5192,7 @@ function showCalDayPanel(root, dateIso) {
     openCalendarModal(root, null, e.currentTarget.dataset.date);
   });
   panel.querySelector(".cal-hours-edit-btn")?.addEventListener("click", () => {
-    openFacilityHoursModal(root);
+    openFacilityHoursModal(root, dateIso);
   });
 
   panel.querySelectorAll(".cal-day-edit-btn").forEach((btn) => {
@@ -5085,28 +5212,71 @@ function showCalDayPanel(root, dateIso) {
   });
 }
 
-function openFacilityHoursModal(root) {
+function syncFacilityHoursModalState(root) {
+  const closed = Boolean(root.querySelector("#calHoursClosed")?.checked);
+  const startInput = root.querySelector("#calHoursStart");
+  const endInput = root.querySelector("#calHoursEnd");
+  if (startInput) startInput.disabled = closed;
+  if (endInput) endInput.disabled = closed;
+}
+
+function openFacilityHoursModal(root, dateIso = "") {
   const modal = root.querySelector("#calHoursModal");
   const errEl = root.querySelector("#calHoursError");
   if (!modal) return;
   if (errEl) errEl.hidden = true;
-  root.querySelector("#calHoursStart").value = facilityHours.start;
-  root.querySelector("#calHoursEnd").value = facilityHours.end;
+  const title = root.querySelector("#calHoursTitle");
+  const dateLabel = dateIso
+    ? new Date(`${dateIso}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    : "";
+  modal.dataset.date = dateIso;
+  if (title) title.textContent = dateIso ? `Facility Hours - ${dateLabel}` : "Facility Hours";
+  const hours = facilityHoursForDate(dateIso);
+  root.querySelector("#calHoursClosed").checked = Boolean(hours.closed);
+  root.querySelector("#calHoursStart").value = hours.closed ? facilityHours.start : hours.start;
+  root.querySelector("#calHoursEnd").value = hours.closed ? facilityHours.end : hours.end;
+  root.querySelector("#calHoursDefault").hidden = !dateIso || !facilityHourOverrides[dateIso];
+  syncFacilityHoursModalState(root);
   modal.hidden = false;
 }
 
 async function saveFacilityHoursFromModal(root) {
+  const modal = root.querySelector("#calHoursModal");
   const errEl = root.querySelector("#calHoursError");
   if (errEl) errEl.hidden = true;
   const start = root.querySelector("#calHoursStart")?.value || DEFAULT_FACILITY_HOURS.start;
   const end = root.querySelector("#calHoursEnd")?.value || DEFAULT_FACILITY_HOURS.end;
+  const dateIso = modal?.dataset?.date || "";
+  const closed = Boolean(root.querySelector("#calHoursClosed")?.checked);
   try {
-    await saveFacilityHoursToServer({ start, end });
-    root.querySelector("#calHoursModal").hidden = true;
-    const selectedDate = root.querySelector("#calDayPanel .cal-day-add-btn")?.getAttribute("data-date");
+    if (!closed && (minutesFromTimeValue(start) === null || minutesFromTimeValue(end) === null || minutesFromTimeValue(end) <= minutesFromTimeValue(start))) {
+      throw new Error("End time must be after start time.");
+    }
+    if (dateIso) {
+      await saveFacilityHourOverrideToServer(dateIso, closed ? { closed: true } : { start, end });
+    } else {
+      await saveFacilityHoursToServer({ start, end });
+    }
+    modal.hidden = true;
+    const selectedDate = dateIso || root.querySelector("#calDayPanel .cal-day-add-btn")?.getAttribute("data-date");
     if (selectedDate) showCalDayPanel(root, selectedDate);
   } catch (error) {
     showCalError(errEl, error.message || "Could not save facility hours.");
+  }
+}
+
+async function saveFacilityHoursDefaultFromModal(root) {
+  const modal = root.querySelector("#calHoursModal");
+  const errEl = root.querySelector("#calHoursError");
+  const dateIso = modal?.dataset?.date || "";
+  if (!dateIso) return;
+  if (errEl) errEl.hidden = true;
+  try {
+    await saveFacilityHourOverrideToServer(dateIso, null);
+    modal.hidden = true;
+    showCalDayPanel(root, dateIso);
+  } catch (error) {
+    showCalError(errEl, error.message || "Could not reset facility hours.");
   }
 }
 
