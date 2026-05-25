@@ -4160,10 +4160,17 @@ function openRentalNotifyDialog(rentalId) {
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) close();
   });
+  overlay.querySelector(".rental-notify-dialog")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
   document.addEventListener("keydown", onKeydown);
 
   const picker = overlay.querySelector("#rentalNotifyMembersPicker");
-  picker?.addEventListener("click", () => openMultiMemberPicker(picker));
+  picker?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openMultiMemberPicker(picker);
+  });
   overlay.querySelector("#rentalNotifyMembers")?.addEventListener("change", () => setRentalNotifyRecipientSummary(overlay));
   setMultiMemberPickerValue("rentalNotifyMembers", []);
 
@@ -5850,9 +5857,8 @@ function syncRecurringVisibility(root) {
   const endsMode = root.querySelector("input[name='calRecurringEndsMode']:checked")?.value || "never";
   const endDateInput = root.querySelector("#calRecurringEndDate");
   const countInput = root.querySelector("#calRecurringCount");
-  const isRental = normalizeEventTypeForUi(root.querySelector("#calEvType")?.value) === "rental";
   const isEditing = Boolean(modal?.dataset?.evId);
-  const allowed = !isRental && !isEditing;
+  const allowed = !isEditing;
   recurringToggle.disabled = !allowed;
   if (!allowed) recurringToggle.checked = false;
   recurringFields.hidden = !(allowed && recurringToggle.checked);
@@ -6325,7 +6331,8 @@ async function saveCalendarEvent(root) {
   const isPublic = root.querySelector("#calEvPublic").checked;
   const detailOnly = root.querySelector("#calEvDetailOnly").checked;
   const desc    = root.querySelector("#calEvDesc").value.trim();
-  const recurringEnabled = root.querySelector("#calEvRecurring").checked && !evId && normalizeEventTypeForUi(type) !== "rental";
+  const isRentalEvent = normalizeEventTypeForUi(type) === "rental";
+  const recurringEnabled = root.querySelector("#calEvRecurring").checked && !evId;
   const recurringEvery = Math.max(1, Number(root.querySelector("#calRecurringEvery")?.value || 1) || 1);
   const recurringUnit = root.querySelector("#calRecurringUnit")?.value || "week";
   const recurringCount = Math.min(240, Math.max(1, Number(root.querySelector("#calRecurringCount")?.value || 12) || 12));
@@ -6373,7 +6380,7 @@ async function saveCalendarEvent(root) {
     const basePayload = { title, event_type: type, start_at: startAt, end_at: endAt, all_day: allDay, is_public: isPublic, description: desc || null, created_by: createdBy };
     const payload = evId ? { ...basePayload, id: evId } : { ...basePayload };
 
-    if (type === "rental") {
+    if (isRentalEvent && !recurringEnabled) {
       const existingRentalId = modal.dataset.rentalRequestId || "";
       const rentalDefaults = {
         title,
@@ -6432,12 +6439,48 @@ async function saveCalendarEvent(root) {
           const itemEnd = allDay
             ? facilityWallTimeToIso(dateKey, "23:59")
             : facilityWallTimeToIso(dateKey, end || "23:59");
+          const itemPayload = { ...payload, start_at: itemStart, end_at: itemEnd, created_by: seriesCreatedBy };
+          if (isRentalEvent) {
+            const rentalPayload = collectCalendarRentalPayload(root, {
+              title,
+              date: dateKey,
+              start,
+              end,
+              allDay,
+              existingRentalId: "",
+              rentalLoaded: true,
+              originalStart: "",
+              originalEnd: "",
+              originalAllDay: false,
+              rentalPublicStart: "",
+              rentalPublicEnd: "",
+              rentalAccessStart: "",
+              rentalAccessEnd: ""
+            });
+            const rrRes = await fetch("/api/rental-reviews", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+              body: JSON.stringify(rentalPayload)
+            });
+            const rrBody = await rrRes.json().catch(() => ({}));
+            if (!rrRes.ok || rrBody.success === false) {
+              return { ok: false, body: { error: rrBody.error || "Could not save rental record" } };
+            }
+            itemPayload.rental_request_id = rrBody.id;
+          }
           const res = await fetch("/api/events", {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ ...payload, start_at: itemStart, end_at: itemEnd, created_by: seriesCreatedBy })
+            body: JSON.stringify(itemPayload)
           });
           const body = await res.json().catch(() => ({}));
+          if ((!res.ok || body.success === false) && isRentalEvent && itemPayload.rental_request_id) {
+            await fetch("/api/rental-reviews", {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ id: itemPayload.rental_request_id, deleteLinkedEvent: false })
+            }).catch(() => {});
+          }
           return { ok: res.ok && body.success !== false, body };
         }));
         const failed = results.find((result) => !result.ok);
@@ -6490,7 +6533,9 @@ async function deleteCalendarEvent(root) {
   if (rentalRequestId) {
     deleteRentalToo = await openLinkedDeleteDialog({
       title: "Delete linked rental request too?",
-      message: "Do you want to delete this booking from the rentals page as well?",
+      message: seriesId
+        ? "Do you want to delete the selected linked bookings from the rentals page as well?"
+        : "Do you want to delete this booking from the rentals page as well?",
       confirmLabel: "Yes",
       cancelLabel: "No"
     });
@@ -6511,6 +6556,12 @@ async function deleteCalendarEvent(root) {
             .filter((ev) => parseSeriesToken(ev.createdBy) === seriesId && isSameOrAfterFacilityDate(ev.startAt, targetEvent.startAt))
             .map((ev) => ev.id)
           : [evId];
+    const deleteRentalIds = deleteRentalToo
+      ? [...new Set(calendarEvents
+        .filter((ev) => deleteIds.includes(ev.id))
+        .map((ev) => ev.rentalRequestId)
+        .filter(Boolean))]
+      : [];
 
     for (const id of deleteIds) {
       const res   = await fetch("/api/events", {
@@ -6522,11 +6573,11 @@ async function deleteCalendarEvent(root) {
       if (!res.ok || !body.success) throw new Error(body.error || "Delete failed");
     }
 
-    if (deleteRentalToo && rentalRequestId) {
+    for (const linkedRentalId of deleteRentalIds) {
       const rentalRes = await fetch("/api/rental-reviews", {
         method: "DELETE",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ id: rentalRequestId, deleteLinkedEvent: false })
+        body: JSON.stringify({ id: linkedRentalId, deleteLinkedEvent: false })
       });
       const rentalBody = await rentalRes.json().catch(() => ({}));
       if (!rentalRes.ok || rentalBody.success === false) {
