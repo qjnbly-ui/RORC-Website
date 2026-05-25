@@ -11,6 +11,7 @@ const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@r
 
 const VALID_EVENT_TYPES = ["Birthday Party", "Private Party", "Meeting", "Memorial Service", "Other"];
 const VALID_ALCOHOL_VALUES = ["Yes", "No"];
+const FACILITY_TIME_ZONE = "America/Los_Angeles";
 
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -38,6 +39,14 @@ module.exports = async (req, res) => {
   const record = buildRecord(body);
 
   try {
+    const conflict = await findConfirmedRentalConflict(record);
+    if (conflict) {
+      return res.status(409).json({
+        success: false,
+        error: "That rental access time overlaps another confirmed booking. Please choose a different time."
+      });
+    }
+
     const response = await fetch(`${SUPABASE_URL}/rest/v1/rental_requests`, {
       method: "POST",
       headers: {
@@ -152,6 +161,107 @@ function buildRecord(body) {
     agreed_to_no_guarantee: true,
     agreed_to_guidelines: true
   };
+}
+
+async function findConfirmedRentalConflict(record) {
+  const requestDate = String(record.event_date || "").slice(0, 10);
+  const requestStart = parseTimeMinutes(record.event_start_time);
+  const requestEnd = parseTimeMinutes(record.event_end_time);
+  if (!requestDate || requestStart === null || requestEnd === null || requestEnd <= requestStart) return null;
+
+  const rows = await supabaseRest(
+    "events?select=start_at,end_at,event_type,all_day,rental_requests(event_date,event_start_time,event_end_time,rental_type)&event_type=in.(rental,maintenance)&status=eq.confirmed&order=start_at.asc&limit=500"
+  );
+
+  return (rows || []).find((row) => {
+    const block = eventRentalBlock(row);
+    if (!block || block.date !== requestDate) return false;
+    return requestStart < block.end && requestEnd > block.start;
+  }) || null;
+}
+
+function eventRentalBlock(row) {
+  const rental = row?.rental_requests || null;
+  const rentalDate = String(rental?.event_date || "").slice(0, 10);
+  const rentalStart = parseTimeMinutes(rental?.event_start_time);
+  const rentalEnd = parseTimeMinutes(rental?.event_end_time);
+  if (rentalDate && rentalStart !== null && rentalEnd !== null && rentalEnd > rentalStart) {
+    return { date: rentalDate, start: rentalStart, end: rentalEnd };
+  }
+
+  const date = row?.all_day ? rawDateKey(row.start_at) : facilityDateKey(row?.start_at);
+  if (!date) return null;
+  if (row?.all_day) return { date, start: 0, end: 1440 };
+  const start = parseTimeMinutes(facilityTimeValue(row?.start_at));
+  const end = parseTimeMinutes(facilityTimeValue(row?.end_at));
+  if (start === null || end === null || end <= start) return null;
+  return { date, start, end };
+}
+
+function parseTimeMinutes(value) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  return (hour * 60) + minute;
+}
+
+function rawDateKey(value) {
+  const match = String(value || "").match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : "";
+}
+
+function facilityDateKey(value) {
+  const raw = String(value || "");
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)) {
+    return raw.slice(0, 10);
+  }
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: FACILITY_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date).reduce((acc, part) => {
+    if (part.type !== "literal") acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function facilityTimeValue(value) {
+  const raw = String(value || "");
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)) {
+    return raw.slice(11, 16);
+  }
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: FACILITY_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(date).reduce((acc, part) => {
+    if (part.type !== "literal") acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.hour === "24" ? "00" : parts.hour}:${parts.minute}`;
+}
+
+async function supabaseRest(path) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    headers: {
+      apikey: SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`
+    }
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`REST failed: ${response.status} ${text}`);
+  }
+  return response.json();
 }
 
 function str(value) {

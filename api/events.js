@@ -24,11 +24,11 @@ module.exports = async (req, res) => {
       let path;
 
       if (bookedOnly) {
-        // Return dates that should block new rentals — no auth required.
-        path = `events?select=start_at,end_at,event_type,all_day&event_type=in.(${RENTAL_BLOCKING_TYPES.join(",")})&status=eq.confirmed&order=start_at.asc`;
+        // Return full-day blocks plus partial time blocks for public rental availability.
+        path = `events?select=start_at,end_at,event_type,all_day,rental_requests(event_date,event_start_time,event_end_time,rental_type)&event_type=in.(${RENTAL_BLOCKING_TYPES.join(",")})&status=eq.confirmed&order=start_at.asc`;
         const rows = await supabaseRest(path);
-        const dates = [...collectBlockedDates(rows)];
-        return res.status(200).json({ success: true, dates });
+        const availability = collectRentalAvailabilityBlocks(rows);
+        return res.status(200).json({ success: true, dates: availability.dates, blocks: availability.blocks });
       }
 
       if (isAdmin) {
@@ -257,6 +257,54 @@ function collectBlockedDates(rows) {
   return blocked;
 }
 
+function collectRentalAvailabilityBlocks(rows) {
+  const blockedDates = new Set();
+  const partialBlocks = [];
+
+  (rows || []).forEach((row) => {
+    const rentalTiming = row.rental_requests || null;
+    const rentalDate = String(rentalTiming?.event_date || "").slice(0, 10);
+    const rentalStart = normalizeHourValue(rentalTiming?.event_start_time, "");
+    const rentalEnd = normalizeHourValue(rentalTiming?.event_end_time, "");
+    const isFullDayRental = normalizeEventType(row.event_type) === "rental" && rentalTiming?.rental_type !== "hourly";
+
+    if (rentalDate && isFullDayRental) {
+      blockedDates.add(rentalDate);
+      return;
+    }
+
+    if (rentalDate && rentalStart && rentalEnd) {
+      partialBlocks.push({ date: rentalDate, start: rentalStart, end: rentalEnd, eventType: normalizeEventType(row.event_type) });
+      return;
+    }
+
+    if (row.all_day) {
+      const startKey = rawDateKey(row.start_at);
+      const endKey = facilityDateKey(row.end_at);
+      if (!startKey || !endKey) return;
+      const cursor = parseDateKeyAsUtcNoon(startKey);
+      const endDay = parseDateKeyAsUtcNoon(endKey);
+      while (cursor <= endDay) {
+        blockedDates.add(cursor.toISOString().slice(0, 10));
+        cursor.setUTCDate(cursor.getUTCDate() + 1);
+      }
+      return;
+    }
+
+    const dateKey = facilityDateKey(row.start_at);
+    const start = facilityTimeValue(row.start_at);
+    const end = facilityTimeValue(row.end_at);
+    if (dateKey && start && end) {
+      partialBlocks.push({ date: dateKey, start, end, eventType: normalizeEventType(row.event_type) });
+    }
+  });
+
+  return {
+    dates: [...blockedDates].sort(),
+    blocks: partialBlocks.sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start))
+  };
+}
+
 function facilityDateKey(value) {
   const raw = String(value || "");
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)) {
@@ -279,6 +327,25 @@ function facilityDateKey(value) {
 function rawDateKey(value) {
   const match = String(value || "").match(/^(\d{4}-\d{2}-\d{2})/);
   return match ? match[1] : "";
+}
+
+function facilityTimeValue(value) {
+  const raw = String(value || "");
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(raw)) {
+    return raw.slice(11, 16);
+  }
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: FACILITY_TIME_ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(date).reduce((acc, part) => {
+    if (part.type !== "literal") acc[part.type] = part.value;
+    return acc;
+  }, {});
+  return `${parts.hour === "24" ? "00" : parts.hour}:${parts.minute}`;
 }
 
 function parseDateKeyAsUtcNoon(dateKey) {

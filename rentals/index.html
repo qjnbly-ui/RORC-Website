@@ -619,6 +619,22 @@
         }
       }
 
+      function selectedRentalOverlapsExistingBooking(p) {
+        const availability = window.RORC_RENTAL_AVAILABILITY || {};
+        const blocks = Array.isArray(availability.blocks) ? availability.blocks : [];
+        const start = parseTimeMinutes(p.eventStartTime);
+        const end = parseTimeMinutes(p.eventEndTime);
+        if (!p.eventDate || start === null || end === null || end <= start) return false;
+
+        return blocks.some(function (block) {
+          if (block.date !== p.eventDate) return false;
+          const blockStart = parseTimeMinutes(block.start);
+          const blockEnd = parseTimeMinutes(block.end);
+          if (blockStart === null || blockEnd === null || blockEnd <= blockStart) return false;
+          return start < blockEnd && end > blockStart;
+        });
+      }
+
       function updateTotal() {
         let extra = 0;
         form.querySelectorAll("input[type=checkbox][data-price]").forEach(function (cb) {
@@ -762,6 +778,9 @@
           const end = parseTimeMinutes(p.eventEndTime);
           if (start !== null && end !== null && end <= start) errs.push("End time must be after start time.");
         }
+        if (selectedRentalOverlapsExistingBooking(p)) {
+          errs.push("That rental access time overlaps another confirmed booking. Please choose a different time.");
+        }
         if (Boolean(p.publicEventStartTime) !== Boolean(p.publicEventEndTime)) {
           errs.push("Public calendar event start and end times must both be filled or both be blank.");
         }
@@ -796,10 +815,16 @@
   <script>
     (function () {
       var bookedDates = [];
+      var bookedBlocks = [];
+      window.RORC_RENTAL_AVAILABILITY = { dates: bookedDates, blocks: bookedBlocks };
 
       fetch("/api/events?booked=true")
         .then(function (r) { return r.json(); })
-        .then(function (data) { bookedDates = data.dates || []; })
+        .then(function (data) {
+          bookedDates = data.dates || [];
+          bookedBlocks = data.blocks || [];
+          window.RORC_RENTAL_AVAILABILITY = { dates: bookedDates, blocks: bookedBlocks };
+        })
         .catch(function () {})
         .finally(function () {
           flatpickr('input[name="eventDate"]', {
@@ -817,6 +842,8 @@
                 String(d.getDate()).padStart(2, "0");
               if (bookedDates.indexOf(iso) !== -1) {
                 dayElem.title = "Already booked";
+              } else if (bookedBlocks.some(function (block) { return block.date === iso; })) {
+                dayElem.title = "Some times already booked";
               }
             }
           });
