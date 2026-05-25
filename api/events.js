@@ -29,16 +29,22 @@ module.exports = async (req, res) => {
         // Return full-day blocks plus partial time blocks for public rental availability.
         // Rental requests are the authority for rental access time; events are only the calendar mirror.
         path = `events?select=start_at,end_at,event_type,all_day,rental_requests(event_date,event_start_time,event_end_time,rental_type)&event_type=in.(${RENTAL_BLOCKING_TYPES.join(",")})&status=eq.confirmed&order=start_at.asc`;
-        const [eventRows, rentalRows] = await Promise.all([
+        const [eventRows, rentalRows, calendarSettings] = await Promise.all([
           supabaseRest(path),
-          loadConfirmedRentalRows()
+          loadConfirmedRentalRows(),
+          loadCalendarSettings()
         ]);
         const rows = [
           ...eventRows.filter(isStandaloneAvailabilityEvent),
           ...rentalRows.map(rentalRowToAvailabilityRow)
         ];
         const availability = collectRentalAvailabilityBlocks(rows);
-        return res.status(200).json({ success: true, dates: availability.dates, blocks: availability.blocks });
+        return res.status(200).json({
+          success: true,
+          dates: availability.dates,
+          blocks: availability.blocks,
+          facilityHours: calendarSettings
+        });
       }
 
       if (isAdmin) {

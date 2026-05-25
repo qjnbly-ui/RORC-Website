@@ -471,8 +471,8 @@ function buildRentalPatch(body) {
   }
 
   if (body.status !== undefined) patch.rental_status = body.status;
-  if (typeof body.adminNotes === "string" || typeof body.admin_notes === "string") {
-    patch.admin_notes = str(body.adminNotes ?? body.admin_notes) || null;
+  if (hasBodyField(body, "adminNotes") || hasBodyField(body, "admin_notes")) {
+    patch.admin_notes = str(bodyFieldValue(body, "admin_notes", "adminNotes")) || null;
   }
   patch.reviewed_at = new Date().toISOString();
   return patch;

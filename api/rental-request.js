@@ -12,6 +12,8 @@ const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@r
 const VALID_EVENT_TYPES = ["Birthday Party", "Private Party", "Meeting", "Memorial Service", "Other"];
 const VALID_ALCOHOL_VALUES = ["Yes", "No"];
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
+const DEFAULT_FACILITY_START = "07:00";
+const DEFAULT_FACILITY_END = "21:00";
 
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -39,6 +41,11 @@ module.exports = async (req, res) => {
   const record = buildRecord(body);
 
   try {
+    const facilityHoursError = await validateRentalInsideFacilityHours(record);
+    if (facilityHoursError) {
+      return res.status(409).json({ success: false, error: facilityHoursError });
+    }
+
     const conflict = await findConfirmedRentalConflict(record);
     if (conflict) {
       return res.status(409).json({
@@ -231,6 +238,82 @@ function orderedTimePairError(startValue, endValue, label) {
   if (start === null || end === null) return `${label} start/end time must be valid.`;
   if (end <= start) return `${label} end time must be after start time.`;
   return "";
+}
+
+async function validateRentalInsideFacilityHours(record) {
+  const dateKey = String(record.event_date || "").slice(0, 10);
+  const start = parseTimeMinutes(record.event_start_time);
+  const end = parseTimeMinutes(record.event_end_time);
+  if (!dateKey || start === null || end === null || end <= start) return "Rental access time must be valid.";
+
+  const facilityHours = await loadCalendarSettings();
+  const hours = facilityHoursForDate(facilityHours, dateKey);
+  if (hours.closed) return "RORC is closed on the selected date. Please choose another day.";
+
+  const facilityStart = parseTimeMinutes(hours.start);
+  const facilityEnd = parseTimeMinutes(hours.end);
+  if (facilityStart === null || facilityEnd === null || facilityEnd <= facilityStart) {
+    return "Facility hours are unavailable for the selected date. Please call RORC.";
+  }
+  if (start < facilityStart || end > facilityEnd) {
+    return `Rental access must be within facility hours (${formatHourLabel(hours.start)} - ${formatHourLabel(hours.end)}).`;
+  }
+  return "";
+}
+
+async function loadCalendarSettings() {
+  try {
+    const rows = await supabaseRest("automation_settings?select=config&id=eq.calendar_settings&limit=1");
+    const config = rows[0]?.config || {};
+    return {
+      facility_start: normalizeHourValue(config.facility_start || config.start, DEFAULT_FACILITY_START),
+      facility_end: normalizeHourValue(config.facility_end || config.end, DEFAULT_FACILITY_END),
+      overrides: normalizeFacilityHourOverrides(config.overrides || {})
+    };
+  } catch {
+    return { facility_start: DEFAULT_FACILITY_START, facility_end: DEFAULT_FACILITY_END, overrides: {} };
+  }
+}
+
+function facilityHoursForDate(settings, dateKey) {
+  const override = settings?.overrides?.[dateKey];
+  if (override?.closed) return { closed: true };
+  if (override?.start && override?.end) return override;
+  return {
+    start: settings?.facility_start || DEFAULT_FACILITY_START,
+    end: settings?.facility_end || DEFAULT_FACILITY_END
+  };
+}
+
+function normalizeFacilityHourOverrides(raw) {
+  const out = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  Object.entries(raw).forEach(([dateKey, value]) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey) || !value || typeof value !== "object") return;
+    if (value.closed === true) {
+      out[dateKey] = { closed: true };
+      return;
+    }
+    const start = normalizeHourValue(value.start || value.facility_start, "");
+    const end = normalizeHourValue(value.end || value.facility_end, "");
+    if (start && end) out[dateKey] = { start, end };
+  });
+  return out;
+}
+
+function normalizeHourValue(raw, fallback) {
+  const match = String(raw || "").match(/^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/);
+  return match ? `${match[1]}:${match[2]}` : fallback;
+}
+
+function formatHourLabel(timeValue) {
+  const minutes = parseTimeMinutes(timeValue);
+  if (minutes === null) return String(timeValue || "");
+  const hour = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  const period = hour >= 12 ? "PM" : "AM";
+  const h12 = hour % 12 || 12;
+  return `${h12}:${String(minute).padStart(2, "0")} ${period}`;
 }
 
 function rawDateKey(value) {

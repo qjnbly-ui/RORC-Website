@@ -40,6 +40,163 @@
     .flatpickr-time input:focus {
       background: rgba(231, 210, 160, 0.08);
     }
+    .flatpickr-day.rental-partial-day {
+      box-shadow: inset 0 -3px 0 rgba(231, 210, 160, 0.78);
+    }
+    .rental-availability-panel {
+      background:
+        radial-gradient(circle at 8% 18%, rgba(231, 210, 160, 0.16), transparent 28%),
+        linear-gradient(135deg, rgba(255,255,255,0.055), rgba(255,255,255,0.02));
+      border: 1px solid rgba(231, 210, 160, 0.24);
+      border-radius: 22px;
+      grid-column: 1 / -1;
+      margin: 8px 0 4px;
+      overflow: hidden;
+      padding: 18px;
+    }
+    .rental-availability-top {
+      align-items: flex-start;
+      display: flex;
+      gap: 18px;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .rental-availability-kicker {
+      color: rgba(231, 210, 160, 0.78);
+      display: block;
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.16em;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+    }
+    .rental-availability-title {
+      color: #fff;
+      display: block;
+      font-size: clamp(1.05rem, 2.2vw, 1.38rem);
+      line-height: 1.2;
+    }
+    .rental-availability-copy {
+      color: rgba(245,245,245,0.72);
+      margin: 8px 0 0;
+    }
+    .rental-availability-status {
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 999px;
+      color: rgba(245,245,245,0.72);
+      flex: 0 0 auto;
+      font-size: 0.8rem;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      padding: 8px 12px;
+      text-transform: uppercase;
+    }
+    .rental-availability-status.is-open {
+      background: rgba(86, 204, 142, 0.13);
+      border-color: rgba(86, 204, 142, 0.42);
+      color: #90f0b5;
+    }
+    .rental-availability-status.is-limited {
+      background: rgba(231, 210, 160, 0.11);
+      border-color: rgba(231, 210, 160, 0.42);
+      color: #f1dda7;
+    }
+    .rental-availability-status.is-closed {
+      background: rgba(255, 103, 103, 0.12);
+      border-color: rgba(255, 103, 103, 0.42);
+      color: #ffadad;
+    }
+    .rental-availability-bar {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 999px;
+      height: 18px;
+      overflow: hidden;
+      position: relative;
+    }
+    .rental-availability-open {
+      background: linear-gradient(90deg, rgba(86,204,142,0.28), rgba(231,210,160,0.34));
+      height: 100%;
+      position: absolute;
+      top: 0;
+    }
+    .rental-availability-busy-seg {
+      background: repeating-linear-gradient(
+        135deg,
+        rgba(255, 103, 103, 0.72) 0,
+        rgba(255, 103, 103, 0.72) 7px,
+        rgba(255, 103, 103, 0.48) 7px,
+        rgba(255, 103, 103, 0.48) 14px
+      );
+      height: 100%;
+      position: absolute;
+      top: 0;
+    }
+    .rental-availability-selected-seg {
+      background: rgba(255,255,255,0.48);
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.75);
+      height: 100%;
+      position: absolute;
+      top: 0;
+      z-index: 2;
+    }
+    .rental-availability-timescale {
+      color: rgba(245,245,245,0.5);
+      display: flex;
+      font-size: 0.78rem;
+      justify-content: space-between;
+      margin-top: 8px;
+    }
+    .rental-availability-slots {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 16px;
+    }
+    .rental-slot-btn {
+      background: rgba(231, 210, 160, 0.09);
+      border: 1px solid rgba(231, 210, 160, 0.3);
+      border-radius: 999px;
+      color: #f5f5f5;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 800;
+      padding: 10px 13px;
+    }
+    .rental-slot-btn:hover,
+    .rental-slot-btn:focus {
+      background: rgba(231, 210, 160, 0.2);
+      outline: none;
+    }
+    .rental-availability-busy {
+      color: rgba(245,245,245,0.68);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .rental-busy-pill {
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 999px;
+      padding: 7px 10px;
+    }
+    .rental-availability-warning {
+      color: #ffb0b0;
+      font-weight: 800;
+      margin: 14px 0 0;
+    }
+    @media (max-width: 720px) {
+      .rental-availability-top {
+        display: block;
+      }
+      .rental-availability-status {
+        display: inline-block;
+        margin-top: 12px;
+      }
+      .rental-slot-btn {
+        width: 100%;
+      }
+    }
   </style>
   <!-- Google tag (gtag.js) -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-EGC30XZVXV"></script>
@@ -195,6 +352,21 @@
                     <span>Rental Access End Time</span>
                     <input class="rental-input" type="time" name="eventEndTime" required />
                   </label>
+                  <div class="rental-availability-panel" id="rental-availability-panel" aria-live="polite">
+                    <div class="rental-availability-top">
+                      <div>
+                        <span class="rental-availability-kicker">Live Availability</span>
+                        <strong class="rental-availability-title" id="rental-availability-title">Choose an event date</strong>
+                        <p class="rental-availability-copy" id="rental-availability-copy">After you pick a date, available rental windows will appear here. Booked time is blocked before you submit.</p>
+                      </div>
+                      <span class="rental-availability-status" id="rental-availability-status">Waiting</span>
+                    </div>
+                    <div class="rental-availability-bar" id="rental-availability-bar" aria-hidden="true"></div>
+                    <div class="rental-availability-timescale" id="rental-availability-timescale"></div>
+                    <div class="rental-availability-slots" id="rental-availability-slots"></div>
+                    <div class="rental-availability-busy" id="rental-availability-busy"></div>
+                    <p class="rental-availability-warning" id="rental-availability-warning" hidden></p>
+                  </div>
                   <label class="rental-label">
                     <span>Actual Event Start Time (public calendar)</span>
                     <input class="rental-input" type="time" name="publicEventStartTime" />
@@ -532,8 +704,17 @@
       const hoursInput    = document.getElementById("rentalHoursInput");
       const baseLabel     = document.getElementById("rental-base-label");
       const basePrice     = document.getElementById("rental-base-price");
+      const dateInput      = form.querySelector('input[name="eventDate"]');
       const startTimeInput = form.querySelector('input[name="eventStartTime"]');
       const endTimeInput   = form.querySelector('input[name="eventEndTime"]');
+      const availabilityTitle = document.getElementById("rental-availability-title");
+      const availabilityCopy = document.getElementById("rental-availability-copy");
+      const availabilityStatus = document.getElementById("rental-availability-status");
+      const availabilityBar = document.getElementById("rental-availability-bar");
+      const availabilityTimescale = document.getElementById("rental-availability-timescale");
+      const availabilitySlots = document.getElementById("rental-availability-slots");
+      const availabilityBusy = document.getElementById("rental-availability-busy");
+      const availabilityWarning = document.getElementById("rental-availability-warning");
       let manualAllDayOverride = false;
 
       function getRentalType() {
@@ -586,6 +767,244 @@
         return (hours * 60) + minutes;
       }
 
+      function timeValueFromMinutes(totalMinutes) {
+        const safe = Math.max(0, Math.min(1439, Number(totalMinutes) || 0));
+        const hour = Math.floor(safe / 60);
+        const minute = safe % 60;
+        return String(hour).padStart(2, "0") + ":" + String(minute).padStart(2, "0");
+      }
+
+      function formatTimeLabel(valueOrMinutes) {
+        const minutes = typeof valueOrMinutes === "number" ? valueOrMinutes : parseTimeMinutes(valueOrMinutes);
+        if (minutes === null) return String(valueOrMinutes || "");
+        const hour = Math.floor(minutes / 60);
+        const minute = minutes % 60;
+        const period = hour >= 12 ? "PM" : "AM";
+        const h12 = hour % 12 || 12;
+        return h12 + ":" + String(minute).padStart(2, "0") + " " + period;
+      }
+
+      function selectedDateIso() {
+        return dateInput && dateInput.value ? dateInput.value : "";
+      }
+
+      function availabilityData() {
+        return window.RORC_RENTAL_AVAILABILITY || { dates: [], blocks: [], facilityHours: {} };
+      }
+
+      function normalizeHour(raw, fallback) {
+        const match = String(raw || "").match(/^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/);
+        return match ? match[1] + ":" + match[2] : fallback;
+      }
+
+      function facilityHoursForDate(dateIso) {
+        const data = availabilityData();
+        const facilityHours = data.facilityHours || {};
+        const override = facilityHours.overrides && facilityHours.overrides[dateIso];
+        if (override && override.closed) return { closed: true };
+        if (override && override.start && override.end) {
+          return {
+            start: normalizeHour(override.start, "07:00"),
+            end: normalizeHour(override.end, "21:00")
+          };
+        }
+        return {
+          start: normalizeHour(facilityHours.facility_start || facilityHours.start, "07:00"),
+          end: normalizeHour(facilityHours.facility_end || facilityHours.end, "21:00")
+        };
+      }
+
+      function busyBlocksForDate(dateIso, baseStart, baseEnd) {
+        const data = availabilityData();
+        const blocks = Array.isArray(data.blocks) ? data.blocks : [];
+        const busy = blocks
+          .filter(function (block) { return block.date === dateIso; })
+          .map(function (block) {
+            const blockStart = parseTimeMinutes(block.start);
+            const blockEnd = parseTimeMinutes(block.end);
+            return {
+              start: blockStart === null ? null : Math.max(baseStart, blockStart),
+              end: blockEnd === null ? null : Math.min(baseEnd, blockEnd),
+              eventType: block.eventType || "rental"
+            };
+          })
+          .filter(function (block) {
+            return block.start !== null && block.end !== null && block.end > block.start;
+          })
+          .sort(function (a, b) { return a.start - b.start; });
+
+        const merged = [];
+        busy.forEach(function (block) {
+          const last = merged[merged.length - 1];
+          if (last && block.start <= last.end) {
+            last.end = Math.max(last.end, block.end);
+            return;
+          }
+          merged.push({ start: block.start, end: block.end, eventType: block.eventType });
+        });
+        return merged;
+      }
+
+      function availabilityForDate(dateIso) {
+        if (!dateIso) return { state: "empty", windows: [], busy: [], start: ALLDAY_START_MINUTES, end: ALLDAY_END_MINUTES };
+        const hours = facilityHoursForDate(dateIso);
+        if (hours.closed) return { state: "closed", windows: [], busy: [], start: ALLDAY_START_MINUTES, end: ALLDAY_END_MINUTES };
+
+        const baseStart = parseTimeMinutes(hours.start);
+        const baseEnd = parseTimeMinutes(hours.end);
+        if (baseStart === null || baseEnd === null || baseEnd <= baseStart) {
+          return { state: "closed", windows: [], busy: [], start: ALLDAY_START_MINUTES, end: ALLDAY_END_MINUTES };
+        }
+
+        const data = availabilityData();
+        const dateIsBlocked = Array.isArray(data.dates) && data.dates.indexOf(dateIso) !== -1;
+        const busy = busyBlocksForDate(dateIso, baseStart, baseEnd);
+        if (dateIsBlocked && !busy.some(function (block) { return block.start <= baseStart && block.end >= baseEnd; })) {
+          busy.push({ start: baseStart, end: baseEnd, eventType: "rental" });
+          busy.sort(function (a, b) { return a.start - b.start; });
+        }
+
+        let windows = [{ start: baseStart, end: baseEnd }];
+        busy.forEach(function (block) {
+          const next = [];
+          windows.forEach(function (window) {
+            if (block.end <= window.start || block.start >= window.end) {
+              next.push(window);
+              return;
+            }
+            if (block.start > window.start) next.push({ start: window.start, end: block.start });
+            if (block.end < window.end) next.push({ start: block.end, end: window.end });
+          });
+          windows = next;
+        });
+
+        return {
+          state: windows.length ? (busy.length ? "limited" : "open") : "closed",
+          windows: windows,
+          busy: busy,
+          start: baseStart,
+          end: baseEnd
+        };
+      }
+
+      function rangeFitsAvailability(dateIso, start, end) {
+        const availability = availabilityForDate(dateIso);
+        if (availability.state === "closed" || !availability.windows.length) {
+          return { ok: false, message: "No rental times are available on this date." };
+        }
+        const fits = availability.windows.some(function (window) {
+          return start >= window.start && end <= window.end;
+        });
+        if (fits) return { ok: true, message: "" };
+        const summary = availability.windows
+          .map(function (window) { return formatTimeLabel(window.start) + " - " + formatTimeLabel(window.end); })
+          .join(", ");
+        return { ok: false, message: "That rental access time is unavailable. Available windows: " + summary + "." };
+      }
+
+      function setTimeInputValue(input, minutes) {
+        const value = timeValueFromMinutes(minutes);
+        if (input && input._flatpickr) {
+          input._flatpickr.setDate(value, true, "H:i");
+        } else if (input) {
+          input.value = value;
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }
+
+      function fillRentalWindow(start, end) {
+        setTimeInputValue(startTimeInput, start);
+        setTimeInputValue(endTimeInput, end);
+        manualAllDayOverride = false;
+        syncRentalTypeFromTimes();
+        renderSelectedDateAvailability();
+      }
+
+      function renderAvailabilityBar(info, selectedRange) {
+        if (!availabilityBar || !availabilityTimescale) return;
+        const span = Math.max(1, info.end - info.start);
+        const openHtml = info.windows.map(function (window) {
+          const left = ((window.start - info.start) / span) * 100;
+          const width = ((window.end - window.start) / span) * 100;
+          return '<span class="rental-availability-open" style="left:' + left + '%;width:' + width + '%"></span>';
+        }).join("");
+        const busyHtml = info.busy.map(function (block) {
+          const left = ((block.start - info.start) / span) * 100;
+          const width = ((block.end - block.start) / span) * 100;
+          return '<span class="rental-availability-busy-seg" style="left:' + left + '%;width:' + width + '%"></span>';
+        }).join("");
+        const selectedHtml = selectedRange
+          ? '<span class="rental-availability-selected-seg" style="left:' + (((selectedRange.start - info.start) / span) * 100) + '%;width:' + (((selectedRange.end - selectedRange.start) / span) * 100) + '%"></span>'
+          : "";
+        availabilityBar.innerHTML = openHtml + busyHtml + selectedHtml;
+        availabilityTimescale.innerHTML = '<span>' + formatTimeLabel(info.start) + '</span><span>' + formatTimeLabel(info.end) + '</span>';
+      }
+
+      function renderSelectedDateAvailability() {
+        if (!availabilityTitle || !availabilityStatus) return;
+        const dateIso = selectedDateIso();
+        const info = availabilityForDate(dateIso);
+        const selected = getSelectedTimeRange();
+        const selection = selected && dateIso ? { start: selected.start, end: selected.end } : null;
+
+        availabilityStatus.className = "rental-availability-status";
+        if (!dateIso) {
+          startTimeInput.removeAttribute("min");
+          startTimeInput.removeAttribute("max");
+          endTimeInput.removeAttribute("min");
+          endTimeInput.removeAttribute("max");
+          availabilityTitle.textContent = "Choose an event date";
+          availabilityCopy.textContent = "After you pick a date, available rental windows will appear here. Booked time is blocked before you submit.";
+          availabilityStatus.textContent = "Waiting";
+          availabilityBar.innerHTML = "";
+          availabilityTimescale.innerHTML = "";
+          availabilitySlots.innerHTML = "";
+          availabilityBusy.innerHTML = "";
+          availabilityWarning.hidden = true;
+          return;
+        }
+
+        renderAvailabilityBar(info, selection);
+        startTimeInput.min = timeValueFromMinutes(info.start);
+        startTimeInput.max = timeValueFromMinutes(info.end);
+        endTimeInput.min = timeValueFromMinutes(info.start);
+        endTimeInput.max = timeValueFromMinutes(info.end);
+        availabilityStatus.classList.add(info.state === "open" ? "is-open" : info.state === "limited" ? "is-limited" : "is-closed");
+        availabilityStatus.textContent = info.state === "open" ? "Open" : info.state === "limited" ? "Limited" : "Unavailable";
+
+        if (info.state === "closed" || !info.windows.length) {
+          availabilityTitle.textContent = "No rental windows available";
+          availabilityCopy.textContent = "This date is fully blocked or closed. Please choose another date.";
+          availabilitySlots.innerHTML = "";
+        } else if (info.state === "open") {
+          availabilityTitle.textContent = "Fully available";
+          availabilityCopy.textContent = "The gym is available from " + formatTimeLabel(info.start) + " to " + formatTimeLabel(info.end) + ". Select the full window or enter exact access times.";
+          availabilitySlots.innerHTML = '<button class="rental-slot-btn" type="button" data-window-start="' + info.start + '" data-window-end="' + info.end + '">Use full available day: ' + formatTimeLabel(info.start) + " - " + formatTimeLabel(info.end) + '</button>';
+        } else {
+          availabilityTitle.textContent = "Available rental windows";
+          availabilityCopy.textContent = "Booked time is blocked. Choose an open window below, or enter exact access times inside an available window.";
+          availabilitySlots.innerHTML = info.windows.map(function (window) {
+            return '<button class="rental-slot-btn" type="button" data-window-start="' + window.start + '" data-window-end="' + window.end + '">' + formatTimeLabel(window.start) + " - " + formatTimeLabel(window.end) + '</button>';
+          }).join("");
+        }
+
+        availabilityBusy.innerHTML = info.busy.length
+          ? info.busy.map(function (block) {
+            return '<span class="rental-busy-pill">Unavailable ' + formatTimeLabel(block.start) + " - " + formatTimeLabel(block.end) + '</span>';
+          }).join("")
+          : '<span class="rental-busy-pill">No booked blocks on this date</span>';
+
+        const start = parseTimeMinutes(startTimeInput && startTimeInput.value);
+        const end = parseTimeMinutes(endTimeInput && endTimeInput.value);
+        if (start !== null && end !== null && end > start) {
+          const fit = rangeFitsAvailability(dateIso, start, end);
+          availabilityWarning.hidden = fit.ok;
+          availabilityWarning.textContent = fit.message;
+        } else {
+          availabilityWarning.hidden = true;
+        }
+      }
+
       function getSelectedTimeRange() {
         const start = parseTimeMinutes(startTimeInput && startTimeInput.value);
         const end = parseTimeMinutes(endTimeInput && endTimeInput.value);
@@ -616,23 +1035,17 @@
             updateBaseDisplay();
             updateTotal();
           }
+        } else if (!manualAllDayOverride) {
+          setRentalType("all_day");
         }
       }
 
-      function selectedRentalOverlapsExistingBooking(p) {
-        const availability = window.RORC_RENTAL_AVAILABILITY || {};
-        const blocks = Array.isArray(availability.blocks) ? availability.blocks : [];
+      function selectedRentalAvailabilityError(p) {
         const start = parseTimeMinutes(p.eventStartTime);
         const end = parseTimeMinutes(p.eventEndTime);
-        if (!p.eventDate || start === null || end === null || end <= start) return false;
-
-        return blocks.some(function (block) {
-          if (block.date !== p.eventDate) return false;
-          const blockStart = parseTimeMinutes(block.start);
-          const blockEnd = parseTimeMinutes(block.end);
-          if (blockStart === null || blockEnd === null || blockEnd <= blockStart) return false;
-          return start < blockEnd && end > blockStart;
-        });
+        if (!p.eventDate || start === null || end === null || end <= start) return "";
+        const fit = rangeFitsAvailability(p.eventDate, start, end);
+        return fit.ok ? "" : fit.message;
       }
 
       function updateTotal() {
@@ -661,6 +1074,9 @@
           updateTotal();
         } else if (t.name === "eventStartTime" || t.name === "eventEndTime") {
           syncRentalTypeFromTimes();
+          renderSelectedDateAvailability();
+        } else if (t.name === "eventDate") {
+          renderSelectedDateAvailability();
         } else if (t === hoursInput) {
           updateBaseDisplay();
           updateTotal();
@@ -669,6 +1085,15 @@
           syncAddonCards();
         }
       });
+
+      availabilitySlots.addEventListener("click", function (event) {
+        const button = event.target.closest("[data-window-start][data-window-end]");
+        if (!button) return;
+        fillRentalWindow(Number(button.dataset.windowStart), Number(button.dataset.windowEnd));
+      });
+
+      window.RORC_RENDER_RENTAL_AVAILABILITY = renderSelectedDateAvailability;
+      renderSelectedDateAvailability();
 
       // Form submission
       form.addEventListener("submit", async function (e) {
@@ -778,9 +1203,8 @@
           const end = parseTimeMinutes(p.eventEndTime);
           if (start !== null && end !== null && end <= start) errs.push("End time must be after start time.");
         }
-        if (selectedRentalOverlapsExistingBooking(p)) {
-          errs.push("That rental access time overlaps another confirmed booking. Please choose a different time.");
-        }
+        const availabilityError = selectedRentalAvailabilityError(p);
+        if (availabilityError) errs.push(availabilityError);
         if (Boolean(p.publicEventStartTime) !== Boolean(p.publicEventEndTime)) {
           errs.push("Public calendar event start and end times must both be filled or both be blank.");
         }
@@ -816,17 +1240,27 @@
     (function () {
       var bookedDates = [];
       var bookedBlocks = [];
-      window.RORC_RENTAL_AVAILABILITY = { dates: bookedDates, blocks: bookedBlocks };
+      var facilityHours = { facility_start: "07:00", facility_end: "21:00", overrides: {} };
+      window.RORC_RENTAL_AVAILABILITY = { dates: bookedDates, blocks: bookedBlocks, facilityHours: facilityHours };
+
+      function closedOverrideDates(hours) {
+        var overrides = (hours && hours.overrides) || {};
+        return Object.keys(overrides).filter(function (dateKey) {
+          return overrides[dateKey] && overrides[dateKey].closed === true;
+        });
+      }
 
       fetch("/api/events?booked=true")
         .then(function (r) { return r.json(); })
         .then(function (data) {
           bookedDates = data.dates || [];
           bookedBlocks = data.blocks || [];
-          window.RORC_RENTAL_AVAILABILITY = { dates: bookedDates, blocks: bookedBlocks };
+          facilityHours = data.facilityHours || facilityHours;
+          window.RORC_RENTAL_AVAILABILITY = { dates: bookedDates, blocks: bookedBlocks, facilityHours: facilityHours };
         })
         .catch(function () {})
         .finally(function () {
+          var closedDates = closedOverrideDates(facilityHours);
           flatpickr('input[name="eventDate"]', {
             altInput: true,
             altInputClass: "rental-input",
@@ -834,7 +1268,12 @@
             dateFormat: "Y-m-d",
             minDate: "today",
             disableMobile: true,
-            disable: bookedDates,
+            disable: bookedDates.concat(closedDates),
+            onChange: function () {
+              if (typeof window.RORC_RENDER_RENTAL_AVAILABILITY === "function") {
+                window.RORC_RENDER_RENTAL_AVAILABILITY();
+              }
+            },
             onDayCreate: function (dObj, dStr, fp, dayElem) {
               var d = dayElem.dateObj;
               var iso = d.getFullYear() + "-" +
@@ -842,25 +1281,37 @@
                 String(d.getDate()).padStart(2, "0");
               if (bookedDates.indexOf(iso) !== -1) {
                 dayElem.title = "Already booked";
+              } else if (closedDates.indexOf(iso) !== -1) {
+                dayElem.title = "Closed";
               } else if (bookedBlocks.some(function (block) { return block.date === iso; })) {
+                dayElem.classList.add("rental-partial-day");
                 dayElem.title = "Some times already booked";
               }
             }
           });
+          if (typeof window.RORC_RENDER_RENTAL_AVAILABILITY === "function") {
+            window.RORC_RENDER_RENTAL_AVAILABILITY();
+          }
         });
-    })();
 
-    var timeCfg = {
-      enableTime: true,
-      noCalendar: true,
-      dateFormat: "H:i",
-      time_24hr: false,
-      disableMobile: true
-    };
-    flatpickr('input[name="eventStartTime"]', timeCfg);
-    flatpickr('input[name="eventEndTime"]', timeCfg);
-    flatpickr('input[name="publicEventStartTime"]', timeCfg);
-    flatpickr('input[name="publicEventEndTime"]', timeCfg);
+      var timeCfg = {
+        enableTime: true,
+        noCalendar: true,
+        dateFormat: "H:i",
+        minuteIncrement: 15,
+        time_24hr: false,
+        disableMobile: true,
+        onChange: function () {
+          if (typeof window.RORC_RENDER_RENTAL_AVAILABILITY === "function") {
+            window.RORC_RENDER_RENTAL_AVAILABILITY();
+          }
+        }
+      };
+      flatpickr('input[name="eventStartTime"]', timeCfg);
+      flatpickr('input[name="eventEndTime"]', timeCfg);
+      flatpickr('input[name="publicEventStartTime"]', timeCfg);
+      flatpickr('input[name="publicEventEndTime"]', timeCfg);
+    })();
   </script>
 </body>
 </html>

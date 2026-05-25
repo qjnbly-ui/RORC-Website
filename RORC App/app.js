@@ -4289,7 +4289,7 @@ function collectRentalEditPayload(id, root) {
     addon_late_cleanup: Boolean(field("late-cleanup")?.checked),
     addon_late_day_rental: Boolean(field("late-day")?.checked),
     estimated_total_cents: calculateRentalEditTotalCents(root, id),
-    adminNotes: field("notes")?.value.trim() || null
+    adminNotes: field("notes")?.value.trim() || ""
   };
 }
 
@@ -4530,10 +4530,13 @@ async function submitRentalStatusChange(id, status, notes, root) {
     if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "Saving…"; }
 
     const token = currentAuthSession?.access_token || "";
+    const payload = { id, status };
+    if (typeof notes === "string") payload.adminNotes = notes;
+
     const res   = await fetch("/api/rental-reviews", {
       method: "PATCH",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ id, status, adminNotes: notes })
+      body: JSON.stringify(payload)
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok || body.success === false) throw new Error(body.error || "Could not update request.");
