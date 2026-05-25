@@ -81,9 +81,11 @@ module.exports = async (req, res) => {
     if (status !== undefined && !VALID_STATUSES.includes(status)) {
       return res.status(400).json({ success: false, error: `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}` });
     }
-    const patchPublicStart = req.body?.public_event_start_time ?? req.body?.publicEventStartTime;
-    const patchPublicEnd = req.body?.public_event_end_time ?? req.body?.publicEventEndTime;
-    if ((patchPublicStart !== undefined || patchPublicEnd !== undefined)
+    const patchPublicStartProvided = hasBodyField(req.body, "public_event_start_time") || hasBodyField(req.body, "publicEventStartTime");
+    const patchPublicEndProvided = hasBodyField(req.body, "public_event_end_time") || hasBodyField(req.body, "publicEventEndTime");
+    const patchPublicStart = bodyFieldValue(req.body, "public_event_start_time", "publicEventStartTime");
+    const patchPublicEnd = bodyFieldValue(req.body, "public_event_end_time", "publicEventEndTime");
+    if ((patchPublicStartProvided || patchPublicEndProvided)
       && Boolean(str(patchPublicStart)) !== Boolean(str(patchPublicEnd))) {
       return res.status(400).json({ success: false, error: "public event start/end must both be set or both be blank" });
     }
@@ -192,8 +194,14 @@ async function createOrUpdateCalendarEvent(record) {
   const endAt   = buildIsoTimestamp(dateStr, renderAsAllDay ? "21:00" : (publicEndTime || rentalEndTime));
 
   const title = record.event_name
-    ? `${record.event_name} (${record.event_type})`
-    : `${record.event_type} — ${record.contact_name}`;
+    ? String(record.event_name).trim()
+    : `${record.event_type} - ${record.contact_name}`;
+
+  const existingRows = await supabaseRest(
+    `events?select=id,is_public,created_by&rental_request_id=eq.${encodeURIComponent(record.id)}&limit=1`
+  );
+  const existingEvent = existingRows[0] || null;
+  const existingId = existingEvent?.id;
 
   const payload = {
     title,
@@ -201,16 +209,11 @@ async function createOrUpdateCalendarEvent(record) {
     start_at: startAt,
     end_at:   endAt,
     all_day:  renderAsAllDay,
-    is_public: false,
+    is_public: existingEvent ? Boolean(existingEvent.is_public) : false,
     status: "confirmed",
     rental_request_id: record.id,
-    created_by: "system"
+    created_by: existingEvent?.created_by || "system"
   };
-
-  const existingRows = await supabaseRest(
-    `events?select=id&rental_request_id=eq.${encodeURIComponent(record.id)}&limit=1`
-  );
-  const existingId = existingRows[0]?.id;
 
   const res = await fetch(
     existingId
@@ -380,23 +383,23 @@ function buildRentalPatch(body) {
     ["event_date", body.event_date ?? body.eventDate],
     ["event_start_time", body.event_start_time ?? body.eventStartTime],
     ["event_end_time", body.event_end_time ?? body.eventEndTime],
-    ["public_event_start_time", body.public_event_start_time ?? body.publicEventStartTime],
-    ["public_event_end_time", body.public_event_end_time ?? body.publicEventEndTime],
     ["alcohol", body.alcohol]
   ];
 
   allowedFields.forEach(([key, value]) => {
     if (value !== undefined) patch[key] = key === "contact_email" ? str(value).toLowerCase() : str(value);
   });
-  if (patch.public_event_start_time !== undefined || patch.public_event_end_time !== undefined) {
-    const nextPublicStart = str(patch.public_event_start_time);
-    const nextPublicEnd = str(patch.public_event_end_time);
+  const publicStartProvided = hasBodyField(body, "public_event_start_time") || hasBodyField(body, "publicEventStartTime");
+  const publicEndProvided = hasBodyField(body, "public_event_end_time") || hasBodyField(body, "publicEventEndTime");
+  if (publicStartProvided || publicEndProvided) {
+    const nextPublicStart = str(bodyFieldValue(body, "public_event_start_time", "publicEventStartTime"));
+    const nextPublicEnd = str(bodyFieldValue(body, "public_event_end_time", "publicEventEndTime"));
     if (nextPublicStart && nextPublicEnd) {
       patch.public_event_start_time = nextPublicStart;
       patch.public_event_end_time = nextPublicEnd;
     } else {
-      delete patch.public_event_start_time;
-      delete patch.public_event_end_time;
+      patch.public_event_start_time = null;
+      patch.public_event_end_time = null;
     }
   }
 
@@ -435,6 +438,16 @@ function buildRentalPatch(body) {
 
 function str(value) {
   return String(value || "").trim();
+}
+
+function hasBodyField(body, key) {
+  return Object.prototype.hasOwnProperty.call(body || {}, key);
+}
+
+function bodyFieldValue(body, snakeKey, camelKey) {
+  if (hasBodyField(body, snakeKey)) return body[snakeKey];
+  if (hasBodyField(body, camelKey)) return body[camelKey];
+  return undefined;
 }
 
 function mapRow(row) {

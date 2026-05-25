@@ -4207,6 +4207,8 @@ function collectRentalEditPayload(id, root) {
   const field = (name) => root.querySelector(`#rental-edit-${name}-${id}`);
   const rentalType = field("type")?.value === "hourly" ? "hourly" : "all_day";
   const hours = Math.min(9, Math.max(1, Number(field("hours")?.value || 1) || 1));
+  const publicStart = normalizeTimeFieldValue(field("public-start")?.value || "");
+  const publicEnd = normalizeTimeFieldValue(field("public-end")?.value || "");
 
   return {
     event_name: field("event-name")?.value.trim() || "",
@@ -4214,8 +4216,8 @@ function collectRentalEditPayload(id, root) {
     event_date: field("date")?.value || "",
     event_start_time: field("start")?.value || "07:00",
     event_end_time: field("end")?.value || "21:00",
-    public_event_start_time: normalizeTimeFieldValue(field("public-start")?.value || "") || undefined,
-    public_event_end_time: normalizeTimeFieldValue(field("public-end")?.value || "") || undefined,
+    public_event_start_time: publicStart || null,
+    public_event_end_time: publicEnd || null,
     contact_name: field("contact-name")?.value.trim() || "",
     contact_phone: field("phone")?.value.trim() || "",
     contact_email: field("email")?.value.trim() || "",
@@ -5032,10 +5034,10 @@ function renderCalendarView(root) {
               </label>
             </div>
             <div class="cal-field-row">
-              <label class="cal-field-label">Public Event Start (calendar display)
+              <label class="cal-field-label">Rental Access Start
                 <input id="calRentalPublicStart" class="rorc-input" type="time" />
               </label>
-              <label class="cal-field-label">Public Event End (calendar display)
+              <label class="cal-field-label">Rental Access End
                 <input id="calRentalPublicEnd" class="rorc-input" type="time" />
               </label>
             </div>
@@ -5293,6 +5295,11 @@ function openCalendarModal(root, event, prefillDate) {
   modal.dataset.seriesId = event ? parseSeriesToken(event.createdBy) : "";
   modal.dataset.createdBy = event?.createdBy || "admin";
   modal.dataset.rentalLoaded = "";
+  modal.dataset.originalStart = event ? facilityTimeInputValue(event.startAt) : "";
+  modal.dataset.originalEnd = event ? facilityTimeInputValue(event.endAt) : "";
+  modal.dataset.originalAllDay = event ? String(Boolean(event.allDay)) : "false";
+  modal.dataset.rentalPublicStart = "";
+  modal.dataset.rentalPublicEnd = "";
 
   titleEl.textContent = event ? "Edit Event" : "New Event";
   deleteBtn.hidden    = !event;
@@ -5638,8 +5645,8 @@ function populateCalendarRentalFields(root, rental) {
     calRentalHours: rental.rentalHours || "",
     calRentalFood: rental.foodOrDrinks ? "true" : "false",
     calRentalAlcohol: rental.alcohol === "Yes" ? "Yes" : "No",
-    calRentalPublicStart: rental.publicEventStartTime || "",
-    calRentalPublicEnd: rental.publicEventEndTime || "",
+    calRentalPublicStart: rental.eventStartTime || "",
+    calRentalPublicEnd: rental.eventEndTime || "",
     calRentalAdminNotes: rental.adminNotes || ""
   };
 
@@ -5671,6 +5678,11 @@ function populateCalendarRentalFields(root, rental) {
 
 function collectCalendarRentalPayload(root, defaults) {
   const rentalType = root.querySelector("#calRentalType")?.value || "all_day";
+  const rentalAccessStart = normalizeTimeFieldValue(root.querySelector("#calRentalPublicStart")?.value || "")
+    || (defaults.allDay ? "07:00" : (defaults.start || "07:00"));
+  const rentalAccessEnd = normalizeTimeFieldValue(root.querySelector("#calRentalPublicEnd")?.value || "")
+    || (defaults.allDay ? "21:00" : (defaults.end || "21:00"));
+  const publicWindow = rentalPublicWindowPatch(defaults);
   return {
     title: defaults.title,
     contact_name: root.querySelector("#calRentalContactName")?.value.trim() || defaults.title || "Admin Booking",
@@ -5680,10 +5692,9 @@ function collectCalendarRentalPayload(root, defaults) {
     event_name: defaults.title,
     event_type: root.querySelector("#calRentalEventType")?.value || "Other",
     event_date: defaults.date,
-    event_start_time: defaults.allDay ? "07:00" : (defaults.start || "07:00"),
-    event_end_time: defaults.allDay ? "21:00" : (defaults.end || "21:00"),
-    public_event_start_time: normalizeTimeFieldValue(root.querySelector("#calRentalPublicStart")?.value || "") || undefined,
-    public_event_end_time: normalizeTimeFieldValue(root.querySelector("#calRentalPublicEnd")?.value || "") || undefined,
+    event_start_time: rentalAccessStart,
+    event_end_time: rentalAccessEnd,
+    ...publicWindow,
     estimated_attendance: Math.max(1, Number(root.querySelector("#calRentalAttendance")?.value || 1) || 1),
     food_or_drinks: root.querySelector("#calRentalFood")?.value === "true",
     alcohol: root.querySelector("#calRentalAlcohol")?.value || "No",
@@ -5708,9 +5719,29 @@ function collectCalendarRentalSchedulePayload(defaults) {
   return {
     event_name: defaults.title,
     event_date: defaults.date,
-    event_start_time: defaults.allDay ? "07:00" : (defaults.start || "07:00"),
-    event_end_time: defaults.allDay ? "21:00" : (defaults.end || "21:00")
+    ...rentalPublicWindowPatch(defaults)
   };
+}
+
+function rentalPublicWindowPatch(defaults) {
+  const originalAllDay = Boolean(defaults.originalAllDay);
+  const changedCalendarWindow = originalAllDay !== Boolean(defaults.allDay)
+    || String(defaults.originalStart || "") !== String(defaults.start || "")
+    || String(defaults.originalEnd || "") !== String(defaults.end || "");
+  const hasExistingPublicWindow = Boolean(defaults.rentalPublicStart && defaults.rentalPublicEnd);
+
+  if (defaults.allDay) {
+    return defaults.existingRentalId ? { public_event_start_time: null, public_event_end_time: null } : {};
+  }
+
+  if (!defaults.start || !defaults.end) return {};
+  if (!defaults.existingRentalId || hasExistingPublicWindow || changedCalendarWindow) {
+    return { public_event_start_time: defaults.start, public_event_end_time: defaults.end };
+  }
+
+  return defaults.rentalLoaded
+    ? { public_event_start_time: null, public_event_end_time: null }
+    : {};
 }
 
 async function loadCalRentalInfo(root, rentalRequestId) {
@@ -5726,7 +5757,10 @@ async function loadCalRentalInfo(root, rentalRequestId) {
     const rental = (body.requests || []).find((r) => r.id === rentalRequestId);
     if (!rental) return;
     populateCalendarRentalFields(root, rental);
-    root.querySelector("#calEventModal").dataset.rentalLoaded = "true";
+    const modal = root.querySelector("#calEventModal");
+    modal.dataset.rentalLoaded = "true";
+    modal.dataset.rentalPublicStart = rental.publicEventStartTime || "";
+    modal.dataset.rentalPublicEnd = rental.publicEventEndTime || "";
 
     const addons = [
       inferRentalCleaningMaintenance(rental) && "Cleaning & Maintenance",
@@ -5747,6 +5781,7 @@ async function loadCalRentalInfo(root, rentalRequestId) {
       <div class="cal-rental-divider">Linked Rental</div>
       <div class="cal-rental-row"><span class="cal-rental-label">Contact</span><span>${escapeHtml(rental.contactName || "—")}${rental.contactPhone ? " · " + escapeHtml(rental.contactPhone) : ""}${rental.contactEmail ? " · " + escapeHtml(rental.contactEmail) : ""}</span></div>
       <div class="cal-rental-row"><span class="cal-rental-label">Event</span><span>${escapeHtml(rental.eventType || "—")} · Est. attendance: ${rental.estimatedAttendance ?? "—"}</span></div>
+      <div class="cal-rental-row"><span class="cal-rental-label">Rental Access</span><span>${escapeHtml(rental.eventStartTime || "—")} – ${escapeHtml(rental.eventEndTime || "—")}</span></div>
       ${rental.publicEventStartTime && rental.publicEventEndTime ? `<div class="cal-rental-row"><span class="cal-rental-label">Public Time</span><span>${escapeHtml(rental.publicEventStartTime)} – ${escapeHtml(rental.publicEventEndTime)}</span></div>` : ""}
       ${addons.length ? `<div class="cal-rental-row"><span class="cal-rental-label">Add-ons</span><span>${escapeHtml(addons.join(", "))}</span></div>` : ""}
       <div class="cal-rental-row"><span class="cal-rental-label">Total</span><span>${totalDollars}</span></div>
@@ -5799,8 +5834,12 @@ async function saveCalendarEvent(root) {
   if (!allDay && !end) { showCalError(errEl, "Valid end time is required."); return; }
   if (recurringEnabled && recurringUnit === "week" && !recurringDays.length) { showCalError(errEl, "Select at least one recurring day."); return; }
   if (recurringEnabled && recurringEndMode === "on" && !recurringEndDate) { showCalError(errEl, "Select an end date."); return; }
+  if (modal.dataset.rentalRequestId && normalizeEventTypeForUi(type) !== "rental") {
+    showCalError(errEl, "Linked rental calendar events must stay set to Rental. Use Rental Category inside booking details for the rental type.");
+    return;
+  }
   if (normalizeEventTypeForUi(type) === "rental" && Boolean(rentalPublicStart) !== Boolean(rentalPublicEnd)) {
-    showCalError(errEl, "Public event start/end must both be filled or both be blank.");
+    showCalError(errEl, "Rental access start/end must both be filled or both be blank.");
     return;
   }
 
@@ -5826,8 +5865,21 @@ async function saveCalendarEvent(root) {
     const payload = evId ? { ...basePayload, id: evId } : { ...basePayload };
 
     if (type === "rental") {
-      const rentalDefaults = { title, date, start, end, allDay };
       const existingRentalId = modal.dataset.rentalRequestId || "";
+      const rentalDefaults = {
+        title,
+        date,
+        start,
+        end,
+        allDay,
+        existingRentalId,
+        rentalLoaded: modal.dataset.rentalLoaded === "true",
+        originalStart: modal.dataset.originalStart || "",
+        originalEnd: modal.dataset.originalEnd || "",
+        originalAllDay: modal.dataset.originalAllDay === "true",
+        rentalPublicStart: modal.dataset.rentalPublicStart || "",
+        rentalPublicEnd: modal.dataset.rentalPublicEnd || ""
+      };
       const rentalPayload = existingRentalId && modal.dataset.rentalLoaded !== "true"
         ? collectCalendarRentalSchedulePayload(rentalDefaults)
         : collectCalendarRentalPayload(root, rentalDefaults);
@@ -5839,6 +5891,11 @@ async function saveCalendarEvent(root) {
       const rrBody = await rrRes.json();
       if (!rrRes.ok || !rrBody.success) throw new Error(rrBody.error || "Could not save rental record");
       payload.rental_request_id = existingRentalId || rrBody.id;
+      if (existingRentalId && evId) {
+        delete payload.start_at;
+        delete payload.end_at;
+        delete payload.all_day;
+      }
     }
 
     if (recurringEnabled && !evId) {
