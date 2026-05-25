@@ -437,6 +437,19 @@
                     <span>Actual Event End Time (public calendar)</span>
                     <input class="rental-input" type="time" name="publicEventEndTime" />
                   </label>
+                  <div class="rental-label">
+                    <span>Is this a private event?</span>
+                    <div class="rental-radio-group">
+                      <label class="rental-radio-label">
+                        <input type="radio" name="isPrivateEvent" value="yes" checked required />
+                        <span>Yes</span>
+                      </label>
+                      <label class="rental-radio-label">
+                        <input type="radio" name="isPrivateEvent" value="no" />
+                        <span>No</span>
+                      </label>
+                    </div>
+                  </div>
                   <label class="rental-label">
                     <span>Estimated Attendance</span>
                     <input class="rental-input" type="number" name="estimatedAttendance" required min="1" placeholder="# of guests" />
@@ -505,6 +518,10 @@
                   <div class="rental-base-row">
                     <span id="rental-base-label">Standard Day Rental</span>
                     <span id="rental-base-price">$100</span>
+                  </div>
+                  <div class="rental-base-row" id="rental-discount-row" hidden>
+                    <span>Special Access Discount</span>
+                    <span>-20%</span>
                   </div>
                 </div>
 
@@ -712,6 +729,9 @@
   <script>
     (function () {
       const ALLDAY_CENTS   = 10000; // $100 flat day rate
+      const PRIVATE_HOURLY_CENTS = 1000;
+      const NON_PRIVATE_HOURLY_CENTS = 500;
+      const SPECIAL_ACCESS_DISCOUNT_RATE = 0.2;
       const ALLDAY_START_MINUTES = 7 * 60;
       const ALLDAY_END_MINUTES   = 21 * 60;
 
@@ -726,6 +746,7 @@
       const hoursInput    = document.getElementById("rentalHoursInput");
       const baseLabel     = document.getElementById("rental-base-label");
       const basePrice     = document.getElementById("rental-base-price");
+      const discountRow   = document.getElementById("rental-discount-row");
       const dateInput      = form.querySelector('input[name="eventDate"]');
       const startTimeInput = form.querySelector('input[name="eventStartTime"]');
       const endTimeInput   = form.querySelector('input[name="eventEndTime"]');
@@ -739,15 +760,27 @@
       const availabilityWarning = document.getElementById("rental-availability-warning");
       const availabilityPanel = document.getElementById("rental-availability-panel");
       let manualAllDayOverride = false;
+      let rentalSpecialAccessDiscount = false;
+      let rentalAuthToken = "";
 
       function getRentalType() {
         return (form.querySelector('input[name="rentalType"]:checked') || {}).value || "all_day";
+      }
+
+      function isPrivateEvent() {
+        return ((form.querySelector('input[name="isPrivateEvent"]:checked') || {}).value || "yes") !== "no";
       }
 
       function normalizeRentalHours(value, fallback) {
         const hours = Number(value);
         if (!Number.isFinite(hours) || hours <= 0) return fallback === undefined ? 1 : fallback;
         return Math.min(9, Math.max(0.01, Math.round(hours * 100) / 100));
+      }
+
+      function normalizeRentalBillableHours(value, fallback) {
+        const hours = Number(value);
+        if (!Number.isFinite(hours) || hours <= 0) return fallback === undefined ? 1 : fallback;
+        return Math.min(24, Math.max(0.01, Math.round(hours * 100) / 100));
       }
 
       function rentalHoursValue(hours) {
@@ -759,6 +792,12 @@
         return rentalHoursValue(normalized) + " hr" + (normalized === 1 ? "" : "s");
       }
 
+      function rentalBillableHoursLabel(hours) {
+        const normalized = normalizeRentalBillableHours(hours);
+        const label = String(Number(normalized.toFixed(2)));
+        return label + " hr" + (normalized === 1 ? "" : "s");
+      }
+
       function formatRentalMoney(cents) {
         return "$" + (Number(cents || 0) / 100).toLocaleString("en-US", {
           minimumFractionDigits: Number(cents || 0) % 100 ? 2 : 0,
@@ -767,13 +806,27 @@
       }
 
       function getBaseCents() {
+        if (!isPrivateEvent()) {
+          const range = getSelectedTimeRange();
+          const hours = normalizeRentalBillableHours(range ? range.hours : hoursInput.value);
+          return Math.round(hours * NON_PRIVATE_HOURLY_CENTS);
+        }
         if (getRentalType() === "hourly") {
-          return Math.round(normalizeRentalHours(hoursInput.value) * 10 * 100);
+          return Math.round(normalizeRentalHours(hoursInput.value) * PRIVATE_HOURLY_CENTS);
         }
         return ALLDAY_CENTS;
       }
 
       function updateBaseDisplay() {
+        if (!isPrivateEvent()) {
+          const range = getSelectedTimeRange();
+          const hours = normalizeRentalBillableHours(range ? range.hours : hoursInput.value);
+          const base = getBaseCents();
+          baseLabel.textContent = "Non-private Event (" + rentalBillableHoursLabel(hours) + " @ $5/hr)";
+          basePrice.textContent = formatRentalMoney(base);
+          if (discountRow) discountRow.hidden = !rentalSpecialAccessDiscount;
+          return;
+        }
         const isHourly = getRentalType() === "hourly";
         if (isHourly) {
           const base = getBaseCents();
@@ -783,6 +836,7 @@
           baseLabel.textContent = "Standard Day Rental";
           basePrice.textContent = "$100";
         }
+        if (discountRow) discountRow.hidden = !rentalSpecialAccessDiscount;
       }
 
       function syncTypeCards() {
@@ -812,6 +866,42 @@
         const minutes = Number(match[2]);
         if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
         return (hours * 60) + minutes;
+      }
+
+      function canonicalAccountType(accountType) {
+        const normalized = String(accountType || "").trim().toLowerCase().replace(/\s+/g, " ");
+        if (!normalized) return "";
+        if (normalized === "special access account" || normalized === "billed monthly") return "Special Access Account";
+        return String(accountType || "").trim();
+      }
+
+      function loadRentalSupabaseHelper() {
+        if (window.RORC_SUPABASE) return Promise.resolve(window.RORC_SUPABASE);
+        return new Promise(function (resolve) {
+          const existing = document.querySelector('script[src="/scripts/rorc-supabase-client.js"]');
+          if (existing) {
+            existing.addEventListener("load", function () { resolve(window.RORC_SUPABASE || null); }, { once: true });
+            existing.addEventListener("error", function () { resolve(null); }, { once: true });
+            setTimeout(function () { resolve(window.RORC_SUPABASE || null); }, 3000);
+            return;
+          }
+          const script = document.createElement("script");
+          script.src = "/scripts/rorc-supabase-client.js";
+          script.onload = function () { resolve(window.RORC_SUPABASE || null); };
+          script.onerror = function () { resolve(null); };
+          document.head.appendChild(script);
+        });
+      }
+
+      async function hydrateRentalMemberPricing() {
+        const helper = await loadRentalSupabaseHelper();
+        if (!helper || typeof helper.getCurrentMemberProfile !== "function") return;
+        const state = await helper.getCurrentMemberProfile();
+        rentalAuthToken = state && state.session ? state.session.access_token || "" : "";
+        const profile = state && state.profile ? state.profile : null;
+        rentalSpecialAccessDiscount = canonicalAccountType(profile && (profile.account_type || profile.accountType)) === "Special Access Account";
+        updateBaseDisplay();
+        updateTotal();
       }
 
       function timeValueFromMinutes(totalMinutes) {
@@ -1063,7 +1153,7 @@
         return {
           start: start,
           end: end,
-          hours: normalizeRentalHours((end - start) / 60)
+          hours: normalizeRentalBillableHours((end - start) / 60)
         };
       }
 
@@ -1100,11 +1190,7 @@
       }
 
       function updateTotal() {
-        let extra = 0;
-        form.querySelectorAll("input[type=checkbox][data-price]").forEach(function (cb) {
-          if (cb.checked) extra += Number(cb.dataset.price) * 100;
-        });
-        totalDisplay.textContent = formatRentalMoney(getBaseCents() + extra);
+        totalDisplay.textContent = formatRentalMoney(calcTotal());
       }
 
       function syncAddonCards() {
@@ -1127,6 +1213,9 @@
           renderSelectedDateAvailability();
         } else if (t.name === "eventDate") {
           renderSelectedDateAvailability();
+        } else if (t.name === "isPrivateEvent") {
+          updateBaseDisplay();
+          updateTotal();
         } else if (t === hoursInput) {
           updateBaseDisplay();
           updateTotal();
@@ -1144,6 +1233,11 @@
 
       window.RORC_RENDER_RENTAL_AVAILABILITY = renderSelectedDateAvailability;
       renderSelectedDateAvailability();
+      hydrateRentalMemberPricing().catch(function () {
+        rentalSpecialAccessDiscount = false;
+        updateBaseDisplay();
+        updateTotal();
+      });
 
       // Form submission
       form.addEventListener("submit", async function (e) {
@@ -1172,6 +1266,8 @@
           estimatedAttendance:  Number(fd.get("estimatedAttendance")) || 0,
           foodOrDrinks:         foodVal === "yes",
           alcohol:              alcohol,
+          isPrivateEvent:       isPrivateEvent(),
+          specialAccessDiscount: rentalSpecialAccessDiscount,
 
           rentalType:  rentalType,
           rentalHours: rentalHours,
@@ -1203,9 +1299,11 @@
         submitBtn.textContent = "Submitting…";
 
         try {
+          const headers = { "Content-Type": "application/json" };
+          if (rentalAuthToken) headers.Authorization = "Bearer " + rentalAuthToken;
           const res  = await fetch("/api/rental-request", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: headers,
             body: JSON.stringify(payload)
           });
           const json = await res.json();
@@ -1235,7 +1333,10 @@
         form.querySelectorAll("input[type=checkbox][data-price]").forEach(function (cb) {
           if (cb.checked) extra += Number(cb.dataset.price) * 100;
         });
-        return getBaseCents() + extra;
+        const subtotal = getBaseCents() + extra;
+        return rentalSpecialAccessDiscount
+          ? Math.round(subtotal * (1 - SPECIAL_ACCESS_DISCOUNT_RATE))
+          : subtotal;
       }
 
       function clientValidate(p, foodVal) {

@@ -14,11 +14,31 @@ const VALID_ALCOHOL_VALUES = ["Yes", "No"];
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
 const DEFAULT_FACILITY_START = "07:00";
 const DEFAULT_FACILITY_END = "21:00";
+const RENTAL_PRICE_CENTS = {
+  allDay: 10000,
+  privateHourly: 1000,
+  nonPrivateHourly: 500,
+  cleaningMaintenance: 2000,
+  tables: 2000,
+  chairs: 2000,
+  tarp: 2000,
+  earlySetup: 5000,
+  earlyDayRental: 10000,
+  lateCleanup: 5000,
+  lateDayRental: 10000
+};
+const SPECIAL_ACCESS_RENTAL_DISCOUNT_RATE = 0.2;
 
 function normalizeRentalHours(value, fallback = 1) {
   const hours = Number(value);
   if (!Number.isFinite(hours) || hours <= 0) return fallback;
   return Math.min(9, Math.max(0.01, Math.round(hours * 100) / 100));
+}
+
+function normalizeRentalBillableHours(value, fallback = 1) {
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0) return fallback;
+  return Math.min(24, Math.max(0.01, Math.round(hours * 100) / 100));
 }
 
 function rentalHoursLabel(value) {
@@ -27,10 +47,16 @@ function rentalHoursLabel(value) {
   return `${label} hr${hours === 1 ? "" : "s"}`;
 }
 
+function rentalBillableHoursLabel(value) {
+  const hours = normalizeRentalBillableHours(value);
+  const label = String(Number(hours.toFixed(2)));
+  return `${label} hr${hours === 1 ? "" : "s"}`;
+}
+
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
@@ -50,9 +76,9 @@ module.exports = async (req, res) => {
     return res.status(400).json({ success: false, errors });
   }
 
-  const record = buildRecord(body);
-
   try {
+    const specialAccessDiscount = await getVerifiedSpecialAccessDiscount(req);
+    const record = buildRecord(body, { specialAccessDiscount });
     const facilityHoursError = await validateRentalInsideFacilityHours(record);
     if (facilityHoursError) {
       return res.status(409).json({ success: false, error: facilityHoursError });
@@ -146,10 +172,11 @@ function validate(body) {
   return errors;
 }
 
-function buildRecord(body) {
+function buildRecord(body, options = {}) {
   const publicStart = str(body.publicEventStartTime);
   const publicEnd = str(body.publicEventEndTime);
-  return {
+  const rentalType = ["all_day", "hourly"].includes(str(body.rentalType)) ? str(body.rentalType) : "all_day";
+  const record = {
     contact_name: str(body.contactName),
     contact_phone: str(body.contactPhone),
     contact_email: str(body.contactEmail).toLowerCase(),
@@ -178,14 +205,56 @@ function buildRecord(body) {
     addon_late_cleanup: body.addonLateCleanup === true,
     addon_late_day_rental: body.addonLateDayRental === true,
 
-    estimated_total_cents: Math.max(0, Number(body.estimatedTotalCents) || 0),
+    estimated_total_cents: 0,
+    is_private_event: body.isPrivateEvent !== false,
+    special_access_discount: options.specialAccessDiscount === true,
 
-    rental_type: ["all_day", "hourly"].includes(str(body.rentalType)) ? str(body.rentalType) : "all_day",
-    rental_hours: str(body.rentalType) === "hourly" ? normalizeRentalHours(body.rentalHours) : null,
+    rental_type: rentalType,
+    rental_hours: rentalType === "hourly" ? normalizeRentalHours(body.rentalHours) : null,
 
     agreed_to_no_guarantee: true,
     agreed_to_guidelines: true
   };
+  record.estimated_total_cents = calculateRentalTotalCents({
+    ...record,
+    addon_cleaning_maintenance: body.addonCleaningMaintenance === true
+  });
+  return record;
+}
+
+function rentalHoursBetween(startValue, endValue, fallback = 1) {
+  const start = parseTimeMinutes(startValue);
+  const end = parseTimeMinutes(endValue);
+  if (start === null || end === null || end <= start) return fallback;
+  return normalizeRentalBillableHours((end - start) / 60, fallback);
+}
+
+function calculateRentalTotalCents(record) {
+  const isPrivateEvent = record?.is_private_event !== false;
+  let total;
+  if (!isPrivateEvent) {
+    total = Math.round(
+      rentalHoursBetween(record?.event_start_time, record?.event_end_time, record?.rental_hours || 1)
+      * RENTAL_PRICE_CENTS.nonPrivateHourly
+    );
+  } else if (record?.rental_type === "hourly") {
+    total = Math.round(normalizeRentalHours(record?.rental_hours || 1) * RENTAL_PRICE_CENTS.privateHourly);
+  } else {
+    total = RENTAL_PRICE_CENTS.allDay;
+  }
+
+  if (record?.addon_cleaning_maintenance) total += RENTAL_PRICE_CENTS.cleaningMaintenance;
+  if (record?.addon_tables) total += RENTAL_PRICE_CENTS.tables;
+  if (record?.addon_chairs) total += RENTAL_PRICE_CENTS.chairs;
+  if (record?.addon_tarp) total += RENTAL_PRICE_CENTS.tarp;
+  if (record?.addon_early_setup) total += RENTAL_PRICE_CENTS.earlySetup;
+  if (record?.addon_early_day_rental) total += RENTAL_PRICE_CENTS.earlyDayRental;
+  if (record?.addon_late_cleanup) total += RENTAL_PRICE_CENTS.lateCleanup;
+  if (record?.addon_late_day_rental) total += RENTAL_PRICE_CENTS.lateDayRental;
+  if (record?.special_access_discount) {
+    total = Math.round(total * (1 - SPECIAL_ACCESS_RENTAL_DISCOUNT_RATE));
+  }
+  return Math.max(0, total);
 }
 
 async function findConfirmedRentalConflict(record) {
@@ -387,6 +456,47 @@ async function supabaseRest(path) {
   return response.json();
 }
 
+function bearerToken(req) {
+  const header = req.headers.authorization || req.headers.Authorization || "";
+  const match = String(header).match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : "";
+}
+
+function canonicalAccountType(accountType) {
+  const normalized = String(accountType || "").trim().toLowerCase().replace(/\s+/g, " ");
+  if (normalized === "special access account" || normalized === "billed monthly") return "Special Access Account";
+  return String(accountType || "").trim();
+}
+
+async function getVerifiedSpecialAccessDiscount(req) {
+  const token = bearerToken(req);
+  if (!token) return false;
+  try {
+    const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: {
+        apikey: SERVICE_ROLE_KEY,
+        Authorization: `Bearer ${token}`
+      }
+    });
+    if (!userRes.ok) return false;
+    const user = await userRes.json();
+    const authUserId = user?.id || "";
+    const email = String(user?.email || "").trim().toLowerCase();
+
+    if (authUserId) {
+      const rows = await supabaseRest(`account_members?select=id,account_type&auth_user_id=eq.${encodeURIComponent(authUserId)}&limit=1`);
+      if (canonicalAccountType(rows?.[0]?.account_type) === "Special Access Account") return true;
+    }
+    if (email) {
+      const rows = await supabaseRest(`account_member_profiles?select=account_member_id,account_type,email_address&email_address=eq.${encodeURIComponent(email)}&limit=1`);
+      if (canonicalAccountType(rows?.[0]?.account_type) === "Special Access Account") return true;
+    }
+  } catch (error) {
+    console.warn("Special Access discount verification skipped:", error?.message || error);
+  }
+  return false;
+}
+
 function str(value) {
   return String(value || "").trim();
 }
@@ -404,6 +514,8 @@ async function sendNotificationEmail(record) {
   const totalDollars = ((record?.estimated_total_cents || 0) / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
 
   const addons = [
+    record?.is_private_event === false && "Non-private event ($5/hr)",
+    record?.special_access_discount && "Special Access discount (20%)",
     record?.addon_cleaning_maintenance && "Standard Maintenance Fee ($20)",
     record?.addon_tables && "Tables ($20)",
     record?.addon_chairs && "Chairs ($20)",
@@ -416,9 +528,11 @@ async function sendNotificationEmail(record) {
     record?.addon_late_day_rental && "Extra Day — Late ($100)"
   ].filter(Boolean);
 
-  const rentalTypeLabel = record?.rental_type === "hourly"
-    ? `By the Hour (${rentalHoursLabel(record?.rental_hours || 1)})`
-    : "All Day (7 AM – 9 PM)";
+  const rentalTypeLabel = record?.is_private_event === false
+    ? `Non-private (${rentalBillableHoursLabel(rentalHoursBetween(record?.event_start_time, record?.event_end_time, record?.rental_hours || 1))} @ $5/hr)`
+    : record?.rental_type === "hourly"
+      ? `By the Hour (${rentalHoursLabel(record?.rental_hours || 1)})`
+      : "All Day (7 AM – 9 PM)";
 
   const bodyHtml = `
 <p style="margin:0 0 20px;color:#ccc;font-size:15px;">A new facility rental request has been submitted and is waiting for review.</p>

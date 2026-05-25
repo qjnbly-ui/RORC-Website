@@ -13,8 +13,20 @@ function normalizeRentalHours(value, fallback = 1) {
   return Math.min(9, Math.max(0.01, Math.round(hours * 100) / 100));
 }
 
+function normalizeRentalBillableHours(value, fallback = 1) {
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0) return fallback;
+  return Math.min(24, Math.max(0.01, Math.round(hours * 100) / 100));
+}
+
 function rentalHoursLabel(value) {
   const hours = normalizeRentalHours(value);
+  const label = String(Number(hours.toFixed(2)));
+  return `${label} hr${hours === 1 ? "" : "s"}`;
+}
+
+function rentalBillableHoursLabel(value) {
+  const hours = normalizeRentalBillableHours(value);
   const label = String(Number(hours.toFixed(2)));
   return `${label} hr${hours === 1 ? "" : "s"}`;
 }
@@ -111,10 +123,33 @@ function formatRentalTime(value) {
   }).format(date);
 }
 
-function calculateRentalTotalWithoutCleaning(record) {
-  const rentalType = record?.rental_type === "hourly" ? "hourly" : "all_day";
-  const hours = normalizeRentalHours(record?.rental_hours || 1);
-  let total = rentalType === "hourly" ? Math.round(hours * 1000) : 10000;
+function parseRentalTimeMinutes(value) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+  return (hours * 60) + minutes;
+}
+
+function rentalHoursBetween(startValue, endValue, fallback = 1) {
+  const start = parseRentalTimeMinutes(startValue);
+  const end = parseRentalTimeMinutes(endValue);
+  if (start === null || end === null || end <= start) return fallback;
+  return normalizeRentalBillableHours((end - start) / 60, fallback);
+}
+
+function calculateRentalTotal(record, includeCleaning = false) {
+  const isPrivateEvent = record?.is_private_event !== false;
+  let total;
+  if (!isPrivateEvent) {
+    total = Math.round(rentalHoursBetween(record?.event_start_time, record?.event_end_time, record?.rental_hours || 1) * 500);
+  } else if (record?.rental_type === "hourly") {
+    total = Math.round(normalizeRentalHours(record?.rental_hours || 1) * 1000);
+  } else {
+    total = 10000;
+  }
+  if (includeCleaning) total += 2000;
   if (record?.addon_tables) total += 2000;
   if (record?.addon_chairs) total += 2000;
   if (record?.addon_tarp) total += 2000;
@@ -122,13 +157,14 @@ function calculateRentalTotalWithoutCleaning(record) {
   if (record?.addon_early_day_rental) total += 10000;
   if (record?.addon_late_cleanup) total += 5000;
   if (record?.addon_late_day_rental) total += 10000;
+  if (record?.special_access_discount) total = Math.round(total * 0.8);
   return total;
 }
 
 function rentalHasCleaningMaintenance(record) {
   if (typeof record?.addon_cleaning_maintenance === "boolean") return record.addon_cleaning_maintenance;
   const storedTotal = Number(record?.estimated_total_cents || 0);
-  return Boolean(storedTotal && storedTotal >= calculateRentalTotalWithoutCleaning(record) + 2000);
+  return Boolean(storedTotal && storedTotal >= calculateRentalTotal(record, true));
 }
 
 function rentalAddons(record) {
@@ -147,9 +183,11 @@ function rentalAddons(record) {
 }
 
 function rentalDetailRows(record) {
-  const rentalType = record?.rental_type === "hourly"
-    ? `By the Hour (${rentalHoursLabel(record?.rental_hours || 1)})`
-    : "All Day";
+  const rentalType = record?.is_private_event === false
+    ? `Non-private (${rentalBillableHoursLabel(rentalHoursBetween(record?.event_start_time, record?.event_end_time, record?.rental_hours || 1))} @ $5/hr)`
+    : record?.rental_type === "hourly"
+      ? `By the Hour (${rentalHoursLabel(record?.rental_hours || 1)})`
+      : "All Day";
   const start = formatRentalTime(record?.event_start_time);
   const end = formatRentalTime(record?.event_end_time);
   const addons = rentalAddons(record);
@@ -163,10 +201,12 @@ function rentalDetailRows(record) {
     ["Date", formatRentalDate(record?.event_date)],
     ["Time", start && end ? `${start} - ${end}` : "TBD"],
     ["Rental Type", rentalType],
+    ["Private Event", record?.is_private_event === false ? "No" : "Yes"],
+    record?.special_access_discount ? ["Discount", "Special Access (20%)"] : null,
     ["Estimated Attendance", record?.estimated_attendance ? String(record.estimated_attendance) : "TBD"],
     ["Add-ons", addons.length ? addons.join(", ") : "None"],
     ["Estimated Total", totalDollars]
-  ];
+  ].filter(Boolean);
 }
 
 function buildRentalDetailsHtml(record) {

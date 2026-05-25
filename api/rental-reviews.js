@@ -6,11 +6,31 @@ const { buildRentalApplicantEmail } = require("./_communication-templates");
 
 const VALID_STATUSES = ["submitted", "pending_review", "confirmed", "rejected", "canceled"];
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
+const RENTAL_PRICE_CENTS = {
+  allDay: 10000,
+  privateHourly: 1000,
+  nonPrivateHourly: 500,
+  cleaningMaintenance: 2000,
+  tables: 2000,
+  chairs: 2000,
+  tarp: 2000,
+  earlySetup: 5000,
+  earlyDayRental: 10000,
+  lateCleanup: 5000,
+  lateDayRental: 10000
+};
+const SPECIAL_ACCESS_RENTAL_DISCOUNT_RATE = 0.2;
 
 function normalizeRentalHours(value, fallback = 1) {
   const hours = Number(value);
   if (!Number.isFinite(hours) || hours <= 0) return fallback;
   return Math.min(9, Math.max(0.01, Math.round(hours * 100) / 100));
+}
+
+function normalizeRentalBillableHours(value, fallback = 1) {
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0) return fallback;
+  return Math.min(24, Math.max(0.01, Math.round(hours * 100) / 100));
 }
 
 module.exports = async (req, res) => {
@@ -377,7 +397,8 @@ function facilityWallTimeToIso(dateStr, timeStr = "00:00") {
 function buildRentalRecord(body) {
   const publicStart = str(body.public_event_start_time || body.publicEventStartTime);
   const publicEnd = str(body.public_event_end_time || body.publicEventEndTime);
-  return {
+  const rentalType = str(body.rental_type || body.rentalType) === "hourly" ? "hourly" : "all_day";
+  const record = {
     contact_name: str(body.contact_name || body.contactName || body.title || "Admin Booking"),
     contact_phone: str(body.contact_phone || body.contactPhone),
     contact_email: str(body.contact_email || body.contactEmail).toLowerCase(),
@@ -403,9 +424,11 @@ function buildRentalRecord(body) {
     addon_early_day_rental: Boolean(body.addon_early_day_rental ?? body.addonEarlyDayRental),
     addon_late_cleanup: Boolean(body.addon_late_cleanup ?? body.addonLateCleanup),
     addon_late_day_rental: Boolean(body.addon_late_day_rental ?? body.addonLateDayRental),
-    estimated_total_cents: Math.max(0, Number(body.estimated_total_cents ?? body.estimatedTotalCents ?? 0) || 0),
-    rental_type: str(body.rental_type || body.rentalType) === "hourly" ? "hourly" : "all_day",
-    rental_hours: str(body.rental_type || body.rentalType) === "hourly"
+    estimated_total_cents: 0,
+    is_private_event: bodyFieldValue(body, "is_private_event", "isPrivateEvent") !== false,
+    special_access_discount: Boolean(bodyFieldValue(body, "special_access_discount", "specialAccessDiscount")),
+    rental_type: rentalType,
+    rental_hours: rentalType === "hourly"
       ? normalizeRentalHours(body.rental_hours ?? body.rentalHours ?? 1)
       : null,
     agreed_to_no_guarantee: true,
@@ -418,6 +441,11 @@ function buildRentalRecord(body) {
       : typeof body.adminNotes === "string" ? body.adminNotes.trim() || null : null,
     reviewed_at: new Date().toISOString()
   };
+  record.estimated_total_cents = calculateRentalTotalCents({
+    ...record,
+    addon_cleaning_maintenance: Boolean(body.addon_cleaning_maintenance ?? body.addonCleaningMaintenance)
+  });
+  return record;
 }
 
 function buildRentalPatch(body) {
@@ -465,8 +493,11 @@ function buildRentalPatch(body) {
   if (body.addon_early_day_rental !== undefined || body.addonEarlyDayRental !== undefined) patch.addon_early_day_rental = Boolean(body.addon_early_day_rental ?? body.addonEarlyDayRental);
   if (body.addon_late_cleanup !== undefined || body.addonLateCleanup !== undefined) patch.addon_late_cleanup = Boolean(body.addon_late_cleanup ?? body.addonLateCleanup);
   if (body.addon_late_day_rental !== undefined || body.addonLateDayRental !== undefined) patch.addon_late_day_rental = Boolean(body.addon_late_day_rental ?? body.addonLateDayRental);
-  if (body.estimated_total_cents !== undefined || body.estimatedTotalCents !== undefined) {
-    patch.estimated_total_cents = Math.max(0, Number(body.estimated_total_cents ?? body.estimatedTotalCents ?? 0) || 0);
+  if (hasBodyField(body, "is_private_event") || hasBodyField(body, "isPrivateEvent")) {
+    patch.is_private_event = bodyFieldValue(body, "is_private_event", "isPrivateEvent") !== false;
+  }
+  if (hasBodyField(body, "special_access_discount") || hasBodyField(body, "specialAccessDiscount")) {
+    patch.special_access_discount = Boolean(bodyFieldValue(body, "special_access_discount", "specialAccessDiscount"));
   }
 
   if (body.rental_type !== undefined || body.rentalType !== undefined) {
@@ -476,6 +507,9 @@ function buildRentalPatch(body) {
       : null;
   } else if (body.rental_hours !== undefined || body.rentalHours !== undefined) {
     patch.rental_hours = normalizeRentalHours(body.rental_hours ?? body.rentalHours ?? 1);
+  }
+  if (body.estimated_total_cents !== undefined || body.estimatedTotalCents !== undefined) {
+    patch.estimated_total_cents = calculateRentalTotalCents(rentalPricingRecordFromBody(body, patch));
   }
 
   if (body.status !== undefined) patch.rental_status = body.status;
@@ -488,6 +522,67 @@ function buildRentalPatch(body) {
 
 function str(value) {
   return String(value || "").trim();
+}
+
+function rentalPricingRecordFromBody(body, patch = {}) {
+  const rentalType = patch.rental_type || (str(body.rental_type || body.rentalType) === "hourly" ? "hourly" : "all_day");
+  return {
+    event_start_time: patch.event_start_time || str(body.event_start_time || body.eventStartTime || "07:00") || "07:00",
+    event_end_time: patch.event_end_time || str(body.event_end_time || body.eventEndTime || "21:00") || "21:00",
+    rental_type: rentalType,
+    rental_hours: rentalType === "hourly"
+      ? (patch.rental_hours ?? normalizeRentalHours(body.rental_hours ?? body.rentalHours ?? 1))
+      : null,
+    is_private_event: hasBodyField(patch, "is_private_event")
+      ? patch.is_private_event
+      : bodyFieldValue(body, "is_private_event", "isPrivateEvent") !== false,
+    special_access_discount: hasBodyField(patch, "special_access_discount")
+      ? patch.special_access_discount
+      : Boolean(bodyFieldValue(body, "special_access_discount", "specialAccessDiscount")),
+    addon_cleaning_maintenance: Boolean(body.addon_cleaning_maintenance ?? body.addonCleaningMaintenance),
+    addon_tables: patch.addon_tables ?? Boolean(body.addon_tables ?? body.addonTables),
+    addon_chairs: patch.addon_chairs ?? Boolean(body.addon_chairs ?? body.addonChairs),
+    addon_tarp: patch.addon_tarp ?? Boolean(body.addon_tarp ?? body.addonTarp),
+    addon_early_setup: patch.addon_early_setup ?? Boolean(body.addon_early_setup ?? body.addonEarlySetup),
+    addon_early_day_rental: patch.addon_early_day_rental ?? Boolean(body.addon_early_day_rental ?? body.addonEarlyDayRental),
+    addon_late_cleanup: patch.addon_late_cleanup ?? Boolean(body.addon_late_cleanup ?? body.addonLateCleanup),
+    addon_late_day_rental: patch.addon_late_day_rental ?? Boolean(body.addon_late_day_rental ?? body.addonLateDayRental)
+  };
+}
+
+function rentalHoursBetween(startValue, endValue, fallback = 1) {
+  const start = parseTimeMinutes(startValue);
+  const end = parseTimeMinutes(endValue);
+  if (start === null || end === null || end <= start) return fallback;
+  return normalizeRentalBillableHours((end - start) / 60, fallback);
+}
+
+function calculateRentalTotalCents(record) {
+  const isPrivateEvent = record?.is_private_event !== false;
+  let total;
+  if (!isPrivateEvent) {
+    total = Math.round(
+      rentalHoursBetween(record?.event_start_time, record?.event_end_time, record?.rental_hours || 1)
+      * RENTAL_PRICE_CENTS.nonPrivateHourly
+    );
+  } else if (record?.rental_type === "hourly") {
+    total = Math.round(normalizeRentalHours(record?.rental_hours || 1) * RENTAL_PRICE_CENTS.privateHourly);
+  } else {
+    total = RENTAL_PRICE_CENTS.allDay;
+  }
+
+  if (record?.addon_cleaning_maintenance) total += RENTAL_PRICE_CENTS.cleaningMaintenance;
+  if (record?.addon_tables) total += RENTAL_PRICE_CENTS.tables;
+  if (record?.addon_chairs) total += RENTAL_PRICE_CENTS.chairs;
+  if (record?.addon_tarp) total += RENTAL_PRICE_CENTS.tarp;
+  if (record?.addon_early_setup) total += RENTAL_PRICE_CENTS.earlySetup;
+  if (record?.addon_early_day_rental) total += RENTAL_PRICE_CENTS.earlyDayRental;
+  if (record?.addon_late_cleanup) total += RENTAL_PRICE_CENTS.lateCleanup;
+  if (record?.addon_late_day_rental) total += RENTAL_PRICE_CENTS.lateDayRental;
+  if (record?.special_access_discount) {
+    total = Math.round(total * (1 - SPECIAL_ACCESS_RENTAL_DISCOUNT_RATE));
+  }
+  return Math.max(0, total);
 }
 
 function parseTimeMinutes(value) {
@@ -552,6 +647,8 @@ function mapRow(row, linkedEvent = null) {
     addonLateCleanup: row.addon_late_cleanup,
     addonLateDayRental: row.addon_late_day_rental,
     estimatedTotalCents: row.estimated_total_cents,
+    isPrivateEvent: row.is_private_event !== false,
+    specialAccessDiscount: Boolean(row.special_access_discount),
     rentalType: row.rental_type,
     rentalHours: row.rental_hours,
     rentalStatus: row.rental_status,

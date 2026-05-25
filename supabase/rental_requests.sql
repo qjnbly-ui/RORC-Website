@@ -33,6 +33,8 @@ create table if not exists public.rental_requests (
   alcohol text not null default 'No',
   rental_type text not null default 'all_day',
   rental_hours numeric(5,2),
+  is_private_event boolean not null default true,
+  special_access_discount boolean not null default false,
 
   -- Equipment & add-ons
   addon_tables boolean not null default false,

@@ -3649,6 +3649,7 @@ const RENTAL_STATUS_COLOR = {
 const RENTAL_PRICE_CENTS = {
   allDay: 10000,
   hourlyRate: 1000,
+  nonPrivateHourlyRate: 500,
   cleaningMaintenance: 2000,
   tables: 2000,
   chairs: 2000,
@@ -3661,10 +3662,18 @@ const RENTAL_PRICE_CENTS = {
   lateDayRental: 10000
 };
 
+const SPECIAL_ACCESS_RENTAL_DISCOUNT_RATE = 0.2;
+
 function normalizeRentalHours(value, fallback = 1) {
   const hours = Number(value);
   if (!Number.isFinite(hours) || hours <= 0) return fallback;
   return Math.min(9, Math.max(0.01, Math.round(hours * 100) / 100));
+}
+
+function normalizeRentalBillableHours(value, fallback = 1) {
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0) return fallback;
+  return Math.min(24, Math.max(0.01, Math.round(hours * 100) / 100));
 }
 
 function rentalHoursFromMinutes(minutes) {
@@ -3680,6 +3689,33 @@ function rentalHoursLabel(hours) {
   const normalized = normalizeRentalHours(hours);
   const label = rentalHoursValue(normalized);
   return `${label} hr${normalized === 1 ? "" : "s"}`;
+}
+
+function rentalBillableHoursLabel(hours) {
+  const normalized = normalizeRentalBillableHours(hours);
+  const label = String(Number(normalized.toFixed(2)));
+  return `${label} hr${normalized === 1 ? "" : "s"}`;
+}
+
+function rentalHoursBetween(startValue, endValue, fallback = 1) {
+  const start = minutesFromTimeValue(normalizeTimeFieldValue(startValue));
+  const end = minutesFromTimeValue(normalizeTimeFieldValue(endValue));
+  if (start === null || end === null || end <= start) return fallback;
+  return normalizeRentalBillableHours((end - start) / 60, fallback);
+}
+
+function rentalBaseCents(values) {
+  const isPrivateEvent = values?.isPrivateEvent !== false;
+  if (!isPrivateEvent) {
+    const accessHours = rentalHoursBetween(values?.rentalAccessStart, values?.rentalAccessEnd, values?.rentalHours || 1);
+    return Math.round(normalizeRentalBillableHours(accessHours) * RENTAL_PRICE_CENTS.nonPrivateHourlyRate);
+  }
+
+  const rentalType = values?.rentalType === "hourly" ? "hourly" : "all_day";
+  const hours = normalizeRentalHours(values?.rentalHours || 1);
+  return rentalType === "hourly"
+    ? Math.round(hours * RENTAL_PRICE_CENTS.hourlyRate)
+    : RENTAL_PRICE_CENTS.allDay;
 }
 
 function openLinkedDeleteDialog({
@@ -3736,11 +3772,7 @@ async function fetchLinkedCalendarEventIdForRental(rentalRequestId) {
 }
 
 function calculateRentalTotalCents(values) {
-  const rentalType = values?.rentalType === "hourly" ? "hourly" : "all_day";
-  const hours = normalizeRentalHours(values?.rentalHours || 1);
-  let total = rentalType === "hourly"
-    ? Math.round(hours * RENTAL_PRICE_CENTS.hourlyRate)
-    : RENTAL_PRICE_CENTS.allDay;
+  let total = rentalBaseCents(values);
 
   if (values?.addonCleaningMaintenance) total += RENTAL_PRICE_CENTS.cleaningMaintenance;
   if (values?.addonTables) total += RENTAL_PRICE_CENTS.tables;
@@ -3752,6 +3784,9 @@ function calculateRentalTotalCents(values) {
   if (values?.addonEarlyDayRental) total += RENTAL_PRICE_CENTS.earlyDayRental;
   if (values?.addonLateCleanup) total += RENTAL_PRICE_CENTS.lateCleanup;
   if (values?.addonLateDayRental) total += RENTAL_PRICE_CENTS.lateDayRental;
+  if (values?.specialAccessDiscount) {
+    total = Math.round(total * (1 - SPECIAL_ACCESS_RENTAL_DISCOUNT_RATE));
+  }
   return total;
 }
 
@@ -3759,9 +3794,13 @@ function inferRentalCleaningMaintenance(rental) {
   if (typeof rental?.addonCleaningMaintenance === "boolean") return rental.addonCleaningMaintenance;
   const storedTotal = Number(rental?.estimatedTotalCents || 0);
   if (!storedTotal) return false;
-  const totalWithoutCleaning = calculateRentalTotalCents({
+  const pricingValues = {
     rentalType: rental.rentalType,
     rentalHours: rental.rentalHours,
+    rentalAccessStart: rental.eventStartTime,
+    rentalAccessEnd: rental.eventEndTime,
+    isPrivateEvent: rental.isPrivateEvent,
+    specialAccessDiscount: rental.specialAccessDiscount,
     addonTables: rental.addonTables,
     addonChairs: rental.addonChairs,
     addonTarp: rental.addonTarp,
@@ -3771,8 +3810,12 @@ function inferRentalCleaningMaintenance(rental) {
     addonEarlyDayRental: rental.addonEarlyDayRental,
     addonLateCleanup: rental.addonLateCleanup,
     addonLateDayRental: rental.addonLateDayRental
+  };
+  const totalWithCleaning = calculateRentalTotalCents({
+    ...pricingValues,
+    addonCleaningMaintenance: true
   });
-  return storedTotal >= totalWithoutCleaning + RENTAL_PRICE_CENTS.cleaningMaintenance;
+  return storedTotal >= totalWithCleaning;
 }
 
 async function renderRentalReviewsPage() {
@@ -3909,9 +3952,12 @@ function buildRentalCard(r) {
     ? formatCurrency(r.estimatedTotalCents)
     : null;
 
-  const rentalTypeLabel = r.rentalType === "hourly"
-    ? `${rentalHoursLabel(r.rentalHours || 1)} @ $10/hr`
-    : "All Day";
+  const accessHours = rentalHoursBetween(r.eventStartTime, r.eventEndTime, r.rentalHours || 1);
+  const rentalTypeLabel = r.isPrivateEvent === false
+    ? `Non-private (${rentalBillableHoursLabel(accessHours)} @ $5/hr)`
+    : r.rentalType === "hourly"
+      ? `${rentalHoursLabel(r.rentalHours || 1)} @ $10/hr`
+      : "All Day";
 
   const eventDate = r.eventDate
     ? new Date(r.eventDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "long", day: "numeric", year: "numeric" })
@@ -3922,6 +3968,8 @@ function buildRentalCard(r) {
     : r.eventStartTime || "";
 
   const addons = [
+    r.isPrivateEvent === false && "Non-private event",
+    r.specialAccessDiscount && "Special Access 20% discount",
     r.addonTables        && "Tables",
     r.addonChairs        && "Chairs",
     r.addonTarp          && "Tarp",
@@ -4499,6 +4547,10 @@ function buildRentalEditForm(r) {
   const totalDollars = String(Number((calculateRentalTotalCents({
     rentalType: r.rentalType,
     rentalHours: r.rentalHours,
+    rentalAccessStart: r.eventStartTime,
+    rentalAccessEnd: r.eventEndTime,
+    isPrivateEvent: r.isPrivateEvent,
+    specialAccessDiscount: r.specialAccessDiscount,
     addonCleaningMaintenance: hasCleaningMaintenance,
     addonTables: r.addonTables,
     addonChairs: r.addonChairs,
@@ -4566,6 +4618,12 @@ function buildRentalEditForm(r) {
             <option value="true"${r.foodOrDrinks ? " selected" : ""}>Yes</option>
           </select>
         </label>
+        <label class="rental-edit-field">Private Event
+          <select id="rental-edit-private-${id}" class="rental-edit-input">
+            <option value="true"${r.isPrivateEvent === false ? "" : " selected"}>Yes - private rate</option>
+            <option value="false"${r.isPrivateEvent === false ? " selected" : ""}>No - $5/hr non-private rate</option>
+          </select>
+        </label>
         <label class="rental-edit-field">Rental Type
           <select id="rental-edit-type-${id}" class="rental-edit-input">
             <option value="all_day"${r.rentalType !== "hourly" ? " selected" : ""}>All Day</option>
@@ -4586,6 +4644,7 @@ function buildRentalEditForm(r) {
       </div>
 
       <div class="rental-edit-checks">
+        ${rentalEditCheck(id, "special-discount", "Special Access discount (20%)", r.specialAccessDiscount)}
         ${rentalEditCheck(id, "cleaning", "Standard Maintenance Fee", hasCleaningMaintenance)}
         ${rentalEditCheck(id, "tables", "Tables", r.addonTables)}
         ${rentalEditCheck(id, "chairs", "Chairs", r.addonChairs)}
@@ -4673,6 +4732,10 @@ function rentalEditTotalValues(root, id) {
   return {
     rentalType: field("type")?.value === "hourly" ? "hourly" : "all_day",
     rentalHours: normalizeRentalHours(field("hours")?.value || 1),
+    rentalAccessStart: field("start")?.value || "",
+    rentalAccessEnd: field("end")?.value || "",
+    isPrivateEvent: field("private")?.value !== "false",
+    specialAccessDiscount: Boolean(field("special-discount")?.checked),
     addonCleaningMaintenance: Boolean(field("cleaning")?.checked),
     addonTables: Boolean(field("tables")?.checked),
     addonChairs: Boolean(field("chairs")?.checked),
@@ -4728,6 +4791,8 @@ function collectRentalEditPayload(id, root) {
     contact_email: field("email")?.value.trim() || "",
     contact_address: field("address")?.value.trim() || "",
     estimated_attendance: Math.max(1, Number(field("attendance")?.value || 1) || 1),
+    is_private_event: field("private")?.value !== "false",
+    special_access_discount: Boolean(field("special-discount")?.checked),
     rental_type: rentalType,
     rental_hours: rentalType === "hourly" ? hours : null,
     alcohol: field("alcohol")?.value || "No",
@@ -4754,6 +4819,8 @@ function applyRentalEditToCache(id, payload, updatedRequest) {
     rentalAllRequests[idx] = {
       ...rentalAllRequests[idx],
       ...updatedRequest,
+      isPrivateEvent: payload.is_private_event,
+      specialAccessDiscount: payload.special_access_discount,
       addonCleaningMaintenance: payload.addon_cleaning_maintenance,
       addonAc: payload.addon_ac
     };
@@ -4777,6 +4844,8 @@ function applyRentalEditToCache(id, payload, updatedRequest) {
     estimatedAttendance: payload.estimated_attendance,
     rentalType: payload.rental_type,
     rentalHours: payload.rental_hours,
+    isPrivateEvent: payload.is_private_event,
+    specialAccessDiscount: payload.special_access_discount,
     addonCleaningMaintenance: payload.addon_cleaning_maintenance,
     alcohol: payload.alcohol,
     foodOrDrinks: payload.food_or_drinks,
@@ -5553,6 +5622,18 @@ function renderCalendarView(root) {
                 </select>
               </label>
             </div>
+            <div class="cal-field-row">
+              <label class="cal-field-label">Private Event
+                <select id="calRentalPrivateEvent" class="rorc-input">
+                  <option value="true" selected>Yes - private rate</option>
+                  <option value="false">No - $5/hr non-private rate</option>
+                </select>
+              </label>
+              <label class="cal-field-label cal-field-check">
+                <input id="calRentalSpecialAccessDiscount" type="checkbox" />
+                Special Access discount (20%)
+              </label>
+            </div>
             <div class="cal-rental-derived-card" aria-live="polite">
               <div class="cal-rental-derived-head">
                 <span class="cal-rental-derived-kicker">Rental schedule</span>
@@ -5674,6 +5755,8 @@ function bindCalendarEvents(root) {
   });
   bindCalendarRentalContactAutocomplete(root);
   [
+    "calRentalPrivateEvent",
+    "calRentalSpecialAccessDiscount",
     "calRentalCleaning",
     "calRentalTables",
     "calRentalChairs",
@@ -5686,8 +5769,14 @@ function bindCalendarEvents(root) {
     "calRentalLateDay"
   ].forEach((id) => {
     const field = root.querySelector(`#${id}`);
-    field?.addEventListener("input", () => updateCalendarRentalTotal(root));
-    field?.addEventListener("change", () => updateCalendarRentalTotal(root));
+    field?.addEventListener("input", () => {
+      if (id === "calRentalPrivateEvent") syncCalendarRentalScheduleFromEvent(root);
+      else updateCalendarRentalTotal(root);
+    });
+    field?.addEventListener("change", () => {
+      if (id === "calRentalPrivateEvent") syncCalendarRentalScheduleFromEvent(root);
+      else updateCalendarRentalTotal(root);
+    });
   });
 }
 
@@ -6213,12 +6302,19 @@ function syncCalendarRentalScheduleFromEvent(root) {
     summaryEl.textContent = schedule.summary;
     summaryEl.dataset.ready = schedule.ready ? "true" : "false";
   }
-  if (typeSummary) typeSummary.textContent = schedule.rentalType === "hourly" ? "Hourly" : "All Day";
-  if (hoursSummary) hoursSummary.textContent = schedule.rentalType === "hourly" ? rentalHoursLabel(schedule.rentalHours) : "-";
+  const totalValues = calendarRentalTotalValues(root);
+  if (typeSummary) {
+    typeSummary.textContent = totalValues.isPrivateEvent
+      ? (schedule.rentalType === "hourly" ? "Hourly" : "All Day")
+      : "Non-private";
+  }
+  if (hoursSummary) {
+    hoursSummary.textContent = totalValues.isPrivateEvent
+      ? (schedule.rentalType === "hourly" ? rentalHoursLabel(schedule.rentalHours) : "-")
+      : rentalBillableHoursLabel(rentalHoursBetween(schedule.accessStart, schedule.accessEnd, 1));
+  }
   if (baseSummary) {
-    const baseCents = schedule.rentalType === "hourly"
-      ? Math.round(normalizeRentalHours(schedule.rentalHours || 1) * RENTAL_PRICE_CENTS.hourlyRate)
-      : RENTAL_PRICE_CENTS.allDay;
+    const baseCents = rentalBaseCents(totalValues);
     baseSummary.textContent = schedule.ready ? formatCurrency(baseCents) : "-";
   }
   updateCalendarRentalTotal(root);
@@ -6229,6 +6325,10 @@ function calendarRentalTotalValues(root) {
   return {
     rentalType,
     rentalHours: normalizeRentalHours(root.querySelector("#calRentalHours")?.value || 1),
+    rentalAccessStart: root.querySelector("#calRentalPublicStart")?.value || "",
+    rentalAccessEnd: root.querySelector("#calRentalPublicEnd")?.value || "",
+    isPrivateEvent: root.querySelector("#calRentalPrivateEvent")?.value !== "false",
+    specialAccessDiscount: Boolean(root.querySelector("#calRentalSpecialAccessDiscount")?.checked),
     addonCleaningMaintenance: Boolean(root.querySelector("#calRentalCleaning")?.checked),
     addonTables: Boolean(root.querySelector("#calRentalTables")?.checked),
     addonChairs: Boolean(root.querySelector("#calRentalChairs")?.checked),
@@ -6267,6 +6367,7 @@ function resetCalendarRentalFields(root, title = "") {
     calRentalHours: "",
     calRentalFood: "false",
     calRentalAlcohol: "No",
+    calRentalPrivateEvent: "true",
     calRentalPublicStart: "",
     calRentalPublicEnd: "",
     calRentalAdminNotes: ""
@@ -6278,6 +6379,7 @@ function resetCalendarRentalFields(root, title = "") {
   });
 
   [
+    "calRentalSpecialAccessDiscount",
     "calRentalCleaning",
     "calRentalTables",
     "calRentalChairs",
@@ -6307,6 +6409,7 @@ function populateCalendarRentalFields(root, rental) {
     calRentalHours: rental.rentalHours || "",
     calRentalFood: rental.foodOrDrinks ? "true" : "false",
     calRentalAlcohol: rental.alcohol === "Yes" ? "Yes" : "No",
+    calRentalPrivateEvent: rental.isPrivateEvent === false ? "false" : "true",
     calRentalPublicStart: normalizeTimeFieldValue(rental.eventStartTime || ""),
     calRentalPublicEnd: normalizeTimeFieldValue(rental.eventEndTime || ""),
     calRentalAdminNotes: rental.adminNotes || ""
@@ -6318,6 +6421,7 @@ function populateCalendarRentalFields(root, rental) {
   });
 
   const checks = {
+    calRentalSpecialAccessDiscount: rental.specialAccessDiscount,
     calRentalCleaning: inferRentalCleaningMaintenance(rental),
     calRentalTables: rental.addonTables,
     calRentalChairs: rental.addonChairs,
@@ -6434,6 +6538,11 @@ function applyCalendarRentalContactMember(root, memberId) {
     const field = root.querySelector(`#${id}`);
     if (field) field.value = value;
   });
+  const discountField = root.querySelector("#calRentalSpecialAccessDiscount");
+  if (discountField) {
+    discountField.checked = canonicalAccountType(member.accountType) === "Special Access Account";
+  }
+  updateCalendarRentalTotal(root);
 }
 
 function collectCalendarRentalPayload(root, defaults) {
@@ -6458,6 +6567,8 @@ function collectCalendarRentalPayload(root, defaults) {
     estimated_attendance: Math.max(1, Number(root.querySelector("#calRentalAttendance")?.value || 1) || 1),
     food_or_drinks: root.querySelector("#calRentalFood")?.value === "true",
     alcohol: root.querySelector("#calRentalAlcohol")?.value || "No",
+    is_private_event: root.querySelector("#calRentalPrivateEvent")?.value !== "false",
+    special_access_discount: Boolean(root.querySelector("#calRentalSpecialAccessDiscount")?.checked),
     rental_type: rentalType,
     rental_hours: rentalType === "hourly" ? normalizeRentalHours(root.querySelector("#calRentalHours")?.value || 1) : null,
     addon_cleaning_maintenance: Boolean(root.querySelector("#calRentalCleaning")?.checked),
@@ -6527,6 +6638,8 @@ async function loadCalRentalInfo(root, rentalRequestId) {
     populateCalendarRentalFields(root, rental);
 
     const addons = [
+      rental.isPrivateEvent === false && "Non-private event",
+      rental.specialAccessDiscount && "Special Access 20% discount",
       inferRentalCleaningMaintenance(rental) && "Standard Maintenance Fee",
       rental.addonTables && "Tables",
       rental.addonChairs && "Chairs",
