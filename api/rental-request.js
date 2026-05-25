@@ -78,7 +78,8 @@ module.exports = async (req, res) => {
     try {
       await sendNotificationEmail({
         ...savedRecord,
-        addon_cleaning_maintenance: body.addonCleaningMaintenance === true
+        addon_cleaning_maintenance: body.addonCleaningMaintenance === true,
+        addon_ac: body.addonAc === true
       });
     } catch (err) {
       console.error("Rental notification email failed:", err);
@@ -159,6 +160,7 @@ function buildRecord(body) {
     addon_chairs: body.addonChairs === true,
     addon_tarp: body.addonTarp === true,
     addon_heater: body.addonHeater === true,
+    addon_ac: body.addonAc === true,
     addon_early_setup: body.addonEarlySetup === true,
     addon_early_day_rental: body.addonEarlyDayRental === true,
     addon_late_cleanup: body.addonLateCleanup === true,
@@ -390,11 +392,12 @@ async function sendNotificationEmail(record) {
   const totalDollars = ((record?.estimated_total_cents || 0) / 100).toLocaleString("en-US", { style: "currency", currency: "USD" });
 
   const addons = [
-    record?.addon_cleaning_maintenance && "Cleaning & Maintenance ($20)",
+    record?.addon_cleaning_maintenance && "Standard Maintenance Fee ($20)",
     record?.addon_tables && "Tables ($20)",
     record?.addon_chairs && "Chairs ($20)",
     record?.addon_tarp && "Tarp ($20)",
     record?.addon_heater && "Heater ($13/hr)",
+    record?.addon_ac && "AC ($2/hr)",
     record?.addon_early_setup && "Early Setup ($50)",
     record?.addon_early_day_rental && "Extra Day — Early ($100)",
     record?.addon_late_cleanup && "Late Cleanup ($50)",

@@ -121,11 +121,12 @@ function rentalHasCleaningMaintenance(record) {
 
 function rentalAddons(record) {
   return [
-    rentalHasCleaningMaintenance(record) && "Cleaning & Maintenance",
+    rentalHasCleaningMaintenance(record) && "Standard Maintenance Fee",
     record?.addon_tables && "Tables",
     record?.addon_chairs && "Chairs",
     record?.addon_tarp && "Tarp",
     record?.addon_heater && "Heater Use",
+    record?.addon_ac && "AC Use ($2/hr)",
     record?.addon_early_setup && "Early Setup",
     record?.addon_early_day_rental && "Extra Day (Early)",
     record?.addon_late_cleanup && "Late Cleanup",

@@ -3646,6 +3646,7 @@ const RENTAL_PRICE_CENTS = {
   chairs: 2000,
   tarp: 2000,
   heater: 0,
+  ac: 0,
   earlySetup: 5000,
   earlyDayRental: 10000,
   lateCleanup: 5000,
@@ -3717,6 +3718,7 @@ function calculateRentalTotalCents(values) {
   if (values?.addonChairs) total += RENTAL_PRICE_CENTS.chairs;
   if (values?.addonTarp) total += RENTAL_PRICE_CENTS.tarp;
   if (values?.addonHeater) total += RENTAL_PRICE_CENTS.heater;
+  if (values?.addonAc) total += RENTAL_PRICE_CENTS.ac;
   if (values?.addonEarlySetup) total += RENTAL_PRICE_CENTS.earlySetup;
   if (values?.addonEarlyDayRental) total += RENTAL_PRICE_CENTS.earlyDayRental;
   if (values?.addonLateCleanup) total += RENTAL_PRICE_CENTS.lateCleanup;
@@ -3735,6 +3737,7 @@ function inferRentalCleaningMaintenance(rental) {
     addonChairs: rental.addonChairs,
     addonTarp: rental.addonTarp,
     addonHeater: rental.addonHeater,
+    addonAc: rental.addonAc,
     addonEarlySetup: rental.addonEarlySetup,
     addonEarlyDayRental: rental.addonEarlyDayRental,
     addonLateCleanup: rental.addonLateCleanup,
@@ -3890,7 +3893,8 @@ function buildRentalCard(r) {
     r.addonChairs        && "Chairs",
     r.addonTarp          && "Tarp",
     r.addonHeater        && "Heater",
-    inferRentalCleaningMaintenance(r) && "Cleaning & Maintenance",
+    r.addonAc            && "AC ($2/hr)",
+    inferRentalCleaningMaintenance(r) && "Standard Maintenance Fee",
     r.addonEarlySetup    && "Early Setup",
     r.addonEarlyDayRental && "Extra Day (Early)",
     r.addonLateCleanup   && "Late Cleanup",
@@ -4054,6 +4058,7 @@ function buildRentalEditForm(r) {
     addonChairs: r.addonChairs,
     addonTarp: r.addonTarp,
     addonHeater: r.addonHeater,
+    addonAc: r.addonAc,
     addonEarlySetup: r.addonEarlySetup,
     addonEarlyDayRental: r.addonEarlyDayRental,
     addonLateCleanup: r.addonLateCleanup,
@@ -4135,11 +4140,12 @@ function buildRentalEditForm(r) {
       </div>
 
       <div class="rental-edit-checks">
-        ${rentalEditCheck(id, "cleaning", "Cleaning & Maintenance", hasCleaningMaintenance)}
+        ${rentalEditCheck(id, "cleaning", "Standard Maintenance Fee", hasCleaningMaintenance)}
         ${rentalEditCheck(id, "tables", "Tables", r.addonTables)}
         ${rentalEditCheck(id, "chairs", "Chairs", r.addonChairs)}
         ${rentalEditCheck(id, "tarp", "Tarp", r.addonTarp)}
         ${rentalEditCheck(id, "heater", "Heater", r.addonHeater)}
+        ${rentalEditCheck(id, "ac", "AC ($2/hr)", r.addonAc)}
         ${rentalEditCheck(id, "early-setup", "Early setup", r.addonEarlySetup)}
         ${rentalEditCheck(id, "early-day", "Extra day early", r.addonEarlyDayRental)}
         ${rentalEditCheck(id, "late-cleanup", "Late cleanup", r.addonLateCleanup)}
@@ -4226,6 +4232,7 @@ function rentalEditTotalValues(root, id) {
     addonChairs: Boolean(field("chairs")?.checked),
     addonTarp: Boolean(field("tarp")?.checked),
     addonHeater: Boolean(field("heater")?.checked),
+    addonAc: Boolean(field("ac")?.checked),
     addonEarlySetup: Boolean(field("early-setup")?.checked),
     addonEarlyDayRental: Boolean(field("early-day")?.checked),
     addonLateCleanup: Boolean(field("late-cleanup")?.checked),
@@ -4284,6 +4291,7 @@ function collectRentalEditPayload(id, root) {
     addon_chairs: Boolean(field("chairs")?.checked),
     addon_tarp: Boolean(field("tarp")?.checked),
     addon_heater: Boolean(field("heater")?.checked),
+    addon_ac: Boolean(field("ac")?.checked),
     addon_early_setup: Boolean(field("early-setup")?.checked),
     addon_early_day_rental: Boolean(field("early-day")?.checked),
     addon_late_cleanup: Boolean(field("late-cleanup")?.checked),
@@ -4300,7 +4308,8 @@ function applyRentalEditToCache(id, payload, updatedRequest) {
     rentalAllRequests[idx] = {
       ...rentalAllRequests[idx],
       ...updatedRequest,
-      addonCleaningMaintenance: payload.addon_cleaning_maintenance
+      addonCleaningMaintenance: payload.addon_cleaning_maintenance,
+      addonAc: payload.addon_ac
     };
     return;
   }
@@ -4329,6 +4338,7 @@ function applyRentalEditToCache(id, payload, updatedRequest) {
     addonChairs: payload.addon_chairs,
     addonTarp: payload.addon_tarp,
     addonHeater: payload.addon_heater,
+    addonAc: payload.addon_ac,
     addonEarlySetup: payload.addon_early_setup,
     addonEarlyDayRental: payload.addon_early_day_rental,
     addonLateCleanup: payload.addon_late_cleanup,
@@ -5116,11 +5126,12 @@ function renderCalendarView(root) {
               </label>
             </div>
             <div class="cal-rental-addon-grid">
-              <label><input id="calRentalCleaning" type="checkbox" /> Cleaning &amp; Maintenance</label>
+              <label><input id="calRentalCleaning" type="checkbox" /> Standard Maintenance Fee</label>
               <label><input id="calRentalTables" type="checkbox" /> Tables</label>
               <label><input id="calRentalChairs" type="checkbox" /> Chairs</label>
               <label><input id="calRentalTarp" type="checkbox" /> Tarp</label>
               <label><input id="calRentalHeater" type="checkbox" /> Heater</label>
+              <label><input id="calRentalAc" type="checkbox" /> AC ($2/hr)</label>
               <label><input id="calRentalEarlySetup" type="checkbox" /> Early setup</label>
               <label><input id="calRentalEarlyDay" type="checkbox" /> Extra day early</label>
               <label><input id="calRentalLateCleanup" type="checkbox" /> Late cleanup</label>
@@ -5653,6 +5664,7 @@ function calendarRentalTotalValues(root) {
     addonChairs: Boolean(root.querySelector("#calRentalChairs")?.checked),
     addonTarp: Boolean(root.querySelector("#calRentalTarp")?.checked),
     addonHeater: Boolean(root.querySelector("#calRentalHeater")?.checked),
+    addonAc: Boolean(root.querySelector("#calRentalAc")?.checked),
     addonEarlySetup: Boolean(root.querySelector("#calRentalEarlySetup")?.checked),
     addonEarlyDayRental: Boolean(root.querySelector("#calRentalEarlyDay")?.checked),
     addonLateCleanup: Boolean(root.querySelector("#calRentalLateCleanup")?.checked),
@@ -5698,6 +5710,7 @@ function resetCalendarRentalFields(root, title = "") {
     "calRentalChairs",
     "calRentalTarp",
     "calRentalHeater",
+    "calRentalAc",
     "calRentalEarlySetup",
     "calRentalEarlyDay",
     "calRentalLateCleanup",
@@ -5737,6 +5750,7 @@ function populateCalendarRentalFields(root, rental) {
     calRentalChairs: rental.addonChairs,
     calRentalTarp: rental.addonTarp,
     calRentalHeater: rental.addonHeater,
+    calRentalAc: rental.addonAc,
     calRentalEarlySetup: rental.addonEarlySetup,
     calRentalEarlyDay: rental.addonEarlyDayRental,
     calRentalLateCleanup: rental.addonLateCleanup,
@@ -5781,6 +5795,7 @@ function collectCalendarRentalPayload(root, defaults) {
     addon_chairs: Boolean(root.querySelector("#calRentalChairs")?.checked),
     addon_tarp: Boolean(root.querySelector("#calRentalTarp")?.checked),
     addon_heater: Boolean(root.querySelector("#calRentalHeater")?.checked),
+    addon_ac: Boolean(root.querySelector("#calRentalAc")?.checked),
     addon_early_setup: Boolean(root.querySelector("#calRentalEarlySetup")?.checked),
     addon_early_day_rental: Boolean(root.querySelector("#calRentalEarlyDay")?.checked),
     addon_late_cleanup: Boolean(root.querySelector("#calRentalLateCleanup")?.checked),
@@ -5846,11 +5861,12 @@ async function loadCalRentalInfo(root, rentalRequestId) {
     modal.dataset.rentalAccessEnd = normalizeTimeFieldValue(rental.eventEndTime || "");
 
     const addons = [
-      inferRentalCleaningMaintenance(rental) && "Cleaning & Maintenance",
+      inferRentalCleaningMaintenance(rental) && "Standard Maintenance Fee",
       rental.addonTables && "Tables",
       rental.addonChairs && "Chairs",
       rental.addonTarp && "Tarp",
       rental.addonHeater && "Heater",
+      rental.addonAc && "AC ($2/hr)",
       rental.addonEarlySetup && "Early Setup",
       rental.addonEarlyDayRental && "Extra Day (Early)",
       rental.addonLateCleanup && "Late Cleanup",

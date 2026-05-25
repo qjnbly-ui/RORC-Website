@@ -392,6 +392,7 @@ function buildRentalRecord(body) {
     addon_chairs: Boolean(body.addon_chairs ?? body.addonChairs),
     addon_tarp: Boolean(body.addon_tarp ?? body.addonTarp),
     addon_heater: Boolean(body.addon_heater ?? body.addonHeater),
+    addon_ac: Boolean(body.addon_ac ?? body.addonAc),
     addon_early_setup: Boolean(body.addon_early_setup ?? body.addonEarlySetup),
     addon_early_day_rental: Boolean(body.addon_early_day_rental ?? body.addonEarlyDayRental),
     addon_late_cleanup: Boolean(body.addon_late_cleanup ?? body.addonLateCleanup),
@@ -453,6 +454,7 @@ function buildRentalPatch(body) {
   if (body.addon_chairs !== undefined || body.addonChairs !== undefined) patch.addon_chairs = Boolean(body.addon_chairs ?? body.addonChairs);
   if (body.addon_tarp !== undefined || body.addonTarp !== undefined) patch.addon_tarp = Boolean(body.addon_tarp ?? body.addonTarp);
   if (body.addon_heater !== undefined || body.addonHeater !== undefined) patch.addon_heater = Boolean(body.addon_heater ?? body.addonHeater);
+  if (body.addon_ac !== undefined || body.addonAc !== undefined) patch.addon_ac = Boolean(body.addon_ac ?? body.addonAc);
   if (body.addon_early_setup !== undefined || body.addonEarlySetup !== undefined) patch.addon_early_setup = Boolean(body.addon_early_setup ?? body.addonEarlySetup);
   if (body.addon_early_day_rental !== undefined || body.addonEarlyDayRental !== undefined) patch.addon_early_day_rental = Boolean(body.addon_early_day_rental ?? body.addonEarlyDayRental);
   if (body.addon_late_cleanup !== undefined || body.addonLateCleanup !== undefined) patch.addon_late_cleanup = Boolean(body.addon_late_cleanup ?? body.addonLateCleanup);
@@ -538,6 +540,7 @@ function mapRow(row, linkedEvent = null) {
     addonChairs: row.addon_chairs,
     addonTarp: row.addon_tarp,
     addonHeater: row.addon_heater,
+    addonAc: row.addon_ac,
     addonEarlySetup: row.addon_early_setup,
     addonEarlyDayRental: row.addon_early_day_rental,
     addonLateCleanup: row.addon_late_cleanup,
