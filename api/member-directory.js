@@ -68,17 +68,52 @@ async function loadDirectoryRows() {
     const rows = await supabaseRest(
       `account_member_profiles?select=${DIRECTORY_PROFILE_COLUMNS}&order=account_number.asc.nullslast,member_name.asc.nullslast&limit=10000`
     );
-    return { rows: sortDirectoryRows(rows || []), warning: "" };
+    return { rows: sortDirectoryRows(await hydrateDirectoryMailingAddresses(rows || [])), warning: "" };
   } catch (viewError) {
     console.warn("Member directory profile view unavailable:", viewError?.message || viewError);
   }
 
   try {
     const rows = await loadDirectoryRowsFromBaseTables();
-    return { rows: sortDirectoryRows(rows), warning: "Loaded member directory from fallback tables." };
+    return { rows: sortDirectoryRows(await hydrateDirectoryMailingAddresses(rows)), warning: "Loaded member directory from fallback tables." };
   } catch (fallbackError) {
     console.error("Member directory fallback unavailable:", fallbackError?.message || fallbackError);
     return { rows: [], warning: "Member directory is temporarily unavailable." };
+  }
+}
+
+async function hydrateDirectoryMailingAddresses(rows) {
+  if (!Array.isArray(rows) || !rows.length) return rows || [];
+
+  try {
+    const contracts = await supabaseRest(
+      "signup_contracts?select=account_id,primary_member_id,contract_payload,created_at&order=created_at.desc&limit=10000"
+    );
+    const addressByAccountId = new Map();
+    const addressByMemberId = new Map();
+
+    (contracts || []).forEach((contract) => {
+      const address = String(contract?.contract_payload?.primary?.address || "").trim();
+      if (!address) return;
+      if (contract.primary_member_id && !addressByMemberId.has(contract.primary_member_id)) {
+        addressByMemberId.set(contract.primary_member_id, address);
+      }
+      if (contract.account_id && !addressByAccountId.has(contract.account_id)) {
+        addressByAccountId.set(contract.account_id, address);
+      }
+    });
+
+    return rows.map((row) => {
+      const memberId = row.account_member_id || row.id || "";
+      const accountId = row.account_id || "";
+      return {
+        ...row,
+        mailing_address: addressByMemberId.get(memberId) || addressByAccountId.get(accountId) || ""
+      };
+    });
+  } catch (error) {
+    console.warn("Member directory mailing addresses unavailable:", error?.message || error);
+    return rows.map((row) => ({ ...row, mailing_address: row.mailing_address || "" }));
   }
 }
 

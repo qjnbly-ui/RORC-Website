@@ -372,8 +372,16 @@ function buildSession(memberId) {
 }
 
 function findMember(memberId) {
-  return accountMembers.find((member) => member.id === memberId)
-    || globalMemberDirectory.find((member) => member.id === memberId);
+  const localMember = accountMembers.find((member) => member.id === memberId);
+  const directoryMember = globalMemberDirectory.find((member) => member.id === memberId);
+  if (localMember && directoryMember) {
+    return {
+      ...directoryMember,
+      ...localMember,
+      mailingAddress: localMember.mailingAddress || directoryMember.mailingAddress || ""
+    };
+  }
+  return localMember || directoryMember;
 }
 
 function accountForMember(member) {
@@ -5482,7 +5490,8 @@ function renderCalendarView(root) {
           <summary>Booking details</summary>
           <div class="cal-rental-fields">
             <label class="cal-field-label">Contact Name
-              <input id="calRentalContactName" class="rorc-input" type="text" placeholder="Name from call or form" />
+              <input id="calRentalContactName" class="rorc-input" type="text" placeholder="Start typing an active member name" autocomplete="off" />
+              <div id="calRentalContactSuggestions" class="cal-rental-contact-suggestions" hidden></div>
             </label>
             <div class="cal-field-row">
               <label class="cal-field-label">Phone
@@ -5630,6 +5639,7 @@ function bindCalendarEvents(root) {
     radio.addEventListener("change", () => syncRecurringVisibility(root));
   });
   root.querySelector("#calRentalType").addEventListener("change", () => setCalendarRentalHoursState(root));
+  bindCalendarRentalContactAutocomplete(root);
   [
     "calRentalType",
     "calRentalHours",
@@ -6180,6 +6190,104 @@ function populateCalendarRentalFields(root, rental) {
 
   setCalendarRentalHoursState(root);
   updateCalendarRentalTotal(root);
+}
+
+function bindCalendarRentalContactAutocomplete(root) {
+  const input = root.querySelector("#calRentalContactName");
+  const suggestions = root.querySelector("#calRentalContactSuggestions");
+  if (!input || !suggestions || input.dataset.autocompleteBound === "true") return;
+
+  const hideSuggestions = () => {
+    suggestions.hidden = true;
+    suggestions.innerHTML = "";
+  };
+
+  const renderSuggestions = () => {
+    const query = input.value.trim().toLowerCase();
+    if (!query) {
+      hideSuggestions();
+      return;
+    }
+
+    const matches = rentalContactAutocompleteMembers()
+      .filter((member) => member.memberName.toLowerCase().includes(query))
+      .slice(0, 10);
+
+    if (!matches.length) {
+      hideSuggestions();
+      return;
+    }
+
+    suggestions.innerHTML = matches.map((member) => `
+      <button class="cal-rental-contact-suggestion" type="button" data-rental-contact-member="${escapeAttribute(member.id)}">
+        ${escapeHtml(member.memberName)}
+      </button>
+    `).join("");
+    suggestions.hidden = false;
+  };
+
+  input.dataset.autocompleteBound = "true";
+  input.addEventListener("input", renderSuggestions);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      hideSuggestions();
+      return;
+    }
+    if (event.key === "Enter" && !suggestions.hidden) {
+      const first = suggestions.querySelector("[data-rental-contact-member]");
+      if (first) {
+        event.preventDefault();
+        applyCalendarRentalContactMember(root, first.getAttribute("data-rental-contact-member"));
+        hideSuggestions();
+      }
+    }
+  });
+
+  suggestions.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+  });
+  suggestions.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-rental-contact-member]");
+    if (!button) return;
+    applyCalendarRentalContactMember(root, button.getAttribute("data-rental-contact-member"));
+    hideSuggestions();
+  });
+  document.addEventListener("click", (event) => {
+    if (!input.contains(event.target) && !suggestions.contains(event.target)) {
+      hideSuggestions();
+    }
+  });
+}
+
+function rentalContactAutocompleteMembers() {
+  const seen = new Set();
+  const inactiveTypes = new Set(["Kiosk Account", "RESTRICTED ACCOUNT"]);
+  const source = globalMemberDirectory.length ? globalMemberDirectory : accountMembers;
+  return source
+    .filter((member) => {
+      if (!member?.id || seen.has(member.id)) return false;
+      seen.add(member.id);
+      if (!String(member.memberName || "").trim()) return false;
+      return !inactiveTypes.has(canonicalAccountType(member.accountType));
+    })
+    .sort(sortMembers);
+}
+
+function applyCalendarRentalContactMember(root, memberId) {
+  const member = findMember(memberId);
+  if (!member) return;
+
+  const values = {
+    calRentalContactName: member.memberName || "",
+    calRentalContactPhone: member.phoneNumber || "",
+    calRentalContactEmail: member.emailAddress || "",
+    calRentalContactAddress: member.mailingAddress || ""
+  };
+
+  Object.entries(values).forEach(([id, value]) => {
+    const field = root.querySelector(`#${id}`);
+    if (field) field.value = value;
+  });
 }
 
 function collectCalendarRentalPayload(root, defaults) {
@@ -7576,6 +7684,7 @@ async function loadGlobalMemberDirectory() {
     legacyAccountType: "",
     phoneNumber: row.phone_number || "",
     emailAddress: row.email_address || "",
+    mailingAddress: row.mailing_address || "",
     imagePath: "",
     allowGuestEntry: Boolean(row.allow_guest_entry),
     allowHeaterUse: Boolean(row.allow_heater_use),
@@ -7625,6 +7734,7 @@ function applyAccountProfileData(profiles = [], permissionsRows = []) {
     legacyAccountType: row.legacy_account_type || "",
     phoneNumber: row.phone_number || "",
     emailAddress: row.email_address || "",
+    mailingAddress: row.mailing_address || "",
     imagePath: row.image_path || "",
     allowGuestEntry: Boolean(row.allow_guest_entry),
     allowHeaterUse: Boolean(row.allow_heater_use),
