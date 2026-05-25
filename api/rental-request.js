@@ -97,11 +97,15 @@ function validate(body) {
   if (!str(body.eventDate) || isNaN(Date.parse(body.eventDate))) errors.push("A valid event date is required.");
   if (!str(body.eventStartTime)) errors.push("Event start time is required.");
   if (!str(body.eventEndTime)) errors.push("Event end time is required.");
+  const rentalAccessError = orderedTimePairError(body.eventStartTime, body.eventEndTime, "Rental access");
+  if (str(body.eventStartTime) && str(body.eventEndTime) && rentalAccessError) errors.push(rentalAccessError);
   const publicStart = str(body.publicEventStartTime);
   const publicEnd = str(body.publicEventEndTime);
   if ((publicStart && !publicEnd) || (!publicStart && publicEnd)) {
     errors.push("Public calendar start/end time must both be set, or both be blank.");
   }
+  const publicTimeError = orderedTimePairError(publicStart, publicEnd, "Public event");
+  if (publicStart && publicEnd && publicTimeError) errors.push(publicTimeError);
 
   const attendance = Number(body.estimatedAttendance);
   if (!Number.isInteger(attendance) || attendance < 1) errors.push("Estimated attendance must be at least 1.");
@@ -169,9 +173,19 @@ async function findConfirmedRentalConflict(record) {
   const requestEnd = parseTimeMinutes(record.event_end_time);
   if (!requestDate || requestStart === null || requestEnd === null || requestEnd <= requestStart) return null;
 
-  const rows = await supabaseRest(
-    "events?select=start_at,end_at,event_type,all_day,rental_requests(event_date,event_start_time,event_end_time,rental_type)&event_type=in.(rental,maintenance)&status=eq.confirmed&order=start_at.asc&limit=500"
-  );
+  const [eventRows, rentalRows] = await Promise.all([
+    supabaseRest(
+      "events?select=start_at,end_at,event_type,all_day,rental_requests(event_date,event_start_time,event_end_time,rental_type)&event_type=in.(rental,maintenance)&status=eq.confirmed&order=start_at.asc&limit=500"
+    ),
+    supabaseRest(
+      "rental_requests?select=event_date,event_start_time,event_end_time,rental_type&rental_status=eq.confirmed&order=event_date.asc&limit=500"
+    )
+  ]);
+  const rows = [...eventRows.filter(isStandaloneConflictEvent), ...rentalRows.map((rental) => ({
+    event_type: "rental",
+    all_day: false,
+    rental_requests: rental
+  }))];
 
   return (rows || []).find((row) => {
     const block = eventRentalBlock(row);
@@ -198,6 +212,10 @@ function eventRentalBlock(row) {
   return { date, start, end };
 }
 
+function isStandaloneConflictEvent(row) {
+  return String(row?.event_type || "") !== "rental" || !row?.rental_requests;
+}
+
 function parseTimeMinutes(value) {
   const match = String(value || "").match(/^(\d{1,2}):(\d{2})/);
   if (!match) return null;
@@ -205,6 +223,14 @@ function parseTimeMinutes(value) {
   const minute = Number(match[2]);
   if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
   return (hour * 60) + minute;
+}
+
+function orderedTimePairError(startValue, endValue, label) {
+  const start = parseTimeMinutes(startValue);
+  const end = parseTimeMinutes(endValue);
+  if (start === null || end === null) return `${label} start/end time must be valid.`;
+  if (end <= start) return `${label} end time must be after start time.`;
+  return "";
 }
 
 function rawDateKey(value) {

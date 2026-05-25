@@ -5108,6 +5108,18 @@ textarea:focus-visible,
 }
 .rental-btn-view-cal:hover { background: rgba(86,204,242,0.18); }
 
+.rental-btn-public {
+  background: rgba(86,204,242,0.1);
+  border-color: rgba(86,204,242,0.3);
+  color: #56ccf2;
+}
+
+.rental-btn-public.is-active {
+  background: rgba(111,207,151,0.18);
+  border-color: rgba(111,207,151,0.45);
+  color: #6fcf97;
+}
+
 /* ── Inline notes form ── */
 .rental-action-form {
   display: grid;
@@ -5138,6 +5150,24 @@ textarea:focus-visible,
 
 .rental-edit-field-wide {
   grid-column: 1 / -1;
+}
+
+.rental-edit-public-panel {
+  align-items: center;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 10px;
+}
+
+.rental-edit-public-help {
+  color: #8a97a8;
+  flex: 1;
+  font-size: 12.5px;
+  line-height: 1.35;
 }
 
 .rental-edit-input {
@@ -5300,6 +5330,11 @@ textarea:focus-visible,
 
   .rental-edit-grid {
     grid-template-columns: 1fr;
+  }
+
+  .rental-edit-public-panel {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .rental-btn {
@@ -5810,6 +5845,18 @@ textarea:focus-visible,
   background: var(--accent-pressed);
 }
 
+.rental-btn-public {
+  background: #242424;
+  border-color: #454545;
+  color: var(--text);
+}
+
+.rental-btn-public.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 .rental-btn-ghost,
 .rental-btn-cancel {
   background: #242424;
@@ -5841,6 +5888,16 @@ textarea:focus-visible,
   border-color: #333;
   border-radius: 4px;
   color: var(--text);
+}
+
+.rental-edit-public-panel {
+  background: #202020;
+  border-color: #333;
+  border-radius: 4px;
+}
+
+.rental-edit-public-help {
+  color: var(--muted);
 }
 
 .rental-edit-help {

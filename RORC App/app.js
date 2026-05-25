@@ -4012,10 +4012,28 @@ function showRentalEditForm(id, root) {
 
   actionsEl.innerHTML = buildRentalEditForm(rental);
   setRentalEditHoursState(root, id);
+  syncRentalEditPublicEventState(root, id);
   bindRentalEditCalculations(root, id);
 
   root.querySelector(`#rental-edit-type-${id}`)?.addEventListener("change", () => {
     setRentalEditHoursState(root, id);
+  });
+  root.querySelector(`#rental-edit-public-toggle-${id}`)?.addEventListener("click", () => {
+    const toggle = root.querySelector(`#rental-edit-public-toggle-${id}`);
+    if (!toggle) return;
+    const activate = toggle.dataset.publicActive !== "true";
+    toggle.dataset.publicActive = activate ? "true" : "false";
+    if (activate) {
+      const publicStart = root.querySelector(`#rental-edit-public-start-${id}`);
+      const publicEnd = root.querySelector(`#rental-edit-public-end-${id}`);
+      if (publicStart && !publicStart.value) {
+        publicStart.value = root.querySelector(`#rental-edit-start-${id}`)?.value || "";
+      }
+      if (publicEnd && !publicEnd.value) {
+        publicEnd.value = root.querySelector(`#rental-edit-end-${id}`)?.value || "";
+      }
+    }
+    syncRentalEditPublicEventState(root, id);
   });
   root.querySelector(`#rental-edit-cancel-${id}`)?.addEventListener("click", () => renderRentalPipeline(root));
   root.querySelector(`#rental-edit-save-${id}`)?.addEventListener("click", () => submitRentalEdit(id, root));
@@ -4041,6 +4059,10 @@ function buildRentalEditForm(r) {
     addonLateCleanup: r.addonLateCleanup,
     addonLateDayRental: r.addonLateDayRental
   }) / 100));
+  const hasLinkedCalendarEvent = Boolean(r.linkedCalendarEventId);
+  const publicEventActive = hasLinkedCalendarEvent
+    ? Boolean(r.calendarIsPublic)
+    : Boolean(r.calendarIsPublic || (r.publicEventStartTime && r.publicEventEndTime));
 
   return `
     <div class="rental-action-form rental-edit-form">
@@ -4062,6 +4084,10 @@ function buildRentalEditForm(r) {
         <label class="rental-edit-field">Rental Access End
           <input id="rental-edit-end-${id}" class="rental-edit-input" type="time" value="${escapeAttribute(rentalTimeInputValue(r.eventEndTime || "21:00"))}" />
         </label>
+        <div class="rental-edit-public-panel rental-edit-field-wide">
+          <button id="rental-edit-public-toggle-${id}" class="rental-btn rental-btn-public" type="button" data-public-active="${publicEventActive ? "true" : "false"}"></button>
+          <span id="rental-edit-public-help-${id}" class="rental-edit-public-help"></span>
+        </div>
         <label class="rental-edit-field">Public Event Start
           <input id="rental-edit-public-start-${id}" class="rental-edit-input" type="time" value="${escapeAttribute(rentalTimeInputValue(r.publicEventStartTime || ""))}" />
         </label>
@@ -4166,6 +4192,30 @@ function setRentalEditHoursState(root, id) {
   updateRentalEditTotal(root, id);
 }
 
+function syncRentalEditPublicEventState(root, id) {
+  const toggle = root.querySelector(`#rental-edit-public-toggle-${id}`);
+  const publicStart = root.querySelector(`#rental-edit-public-start-${id}`);
+  const publicEnd = root.querySelector(`#rental-edit-public-end-${id}`);
+  const help = root.querySelector(`#rental-edit-public-help-${id}`);
+  if (!toggle || !publicStart || !publicEnd) return;
+
+  const active = toggle.dataset.publicActive === "true";
+  toggle.classList.toggle("is-active", active);
+  toggle.textContent = active ? "Public Event On" : "+ Add Public Event";
+  toggle.setAttribute("aria-pressed", active ? "true" : "false");
+  publicStart.disabled = !active;
+  publicEnd.disabled = !active;
+  if (!active) {
+    publicStart.value = "";
+    publicEnd.value = "";
+  }
+  if (help) {
+    help.textContent = active
+      ? "This rental will show on the website calendar using the public event time below."
+      : "Keep private, or add a public event time for the website calendar.";
+  }
+}
+
 function rentalEditTotalValues(root, id) {
   const field = (name) => root.querySelector(`#rental-edit-${name}-${id}`);
   return {
@@ -4207,6 +4257,7 @@ function collectRentalEditPayload(id, root) {
   const field = (name) => root.querySelector(`#rental-edit-${name}-${id}`);
   const rentalType = field("type")?.value === "hourly" ? "hourly" : "all_day";
   const hours = Math.min(9, Math.max(1, Number(field("hours")?.value || 1) || 1));
+  const calendarIsPublic = root.querySelector(`#rental-edit-public-toggle-${id}`)?.dataset.publicActive === "true";
   const publicStart = normalizeTimeFieldValue(field("public-start")?.value || "");
   const publicEnd = normalizeTimeFieldValue(field("public-end")?.value || "");
 
@@ -4216,8 +4267,9 @@ function collectRentalEditPayload(id, root) {
     event_date: field("date")?.value || "",
     event_start_time: field("start")?.value || "07:00",
     event_end_time: field("end")?.value || "21:00",
-    public_event_start_time: publicStart || null,
-    public_event_end_time: publicEnd || null,
+    public_event_start_time: calendarIsPublic ? (publicStart || null) : null,
+    public_event_end_time: calendarIsPublic ? (publicEnd || null) : null,
+    calendar_is_public: calendarIsPublic,
     contact_name: field("contact-name")?.value.trim() || "",
     contact_phone: field("phone")?.value.trim() || "",
     contact_email: field("email")?.value.trim() || "",
@@ -4262,6 +4314,7 @@ function applyRentalEditToCache(id, payload, updatedRequest) {
     eventEndTime: payload.event_end_time,
     publicEventStartTime: payload.public_event_start_time,
     publicEventEndTime: payload.public_event_end_time,
+    calendarIsPublic: payload.calendar_is_public,
     contactName: payload.contact_name,
     contactPhone: payload.contact_phone,
     contactEmail: payload.contact_email,
@@ -4299,9 +4352,27 @@ async function submitRentalEdit(id, root) {
     if (errEl) { errEl.textContent = "Date is required."; errEl.hidden = false; }
     return;
   }
+  const rentalStartMinutes = minutesFromTimeValue(normalizeTimeFieldValue(payload.event_start_time));
+  const rentalEndMinutes = minutesFromTimeValue(normalizeTimeFieldValue(payload.event_end_time));
+  if (rentalStartMinutes === null || rentalEndMinutes === null || rentalEndMinutes <= rentalStartMinutes) {
+    if (errEl) { errEl.textContent = "Rental access end must be after rental access start."; errEl.hidden = false; }
+    return;
+  }
+  if (payload.calendar_is_public && (!payload.public_event_start_time || !payload.public_event_end_time)) {
+    if (errEl) { errEl.textContent = "Public event start/end are required when Public Event is on."; errEl.hidden = false; }
+    return;
+  }
   if (Boolean(payload.public_event_start_time) !== Boolean(payload.public_event_end_time)) {
     if (errEl) { errEl.textContent = "Public event start/end must both be filled or both be blank."; errEl.hidden = false; }
     return;
+  }
+  if (payload.public_event_start_time && payload.public_event_end_time) {
+    const publicStartMinutes = minutesFromTimeValue(payload.public_event_start_time);
+    const publicEndMinutes = minutesFromTimeValue(payload.public_event_end_time);
+    if (publicStartMinutes === null || publicEndMinutes === null || publicEndMinutes <= publicStartMinutes) {
+      if (errEl) { errEl.textContent = "Public event end must be after public event start."; errEl.hidden = false; }
+      return;
+    }
   }
 
   try {
@@ -4609,7 +4680,7 @@ let facilityHours = { ...DEFAULT_FACILITY_HOURS };
 let facilityHourOverrides = {};
 
 function normalizeHourValue(raw, fallback) {
-  const match = String(raw || "").match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  const match = String(raw || "").match(/^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/);
   return match ? `${match[1]}:${match[2]}` : fallback;
 }
 
@@ -5300,6 +5371,8 @@ function openCalendarModal(root, event, prefillDate) {
   modal.dataset.originalAllDay = event ? String(Boolean(event.allDay)) : "false";
   modal.dataset.rentalPublicStart = "";
   modal.dataset.rentalPublicEnd = "";
+  modal.dataset.rentalAccessStart = "";
+  modal.dataset.rentalAccessEnd = "";
 
   titleEl.textContent = event ? "Edit Event" : "New Event";
   deleteBtn.hidden    = !event;
@@ -5645,8 +5718,8 @@ function populateCalendarRentalFields(root, rental) {
     calRentalHours: rental.rentalHours || "",
     calRentalFood: rental.foodOrDrinks ? "true" : "false",
     calRentalAlcohol: rental.alcohol === "Yes" ? "Yes" : "No",
-    calRentalPublicStart: rental.eventStartTime || "",
-    calRentalPublicEnd: rental.eventEndTime || "",
+    calRentalPublicStart: normalizeTimeFieldValue(rental.eventStartTime || ""),
+    calRentalPublicEnd: normalizeTimeFieldValue(rental.eventEndTime || ""),
     calRentalAdminNotes: rental.adminNotes || ""
   };
 
@@ -5683,7 +5756,9 @@ function collectCalendarRentalPayload(root, defaults) {
   const rentalAccessEnd = normalizeTimeFieldValue(root.querySelector("#calRentalPublicEnd")?.value || "")
     || (defaults.allDay ? "21:00" : (defaults.end || "21:00"));
   const publicWindow = rentalPublicWindowPatch(defaults);
-  return {
+  const rentalAccessChanged = String(defaults.rentalAccessStart || "") !== rentalAccessStart
+    || String(defaults.rentalAccessEnd || "") !== rentalAccessEnd;
+  const payload = {
     title: defaults.title,
     contact_name: root.querySelector("#calRentalContactName")?.value.trim() || defaults.title || "Admin Booking",
     contact_phone: root.querySelector("#calRentalContactPhone")?.value.trim() || "",
@@ -5692,8 +5767,6 @@ function collectCalendarRentalPayload(root, defaults) {
     event_name: defaults.title,
     event_type: root.querySelector("#calRentalEventType")?.value || "Other",
     event_date: defaults.date,
-    event_start_time: rentalAccessStart,
-    event_end_time: rentalAccessEnd,
     ...publicWindow,
     estimated_attendance: Math.max(1, Number(root.querySelector("#calRentalAttendance")?.value || 1) || 1),
     food_or_drinks: root.querySelector("#calRentalFood")?.value === "true",
@@ -5713,6 +5786,11 @@ function collectCalendarRentalPayload(root, defaults) {
     adminNotes: root.querySelector("#calRentalAdminNotes")?.value.trim() || null,
     rental_status: "confirmed"
   };
+  if (!defaults.existingRentalId || rentalAccessChanged) {
+    payload.event_start_time = rentalAccessStart;
+    payload.event_end_time = rentalAccessEnd;
+  }
+  return payload;
 }
 
 function collectCalendarRentalSchedulePayload(defaults) {
@@ -5761,6 +5839,8 @@ async function loadCalRentalInfo(root, rentalRequestId) {
     modal.dataset.rentalLoaded = "true";
     modal.dataset.rentalPublicStart = rental.publicEventStartTime || "";
     modal.dataset.rentalPublicEnd = rental.publicEventEndTime || "";
+    modal.dataset.rentalAccessStart = normalizeTimeFieldValue(rental.eventStartTime || "");
+    modal.dataset.rentalAccessEnd = normalizeTimeFieldValue(rental.eventEndTime || "");
 
     const addons = [
       inferRentalCleaningMaintenance(rental) && "Cleaning & Maintenance",
@@ -5878,7 +5958,9 @@ async function saveCalendarEvent(root) {
         originalEnd: modal.dataset.originalEnd || "",
         originalAllDay: modal.dataset.originalAllDay === "true",
         rentalPublicStart: modal.dataset.rentalPublicStart || "",
-        rentalPublicEnd: modal.dataset.rentalPublicEnd || ""
+        rentalPublicEnd: modal.dataset.rentalPublicEnd || "",
+        rentalAccessStart: modal.dataset.rentalAccessStart || "",
+        rentalAccessEnd: modal.dataset.rentalAccessEnd || ""
       };
       const rentalPayload = existingRentalId && modal.dataset.rentalLoaded !== "true"
         ? collectCalendarRentalSchedulePayload(rentalDefaults)

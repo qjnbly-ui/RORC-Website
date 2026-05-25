@@ -6,6 +6,8 @@ const DB_EVENT_TYPES = ["rental", "maintenance", "open_gym", "private_event", "p
 const VALID_STATUSES = ["confirmed", "cancelled"];
 const RENTAL_BLOCKING_TYPES = ["rental", "maintenance"];
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
+const DEFAULT_FACILITY_START = "07:00";
+const DEFAULT_FACILITY_END = "21:00";
 
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -25,8 +27,16 @@ module.exports = async (req, res) => {
 
       if (bookedOnly) {
         // Return full-day blocks plus partial time blocks for public rental availability.
+        // Rental requests are the authority for rental access time; events are only the calendar mirror.
         path = `events?select=start_at,end_at,event_type,all_day,rental_requests(event_date,event_start_time,event_end_time,rental_type)&event_type=in.(${RENTAL_BLOCKING_TYPES.join(",")})&status=eq.confirmed&order=start_at.asc`;
-        const rows = await supabaseRest(path);
+        const [eventRows, rentalRows] = await Promise.all([
+          supabaseRest(path),
+          loadConfirmedRentalRows()
+        ]);
+        const rows = [
+          ...eventRows.filter(isStandaloneAvailabilityEvent),
+          ...rentalRows.map(rentalRowToAvailabilityRow)
+        ];
         const availability = collectRentalAvailabilityBlocks(rows);
         return res.status(200).json({ success: true, dates: availability.dates, blocks: availability.blocks });
       }
@@ -94,20 +104,28 @@ module.exports = async (req, res) => {
     const { id, ...fields } = req.body || {};
     if (!id) return res.status(400).json({ success: false, error: "Missing event ID" });
 
-    const patch = {};
-    if (fields.title       !== undefined) patch.title       = String(fields.title || "").trim().slice(0, 200);
-    if (fields.description !== undefined) patch.description = String(fields.description || "").trim() || null;
-    if (fields.event_type  !== undefined) patch.event_type = canonicalDbEventType(fields.event_type);
-    if (fields.start_at    !== undefined) patch.start_at    = fields.start_at;
-    if (fields.end_at      !== undefined) patch.end_at      = fields.end_at;
-    if (fields.all_day     !== undefined) patch.all_day     = Boolean(fields.all_day);
-    if (fields.is_public   !== undefined) patch.is_public   = Boolean(fields.is_public);
-    if (fields.status      !== undefined && VALID_STATUSES.includes(fields.status)) patch.status = fields.status;
-    if (fields.rental_request_id !== undefined) patch.rental_request_id = fields.rental_request_id || null;
-    if (fields.created_by  !== undefined) patch.created_by  = String(fields.created_by || "admin").trim();
-    patch.updated_at = new Date().toISOString();
-
     try {
+      const existingRows = await supabaseRest(
+        `events?select=id,event_type,rental_request_id&id=eq.${encodeURIComponent(id)}&limit=1`
+      );
+      const existingEvent = existingRows[0] || null;
+      const isLinkedRentalEvent = Boolean(existingEvent?.rental_request_id);
+
+      const patch = {};
+      if (fields.title       !== undefined) patch.title       = String(fields.title || "").trim().slice(0, 200);
+      if (fields.description !== undefined) patch.description = String(fields.description || "").trim() || null;
+      if (fields.event_type  !== undefined) patch.event_type = isLinkedRentalEvent ? "rental" : canonicalDbEventType(fields.event_type);
+      if (!isLinkedRentalEvent && fields.start_at !== undefined) patch.start_at = fields.start_at;
+      if (!isLinkedRentalEvent && fields.end_at   !== undefined) patch.end_at   = fields.end_at;
+      if (!isLinkedRentalEvent && fields.all_day  !== undefined) patch.all_day  = Boolean(fields.all_day);
+      if (fields.is_public   !== undefined) patch.is_public   = Boolean(fields.is_public);
+      if (fields.status      !== undefined && VALID_STATUSES.includes(fields.status)) patch.status = fields.status;
+      if (fields.rental_request_id !== undefined) {
+        patch.rental_request_id = isLinkedRentalEvent ? existingEvent.rental_request_id : fields.rental_request_id || null;
+      }
+      if (fields.created_by  !== undefined) patch.created_by  = String(fields.created_by || "admin").trim();
+      patch.updated_at = new Date().toISOString();
+
       const patchRes = await fetch(
         `${SUPABASE_URL}/rest/v1/events?id=eq.${encodeURIComponent(id)}`,
         {
@@ -266,14 +284,11 @@ function collectRentalAvailabilityBlocks(rows) {
     const rentalDate = String(rentalTiming?.event_date || "").slice(0, 10);
     const rentalStart = normalizeHourValue(rentalTiming?.event_start_time, "");
     const rentalEnd = normalizeHourValue(rentalTiming?.event_end_time, "");
-    const isFullDayRental = normalizeEventType(row.event_type) === "rental" && rentalTiming?.rental_type !== "hourly";
-
-    if (rentalDate && isFullDayRental) {
-      blockedDates.add(rentalDate);
-      return;
-    }
 
     if (rentalDate && rentalStart && rentalEnd) {
+      if (coversDefaultFacilityDay(rentalStart, rentalEnd)) {
+        blockedDates.add(rentalDate);
+      }
       partialBlocks.push({ date: rentalDate, start: rentalStart, end: rentalEnd, eventType: normalizeEventType(row.event_type) });
       return;
     }
@@ -406,10 +421,17 @@ async function loadCalendarSettings() {
 }
 
 async function loadFacilityBlocks() {
-  const rows = await supabaseRest(
-    `events?select=start_at,end_at,event_type,all_day,rental_requests(event_date,event_start_time,event_end_time,rental_type)&event_type=in.(${RENTAL_BLOCKING_TYPES.join(",")})&status=eq.confirmed&order=start_at.asc&limit=500`
-  );
-  return (rows || []).map((row) => {
+  const [eventRows, rentalRows] = await Promise.all([
+    supabaseRest(
+      `events?select=start_at,end_at,event_type,all_day,rental_requests(event_date,event_start_time,event_end_time,rental_type)&event_type=in.(${RENTAL_BLOCKING_TYPES.join(",")})&status=eq.confirmed&order=start_at.asc&limit=500`
+    ),
+    loadConfirmedRentalRows()
+  ]);
+  const rows = [
+    ...eventRows.filter(isStandaloneAvailabilityEvent),
+    ...rentalRows.map(rentalRowToAvailabilityRow)
+  ];
+  return rows.map((row) => {
     const rentalTiming = row.rental_requests || null;
     return {
       startAt: buildLocalDateTime(rentalTiming?.event_date, rentalTiming?.event_start_time) || row.start_at,
@@ -420,6 +442,24 @@ async function loadFacilityBlocks() {
   });
 }
 
+async function loadConfirmedRentalRows() {
+  return supabaseRest(
+    "rental_requests?select=event_date,event_start_time,event_end_time,rental_type&rental_status=eq.confirmed&order=event_date.asc&limit=500"
+  );
+}
+
+function rentalRowToAvailabilityRow(row) {
+  return {
+    event_type: "rental",
+    all_day: false,
+    rental_requests: row
+  };
+}
+
+function isStandaloneAvailabilityEvent(row) {
+  return normalizeEventType(row?.event_type) !== "rental" || !row?.rental_requests;
+}
+
 function buildLocalDateTime(dateValue, timeValue) {
   const date = String(dateValue || "").slice(0, 10);
   const time = normalizeHourValue(timeValue, "");
@@ -427,8 +467,23 @@ function buildLocalDateTime(dateValue, timeValue) {
 }
 
 function normalizeHourValue(raw, fallback) {
-  const match = String(raw || "").match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  const match = String(raw || "").match(/^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/);
   return match ? `${match[1]}:${match[2]}` : fallback;
+}
+
+function hourMinutes(value) {
+  const match = String(value || "").match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+  if (!match) return null;
+  return (Number(match[1]) * 60) + Number(match[2]);
+}
+
+function coversDefaultFacilityDay(start, end) {
+  const startMinutes = hourMinutes(start);
+  const endMinutes = hourMinutes(end);
+  const defaultStart = hourMinutes(DEFAULT_FACILITY_START);
+  const defaultEnd = hourMinutes(DEFAULT_FACILITY_END);
+  if ([startMinutes, endMinutes, defaultStart, defaultEnd].some((value) => value === null)) return false;
+  return startMinutes <= defaultStart && endMinutes >= defaultEnd;
 }
 
 function normalizeFacilityHourOverrides(raw) {

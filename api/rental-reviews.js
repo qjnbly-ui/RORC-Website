@@ -32,7 +32,11 @@ module.exports = async (req, res) => {
       const rows = await supabaseRest(
         "rental_requests?select=*&order=event_date.asc&order=created_at.asc&limit=200"
       );
-      return res.status(200).json({ success: true, requests: rows.map(mapRow) });
+      const linkedEvents = await loadLinkedCalendarEventMap(rows.map((row) => row.id));
+      return res.status(200).json({
+        success: true,
+        requests: rows.map((row) => mapRow(row, linkedEvents.get(row.id)))
+      });
     } catch (err) {
       console.error("rental-reviews GET error:", err);
       return res.status(500).json({ success: false, error: "Could not load rental requests" });
@@ -48,6 +52,18 @@ module.exports = async (req, res) => {
     const publicEnd = str(req.body?.public_event_end_time || req.body?.publicEventEndTime);
     if (Boolean(publicStart) !== Boolean(publicEnd)) {
       return res.status(400).json({ success: false, error: "public event start/end must both be set or both be blank" });
+    }
+    const rentalTimeError = orderedTimePairError(
+      req.body?.event_start_time || req.body?.eventStartTime || "07:00",
+      req.body?.event_end_time || req.body?.eventEndTime || "21:00",
+      "rental access"
+    );
+    if (rentalTimeError) {
+      return res.status(400).json({ success: false, error: rentalTimeError });
+    }
+    const publicTimeError = publicStart && publicEnd ? orderedTimePairError(publicStart, publicEnd, "public event") : "";
+    if (publicTimeError) {
+      return res.status(400).json({ success: false, error: publicTimeError });
     }
     try {
       const insertRes = await fetch(`${SUPABASE_URL}/rest/v1/rental_requests`, {
@@ -85,12 +101,32 @@ module.exports = async (req, res) => {
     const patchPublicEndProvided = hasBodyField(req.body, "public_event_end_time") || hasBodyField(req.body, "publicEventEndTime");
     const patchPublicStart = bodyFieldValue(req.body, "public_event_start_time", "publicEventStartTime");
     const patchPublicEnd = bodyFieldValue(req.body, "public_event_end_time", "publicEventEndTime");
+    const patchRentalStartProvided = hasBodyField(req.body, "event_start_time") || hasBodyField(req.body, "eventStartTime");
+    const patchRentalEndProvided = hasBodyField(req.body, "event_end_time") || hasBodyField(req.body, "eventEndTime");
+    const patchRentalStart = bodyFieldValue(req.body, "event_start_time", "eventStartTime");
+    const patchRentalEnd = bodyFieldValue(req.body, "event_end_time", "eventEndTime");
+    if (patchRentalStartProvided || patchRentalEndProvided) {
+      if (!patchRentalStartProvided || !patchRentalEndProvided) {
+        return res.status(400).json({ success: false, error: "rental access start/end must both be set" });
+      }
+      const rentalTimeError = orderedTimePairError(patchRentalStart, patchRentalEnd, "rental access");
+      if (rentalTimeError) {
+        return res.status(400).json({ success: false, error: rentalTimeError });
+      }
+    }
     if ((patchPublicStartProvided || patchPublicEndProvided)
       && Boolean(str(patchPublicStart)) !== Boolean(str(patchPublicEnd))) {
       return res.status(400).json({ success: false, error: "public event start/end must both be set or both be blank" });
     }
+    const publicTimeError = str(patchPublicStart) && str(patchPublicEnd)
+      ? orderedTimePairError(patchPublicStart, patchPublicEnd, "public event")
+      : "";
+    if (publicTimeError) {
+      return res.status(400).json({ success: false, error: publicTimeError });
+    }
 
     try {
+      const calendarPublicOverride = calendarPublicOverrideFromBody(req.body || {});
       const patchBody = buildRentalPatch(req.body || {});
       const patchRes = await fetch(
         `${SUPABASE_URL}/rest/v1/rental_requests?id=eq.${encodeURIComponent(id)}`,
@@ -115,12 +151,15 @@ module.exports = async (req, res) => {
       const record = rows[0];
 
       const automationWarnings = record
-        ? await runRentalReviewAutomations(record, status, adminNotes)
+        ? await runRentalReviewAutomations(record, status, adminNotes, { calendarPublicOverride })
         : [];
+      const linkedEvents = record
+        ? await loadLinkedCalendarEventMap([record.id])
+        : new Map();
 
       return res.status(200).json({
         success: true,
-        request: record ? mapRow(record) : null,
+        request: record ? mapRow(record, linkedEvents.get(record.id)) : null,
         automationWarnings
       });
     } catch (err) {
@@ -181,7 +220,7 @@ module.exports = async (req, res) => {
   return res.status(405).json({ success: false, error: "Method not allowed" });
 };
 
-async function createOrUpdateCalendarEvent(record) {
+async function createOrUpdateCalendarEvent(record, options = {}) {
   const dateStr = record.event_date; // "YYYY-MM-DD"
   const rentalStartTime = record.event_start_time || "07:00";
   const rentalEndTime   = record.event_end_time   || "21:00";
@@ -202,6 +241,7 @@ async function createOrUpdateCalendarEvent(record) {
   );
   const existingEvent = existingRows[0] || null;
   const existingId = existingEvent?.id;
+  const calendarPublicOverride = options.calendarPublicOverride || {};
 
   const payload = {
     title,
@@ -209,7 +249,9 @@ async function createOrUpdateCalendarEvent(record) {
     start_at: startAt,
     end_at:   endAt,
     all_day:  renderAsAllDay,
-    is_public: existingEvent ? Boolean(existingEvent.is_public) : false,
+    is_public: calendarPublicOverride.provided
+      ? Boolean(calendarPublicOverride.value)
+      : existingEvent ? Boolean(existingEvent.is_public) : usePublicWindow,
     status: "confirmed",
     rental_request_id: record.id,
     created_by: existingEvent?.created_by || "system"
@@ -261,11 +303,11 @@ async function syncLinkedCalendarEventStatus(rentalRequestId, eventStatus) {
   }
 }
 
-async function runRentalReviewAutomations(record, requestedStatus, adminNotes) {
+async function runRentalReviewAutomations(record, requestedStatus, adminNotes, options = {}) {
   const warnings = [];
 
   if (requestedStatus === "confirmed") {
-    const calendarWarning = await runAutomation("Calendar event creation", () => createOrUpdateCalendarEvent(record));
+    const calendarWarning = await runAutomation("Calendar event creation", () => createOrUpdateCalendarEvent(record, options));
     if (calendarWarning) warnings.push(calendarWarning);
 
     const emailWarning = await runAutomation("Rental applicant email", () => sendApplicantEmail(record, requestedStatus, adminNotes));
@@ -277,7 +319,7 @@ async function runRentalReviewAutomations(record, requestedStatus, adminNotes) {
     const emailWarning = await runAutomation("Rental applicant email", () => sendApplicantEmail(record, requestedStatus, adminNotes));
     if (emailWarning) warnings.push(emailWarning);
   } else if (record.rental_status === "confirmed") {
-    const calendarWarning = await runAutomation("Linked calendar event update", () => createOrUpdateCalendarEvent(record));
+    const calendarWarning = await runAutomation("Linked calendar event update", () => createOrUpdateCalendarEvent(record, options));
     if (calendarWarning) warnings.push(calendarWarning);
   }
 
@@ -440,6 +482,23 @@ function str(value) {
   return String(value || "").trim();
 }
 
+function parseTimeMinutes(value) {
+  const match = String(value || "").match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  return (hour * 60) + minute;
+}
+
+function orderedTimePairError(startValue, endValue, label) {
+  const start = parseTimeMinutes(startValue);
+  const end = parseTimeMinutes(endValue);
+  if (start === null || end === null) return `${label} start/end time must be valid`;
+  if (end <= start) return `${label} end time must be after start time`;
+  return "";
+}
+
 function hasBodyField(body, key) {
   return Object.prototype.hasOwnProperty.call(body || {}, key);
 }
@@ -450,7 +509,15 @@ function bodyFieldValue(body, snakeKey, camelKey) {
   return undefined;
 }
 
-function mapRow(row) {
+function calendarPublicOverrideFromBody(body) {
+  const provided = hasBodyField(body, "calendar_is_public") || hasBodyField(body, "calendarIsPublic");
+  return {
+    provided,
+    value: provided ? Boolean(bodyFieldValue(body, "calendar_is_public", "calendarIsPublic")) : undefined
+  };
+}
+
+function mapRow(row, linkedEvent = null) {
   return {
     id: row.id,
     eventName: row.event_name,
@@ -480,6 +547,8 @@ function mapRow(row) {
     rentalHours: row.rental_hours,
     rentalStatus: row.rental_status,
     adminNotes: row.admin_notes,
+    linkedCalendarEventId: linkedEvent?.id || null,
+    calendarIsPublic: Boolean(linkedEvent?.is_public),
     reviewedAt: row.reviewed_at,
     createdAt: row.created_at
   };
@@ -521,6 +590,22 @@ async function supabaseRest(path) {
     throw new Error(`REST request failed: ${response.status} ${text}`);
   }
   return response.json();
+}
+
+async function loadLinkedCalendarEventMap(rentalIds = []) {
+  const ids = [...new Set((rentalIds || []).filter(Boolean).map(String))];
+  if (!ids.length) return new Map();
+
+  const rows = await supabaseRest(
+    `events?select=id,rental_request_id,is_public,status&rental_request_id=in.(${ids.map(encodeURIComponent).join(",")})&status=neq.cancelled`
+  );
+  const byRentalId = new Map();
+  (rows || []).forEach((event) => {
+    if (event.rental_request_id && !byRentalId.has(event.rental_request_id)) {
+      byRentalId.set(event.rental_request_id, event);
+    }
+  });
+  return byRentalId;
 }
 
 async function sendApplicantEmail(record, status, adminNotes) {

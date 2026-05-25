@@ -1572,7 +1572,7 @@
     }
 
     function homeCalNormalizeHour(raw, fallback) {
-      const match = String(raw || "").match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+      const match = String(raw || "").match(/^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/);
       return match ? `${match[1]}:${match[2]}` : fallback;
     }
 
@@ -1600,7 +1600,7 @@
     }
 
     function homeCalMinutesFromTime(timeValue) {
-      const match = String(timeValue || "").match(/^([01]\d|2[0-3]):([0-5]\d)$/);
+      const match = String(timeValue || "").match(/^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/);
       return match ? (Number(match[1]) * 60) + Number(match[2]) : null;
     }
 
