@@ -153,6 +153,12 @@
       gap: 10px;
       margin-top: 16px;
     }
+    .rental-availability-time-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin: 0 0 16px;
+    }
     .rental-slot-btn {
       background: rgba(231, 210, 160, 0.09);
       border: 1px solid rgba(231, 210, 160, 0.3);
@@ -195,6 +201,9 @@
       }
       .rental-slot-btn {
         width: 100%;
+      }
+      .rental-availability-time-grid {
+        grid-template-columns: 1fr;
       }
     }
   </style>
@@ -344,15 +353,7 @@
                     <span>Event Date</span>
                     <input class="rental-input" type="date" name="eventDate" required />
                   </label>
-                  <label class="rental-label">
-                    <span>Rental Access Start Time</span>
-                    <input class="rental-input" type="time" name="eventStartTime" required />
-                  </label>
-                  <label class="rental-label">
-                    <span>Rental Access End Time</span>
-                    <input class="rental-input" type="time" name="eventEndTime" required />
-                  </label>
-                  <div class="rental-availability-panel" id="rental-availability-panel" aria-live="polite">
+                  <div class="rental-availability-panel" id="rental-availability-panel" aria-live="polite" hidden>
                     <div class="rental-availability-top">
                       <div>
                         <span class="rental-availability-kicker">Live Availability</span>
@@ -360,6 +361,16 @@
                         <p class="rental-availability-copy" id="rental-availability-copy">After you pick a date, available rental windows will appear here. Booked time is blocked before you submit.</p>
                       </div>
                       <span class="rental-availability-status" id="rental-availability-status">Waiting</span>
+                    </div>
+                    <div class="rental-availability-time-grid">
+                      <label class="rental-label">
+                        <span>Rental Access Start Time</span>
+                        <input class="rental-input" type="time" name="eventStartTime" required />
+                      </label>
+                      <label class="rental-label">
+                        <span>Rental Access End Time</span>
+                        <input class="rental-input" type="time" name="eventEndTime" required />
+                      </label>
                     </div>
                     <div class="rental-availability-bar" id="rental-availability-bar" aria-hidden="true"></div>
                     <div class="rental-availability-timescale" id="rental-availability-timescale"></div>
@@ -715,6 +726,7 @@
       const availabilitySlots = document.getElementById("rental-availability-slots");
       const availabilityBusy = document.getElementById("rental-availability-busy");
       const availabilityWarning = document.getElementById("rental-availability-warning");
+      const availabilityPanel = document.getElementById("rental-availability-panel");
       let manualAllDayOverride = false;
 
       function getRentalType() {
@@ -745,7 +757,10 @@
       function syncTypeCards() {
         form.querySelectorAll(".rental-type-card").forEach(function (card) {
           const radio = card.querySelector("input[type=radio]");
-          if (radio) card.classList.toggle("is-checked", radio.checked);
+          if (!radio) return;
+          const hasRange = Boolean(getSelectedTimeRange());
+          card.hidden = hasRange && !radio.checked;
+          card.classList.toggle("is-checked", radio.checked);
         });
       }
 
@@ -949,6 +964,7 @@
 
         availabilityStatus.className = "rental-availability-status";
         if (!dateIso) {
+          if (availabilityPanel) availabilityPanel.hidden = true;
           startTimeInput.removeAttribute("min");
           startTimeInput.removeAttribute("max");
           endTimeInput.removeAttribute("min");
@@ -961,9 +977,11 @@
           availabilitySlots.innerHTML = "";
           availabilityBusy.innerHTML = "";
           availabilityWarning.hidden = true;
+          syncTypeCards();
           return;
         }
 
+        if (availabilityPanel) availabilityPanel.hidden = false;
         renderAvailabilityBar(info, selection);
         startTimeInput.min = timeValueFromMinutes(info.start);
         startTimeInput.max = timeValueFromMinutes(info.end);
@@ -1003,6 +1021,7 @@
         } else {
           availabilityWarning.hidden = true;
         }
+        syncTypeCards();
       }
 
       function getSelectedTimeRange() {
