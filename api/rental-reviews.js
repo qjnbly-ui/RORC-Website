@@ -7,6 +7,12 @@ const { buildRentalApplicantEmail } = require("./_communication-templates");
 const VALID_STATUSES = ["submitted", "pending_review", "confirmed", "rejected", "canceled"];
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
 
+function normalizeRentalHours(value, fallback = 1) {
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0) return fallback;
+  return Math.min(9, Math.max(0.01, Math.round(hours * 100) / 100));
+}
+
 module.exports = async (req, res) => {
   if (!SERVICE_ROLE_KEY) {
     return res.status(500).json({ success: false, error: "Server configuration error" });
@@ -400,7 +406,7 @@ function buildRentalRecord(body) {
     estimated_total_cents: Math.max(0, Number(body.estimated_total_cents ?? body.estimatedTotalCents ?? 0) || 0),
     rental_type: str(body.rental_type || body.rentalType) === "hourly" ? "hourly" : "all_day",
     rental_hours: str(body.rental_type || body.rentalType) === "hourly"
-      ? Math.min(9, Math.max(1, Number(body.rental_hours ?? body.rentalHours ?? 1) || 1))
+      ? normalizeRentalHours(body.rental_hours ?? body.rentalHours ?? 1)
       : null,
     agreed_to_no_guarantee: true,
     agreed_to_guidelines: true,
@@ -466,10 +472,10 @@ function buildRentalPatch(body) {
   if (body.rental_type !== undefined || body.rentalType !== undefined) {
     patch.rental_type = str(body.rental_type || body.rentalType) === "hourly" ? "hourly" : "all_day";
     patch.rental_hours = patch.rental_type === "hourly"
-      ? Math.min(9, Math.max(1, Number(body.rental_hours ?? body.rentalHours ?? 1) || 1))
+      ? normalizeRentalHours(body.rental_hours ?? body.rentalHours ?? 1)
       : null;
   } else if (body.rental_hours !== undefined || body.rentalHours !== undefined) {
-    patch.rental_hours = Math.min(9, Math.max(1, Number(body.rental_hours ?? body.rentalHours ?? 1) || 1));
+    patch.rental_hours = normalizeRentalHours(body.rental_hours ?? body.rentalHours ?? 1);
   }
 
   if (body.status !== undefined) patch.rental_status = body.status;

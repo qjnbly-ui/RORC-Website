@@ -744,10 +744,31 @@
         return (form.querySelector('input[name="rentalType"]:checked') || {}).value || "all_day";
       }
 
+      function normalizeRentalHours(value, fallback) {
+        const hours = Number(value);
+        if (!Number.isFinite(hours) || hours <= 0) return fallback === undefined ? 1 : fallback;
+        return Math.min(9, Math.max(0.01, Math.round(hours * 100) / 100));
+      }
+
+      function rentalHoursValue(hours) {
+        return String(Number(normalizeRentalHours(hours).toFixed(2)));
+      }
+
+      function rentalHoursLabel(hours) {
+        const normalized = normalizeRentalHours(hours);
+        return rentalHoursValue(normalized) + " hr" + (normalized === 1 ? "" : "s");
+      }
+
+      function formatRentalMoney(cents) {
+        return "$" + (Number(cents || 0) / 100).toLocaleString("en-US", {
+          minimumFractionDigits: Number(cents || 0) % 100 ? 2 : 0,
+          maximumFractionDigits: 2
+        });
+      }
+
       function getBaseCents() {
         if (getRentalType() === "hourly") {
-          const hours = Math.min(9, Math.max(1, Number(hoursInput.value) || 1));
-          return hours * 10 * 100;
+          return Math.round(normalizeRentalHours(hoursInput.value) * 10 * 100);
         }
         return ALLDAY_CENTS;
       }
@@ -755,9 +776,9 @@
       function updateBaseDisplay() {
         const isHourly = getRentalType() === "hourly";
         if (isHourly) {
-          const hours = Math.min(9, Math.max(1, Number(hoursInput.value) || 1));
-          baseLabel.textContent = "Hourly Rental (" + hours + " hr" + (hours > 1 ? "s" : "") + ")";
-          basePrice.textContent = "$" + (hours * 10);
+          const base = getBaseCents();
+          baseLabel.textContent = "Hourly Rental (" + rentalHoursLabel(hoursInput.value) + ")";
+          basePrice.textContent = formatRentalMoney(base);
         } else {
           baseLabel.textContent = "Standard Day Rental";
           basePrice.textContent = "$100";
@@ -1042,7 +1063,7 @@
         return {
           start: start,
           end: end,
-          hours: Math.min(9, Math.max(1, Math.ceil((end - start) / 60)))
+          hours: normalizeRentalHours((end - start) / 60)
         };
       }
 
@@ -1058,7 +1079,7 @@
         }
 
         if ((range.end - range.start) <= (9 * 60)) {
-          hoursInput.value = String(range.hours);
+          hoursInput.value = rentalHoursValue(range.hours);
           if (!manualAllDayOverride) {
             setRentalType("hourly");
           } else {
@@ -1083,8 +1104,7 @@
         form.querySelectorAll("input[type=checkbox][data-price]").forEach(function (cb) {
           if (cb.checked) extra += Number(cb.dataset.price) * 100;
         });
-        const total = (getBaseCents() + extra) / 100;
-        totalDisplay.textContent = "$" + total.toLocaleString("en-US");
+        totalDisplay.textContent = formatRentalMoney(getBaseCents() + extra);
       }
 
       function syncAddonCards() {
@@ -1134,7 +1154,7 @@
         const foodVal    = fd.get("foodOrDrinks");
         const alcohol    = fd.get("alcohol") || "";
         const rentalType = getRentalType();
-        const rentalHours = rentalType === "hourly" ? (Number(hoursInput.value) || 1) : null;
+        const rentalHours = rentalType === "hourly" ? normalizeRentalHours(hoursInput.value) : null;
 
         const payload = {
           contactName:    fd.get("contactName") || "",
@@ -1247,7 +1267,7 @@
         if (!p.estimatedAttendance || p.estimatedAttendance < 1) errs.push("Attendance must be at least 1.");
         if (!foodVal) errs.push("Please indicate whether food or drinks will be served.");
         if (!p.alcohol) errs.push("Please indicate whether alcohol will be at the event.");
-        if (p.rentalType === "hourly" && (!p.rentalHours || p.rentalHours < 1 || p.rentalHours > 9)) errs.push("Please select a valid number of hours (1–9).");
+        if (p.rentalType === "hourly" && (!p.rentalHours || p.rentalHours <= 0 || p.rentalHours > 9)) errs.push("Please select a valid hourly rental duration up to 9 hours.");
         if (!p.agreedToNoGuarantee) errs.push("Please acknowledge the booking terms.");
         if (!p.agreedToGuidelines) errs.push("Please agree to the rental guidelines.");
         return errs;

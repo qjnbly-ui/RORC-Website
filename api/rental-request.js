@@ -15,6 +15,18 @@ const FACILITY_TIME_ZONE = "America/Los_Angeles";
 const DEFAULT_FACILITY_START = "07:00";
 const DEFAULT_FACILITY_END = "21:00";
 
+function normalizeRentalHours(value, fallback = 1) {
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0) return fallback;
+  return Math.min(9, Math.max(0.01, Math.round(hours * 100) / 100));
+}
+
+function rentalHoursLabel(value) {
+  const hours = normalizeRentalHours(value);
+  const label = String(Number(hours.toFixed(2)));
+  return `${label} hr${hours === 1 ? "" : "s"}`;
+}
+
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -128,7 +140,7 @@ function validate(body) {
   if (!["all_day", "hourly"].includes(rentalType)) errors.push("Invalid rental type.");
   if (rentalType === "hourly") {
     const hours = Number(body.rentalHours);
-    if (!Number.isInteger(hours) || hours < 1 || hours > 9) errors.push("Number of hours must be between 1 and 9.");
+    if (!Number.isFinite(hours) || hours <= 0 || hours > 9) errors.push("Hourly rental duration must be greater than 0 and no more than 9 hours.");
   }
 
   return errors;
@@ -169,7 +181,7 @@ function buildRecord(body) {
     estimated_total_cents: Math.max(0, Number(body.estimatedTotalCents) || 0),
 
     rental_type: ["all_day", "hourly"].includes(str(body.rentalType)) ? str(body.rentalType) : "all_day",
-    rental_hours: str(body.rentalType) === "hourly" ? Math.min(9, Math.max(1, Number(body.rentalHours) || 1)) : null,
+    rental_hours: str(body.rentalType) === "hourly" ? normalizeRentalHours(body.rentalHours) : null,
 
     agreed_to_no_guarantee: true,
     agreed_to_guidelines: true
@@ -405,7 +417,7 @@ async function sendNotificationEmail(record) {
   ].filter(Boolean);
 
   const rentalTypeLabel = record?.rental_type === "hourly"
-    ? `By the Hour (${record?.rental_hours || 1} hr${record?.rental_hours !== 1 ? "s" : ""})`
+    ? `By the Hour (${rentalHoursLabel(record?.rental_hours || 1)})`
     : "All Day (7 AM – 9 PM)";
 
   const bodyHtml = `

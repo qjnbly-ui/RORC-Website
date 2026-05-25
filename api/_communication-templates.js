@@ -7,6 +7,18 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+function normalizeRentalHours(value, fallback = 1) {
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0) return fallback;
+  return Math.min(9, Math.max(0.01, Math.round(hours * 100) / 100));
+}
+
+function rentalHoursLabel(value) {
+  const hours = normalizeRentalHours(value);
+  const label = String(Number(hours.toFixed(2)));
+  return `${label} hr${hours === 1 ? "" : "s"}`;
+}
+
 function buildEmailTemplate({ title, bodyHtml, bodyAlign = "center" }) {
   return `
     <div style="font-family:Arial,sans-serif;background:#111;color:#f5f5f5;padding:28px;line-height:1.55;text-align:center;">
@@ -101,8 +113,8 @@ function formatRentalTime(value) {
 
 function calculateRentalTotalWithoutCleaning(record) {
   const rentalType = record?.rental_type === "hourly" ? "hourly" : "all_day";
-  const hours = Math.min(9, Math.max(1, Number(record?.rental_hours || 1) || 1));
-  let total = rentalType === "hourly" ? hours * 1000 : 10000;
+  const hours = normalizeRentalHours(record?.rental_hours || 1);
+  let total = rentalType === "hourly" ? Math.round(hours * 1000) : 10000;
   if (record?.addon_tables) total += 2000;
   if (record?.addon_chairs) total += 2000;
   if (record?.addon_tarp) total += 2000;
@@ -136,7 +148,7 @@ function rentalAddons(record) {
 
 function rentalDetailRows(record) {
   const rentalType = record?.rental_type === "hourly"
-    ? `By the Hour (${record?.rental_hours || 1} hr${Number(record?.rental_hours || 1) === 1 ? "" : "s"})`
+    ? `By the Hour (${rentalHoursLabel(record?.rental_hours || 1)})`
     : "All Day";
   const start = formatRentalTime(record?.event_start_time);
   const end = formatRentalTime(record?.event_end_time);

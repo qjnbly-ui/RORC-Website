@@ -31,6 +31,8 @@ create table if not exists public.rental_requests (
   estimated_attendance integer not null,
   food_or_drinks boolean not null default false,
   alcohol text not null default 'No',
+  rental_type text not null default 'all_day',
+  rental_hours numeric(5,2),
 
   -- Equipment & add-ons
   addon_tables boolean not null default false,
@@ -66,6 +68,12 @@ create table if not exists public.rental_requests (
   ),
   constraint rental_requests_event_type_valid check (
     event_type in ('Birthday Party', 'Private Party', 'Meeting', 'Memorial Service', 'Other')
+  ),
+  constraint rental_requests_rental_type_valid check (
+    rental_type in ('all_day', 'hourly')
+  ),
+  constraint rental_requests_rental_hours_valid check (
+    rental_hours is null or (rental_hours > 0 and rental_hours <= 9)
   ),
   constraint rental_requests_attendance_positive check (
     estimated_attendance > 0
