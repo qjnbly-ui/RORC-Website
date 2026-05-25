@@ -58,7 +58,7 @@ module.exports = async (req, res) => {
 
     const scheduledFor = futureSendAtIso(requestedSendAt);
     if (scheduledFor) {
-      await createScheduledMemberMessage({
+      const scheduledMessage = await createScheduledMemberMessage({
         createdByMemberId: manager.id,
         rentalRequestId: String(req.body?.rentalRequestId || "").trim() || null,
         title,
@@ -92,6 +92,8 @@ module.exports = async (req, res) => {
           requestedSendAt,
           scheduled: true,
           scheduledFor,
+          scheduledMessageId: scheduledMessage.id || "",
+          scheduledStatus: "scheduled",
           scheduleLabel: String(req.body?.scheduleLabel || "").trim() || "",
           rentalRequestId: String(req.body?.rentalRequestId || "").trim() || "",
           source: String(req.body?.source || "").trim() || "",
@@ -106,8 +108,12 @@ module.exports = async (req, res) => {
         sentTextCount: 0,
         sentEmailCount: 0,
         sentInAppCount: 0,
+        scheduledMessageId: scheduledMessage.id || "",
         historyRecord: {
           id: dispatchId,
+          dispatchId,
+          scheduledMessageId: scheduledMessage.id || "",
+          scheduledStatus: "scheduled",
           title,
           message,
           channels: {
@@ -116,6 +122,8 @@ module.exports = async (req, res) => {
             inApp: sendInApp,
             scheduled: true,
             scheduledFor,
+            scheduledMessageId: scheduledMessage.id || "",
+            scheduledStatus: "scheduled",
             scheduleLabel: String(req.body?.scheduleLabel || "").trim() || ""
           },
           recipientCount: members.length,
@@ -292,7 +300,8 @@ async function createScheduledMemberMessage({
     headers: {
       apikey: SERVICE_ROLE_KEY,
       Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
+      Prefer: "return=representation"
     },
     body: JSON.stringify({
       created_by_member_id: createdByMemberId || null,
@@ -311,6 +320,9 @@ async function createScheduledMemberMessage({
     const text = await response.text();
     throw new Error(`Could not schedule message: ${response.status} ${text}`);
   }
+
+  const rows = await response.json().catch(() => []);
+  return rows[0] || {};
 }
 
 async function sendTwilioText(to, body) {

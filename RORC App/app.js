@@ -1561,6 +1561,7 @@ function renderNotificationsPage() {
               <span class="heater-record-meta">${escapeHtml(formatNotificationHistoryMeta(record))}</span>
               <button class="heater-state-action is-paid" type="button" disabled>${escapeHtml(record.statusLabel)}</button>
               <p class="heater-record-message">${escapeHtml(record.message || "")}</p>
+              ${renderScheduledMessageActions(record)}
             </li>
           `).join("")}
         </ol>
@@ -1582,7 +1583,39 @@ function renderNotificationsPage() {
   });
   bindNotificationHistoryFilters();
 
+  bindScheduledMessageActions();
   bindNotificationOpenActions();
+}
+
+function renderScheduledMessageActions(record) {
+  const scheduledMessageId = String(record.scheduledMessageId || "").trim();
+  if (!scheduledMessageId) return "";
+
+  const actions = [];
+  if (record.canCancelScheduled) {
+    actions.push(`
+      <button
+        class="rental-btn rental-btn-ghost notification-message-action"
+        data-notification-scheduled-action="cancel"
+        data-notification-scheduled-id="${escapeAttribute(scheduledMessageId)}"
+        type="button"
+      >Cancel Scheduled</button>
+    `);
+  }
+  if (record.canDeleteScheduled) {
+    actions.push(`
+      <button
+        class="rental-btn rental-btn-decline notification-message-action"
+        data-notification-scheduled-action="delete"
+        data-notification-scheduled-id="${escapeAttribute(scheduledMessageId)}"
+        type="button"
+      >Delete</button>
+    `);
+  }
+
+  return actions.length
+    ? `<div class="rental-card-btn-row notification-history-actions">${actions.join("")}</div>`
+    : "";
 }
 
 async function fetchAdminNotes({ includeArchived = false } = {}) {
@@ -2486,9 +2519,99 @@ function openBillingLogEditor(recordId, options = {}) {
   document.body.appendChild(overlay);
 }
 
+function bindScheduledMessageActions() {
+  document.querySelectorAll("[data-notification-scheduled-action]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const id = String(button.dataset.notificationScheduledId || "").trim();
+      const action = String(button.dataset.notificationScheduledAction || "").trim();
+      if (!id) return;
+
+      if (action === "cancel") {
+        void cancelScheduledMemberMessage(id);
+      } else if (action === "delete") {
+        void deleteScheduledMemberMessage(id);
+      }
+    });
+  });
+}
+
+async function cancelScheduledMemberMessage(id) {
+  const confirmed = await openLinkedDeleteDialog({
+    title: "Cancel scheduled message?",
+    message: "This keeps the history record but prevents the message from being sent.",
+    confirmLabel: "Cancel Message",
+    cancelLabel: "Keep Scheduled"
+  });
+  if (!confirmed) return;
+
+  setScheduledMessageButtonsBusy(id, true, "Canceling...");
+  try {
+    await mutateScheduledMemberMessage(id, "cancel");
+    await refreshMessageHistory();
+    render("notificationsEmail");
+    showAppNotice("Scheduled message canceled.");
+  } catch (error) {
+    setScheduledMessageButtonsBusy(id, false);
+    showAppNotice(error.message || "Could not cancel scheduled message.", "Message Error");
+  }
+}
+
+async function deleteScheduledMemberMessage(id) {
+  const confirmed = await openLinkedDeleteDialog({
+    title: "Delete scheduled message?",
+    message: "This permanently deletes the scheduled message and removes it from message history. It cannot be undone.",
+    confirmLabel: "Delete Message",
+    cancelLabel: "Keep Message"
+  });
+  if (!confirmed) return;
+
+  setScheduledMessageButtonsBusy(id, true, "Deleting...");
+  try {
+    await mutateScheduledMemberMessage(id, "delete");
+    await refreshMessageHistory();
+    render("notificationsEmail");
+    showAppNotice("Scheduled message deleted.");
+  } catch (error) {
+    setScheduledMessageButtonsBusy(id, false);
+    showAppNotice(error.message || "Could not delete scheduled message.", "Message Error");
+  }
+}
+
+async function mutateScheduledMemberMessage(id, action) {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) throw new Error("Please sign in again before updating the scheduled message.");
+
+  const method = action === "delete" ? "DELETE" : "PATCH";
+  const response = await fetch(`/api/message-history?id=${encodeURIComponent(id)}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: method === "DELETE" ? undefined : JSON.stringify({ id, action })
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not update scheduled message.");
+  }
+  return body;
+}
+
+function setScheduledMessageButtonsBusy(id, busy, label = "") {
+  document.querySelectorAll(`[data-notification-scheduled-id="${CSS.escape(id)}"]`).forEach((button) => {
+    if (!button.dataset.defaultText) button.dataset.defaultText = button.textContent;
+    button.disabled = busy;
+    button.textContent = busy ? (label || "Saving...") : button.dataset.defaultText;
+  });
+}
+
 function bindNotificationOpenActions() {
   document.querySelectorAll("[data-notification-item]").forEach((row) => {
-    row.addEventListener("click", () => {
+    row.addEventListener("click", (event) => {
+      if (event.target?.closest?.("button, a, input, select, textarea")) return;
       const notificationId = String(row.dataset.notificationItem || "").trim();
       if (!notificationId) return;
       const notification = notificationDispatchRecords.find((row) => row.id === notificationId)
@@ -3626,7 +3749,7 @@ async function refreshRentalReviewsBadge() {
 // ─────────────────────────────────────────────
 
 let rentalAllRequests  = [];
-let rentalActiveFilter = "action"; // action | confirmed | declined | all
+let rentalActiveFilter = "action"; // action | confirmed | special_access | declined | archive | all
 let highlightRentalId  = null;     // deeplink from calendar
 let rentalAutomationNotice = "";
 
@@ -3790,6 +3913,41 @@ function calculateRentalTotalCents(values) {
   return total;
 }
 
+function rentalDateKey() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function isRentalNeedsAction(rental) {
+  return rental?.rentalStatus === "submitted" || rental?.rentalStatus === "pending_review";
+}
+
+function isRentalDeclined(rental) {
+  return rental?.rentalStatus === "rejected" || rental?.rentalStatus === "canceled";
+}
+
+function isRentalPast(rental) {
+  const eventDate = String(rental?.eventDate || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(eventDate) && eventDate < rentalDateKey();
+}
+
+function isRentalSpecialAccess(rental) {
+  return Boolean(rental?.specialAccessDiscount);
+}
+
+function rentalFilterKeyForRequest(rental) {
+  if (!rental) return "all";
+  if (isRentalNeedsAction(rental)) return "action";
+  if (isRentalPast(rental)) return "archive";
+  if (rental.rentalStatus === "confirmed" && isRentalSpecialAccess(rental)) return "special_access";
+  if (rental.rentalStatus === "confirmed") return "confirmed";
+  if (isRentalDeclined(rental)) return "declined";
+  return "all";
+}
+
 function inferRentalCleaningMaintenance(rental) {
   if (typeof rental?.addonCleaningMaintenance === "boolean") return rental.addonCleaningMaintenance;
   const storedTotal = Number(rental?.estimatedTotalCents || 0);
@@ -3849,21 +4007,28 @@ function renderRentalPipeline(root) {
   revealReadyContent(root);
 
   const all       = rentalAllRequests;
-  const action    = all.filter((r) => r.rentalStatus === "submitted" || r.rentalStatus === "pending_review");
-  const confirmed = all.filter((r) => r.rentalStatus === "confirmed");
-  const declined  = all.filter((r) => r.rentalStatus === "rejected" || r.rentalStatus === "canceled");
+  const action    = all.filter(isRentalNeedsAction);
+  const archive   = all.filter((r) => !isRentalNeedsAction(r) && isRentalPast(r));
+  const confirmed = all.filter((r) => r.rentalStatus === "confirmed" && !isRentalPast(r) && !isRentalSpecialAccess(r));
+  const specialAccess = all.filter((r) => r.rentalStatus === "confirmed" && !isRentalPast(r) && isRentalSpecialAccess(r));
+  const declined  = all.filter((r) => isRentalDeclined(r) && !isRentalPast(r));
 
   const filtered = rentalActiveFilter === "action"    ? action
                  : rentalActiveFilter === "confirmed" ? confirmed
+                 : rentalActiveFilter === "special_access" ? specialAccess
                  : rentalActiveFilter === "declined"  ? declined
+                 : rentalActiveFilter === "archive"   ? archive
                  : all;
 
   const tabs = [
-    { key: "action",    label: "Needs Action", count: action.length },
-    { key: "confirmed", label: "Confirmed",    count: confirmed.length },
-    { key: "declined",  label: "Declined",     count: declined.length },
-    { key: "all",       label: "All",          count: all.length }
+    { key: "action",    label: "Needs Action",   count: action.length },
+    { key: "confirmed", label: "Confirmed",      count: confirmed.length },
+    { key: "special_access", label: "Special Access", count: specialAccess.length },
+    { key: "declined",  label: "Declined",       count: declined.length },
+    { key: "archive",   label: "Archive",        count: archive.length },
+    { key: "all",       label: "All",            count: all.length }
   ];
+  const activeFilterLabel = tabs.find((t) => t.key === rentalActiveFilter)?.label.toLowerCase() || "";
 
   root.innerHTML = `
     <section class="live-record-page rental-admin-shell">
@@ -3887,7 +4052,7 @@ function renderRentalPipeline(root) {
         </div>
       ` : `
         <section id="rental-cards-list" class="empty-state">
-          <p>No ${rentalActiveFilter === "all" ? "" : rentalActiveFilter + " "}requests.</p>
+          <p>No ${rentalActiveFilter === "all" || !activeFilterLabel ? "" : activeFilterLabel + " "}requests.</p>
         </section>
       `}
 
@@ -3938,6 +4103,14 @@ function renderRentalPipeline(root) {
     if (card) {
       card.classList.add("rental-card-highlight");
       card.scrollIntoView({ behavior: "smooth", block: "center" });
+    } else {
+      const highlightedRental = rentalAllRequests.find((r) => r.id === highlightRentalId);
+      const nextFilter = highlightedRental ? rentalFilterKeyForRequest(highlightedRental) : "all";
+      if (nextFilter !== rentalActiveFilter) {
+        rentalActiveFilter = nextFilter;
+        renderRentalPipeline(root);
+        return;
+      }
     }
     highlightRentalId = null;
   }
@@ -4644,7 +4817,12 @@ function buildRentalEditForm(r) {
       </div>
 
       <div class="rental-edit-checks">
-        ${rentalEditCheck(id, "special-discount", "Special Access discount (20%)", r.specialAccessDiscount)}
+        ${r.specialAccessDiscount ? `
+          <label class="rental-edit-check">
+            <input id="rental-edit-special-discount-${id}" type="checkbox" checked disabled />
+            Special Access discount applied (20%)
+          </label>
+        ` : ""}
         ${rentalEditCheck(id, "cleaning", "Standard Maintenance Fee", hasCleaningMaintenance)}
         ${rentalEditCheck(id, "tables", "Tables", r.addonTables)}
         ${rentalEditCheck(id, "chairs", "Chairs", r.addonChairs)}
@@ -5629,9 +5807,9 @@ function renderCalendarView(root) {
                   <option value="false">No - $5/hr non-private rate</option>
                 </select>
               </label>
-              <label class="cal-field-label cal-field-check">
+              <label id="calRentalSpecialAccessDiscountWrap" class="cal-field-label cal-field-check" hidden>
                 <input id="calRentalSpecialAccessDiscount" type="checkbox" />
-                Special Access discount (20%)
+                Special Access discount applied (20%)
               </label>
             </div>
             <div class="cal-rental-derived-card" aria-live="polite">
@@ -5841,7 +6019,7 @@ function showCalDayPanel(root, dateIso) {
     link.style.cursor = "pointer";
     link.addEventListener("click", () => {
       highlightRentalId  = link.dataset.rentalId;
-      rentalActiveFilter = "confirmed";
+      rentalActiveFilter = rentalFilterKeyForRequest(rentalAllRequests.find((r) => r.id === highlightRentalId));
       navigateTo("rentalReviews");
     });
   });
@@ -6355,6 +6533,17 @@ function updateCalendarRentalTotal(root) {
   totalEl.textContent = totalText;
 }
 
+function setCalendarSpecialAccessDiscountState(root, enabled) {
+  const field = root.querySelector("#calRentalSpecialAccessDiscount");
+  const wrap = root.querySelector("#calRentalSpecialAccessDiscountWrap");
+  const active = Boolean(enabled);
+  if (field) {
+    field.checked = active;
+    field.disabled = true;
+  }
+  if (wrap) wrap.hidden = !active;
+}
+
 function resetCalendarRentalFields(root, title = "") {
   const defaults = {
     calRentalContactName: title,
@@ -6394,6 +6583,7 @@ function resetCalendarRentalFields(root, title = "") {
     const el = root.querySelector(`#${id}`);
     if (el) el.checked = false;
   });
+  setCalendarSpecialAccessDiscountState(root, false);
   syncCalendarRentalScheduleFromEvent(root);
 }
 
@@ -6438,6 +6628,7 @@ function populateCalendarRentalFields(root, rental) {
     const el = root.querySelector(`#${id}`);
     if (el) el.checked = Boolean(checked);
   });
+  setCalendarSpecialAccessDiscountState(root, rental.specialAccessDiscount);
 
   syncCalendarRentalScheduleFromEvent(root);
 }
@@ -6538,10 +6729,7 @@ function applyCalendarRentalContactMember(root, memberId) {
     const field = root.querySelector(`#${id}`);
     if (field) field.value = value;
   });
-  const discountField = root.querySelector("#calRentalSpecialAccessDiscount");
-  if (discountField) {
-    discountField.checked = canonicalAccountType(member.accountType) === "Special Access Account";
-  }
+  setCalendarSpecialAccessDiscountState(root, canonicalAccountType(member.accountType) === "Special Access Account");
   updateCalendarRentalTotal(root);
 }
 
@@ -6670,7 +6858,7 @@ async function loadCalRentalInfo(root, rentalRequestId) {
 
     rentalInfo.querySelector(".cal-rental-goto").addEventListener("click", () => {
       highlightRentalId  = rentalRequestId;
-      rentalActiveFilter = "all";
+      rentalActiveFilter = rentalFilterKeyForRequest(rental);
       root.querySelector("#calEventModal").hidden = true;
       navigateTo("rentalReviews");
     });
@@ -7192,20 +7380,37 @@ function normalizeMessageHistoryRecord(row) {
   const sentEmailCount = Number(row.sentEmailCount ?? row.sent_email_count ?? 0) || 0;
   const sentInAppCount = Number(row.sentInAppCount ?? row.sent_in_app_count ?? 0) || 0;
   const scheduledFor = row.scheduledFor || row.scheduled_for || channels.scheduledFor || "";
-  const isScheduled = Boolean(row.scheduled || channels.scheduled);
+  const scheduledStatus = String(row.scheduledStatus ?? row.scheduled_status ?? channels.scheduledStatus ?? channels.scheduled_status ?? "").trim();
+  const scheduledMessageId = String(row.scheduledMessageId ?? row.scheduled_message_id ?? channels.scheduledMessageId ?? channels.scheduled_message_id ?? "").trim();
+  const dispatchId = String(row.dispatchId ?? row.dispatch_id ?? channels.dispatchId ?? channels.dispatch_id ?? row.id ?? "").trim();
+  const canceledAt = row.canceledAt || row.canceled_at || channels.canceledAt || "";
+  const sentAt = row.sentAt || row.sent_at || channels.sentAt || "";
+  const isScheduled = Boolean(row.scheduled || channels.scheduled || ["scheduled", "processing", "canceled", "failed"].includes(scheduledStatus));
   const warnings = Array.isArray(row.warnings)
     ? row.warnings
     : Array.isArray(row.errorMessages)
       ? row.errorMessages
       : [];
+  const statusLabel = (() => {
+    if (scheduledStatus === "canceled") return `Canceled ${formatShortDateTime(canceledAt || scheduledFor)}`;
+    if (scheduledStatus === "failed") return `Failed ${formatShortDateTime(scheduledFor)}`;
+    if (scheduledStatus === "processing") return `Processing ${formatShortDateTime(scheduledFor)}`;
+    if (scheduledStatus === "scheduled" || isScheduled) return `Scheduled ${formatShortDateTime(scheduledFor)}`;
+    return `Text ${sentTextCount} · Email ${sentEmailCount} · In-App ${sentInAppCount}`;
+  })();
 
   return {
-    id: row.id || `msg-${Date.now()}`,
+    id: row.id || dispatchId || `msg-${Date.now()}`,
+    dispatchId,
+    scheduledMessageId,
+    scheduledStatus,
+    canceledAt,
+    sentAt,
     title: row.title || "Message",
     message: row.message || "",
     channelsLabel: activeChannels.join(" + ") || "Unspecified",
     recipientsLabel: `${recipientCount} ${recipientCount === 1 ? "member" : "members"}`,
-    statusLabel: isScheduled ? `Scheduled ${formatShortDateTime(scheduledFor)}` : `Text ${sentTextCount} · Email ${sentEmailCount} · In-App ${sentInAppCount}`,
+    statusLabel,
     warningsLabel: warnings.length ? `Warnings: ${warnings.join("; ")}` : "",
     createdAt: row.createdAt || row.created_at || new Date().toISOString(),
     scheduledFor,
@@ -7213,9 +7418,12 @@ function normalizeMessageHistoryRecord(row) {
       text: Boolean(channels.text),
       email: Boolean(channels.email),
       inApp: Boolean(channels.inApp),
-      scheduled: isScheduled
+      scheduled: isScheduled,
+      scheduledStatus
     },
-    warnings
+    warnings,
+    canCancelScheduled: Boolean(row.canCancelScheduled ?? row.can_cancel_scheduled ?? (scheduledMessageId && scheduledStatus === "scheduled")),
+    canDeleteScheduled: Boolean(row.canDeleteScheduled ?? row.can_delete_scheduled ?? (scheduledMessageId && ["scheduled", "canceled", "failed"].includes(scheduledStatus)))
   };
 }
 
