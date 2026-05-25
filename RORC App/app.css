@@ -4715,6 +4715,69 @@ textarea:focus-visible,
   padding: 0 14px 14px;
 }
 
+.cal-rental-derived-card {
+  background: rgba(15, 18, 24, 0.72);
+  border: 1px solid rgba(156, 163, 175, 0.28);
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  margin: 2px 0 14px;
+  padding: 14px;
+}
+
+.cal-rental-derived-head {
+  display: grid;
+  gap: 4px;
+}
+
+.cal-rental-derived-kicker {
+  color: #9aa3af;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cal-rental-derived-head strong {
+  color: #f4f7fb;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.cal-rental-derived-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.cal-rental-derived-grid span {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+}
+
+.cal-rental-derived-grid small {
+  color: #9aa3af;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cal-rental-derived-grid b {
+  color: #fff;
+  font-size: 15px;
+}
+
+.cal-rental-derived-note {
+  color: #9aa3af;
+  font-size: 12px;
+  margin: 0;
+}
+
 .cal-rental-addon-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5993,6 +6056,7 @@ textarea:focus-visible,
   }
 
   .cal-field-row,
+  .cal-rental-derived-grid,
   .cal-rental-addon-grid {
     grid-template-columns: 1fr;
   }
