@@ -7,6 +7,7 @@ const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "+15416526065";
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@ruthobenchainrc.com>";
+const FACILITY_TIME_ZONE = "America/Los_Angeles";
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -269,9 +270,44 @@ async function getAccountMemberByAuthUserId(authUserId) {
 function futureSendAtIso(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
-  const parsed = new Date(raw);
+  const parsed = new Date(parseSendAtValue(raw));
   if (Number.isNaN(parsed.getTime())) return "";
   return parsed.getTime() > Date.now() + 60000 ? parsed.toISOString() : "";
+}
+
+function parseSendAtValue(value) {
+  const raw = String(value || "").trim();
+  const localMatch = raw.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2})?$/);
+  if (localMatch) {
+    return facilityWallTimeToIso(localMatch[1], localMatch[2]);
+  }
+  return raw;
+}
+
+function getFacilityTimeZoneOffsetMs(date) {
+  const zoneName = new Intl.DateTimeFormat("en-US", {
+    timeZone: FACILITY_TIME_ZONE,
+    timeZoneName: "shortOffset"
+  }).formatToParts(date).find((part) => part.type === "timeZoneName")?.value || "GMT";
+  const match = zoneName.match(/^GMT([+-])(\d{1,2})(?::?(\d{2}))?$/);
+  if (!match) return 0;
+  const sign = match[1] === "-" ? -1 : 1;
+  const hours = Number(match[2] || 0);
+  const minutes = Number(match[3] || 0);
+  return sign * ((hours * 60) + minutes) * 60000;
+}
+
+function facilityWallTimeToIso(dateStr, timeStr = "00:00") {
+  const [year, month, day] = String(dateStr || "").split("-").map(Number);
+  const [hour, minute] = String(timeStr || "00:00").split(":").map(Number);
+  if (![year, month, day, hour, minute].every(Number.isFinite)) return String(dateStr || "");
+
+  const wallTime = Date.UTC(year, month - 1, day, hour, minute, 0);
+  let utcTime = wallTime;
+  for (let i = 0; i < 3; i += 1) {
+    utcTime = wallTime - getFacilityTimeZoneOffsetMs(new Date(utcTime));
+  }
+  return new Date(utcTime).toISOString();
 }
 
 async function loadMembers(memberIds) {

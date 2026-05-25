@@ -2065,11 +2065,40 @@ function toDatetimeLocalValue(isoString) {
   return local.toISOString().slice(0, 16);
 }
 
+function toFacilityDatetimeLocalValue(isoString) {
+  if (!isoString) return "";
+  const value = new Date(isoString);
+  if (Number.isNaN(value.getTime())) return "";
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: FACILITY_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).formatToParts(value).reduce((acc, part) => {
+    if (part.type !== "literal") acc[part.type] = part.value;
+    return acc;
+  }, {});
+
+  const hour = parts.hour === "24" ? "00" : parts.hour;
+  return `${parts.year}-${parts.month}-${parts.day}T${hour}:${parts.minute}`;
+}
+
 function fromDatetimeLocalValue(localValue) {
   if (!localValue) return null;
   const value = new Date(localValue);
   if (Number.isNaN(value.getTime())) return null;
   return value.toISOString();
+}
+
+function fromFacilityDatetimeLocalValue(localValue) {
+  const raw = String(localValue || "").trim();
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+  if (!match) return null;
+  return facilityWallTimeToIso(match[1], match[2]) || null;
 }
 
 function refreshAfterRecordMutation() {
@@ -2729,10 +2758,7 @@ function renderMessageComposerPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
 
-  const now = new Date();
-  const localNow = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
-    .toISOString()
-    .slice(0, 16);
+  const localNow = toFacilityDatetimeLocalValue(new Date().toISOString());
 
   root.innerHTML = `
     <form id="messageComposerForm" class="form-screen message-composer-screen" autocomplete="off">
@@ -2777,7 +2803,7 @@ function renderMessageComposerPage() {
         </label>
 
         <label>
-          <span>Time & Date</span>
+          <span>Time & Date (Pacific)</span>
           <input id="messageSendAt" type="datetime-local" value="${escapeAttribute(localNow)}" />
         </label>
 
@@ -3033,11 +3059,11 @@ function bindMessageComposerActions() {
           email: includeEmail,
           inApp: includeInApp
         },
-        sendAt: fromDatetimeLocalValue(sendAt) || sendAt
+        sendAt: fromFacilityDatetimeLocalValue(sendAt) || sendAt
       });
 
       setResult(response.scheduled
-        ? `Scheduled for ${formatShortDateTime(response.scheduledFor)}.`
+        ? `Scheduled for ${formatFacilityShortDateTime(response.scheduledFor)}.`
         : `Sent. Texts: ${response.sentTextCount || 0}, Emails: ${response.sentEmailCount || 0}, In-App: ${response.sentInAppCount || 0}.`,
         "success");
       addNotificationDispatchRecord({
@@ -4330,7 +4356,7 @@ function openRentalNotifyDialog(rentalId) {
       <p id="rentalNotifyRecipientSummary" class="auth-message">No members selected.</p>
 
       <fieldset class="cal-recurring-ends">
-        <legend>Send Timing</legend>
+        <legend>Send Timing (Pacific)</legend>
         ${scheduleOptions.map((option) => `
           <label>
             <input type="radio" name="rentalNotifyTiming" value="${escapeAttribute(option.key)}" data-send-at="${escapeAttribute(option.value || "")}" ${option.checked ? "checked" : ""} ${option.disabled ? "disabled" : ""} />
@@ -4513,7 +4539,7 @@ function openRentalNotifyDialog(rentalId) {
       }
 
       setRentalNotifyResult(overlay, response.scheduled
-        ? `Scheduled for ${formatShortDateTime(response.scheduledFor)}.`
+        ? `Scheduled for ${formatFacilityShortDateTime(response.scheduledFor)}.`
         : `Sent. Texts: ${response.sentTextCount || 0}, Emails: ${response.sentEmailCount || 0}, In-App: ${response.sentInAppCount || 0}.`,
         "success");
       window.setTimeout(close, 900);
@@ -4551,7 +4577,7 @@ function rentalNotifyDefaults(rental) {
     "The gym may be unavailable during this rental. Please check the calendar before visiting."
   ].join("\n\n");
   const eventDateTime = rentalNotifyEventDateTime(rental);
-  const customLocal = eventDateTime ? toDatetimeLocalValue(eventDateTime.toISOString()) : toDatetimeLocalValue(new Date().toISOString());
+  const customLocal = eventDateTime ? toFacilityDatetimeLocalValue(eventDateTime.toISOString()) : toFacilityDatetimeLocalValue(new Date().toISOString());
 
   return {
     title: `RORC Event Notice: ${eventName}`,
@@ -4597,7 +4623,7 @@ function rentalNotifyScheduleOptions(rental) {
       const disabled = sendAt.getTime() <= now.getTime() + 60000;
       options.push({
         key,
-        label: disabled ? `${label} (past)` : `${label}: ${formatShortDateTime(sendAt.toISOString())}`,
+        label: disabled ? `${label} (past)` : `${label}: ${formatFacilityShortDateTime(sendAt.toISOString())}`,
         value: sendAt.toISOString(),
         disabled
       });
@@ -4619,7 +4645,7 @@ function selectedRentalNotifyTiming(overlay) {
   const key = selected?.value || "now";
   if (key === "custom") {
     const localValue = String(overlay.querySelector("#rentalNotifyCustomAt")?.value || "").trim();
-    const iso = fromDatetimeLocalValue(localValue) || new Date().toISOString();
+    const iso = fromFacilityDatetimeLocalValue(localValue) || new Date().toISOString();
     return {
       sendAt: iso,
       isFuture: new Date(iso).getTime() > Date.now() + 60000,
@@ -7392,10 +7418,10 @@ function normalizeMessageHistoryRecord(row) {
       ? row.errorMessages
       : [];
   const statusLabel = (() => {
-    if (scheduledStatus === "canceled") return `Canceled ${formatShortDateTime(canceledAt || scheduledFor)}`;
-    if (scheduledStatus === "failed") return `Failed ${formatShortDateTime(scheduledFor)}`;
-    if (scheduledStatus === "processing") return `Processing ${formatShortDateTime(scheduledFor)}`;
-    if (scheduledStatus === "scheduled" || isScheduled) return `Scheduled ${formatShortDateTime(scheduledFor)}`;
+    if (scheduledStatus === "canceled") return `Canceled ${formatFacilityShortDateTime(canceledAt || scheduledFor)}`;
+    if (scheduledStatus === "failed") return `Failed ${formatFacilityShortDateTime(scheduledFor)}`;
+    if (scheduledStatus === "processing") return `Processing ${formatFacilityShortDateTime(scheduledFor)}`;
+    if (scheduledStatus === "scheduled" || isScheduled) return `Scheduled ${formatFacilityShortDateTime(scheduledFor)}`;
     return `Text ${sentTextCount} · Email ${sentEmailCount} · In-App ${sentInAppCount}`;
   })();
 
@@ -8730,6 +8756,19 @@ function formatShortDateTime(value) {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit"
+  }).format(new Date(value));
+}
+
+function formatFacilityShortDateTime(value) {
+  if (!value) return "Open";
+
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: FACILITY_TIME_ZONE,
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short"
   }).format(new Date(value));
 }
 
