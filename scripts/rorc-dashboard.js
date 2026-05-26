@@ -21,6 +21,11 @@
       .replaceAll("'", "&#39;");
   }
 
+  function cssEscape(value) {
+    if (window.CSS?.escape) return window.CSS.escape(String(value || ""));
+    return String(value || "").replace(/["\\]/g, "\\$&");
+  }
+
   function formatDate(value) {
     if (!value) return "Not set";
 
@@ -48,8 +53,33 @@
     return profile?.account_type === "Account Manager";
   }
 
+  function isRentalAccount(profile) {
+    return profile?.account_type === "Rental Account";
+  }
+
   function canManageBilling(profile) {
+    if (isRentalAccount(profile)) return false;
     return Boolean(profile?.is_billing_owner || isAccountManager(profile));
+  }
+
+  function formatTime(value) {
+    const match = String(value || "").match(/^(\d{1,2}):(\d{2})/);
+    if (!match) return value || "Not set";
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    const period = hour >= 12 ? "PM" : "AM";
+    const h12 = hour % 12 || 12;
+    return `${h12}:${String(minute).padStart(2, "0")} ${period}`;
+  }
+
+  function formatTimeRange(start, end) {
+    if (!start || !end) return "Not set";
+    return `${formatTime(start)} - ${formatTime(end)}`;
+  }
+
+  function formatCurrency(cents) {
+    const amount = Number(cents || 0) / 100;
+    return amount > 0 ? amount.toLocaleString("en-US", { style: "currency", currency: "USD" }) : "TBD";
   }
 
   async function syncStripeMembershipIfAllowed() {
@@ -171,6 +201,14 @@
     const appCard = byId("rorcAppCard");
     if (appCard) {
       appCard.hidden = false;
+      if (isRentalAccount(currentProfile)) {
+        const copy = appCard.querySelector(".rorc-card-text");
+        if (copy) {
+          copy.textContent = "Open the RORC app to view the calendar, about page, and My Events for your rental booking.";
+        }
+        const installBtn = byId("installRorcAppBtn");
+        if (installBtn) installBtn.textContent = "Open App";
+      }
     }
   }
 
@@ -206,6 +244,15 @@
   function configureBillingButton() {
     const billingButton = byId("billingBtn");
     if (!billingButton || !currentProfile) return;
+
+    if (isRentalAccount(currentProfile)) {
+      billingButton.textContent = "Upgrade To Membership";
+      billingButton.disabled = false;
+      billingButton.addEventListener("click", () => {
+        window.location.href = "/membership-signup/?upgrade=rental";
+      });
+      return;
+    }
 
     if (!canManageBilling(currentProfile)) {
       billingButton.textContent = "Billing Managed By Account Owner";
@@ -271,7 +318,7 @@
 
     if (!card || !inviteButton || !currentProfile) return;
 
-    if (!canManageBilling(currentProfile)) {
+    if (!canManageBilling(currentProfile) || isRentalAccount(currentProfile)) {
       card.hidden = true;
       return;
     }
@@ -358,6 +405,7 @@
     visibleProfiles = result.profiles || [];
     renderDashboard();
     hydrateAccountForm();
+    loadRentalBookings();
   }
 
   function bindAccountInfoModal() {
@@ -524,6 +572,235 @@
     });
   }
 
+  async function loadRentalBookings() {
+    const card = byId("rentalBookingsCard");
+    const list = byId("rentalBookings");
+    if (!card || !list || !currentSession) return;
+
+    try {
+      const response = await fetch("/api/rental-dashboard", {
+        headers: { Authorization: `Bearer ${currentSession.access_token}` }
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || body.success === false) {
+        throw new Error(body.error || "Could not load bookings.");
+      }
+
+      const bookings = Array.isArray(body.bookings) ? body.bookings : [];
+      if (!bookings.length && !isRentalAccount(currentProfile)) {
+        card.hidden = true;
+        return;
+      }
+
+      card.hidden = false;
+      renderRentalBookings(bookings);
+    } catch (error) {
+      if (isRentalAccount(currentProfile)) {
+        card.hidden = false;
+        list.innerHTML = `<p class="rorc-card-text">${escapeHtml(error.message || "Could not load bookings.")}</p>`;
+      } else {
+        card.hidden = true;
+      }
+    }
+  }
+
+  function renderRentalBookings(bookings) {
+    const list = byId("rentalBookings");
+    if (!list) return;
+    list._bookings = bookings;
+
+    if (!bookings.length) {
+      list.innerHTML = `<p class="rorc-card-text">No claimed rental bookings are connected to this account yet.</p>`;
+      return;
+    }
+
+    list.innerHTML = bookings.map(renderRentalBookingCard).join("");
+    list.querySelectorAll("[data-rental-change]").forEach((button) => {
+      button.addEventListener("click", () => openRentalChangeDialog(button.dataset.rentalChange || ""));
+    });
+    list.querySelectorAll("[data-rental-cancel]").forEach((button) => {
+      button.addEventListener("click", () => submitRentalCancellationRequest(button.dataset.rentalCancel || ""));
+    });
+
+    const highlight = new URLSearchParams(window.location.search).get("booking") || "";
+    if (highlight) {
+      const card = list.querySelector(`[data-booking-match="${cssEscape(highlight)}"]`)
+        || list.querySelector(`[data-booking-id="${cssEscape(highlight)}"]`);
+      card?.scrollIntoView({ behavior: "smooth", block: "center" });
+      card?.classList.add("is-highlighted");
+    }
+  }
+
+  function renderRentalBookingCard(booking) {
+    const pending = (booking.changeRequests || []).find((request) => request.status === "pending");
+    const addons = [
+      booking.addonTables && "Tables",
+      booking.addonChairs && "Chairs",
+      booking.addonTarp && "Tarp",
+      booking.addonHeater && "Heater",
+      booking.addonAc && "AC ($2/hr)",
+      booking.addonEarlySetup && "Early Setup",
+      booking.addonEarlyDayRental && "Extra Day (Early)",
+      booking.addonLateCleanup && "Late Cleanup",
+      booking.addonLateDayRental && "Extra Day (Late)",
+      booking.specialAccessDiscount && "Special Access discount"
+    ].filter(Boolean);
+    const publicTime = booking.publicEventStartTime && booking.publicEventEndTime
+      ? `<p><strong>Public Event Time:</strong> ${escapeHtml(formatTimeRange(booking.publicEventStartTime, booking.publicEventEndTime))}</p>`
+      : "";
+    return `
+      <article class="rental-booking-card" data-booking-id="${escapeHtml(booking.id)}" data-booking-match="${escapeHtml(booking.bookingNumber || booking.id)}">
+        <header>
+          <div>
+            <span class="rental-booking-kicker">${escapeHtml(booking.bookingNumber || "Rental Booking")}</span>
+            <h3>${escapeHtml(booking.eventName || booking.eventType || "Rental")}</h3>
+          </div>
+          <span class="rental-booking-status">${escapeHtml(String(booking.rentalStatus || "submitted").replaceAll("_", " "))}</span>
+        </header>
+        <div class="rental-booking-details">
+          <p><strong>Date:</strong> ${escapeHtml(formatDate(booking.eventDate))}</p>
+          <p><strong>Rental Access:</strong> ${escapeHtml(formatTimeRange(booking.eventStartTime, booking.eventEndTime))}</p>
+          ${publicTime}
+          <p><strong>Total:</strong> ${escapeHtml(formatCurrency(booking.estimatedTotalCents))}</p>
+          <p><strong>Attendance:</strong> ${escapeHtml(booking.estimatedAttendance || "TBD")}</p>
+          ${addons.length ? `<p><strong>Add-ons:</strong> ${escapeHtml(addons.join(", "))}</p>` : ""}
+          ${pending ? `<p class="rental-booking-pending"><strong>Pending ${escapeHtml(pending.requestType)} request:</strong> waiting for RORC approval.</p>` : ""}
+        </div>
+        <div class="rorc-actions" style="justify-content:flex-start;">
+          <button class="rorc-btn rorc-btn-neutral" type="button" data-rental-change="${escapeHtml(booking.id)}" ${pending ? "disabled" : ""}>Request Change</button>
+          <button class="rorc-btn rorc-btn-danger" type="button" data-rental-cancel="${escapeHtml(booking.id)}" ${pending ? "disabled" : ""}>Request Cancellation</button>
+        </div>
+      </article>
+    `;
+  }
+
+  function openRentalChangeDialog(rentalRequestId) {
+    const booking = currentRentalBookings().find((item) => item.id === rentalRequestId);
+    if (!booking) return;
+    const overlay = document.createElement("div");
+    overlay.className = "rorc-password-modal rental-change-modal";
+    overlay.innerHTML = `
+      <div class="rorc-password-backdrop" data-close></div>
+      <div class="rorc-password-dialog" role="dialog" aria-modal="true" aria-label="Request booking change">
+        <button type="button" class="rorc-password-close" data-close>Close</button>
+        <h2 class="rorc-card-title">Request Booking Change</h2>
+        <div class="rorc-password-form">
+          <label class="rorc-auth-label">
+            <span>Event Date</span>
+            <input id="bookingChangeDate" class="rorc-auth-input" type="date" value="${escapeHtml(booking.eventDate || "")}" />
+          </label>
+          <div class="rental-change-grid">
+            <label class="rorc-auth-label">
+              <span>Rental Access Start</span>
+              <input id="bookingChangeStart" class="rorc-auth-input" type="time" value="${escapeHtml(booking.eventStartTime || "")}" />
+            </label>
+            <label class="rorc-auth-label">
+              <span>Rental Access End</span>
+              <input id="bookingChangeEnd" class="rorc-auth-input" type="time" value="${escapeHtml(booking.eventEndTime || "")}" />
+            </label>
+          </div>
+          <div class="rental-change-grid">
+            <label class="rorc-auth-label">
+              <span>Public Event Start</span>
+              <input id="bookingChangePublicStart" class="rorc-auth-input" type="time" value="${escapeHtml(booking.publicEventStartTime || "")}" />
+            </label>
+            <label class="rorc-auth-label">
+              <span>Public Event End</span>
+              <input id="bookingChangePublicEnd" class="rorc-auth-input" type="time" value="${escapeHtml(booking.publicEventEndTime || "")}" />
+            </label>
+          </div>
+          <label class="rorc-auth-label">
+            <span>Message For RORC</span>
+            <textarea id="bookingChangeMessage" class="rorc-auth-input" rows="4" placeholder="Describe what needs to change."></textarea>
+          </label>
+          <div class="rorc-actions" style="justify-content:flex-start;">
+            <button class="rorc-btn rorc-btn-neutral" type="button" data-close>Cancel</button>
+            <button id="bookingChangeSubmit" class="rorc-btn rorc-btn-gold" type="button">Submit Request</button>
+          </div>
+          <p id="bookingChangeResult" class="rorc-card-text"></p>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.addEventListener("click", (event) => {
+      if (event.target?.hasAttribute("data-close")) close();
+    });
+    overlay.querySelector("#bookingChangeSubmit")?.addEventListener("click", async () => {
+      await submitRentalChangeRequest(rentalRequestId, {
+        event_date: byId("bookingChangeDate")?.value || "",
+        event_start_time: byId("bookingChangeStart")?.value || "",
+        event_end_time: byId("bookingChangeEnd")?.value || "",
+        public_event_start_time: byId("bookingChangePublicStart")?.value || "",
+        public_event_end_time: byId("bookingChangePublicEnd")?.value || "",
+        adminNotes: byId("bookingChangeMessage")?.value || ""
+      }, overlay);
+    });
+  }
+
+  function currentRentalBookings() {
+    const list = byId("rentalBookings");
+    return Array.isArray(list?._bookings) ? list._bookings : [];
+  }
+
+  async function submitRentalCancellationRequest(rentalRequestId) {
+    const confirmed = window.confirm("Submit a cancellation request for this booking?");
+    if (!confirmed) return;
+    await postRentalDashboardRequest({
+      rentalRequestId,
+      requestType: "cancel",
+      message: "Renter requested cancellation from dashboard."
+    });
+    await loadRentalBookings();
+  }
+
+  async function submitRentalChangeRequest(rentalRequestId, requestedPayload, overlay) {
+    const result = overlay.querySelector("#bookingChangeResult");
+    const submit = overlay.querySelector("#bookingChangeSubmit");
+    submit.disabled = true;
+    submit.textContent = "Submitting...";
+    result.textContent = "Submitting request...";
+    result.dataset.tone = "default";
+    try {
+      await postRentalDashboardRequest({
+        rentalRequestId,
+        requestType: "update",
+        requestedPayload
+      });
+      result.textContent = "Request submitted for RORC approval.";
+      result.dataset.tone = "success";
+      await loadRentalBookings();
+      window.setTimeout(() => overlay.remove(), 700);
+    } catch (error) {
+      result.textContent = error.message || "Could not submit request.";
+      result.dataset.tone = "error";
+      submit.disabled = false;
+      submit.textContent = "Submit Request";
+    }
+  }
+
+  async function postRentalDashboardRequest(payload) {
+    const { data } = await supabaseClient.auth.getSession();
+    const token = data.session?.access_token || currentSession?.access_token || "";
+    if (!token) {
+      window.location.href = LOGIN_PATH;
+      return null;
+    }
+    const response = await fetch("/api/rental-dashboard", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.success === false) {
+      throw new Error(body.error || "Could not submit booking request.");
+    }
+    return body;
+  }
+
   async function init() {
     const container = byId("memberDashboard");
 
@@ -539,6 +816,7 @@
       bindAccountInfoModal();
       bindPasswordModal();
       bindGlobalKeys();
+      await loadRentalBookings();
     } catch (error) {
       if (container) {
         container.innerHTML = `

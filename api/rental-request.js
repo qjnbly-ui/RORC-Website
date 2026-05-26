@@ -124,7 +124,7 @@ module.exports = async (req, res) => {
       console.error("Rental notification email failed:", err);
     }
 
-    return res.status(200).json({ success: true, id: savedRecord?.id });
+    return res.status(200).json({ success: true, id: savedRecord?.id, bookingNumber: savedRecord?.booking_number || "" });
   } catch (err) {
     console.error("rental-request error:", err);
     return res.status(500).json({ success: false, error: "Server error. Please try again or call RORC directly." });
@@ -539,6 +539,7 @@ async function sendNotificationEmail(record) {
 <p style="margin:0 0 20px;color:#ccc;font-size:15px;">A new facility rental request has been submitted and is waiting for review.</p>
 <table role="presentation" style="width:100%;border-collapse:collapse;font-size:14px;color:#f5f5f5;">
   <tr><td style="padding:6px 12px 6px 0;color:#888;white-space:nowrap;">Name</td><td style="padding:6px 0;">${esc(record?.contact_name)}</td></tr>
+  ${record?.booking_number ? `<tr><td style="padding:6px 12px 6px 0;color:#888;white-space:nowrap;">Booking #</td><td style="padding:6px 0;">${esc(record.booking_number)}</td></tr>` : ""}
   <tr><td style="padding:6px 12px 6px 0;color:#888;">Phone</td><td style="padding:6px 0;">${esc(record?.contact_phone)}</td></tr>
   <tr><td style="padding:6px 12px 6px 0;color:#888;">Email</td><td style="padding:6px 0;">${esc(record?.contact_email)}</td></tr>
   <tr><td style="padding:6px 12px 6px 0;color:#888;">Address</td><td style="padding:6px 0;">${esc(record?.contact_address)}</td></tr>

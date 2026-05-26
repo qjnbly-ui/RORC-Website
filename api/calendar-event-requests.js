@@ -4,7 +4,7 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const VALID_REQUEST_TYPES = new Set(["create", "update", "delete"]);
 const VALID_REVIEW_ACTIONS = new Set(["approve", "reject"]);
 const ACTIVE_REQUEST_STATUS = "pending";
-const INACTIVE_ACCOUNT_TYPES = new Set(["restricted account", "kiosk account"]);
+const INACTIVE_ACCOUNT_TYPES = new Set(["restricted account", "kiosk account", "rental account"]);
 
 module.exports = async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");

@@ -5,11 +5,13 @@
   const totalSteps = 5;
   const urlParams = new URLSearchParams(window.location.search);
   const inviteToken = String(urlParams.get("invite") || "").trim();
+  const upgradeMode = !inviteToken && String(urlParams.get("upgrade") || "").trim().toLowerCase() === "rental";
   const allowedPlanIds = new Set(["open_gym", "weight_room", "full_facility", "full_facility_wifi"]);
   let step = 0;
   let maxStepReached = 0;
   let inviteMode = false;
   let inviteLoadError = "";
+  let upgradeLoadError = "";
   let contractReadUnlocked = false;
 
   function byId(id) {
@@ -48,7 +50,7 @@
     byId("signupBack").disabled = step === 0;
     byId("signupNext").hidden = step === totalSteps - 1;
     byId("signupSubmit").hidden = step !== totalSteps - 1;
-    byId("signupNext").disabled = Boolean(inviteLoadError) || (step === 3 && !contractReadUnlocked);
+    byId("signupNext").disabled = Boolean(inviteLoadError || upgradeLoadError) || (step === 3 && !contractReadUnlocked);
     setResult("");
     syncContractReadState();
   }
@@ -100,12 +102,12 @@
 
       const password = stringValue(byId("primaryPassword")?.value);
       const passwordConfirm = stringValue(byId("primaryPasswordConfirm")?.value);
-      if (password.length < 8) {
+      if (!upgradeMode && password.length < 8) {
         setResult("Create a login password with at least 8 characters.", "error");
         byId("primaryPassword")?.focus();
         return false;
       }
-      if (password !== passwordConfirm) {
+      if (!upgradeMode && password !== passwordConfirm) {
         setResult("Login passwords do not match.", "error");
         byId("primaryPasswordConfirm")?.focus();
         return false;
@@ -313,6 +315,7 @@
   function collectPayload() {
     return {
       inviteToken,
+      upgradeFromRental: upgradeMode,
       planId: byId("membershipPlan").value,
       primary: {
         name: stringValue(byId("primaryName")?.value),
@@ -363,6 +366,17 @@
     return true;
   }
 
+  async function authorizationHeader() {
+    if (!window.RORC_SUPABASE?.getSession) {
+      throw new Error("Could not verify your signed-in account.");
+    }
+    const session = await window.RORC_SUPABASE.getSession();
+    if (!session?.access_token) {
+      throw new Error("Sign in to your Rental Account before upgrading.");
+    }
+    return { Authorization: `Bearer ${session.access_token}` };
+  }
+
   function syncContractReadState() {
     const scrollBox = byId("contractScrollBox");
     const status = byId("contractReadStatus");
@@ -400,14 +414,18 @@
     const submitButton = byId("signupSubmit");
     submitButton.disabled = true;
     submitButton.textContent = "Submitting...";
-    setResult("Creating your membership account...", "default");
+    setResult(upgradeMode ? "Submitting your membership upgrade..." : "Creating your membership account...", "default");
 
     try {
+      const headers = {
+        "Content-Type": "application/json"
+      };
+      if (upgradeMode) {
+        Object.assign(headers, await authorizationHeader());
+      }
       const response = await fetch("/api/membership-signup", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
+        headers,
         body: JSON.stringify(collectPayload())
       });
       const body = await response.json().catch(() => ({}));
@@ -418,7 +436,9 @@
 
       if (body.checkoutUrl) {
         setResult("Opening secure Stripe checkout...", "success");
-        await signInCreatedUser();
+        if (!upgradeMode) {
+          await signInCreatedUser();
+        }
         window.location.href = body.checkoutUrl;
         return;
       }
@@ -432,6 +452,8 @@
 
       setResult(inviteMode
         ? "Contract received. Your account is pending RORC admin approval."
+        : upgradeMode
+          ? "Upgrade received. Your account is pending RORC admin approval."
         : "Signup received. Your account is pending RORC admin approval.",
         "success"
       );
@@ -439,7 +461,82 @@
       setResult(error.message || "Could not submit membership signup.", "error");
     } finally {
       submitButton.disabled = false;
-      submitButton.textContent = "Submit & Continue To Checkout";
+      submitButton.textContent = upgradeMode ? "Submit Upgrade & Continue To Checkout" : "Submit & Continue To Checkout";
+    }
+  }
+
+  async function loadRentalUpgrade() {
+    if (!upgradeMode) return true;
+
+    setResult("Loading your Rental Account...");
+
+    try {
+      if (!window.RORC_SUPABASE?.getCurrentMemberProfile) {
+        throw new Error("Account session tools are unavailable.");
+      }
+
+      const sessionData = await window.RORC_SUPABASE.getCurrentMemberProfile();
+      const profile = sessionData.profile;
+      if (!sessionData.session || !profile) {
+        throw new Error("Sign in to your Rental Account before upgrading.");
+      }
+      if (profile.account_type !== "Rental Account") {
+        throw new Error("This upgrade link is only for Rental Accounts.");
+      }
+
+      const headers = await authorizationHeader();
+      const dashboardResponse = await fetch("/api/rental-dashboard", { headers }).catch(() => null);
+      const dashboardBody = dashboardResponse
+        ? await dashboardResponse.json().catch(() => ({}))
+        : {};
+      const booking = Array.isArray(dashboardBody.bookings) ? dashboardBody.bookings[0] : null;
+
+      byId("primaryName").value = profile.member_name || booking?.contactName || "";
+      byId("primaryEmail").value = profile.email_address || booking?.contactEmail || "";
+      byId("primaryPhone").value = profile.phone_number || booking?.contactPhone || "";
+      byId("primaryDob").value = profile.date_of_birth || "";
+      byId("primaryAddress").value = booking?.contactAddress || "";
+
+      if (byId("primaryEmail").value) {
+        byId("primaryEmail").readOnly = true;
+      }
+
+      ["primaryPassword", "primaryPasswordConfirm"].forEach((id) => {
+        const input = byId(id);
+        if (!input) return;
+        input.required = false;
+        input.removeAttribute("minlength");
+        input.closest("label")?.setAttribute("hidden", "");
+      });
+
+      const pageTitle = document.querySelector(".signup-hero h1");
+      if (pageTitle) {
+        pageTitle.textContent = "Upgrade Rental Account";
+      }
+
+      const pageIntro = document.querySelector(".signup-hero p");
+      if (pageIntro) {
+        pageIntro.textContent = "Choose a membership plan and complete the contract. Your rental booking history stays attached to this same account.";
+      }
+
+      const primaryStepCopy = document.querySelector('.signup-step[data-step="1"] p');
+      if (primaryStepCopy) {
+        primaryStepCopy.textContent = "This uses your existing Rental Account. Update any missing details needed for membership.";
+      }
+
+      const submitButton = byId("signupSubmit");
+      if (submitButton) {
+        submitButton.textContent = "Submit Upgrade & Continue To Checkout";
+      }
+
+      setResult("");
+      return true;
+    } catch (error) {
+      upgradeLoadError = error.message || "Could not load Rental Account upgrade.";
+      setResult(upgradeLoadError, "error");
+      byId("signupNext").disabled = true;
+      byId("signupSubmit").disabled = true;
+      return false;
     }
   }
 
@@ -593,10 +690,11 @@
     }
     syncConditionalContractApplicability();
     syncHeaterDependentAcknowledgements();
+    const upgradeReady = await loadRentalUpgrade();
     const inviteReady = await loadInvitation();
     setStep(0);
-    if (inviteReady === false) {
-      setResult(inviteLoadError, "error");
+    if (upgradeReady === false || inviteReady === false) {
+      setResult(upgradeLoadError || inviteLoadError, "error");
       byId("signupNext").disabled = true;
       byId("signupSubmit").disabled = true;
     }

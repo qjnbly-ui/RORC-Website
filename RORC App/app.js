@@ -80,6 +80,7 @@ const statusOrder = [
   "Active Membership",
   "Weight Room Only",
   "Open Gym Only",
+  "Rental Account",
   "RESTRICTED ACCOUNT"
 ];
 
@@ -143,6 +144,14 @@ function defaultAccountTypePolicies() {
       allowedStartTime: "17:50:00",
       allowedEndTime: "20:10:00"
     },
+    "Rental Account": {
+      accountType: "Rental Account",
+      canSignIn: false,
+      bypassTimeWindows: false,
+      allowedDays: [],
+      allowedStartTime: null,
+      allowedEndTime: null
+    },
     "RESTRICTED ACCOUNT": {
       accountType: "RESTRICTED ACCOUNT",
       canSignIn: false,
@@ -187,6 +196,7 @@ function canonicalAccountType(accountType) {
   if (normalized === "weight room only") return "Weight Room Only";
   if (normalized === "open gym only") return "Open Gym Only";
   if (normalized === "special access account") return "Special Access Account";
+  if (normalized === "rental account") return "Rental Account";
   if (normalized === "restricted account") return "RESTRICTED ACCOUNT";
   if (normalized === "billed monthly") return "Special Access Account";
   if (normalized === "account past due no access allowed") return "RESTRICTED ACCOUNT";
@@ -232,6 +242,16 @@ const kioskAllowedRoutes = new Set([
   "about",
   "share",
   "calendar"
+]);
+
+const rentalAccountAllowedRoutes = new Set([
+  "myAccount",
+  "notifications",
+  "feedback",
+  "about",
+  "share",
+  "calendar",
+  "myEvents"
 ]);
 
 let frontDoorSession = buildSession("");
@@ -455,7 +475,19 @@ function isSpecialAccessAccount(memberOrSession) {
   return canonicalAccountType(memberOrSession?.accountType) === "Special Access Account";
 }
 
+function isRentalAccount(memberOrSession) {
+  return canonicalAccountType(memberOrSession?.accountType) === "Rental Account";
+}
+
 function canOwnCalendarEvents(memberOrSession) {
+  const accountType = canonicalAccountType(memberOrSession?.accountType);
+  return Boolean(memberOrSession?.memberId || memberOrSession?.id)
+    && accountType !== "RESTRICTED ACCOUNT"
+    && accountType !== "Kiosk Account"
+    && accountType !== "Rental Account";
+}
+
+function canViewOwnedCalendarEvents(memberOrSession) {
   const accountType = canonicalAccountType(memberOrSession?.accountType);
   return Boolean(memberOrSession?.memberId || memberOrSession?.id)
     && accountType !== "RESTRICTED ACCOUNT"
@@ -475,7 +507,7 @@ function canRequestCalendarEventChanges(memberOrSession = appUserSession) {
 }
 
 function canViewMyEventsRoute(memberOrSession = appUserSession) {
-  return canOwnCalendarEvents(memberOrSession) && hasOwnedCalendarEvents;
+  return canViewOwnedCalendarEvents(memberOrSession) && hasOwnedCalendarEvents;
 }
 
 function escapeHtml(value) {
@@ -1288,7 +1320,7 @@ async function renderAutomationSettingsPage() {
 }
 
 function renderAccountTypePolicyFields() {
-  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Weight Room Only", "Open Gym Only", "RESTRICTED ACCOUNT"];
+  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Weight Room Only", "Open Gym Only", "Rental Account", "RESTRICTED ACCOUNT"];
   const dayLabels = ["S", "M", "T", "W", "T", "F", "S"];
   return `
     <section class="account-type-policy-grid">
@@ -3242,7 +3274,7 @@ function formatPolicyTimeForInput(value) {
 
 function applyAccountTypePoliciesToForm(policies) {
   const defaults = defaultAccountTypePolicies();
-  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Weight Room Only", "Open Gym Only", "RESTRICTED ACCOUNT"];
+  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Weight Room Only", "Open Gym Only", "Rental Account", "RESTRICTED ACCOUNT"];
 
   orderedTypes.forEach((type) => {
     const policy = policies[type] || defaults[type];
@@ -3307,7 +3339,7 @@ function collectAutomationSettingsFromForm() {
 }
 
 function collectAccountTypePoliciesFromForm() {
-  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Weight Room Only", "Open Gym Only", "RESTRICTED ACCOUNT"];
+  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Weight Room Only", "Open Gym Only", "Rental Account", "RESTRICTED ACCOUNT"];
   const policies = {};
 
   orderedTypes.forEach((type) => {
@@ -3701,7 +3733,15 @@ function updateNavigationVisibility() {
   const showOtherUsers = hasOtherUsersOnCurrentAccount();
   const showAccountManagerPages = isAccountManager(appUserSession);
   const kioskMode = isKioskModeSession(appUserSession);
+  const rentalMode = isRentalAccount(appUserSession);
   const alwaysVisibleRoutes = new Set(["notifications", "about", "share", "feedback"]);
+  const bottomNav = document.querySelector(".bottom-nav");
+  if (bottomNav) {
+    bottomNav.hidden = rentalMode;
+  }
+  navItems.forEach((item) => {
+    item.hidden = rentalMode;
+  });
 
   drawerItems
     .filter((item) => item.dataset.route === "otherUsers")
@@ -3732,6 +3772,15 @@ function updateNavigationVisibility() {
       const routeName = item.dataset.route;
       item.hidden = !["feedback", "notifications", "about", "share", "calendar"].includes(routeName)
         || (routeName === "calendar" && !canViewCalendarRoute(appUserSession));
+    });
+  }
+
+  if (rentalMode) {
+    drawerItems.forEach((item) => {
+      const routeName = item.dataset.route;
+      item.hidden = !rentalAccountAllowedRoutes.has(routeName)
+        || (routeName === "calendar" && !canViewCalendarRoute(appUserSession))
+        || (routeName === "myEvents" && !canViewMyEventsRoute(appUserSession));
     });
   }
 
@@ -4172,6 +4221,10 @@ function renderRentalPipeline(root) {
     btn.addEventListener("click", () => openRentalNotifyDialog(btn.dataset.rentalNotify));
   });
 
+  root.querySelectorAll("[data-rental-change-review]").forEach((btn) => {
+    btn.addEventListener("click", () => reviewRentalChangeRequest(btn, root));
+  });
+
   // Calendar crosslinks
   root.querySelectorAll("[data-rental-view-calendar]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -4246,6 +4299,7 @@ function buildRentalCard(r) {
 
   const isActionable = status === "submitted" || status === "pending_review";
   const isConfirmed  = status === "confirmed";
+  const pendingRenterRequests = (r.changeRequests || []).filter((request) => request.status === "pending");
   const editButton = `<button class="rental-btn rental-btn-ghost" data-rental-edit="${escapeAttribute(r.id)}" type="button">Edit Booking</button>`;
   const notifyButton = `<button class="rental-btn rental-btn-ghost" data-rental-notify="${escapeAttribute(r.id)}" type="button">Notify Members</button>`;
 
@@ -4338,6 +4392,8 @@ function buildRentalCard(r) {
         </div>
       </dl>
 
+      ${pendingRenterRequests.length ? renderRentalChangeRequestPanel(r, pendingRenterRequests) : ""}
+
       ${r.adminNotes ? `
       <div class="rental-card-notes">
         <span class="rental-card-notes-label">Admin Notes</span>
@@ -4352,6 +4408,79 @@ function buildRentalCard(r) {
       ${actionsHtml}
     </article>
   `;
+}
+
+function renderRentalChangeRequestPanel(rental, requests) {
+  return `
+    <div class="rental-card-notes rental-change-request-panel">
+      <span class="rental-card-notes-label">Renter Requests</span>
+      ${requests.map((request) => `
+        <article class="rental-change-request-card">
+          <div>
+            <strong>${escapeHtml(request.requestType === "cancel" ? "Cancellation request" : "Change request")}</strong>
+            <p class="rental-card-notes-text">${escapeHtml(rentalChangeRequestSummary(request))}</p>
+            <small>${escapeHtml(formatShortDateTime(request.createdAt))}</small>
+          </div>
+          <div class="rental-card-btn-row">
+            <button class="rental-btn rental-btn-confirm" type="button" data-rental-change-review="approve" data-rental-change-id="${escapeAttribute(request.id)}" data-rental-id="${escapeAttribute(rental.id)}">Approve</button>
+            <button class="rental-btn rental-btn-decline" type="button" data-rental-change-review="reject" data-rental-change-id="${escapeAttribute(request.id)}" data-rental-id="${escapeAttribute(rental.id)}">Reject</button>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function rentalChangeRequestSummary(request) {
+  const payload = request?.requestedPayload || {};
+  if (request?.requestType === "cancel") {
+    return payload.message || "Renter requested cancellation.";
+  }
+  const pieces = [];
+  if (payload.event_date) pieces.push(`Date: ${payload.event_date}`);
+  if (payload.event_start_time || payload.event_end_time) {
+    pieces.push(`Rental access: ${payload.event_start_time || "?"} - ${payload.event_end_time || "?"}`);
+  }
+  if (payload.public_event_start_time || payload.public_event_end_time) {
+    pieces.push(`Public time: ${payload.public_event_start_time || "?"} - ${payload.public_event_end_time || "?"}`);
+  }
+  if (payload.adminNotes) pieces.push(`Message: ${payload.adminNotes}`);
+  return pieces.join(" · ") || "Renter requested booking changes.";
+}
+
+async function reviewRentalChangeRequest(button, root) {
+  const changeRequestId = String(button.dataset.rentalChangeId || "").trim();
+  const action = String(button.dataset.rentalChangeReview || "").trim();
+  if (!changeRequestId || !["approve", "reject"].includes(action)) return;
+  const reviewNotes = window.prompt(action === "approve"
+    ? "Optional approval notes for this renter request:"
+    : "Optional rejection reason for this renter request:"
+  ) || "";
+  button.disabled = true;
+  button.textContent = action === "approve" ? "Approving..." : "Rejecting...";
+  try {
+    const token = currentAuthSession?.access_token || "";
+    if (!token) throw new Error("Please sign in again before reviewing.");
+    const res = await fetch("/api/rental-reviews", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ changeRequestId, action, reviewNotes })
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || body.success === false) throw new Error(body.error || "Could not review renter request.");
+
+    rentalAutomationNotice = Array.isArray(body.automationWarnings) && body.automationWarnings.length
+      ? `Saved, but automation needs attention: ${body.automationWarnings.join(", ")}. Check Vercel logs for details.`
+      : "";
+    if (body.request?.id) {
+      const index = rentalAllRequests.findIndex((item) => item.id === body.request.id);
+      if (index >= 0) rentalAllRequests[index] = body.request;
+    }
+    renderRentalPipeline(root);
+  } catch (error) {
+    rentalAutomationNotice = error.message || "Could not review renter request.";
+    renderRentalPipeline(root);
+  }
 }
 
 function openRentalNotifyDialog(rentalId) {
@@ -5682,13 +5811,13 @@ async function fetchCalendarEventRequests({ includeEvents = false, mineOnly = fa
 }
 
 function updateOwnedCalendarEventAvailability(events = [], requests = []) {
-  hasOwnedCalendarEvents = canOwnCalendarEvents(appUserSession)
+  hasOwnedCalendarEvents = canViewOwnedCalendarEvents(appUserSession)
     && ((Array.isArray(events) && events.length > 0) || (Array.isArray(requests) && requests.length > 0));
   updateNavigationVisibility();
 }
 
 async function refreshOwnedCalendarEventAvailability() {
-  if (!canOwnCalendarEvents(appUserSession)) {
+  if (!canViewOwnedCalendarEvents(appUserSession)) {
     updateOwnedCalendarEventAvailability([], []);
     return;
   }
@@ -5824,6 +5953,7 @@ async function renderMyEventsPage() {
 
 function renderMyEventsView(root, events, requests) {
   revealReadyContent(root);
+  const canRequestEvents = canRequestCalendarEventChanges(appUserSession);
   const pendingRequests = (requests || []).filter((request) => request.status === "pending");
   const hiddenTargetIds = new Set(
     pendingRequests
@@ -5839,9 +5969,11 @@ function renderMyEventsView(root, events, requests) {
       <div>
         <span class="calendar-request-kicker">Account Events</span>
         <h2>My Events</h2>
-        <p>Add events to the calendar and track approval status here. New events, edits, and deletes stay pending until an admin approves them.</p>
+        <p>${canRequestEvents
+          ? "Add events to the calendar and track approval status here. New events, edits, and deletes stay pending until an admin approves them."
+          : "View rental events connected to your account. Rental booking changes are requested from the member dashboard."}</p>
       </div>
-      <button class="app-admin-btn app-admin-btn-primary" id="myEventsNewRequest" type="button">+ Add Event</button>
+      ${canRequestEvents ? `<button class="app-admin-btn app-admin-btn-primary" id="myEventsNewRequest" type="button">+ Add Event</button>` : ""}
     </section>
 
     <section class="my-events-section">
@@ -5892,6 +6024,9 @@ function renderMyEventsRequestCard(request) {
 
 function renderMyEventsApprovedEventCard(event) {
   const canEdit = canEditCalendarEventForSession(event);
+  const manageBookingUrl = event.rentalRequestId
+    ? `/member-dashboard/?booking=${encodeURIComponent(event.rentalRequestId)}`
+    : "";
   return `
     <article class="my-events-card">
       <div>
@@ -5904,6 +6039,10 @@ function renderMyEventsApprovedEventCard(event) {
         <div class="my-events-actions">
           <button class="app-admin-btn app-admin-btn-secondary" type="button" data-my-event-edit="${escapeAttribute(event.id)}">Edit</button>
           <button class="app-admin-btn app-admin-btn-danger" type="button" data-my-event-delete="${escapeAttribute(event.id)}">Request Delete</button>
+        </div>
+      ` : manageBookingUrl ? `
+        <div class="my-events-actions">
+          <a class="app-admin-btn app-admin-btn-secondary" href="${escapeAttribute(manageBookingUrl)}">Manage Booking</a>
         </div>
       ` : ""}
     </article>
@@ -6009,7 +6148,7 @@ async function renderCalendarPage() {
     calendarFacilityBlocks = Array.isArray(body.facilityBlocks) ? body.facilityBlocks : [];
     calendarEvents = body.events || [];
     calendarEventRequests = requestsResult.requests || [];
-    if (canOwnCalendarEvents(appUserSession) && calendarEventRequests.length) {
+    if (canViewOwnedCalendarEvents(appUserSession) && calendarEventRequests.length) {
       updateOwnedCalendarEventAvailability([], calendarEventRequests);
     }
     renderCalendarView(root);
@@ -6619,6 +6758,7 @@ function openCalendarModal(root, event, prefillDate) {
   modal.dataset.rentalAccessStart = "";
   modal.dataset.rentalAccessEnd = "";
   modal.dataset.calendarOwnerId = event ? calendarOwnerIdFromCreatedBy(event.createdBy) : "";
+  modal.dataset.calendarOwnerAccountId = "";
   modal.dataset.calendarOwnerName = "";
 
   titleEl.textContent = canManageCalendar
@@ -7190,6 +7330,7 @@ function bindCalendarRentalContactAutocomplete(root) {
     if (!modal?.dataset?.calendarOwnerName) return;
     if (input.value.trim() === modal.dataset.calendarOwnerName) return;
     modal.dataset.calendarOwnerId = "";
+    modal.dataset.calendarOwnerAccountId = "";
     modal.dataset.calendarOwnerName = "";
     setCalendarSpecialAccessDiscountState(root, false);
     updateCalendarRentalTotal(root);
@@ -7262,7 +7403,7 @@ function bindCalendarRentalContactAutocomplete(root) {
 
 function rentalContactAutocompleteMembers() {
   const seen = new Set();
-  const inactiveTypes = new Set(["Kiosk Account", "RESTRICTED ACCOUNT"]);
+  const inactiveTypes = new Set(["Kiosk Account", "RESTRICTED ACCOUNT", "Rental Account"]);
   const source = globalMemberDirectory.length ? globalMemberDirectory : accountMembers;
   return source
     .filter((member) => {
@@ -7294,6 +7435,7 @@ function applyCalendarRentalContactMember(root, memberId) {
   });
   if (modal) {
     modal.dataset.calendarOwnerId = canLinkOwner ? member.id : "";
+    modal.dataset.calendarOwnerAccountId = canLinkOwner ? member.accountId || "" : "";
     modal.dataset.calendarOwnerName = canLinkOwner ? String(member.memberName || "").trim() : "";
   }
   setCalendarSpecialAccessDiscountState(root, isSpecialAccessMember);
@@ -7340,6 +7482,10 @@ function collectCalendarRentalPayload(root, defaults) {
     adminNotes: root.querySelector("#calRentalAdminNotes")?.value.trim() || null,
     rental_status: "confirmed"
   };
+  const ownerId = String(root.querySelector("#calEventModal")?.dataset?.calendarOwnerId || "").trim();
+  const ownerAccountId = String(root.querySelector("#calEventModal")?.dataset?.calendarOwnerAccountId || "").trim();
+  if (ownerId) payload.claimed_member_id = ownerId;
+  if (ownerAccountId) payload.claimed_account_id = ownerAccountId;
   return payload;
 }
 
@@ -9145,11 +9291,12 @@ function visibleMembersForSession(session) {
 
 function guestSponsorsForSession(session) {
   return visibleMembersForSession(session)
-    .filter((member) => !isKioskAccount(member));
+    .filter((member) => !isKioskAccount(member) && !isRentalAccount(member));
 }
 
 function memberPickerOptions(source) {
-  const sortOnly = (members) => [...members].sort(sortMembers);
+  const hideFromNormalPickers = (member) => canonicalAccountType(member?.accountType) !== "Rental Account";
+  const sortOnly = (members) => [...members].filter(hideFromNormalPickers).sort(sortMembers);
   const kioskOrManager = isAccountManager(appUserSession) || isKioskAccount(appUserSession);
 
   if ((source === "memberSignIn" || source === "heaterResponsible") && kioskOrManager) {
@@ -10076,7 +10223,7 @@ function configuredTimerMinutes(entry) {
 }
 
 function sortMembers(a, b) {
-  const pickerOrder = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Weight Room Only", "Open Gym Only", "RESTRICTED ACCOUNT"];
+  const pickerOrder = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Weight Room Only", "Open Gym Only", "Rental Account", "RESTRICTED ACCOUNT"];
   const resolveTypeIndex = (accountType) => {
     const pickerIndex = pickerOrder.indexOf(accountType);
     if (pickerIndex >= 0) return pickerIndex;
@@ -10135,6 +10282,7 @@ function accessCopy(accountType) {
   if (normalizedType === "Account Manager") return "Account Manager access with full administrative permissions.";
   if (normalizedType === "Kiosk Account") return "Kiosk account access for member sign-in, guest sign-in, currently signed in, heater records, feedback, and calendar.";
   if (normalizedType === "Special Access Account") return "Custom contract access for approved organizations and special-use accounts.";
+  if (normalizedType === "Rental Account") return "Limited booking access for calendar, about, and My Events. No facility sign-in privileges.";
   if (normalizedType === "RESTRICTED ACCOUNT") return "Access is blocked until the account is approved or restored.";
   return "Basic Membership Access From 7am - 9pm. Follow calendar events for times closed.";
 }
@@ -10751,7 +10899,9 @@ function renderAccountInfo() {
     return;
   }
 
-  const members = [...accountMembers].sort(sortMembers);
+  const members = accountMembers
+    .filter((member) => !isRentalAccount(member))
+    .sort(sortMembers);
   const groups = statusOrder
     .map((status) => ({
       status,
@@ -13461,6 +13611,10 @@ function render(routeName) {
 
   if (isKioskModeSession(appUserSession) && !kioskAllowedRoutes.has(resolvedRouteName)) {
     resolvedRouteName = "currentlySignedIn";
+  }
+
+  if (isRentalAccount(appUserSession) && !rentalAccountAllowedRoutes.has(resolvedRouteName)) {
+    resolvedRouteName = canViewCalendarRoute(appUserSession) ? "calendar" : "myAccount";
   }
 
   if (accountManagerOnlyRoutes.has(resolvedRouteName) && !isAccountManager(appUserSession)) {

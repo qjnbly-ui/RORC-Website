@@ -93,7 +93,7 @@ async function loadSignupReviews() {
       createdAt: row.created_at || "",
       billingStatus: billing.billing_status || billing.stripe_status || "none",
       currentPeriodEnd: billing.current_period_end || "",
-      source: payload.invitationId ? "Account invite" : "New signup",
+      source: payload.upgradeFromRental ? "Rental account upgrade" : payload.invitationId ? "Account invite" : "New signup",
       planLabel: payload.planLabel || account.membership_details || "",
       householdCount: Array.isArray(payload.householdMemberIds) ? payload.householdMemberIds.length : 0
     };
@@ -113,6 +113,7 @@ async function reviewSignupContract({ contractId, action, notes, manager }) {
 
   const now = new Date().toISOString();
   const approved = action === "approve";
+  const payload = contract.contract_payload || {};
 
   if (approved) {
     const memberIds = contractMemberIds(contract);
@@ -124,6 +125,18 @@ async function reviewSignupContract({ contractId, action, notes, manager }) {
       `account_members?id=in.(${memberIds.join(",")})`,
       { account_type: contract.requested_account_type || "Active Membership" }
     );
+
+    if (payload.upgradeFromRental && payload.planLabel) {
+      await updateSupabaseRows(
+        `accounts?id=eq.${encodeURIComponent(contract.account_id)}`,
+        { membership_details: payload.planLabel }
+      ).catch((error) => console.warn("Could not update upgraded account details.", error));
+    }
+  } else if (payload.upgradeFromRental) {
+    await updateSupabaseRows(
+      `accounts?id=eq.${encodeURIComponent(contract.account_id)}`,
+      { membership_details: "Rental Account" }
+    ).catch((error) => console.warn("Could not restore rental account details.", error));
   }
 
   const reviewPatch = {

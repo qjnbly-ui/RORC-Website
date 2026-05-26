@@ -68,18 +68,22 @@ async function loadDirectoryRows() {
     const rows = await supabaseRest(
       `account_member_profiles?select=${DIRECTORY_PROFILE_COLUMNS}&order=account_number.asc.nullslast,member_name.asc.nullslast&limit=10000`
     );
-    return { rows: sortDirectoryRows(await hydrateDirectoryMailingAddresses(rows || [])), warning: "" };
+    return { rows: sortDirectoryRows(await hydrateDirectoryMailingAddresses(filterDirectoryRows(rows || []))), warning: "" };
   } catch (viewError) {
     console.warn("Member directory profile view unavailable:", viewError?.message || viewError);
   }
 
   try {
     const rows = await loadDirectoryRowsFromBaseTables();
-    return { rows: sortDirectoryRows(await hydrateDirectoryMailingAddresses(rows)), warning: "Loaded member directory from fallback tables." };
+    return { rows: sortDirectoryRows(await hydrateDirectoryMailingAddresses(filterDirectoryRows(rows))), warning: "Loaded member directory from fallback tables." };
   } catch (fallbackError) {
     console.error("Member directory fallback unavailable:", fallbackError?.message || fallbackError);
     return { rows: [], warning: "Member directory is temporarily unavailable." };
   }
+}
+
+function filterDirectoryRows(rows) {
+  return (rows || []).filter((row) => String(row.account_type || "").trim() !== "Rental Account");
 }
 
 async function hydrateDirectoryMailingAddresses(rows) {

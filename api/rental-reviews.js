@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -6,7 +7,10 @@ const { buildRentalApplicantEmail } = require("./_communication-templates");
 const { sendResendEmail } = require("./_resend");
 
 const VALID_STATUSES = ["submitted", "pending_review", "confirmed", "rejected", "canceled"];
+const VALID_CHANGE_REVIEW_ACTIONS = new Set(["approve", "reject"]);
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
+const PUBLIC_SITE_URL = (process.env.PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://ruthobenchainrc.com").replace(/\/+$/, "");
+const CLAIM_LINK_DAYS = 30;
 const RENTAL_PRICE_CENTS = {
   allDay: 10000,
   privateHourly: 1000,
@@ -44,10 +48,11 @@ module.exports = async (req, res) => {
     return res.status(401).json({ success: false, error: "Missing session token" });
   }
 
+  let manager;
   try {
     const user = await getSupabaseUser(token);
-    const member = await getAccountMember(user.id);
-    if (!member || member.account_type !== "Account Manager") {
+    manager = await getAccountMember(user.id);
+    if (!manager || manager.account_type !== "Account Manager") {
       return res.status(403).json({ success: false, error: "Admin access required" });
     }
   } catch {
@@ -59,10 +64,14 @@ module.exports = async (req, res) => {
       const rows = await supabaseRest(
         "rental_requests?select=*&order=event_date.asc&order=created_at.asc&limit=200"
       );
-      const linkedEvents = await loadLinkedCalendarEventMap(rows.map((row) => row.id));
+      const rentalIds = rows.map((row) => row.id);
+      const [linkedEvents, changeRequests] = await Promise.all([
+        loadLinkedCalendarEventMap(rentalIds),
+        loadRentalChangeRequestsMap(rentalIds)
+      ]);
       return res.status(200).json({
         success: true,
-        requests: rows.map((row) => mapRow(row, linkedEvents.get(row.id)))
+        requests: rows.map((row) => mapRow(row, linkedEvents.get(row.id), changeRequests.get(row.id) || []))
       });
     } catch (err) {
       console.error("rental-reviews GET error:", err);
@@ -116,7 +125,26 @@ module.exports = async (req, res) => {
   }
 
   if (req.method === "PATCH") {
-    const { id, status, adminNotes } = req.body || {};
+    const { id, status, adminNotes, changeRequestId, action, reviewNotes } = req.body || {};
+
+    if (changeRequestId) {
+      if (!VALID_CHANGE_REVIEW_ACTIONS.has(String(action || ""))) {
+        return res.status(400).json({ success: false, error: "Invalid change request action" });
+      }
+      try {
+        const result = await reviewRentalChangeRequest({
+          changeRequestId,
+          action,
+          reviewNotes,
+          manager,
+          req
+        });
+        return res.status(200).json(result);
+      } catch (err) {
+        console.error("rental change request review error:", err);
+        return res.status(Number(err.statusCode) || 500).json({ success: false, error: err.message || "Could not review renter request" });
+      }
+    }
 
     if (!id || typeof id !== "string") {
       return res.status(400).json({ success: false, error: "Missing rental request ID" });
@@ -178,15 +206,18 @@ module.exports = async (req, res) => {
       const record = rows[0];
 
       const automationWarnings = record
-        ? await runRentalReviewAutomations(record, status, adminNotes, { calendarPublicOverride })
+        ? await runRentalReviewAutomations(record, status, adminNotes, { calendarPublicOverride, req })
         : [];
       const linkedEvents = record
         ? await loadLinkedCalendarEventMap([record.id])
         : new Map();
+      const changeRequests = record
+        ? await loadRentalChangeRequestsMap([record.id])
+        : new Map();
 
       return res.status(200).json({
         success: true,
-        request: record ? mapRow(record, linkedEvents.get(record.id)) : null,
+        request: record ? mapRow(record, linkedEvents.get(record.id), changeRequests.get(record.id) || []) : null,
         automationWarnings
       });
     } catch (err) {
@@ -281,7 +312,9 @@ async function createOrUpdateCalendarEvent(record, options = {}) {
       : existingEvent ? Boolean(existingEvent.is_public) : usePublicWindow,
     status: "confirmed",
     rental_request_id: record.id,
-    created_by: existingEvent?.created_by || "system"
+    created_by: record.claimed_member_id
+      ? `member:${record.claimed_member_id}:rental:${record.id}`
+      : existingEvent?.created_by || "system"
   };
 
   const res = await fetch(
@@ -337,13 +370,13 @@ async function runRentalReviewAutomations(record, requestedStatus, adminNotes, o
     const calendarWarning = await runAutomation("Calendar event creation", () => createOrUpdateCalendarEvent(record, options));
     if (calendarWarning) warnings.push(calendarWarning);
 
-    const emailWarning = await runAutomation("Rental applicant email", () => sendApplicantEmail(record, requestedStatus, adminNotes));
+    const emailWarning = await runAutomation("Rental applicant email", () => sendApplicantEmail(record, requestedStatus, adminNotes, options.req));
     if (emailWarning) warnings.push(emailWarning);
   } else if (requestedStatus === "rejected" || requestedStatus === "canceled") {
     const calendarWarning = await runAutomation("Linked calendar event status sync", () => syncLinkedCalendarEventStatus(record.id, "cancelled"));
     if (calendarWarning) warnings.push(calendarWarning);
 
-    const emailWarning = await runAutomation("Rental applicant email", () => sendApplicantEmail(record, requestedStatus, adminNotes));
+    const emailWarning = await runAutomation("Rental applicant email", () => sendApplicantEmail(record, requestedStatus, adminNotes, options.req));
     if (emailWarning) warnings.push(emailWarning);
   } else if (record.rental_status === "confirmed") {
     const calendarWarning = await runAutomation("Linked calendar event update", () => createOrUpdateCalendarEvent(record, options));
@@ -442,6 +475,10 @@ function buildRentalRecord(body) {
       : typeof body.adminNotes === "string" ? body.adminNotes.trim() || null : null,
     reviewed_at: new Date().toISOString()
   };
+  const claimedMemberId = str(body.claimed_member_id || body.claimedMemberId);
+  const claimedAccountId = str(body.claimed_account_id || body.claimedAccountId);
+  if (isUuid(claimedMemberId)) record.claimed_member_id = claimedMemberId;
+  if (isUuid(claimedAccountId)) record.claimed_account_id = claimedAccountId;
   record.estimated_total_cents = calculateRentalTotalCents({
     ...record,
     addon_cleaning_maintenance: Boolean(body.addon_cleaning_maintenance ?? body.addonCleaningMaintenance)
@@ -500,6 +537,15 @@ function buildRentalPatch(body) {
   if (hasBodyField(body, "special_access_discount") || hasBodyField(body, "specialAccessDiscount")) {
     patch.special_access_discount = Boolean(bodyFieldValue(body, "special_access_discount", "specialAccessDiscount"));
   }
+  if (hasBodyField(body, "claimed_member_id") || hasBodyField(body, "claimedMemberId")) {
+    const value = str(bodyFieldValue(body, "claimed_member_id", "claimedMemberId"));
+    patch.claimed_member_id = isUuid(value) ? value : null;
+    patch.claimed_at = patch.claimed_member_id ? new Date().toISOString() : null;
+  }
+  if (hasBodyField(body, "claimed_account_id") || hasBodyField(body, "claimedAccountId")) {
+    const value = str(bodyFieldValue(body, "claimed_account_id", "claimedAccountId"));
+    patch.claimed_account_id = isUuid(value) ? value : null;
+  }
 
   if (body.rental_type !== undefined || body.rentalType !== undefined) {
     patch.rental_type = str(body.rental_type || body.rentalType) === "hourly" ? "hourly" : "all_day";
@@ -519,6 +565,10 @@ function buildRentalPatch(body) {
   }
   patch.reviewed_at = new Date().toISOString();
   return patch;
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ""));
 }
 
 function str(value) {
@@ -621,9 +671,10 @@ function calendarPublicOverrideFromBody(body) {
   };
 }
 
-function mapRow(row, linkedEvent = null) {
+function mapRow(row, linkedEvent = null, changeRequests = []) {
   return {
     id: row.id,
+    bookingNumber: row.booking_number || "",
     eventName: row.event_name,
     contactName: row.contact_name,
     contactPhone: row.contact_phone,
@@ -654,10 +705,34 @@ function mapRow(row, linkedEvent = null) {
     rentalHours: row.rental_hours,
     rentalStatus: row.rental_status,
     adminNotes: row.admin_notes,
+    claimedAccountId: row.claimed_account_id || null,
+    claimedMemberId: row.claimed_member_id || null,
+    claimedAt: row.claimed_at || null,
+    claimExpiresAt: row.claim_token_expires_at || null,
     linkedCalendarEventId: linkedEvent?.id || null,
     calendarIsPublic: Boolean(linkedEvent?.is_public),
+    changeRequests: (changeRequests || []).map(mapRentalChangeRequest),
     reviewedAt: row.reviewed_at,
     createdAt: row.created_at
+  };
+}
+
+function mapRentalChangeRequest(row) {
+  const payload = row?.requested_payload || {};
+  const snapshot = row?.requester_snapshot || {};
+  return {
+    id: row.id,
+    rentalRequestId: row.rental_request_id,
+    requesterMemberId: row.requester_member_id,
+    requestType: row.request_type,
+    status: row.status,
+    requestedPayload: payload,
+    requesterSnapshot: snapshot,
+    reviewNotes: row.review_notes,
+    reviewedByMemberId: row.reviewed_by_member_id,
+    reviewedAt: row.reviewed_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
   };
 }
 
@@ -715,7 +790,133 @@ async function loadLinkedCalendarEventMap(rentalIds = []) {
   return byRentalId;
 }
 
-async function sendApplicantEmail(record, status, adminNotes) {
+async function loadRentalChangeRequestsMap(rentalIds = []) {
+  const ids = [...new Set((rentalIds || []).filter(Boolean).map(String))];
+  if (!ids.length) return new Map();
+
+  try {
+    const rows = await supabaseRest(
+      `rental_change_requests?select=*&rental_request_id=in.(${ids.map(encodeURIComponent).join(",")})&order=created_at.desc&limit=500`
+    );
+    const byRentalId = new Map();
+    (rows || []).forEach((request) => {
+      if (!request.rental_request_id) return;
+      const list = byRentalId.get(request.rental_request_id) || [];
+      list.push(request);
+      byRentalId.set(request.rental_request_id, list);
+    });
+    return byRentalId;
+  } catch (error) {
+    console.warn("Rental change requests unavailable:", error?.message || error);
+    return new Map();
+  }
+}
+
+async function loadRentalChangeRequestById(id) {
+  const rows = await supabaseRest(`rental_change_requests?select=*&id=eq.${encodeURIComponent(id)}&limit=1`);
+  return rows[0] || null;
+}
+
+async function loadRentalRequestById(id) {
+  const rows = await supabaseRest(`rental_requests?select=*&id=eq.${encodeURIComponent(id)}&limit=1`);
+  return rows[0] || null;
+}
+
+async function reviewRentalChangeRequest({ changeRequestId, action, reviewNotes, manager, req }) {
+  const request = await loadRentalChangeRequestById(changeRequestId);
+  if (!request) throw httpError(404, "Renter request not found");
+  if (request.status !== "pending") throw httpError(409, "This renter request has already been reviewed");
+
+  const now = new Date().toISOString();
+  const normalizedAction = String(action || "").trim();
+  const notes = str(reviewNotes);
+
+  if (normalizedAction === "reject") {
+    await supabaseWrite(
+      `rental_change_requests?id=eq.${encodeURIComponent(changeRequestId)}`,
+      "PATCH",
+      {
+        status: "rejected",
+        review_notes: notes || null,
+        reviewed_by_member_id: manager?.id || null,
+        reviewed_at: now
+      }
+    );
+    const rental = await loadRentalRequestById(request.rental_request_id);
+    const linkedEvents = rental ? await loadLinkedCalendarEventMap([rental.id]) : new Map();
+    const changes = rental ? await loadRentalChangeRequestsMap([rental.id]) : new Map();
+    return {
+      success: true,
+      request: rental ? mapRow(rental, linkedEvents.get(rental.id), changes.get(rental.id) || []) : null,
+      automationWarnings: []
+    };
+  }
+
+  const rental = await loadRentalRequestById(request.rental_request_id);
+  if (!rental) throw httpError(404, "Rental request not found");
+
+  let updatedRental = rental;
+  const automationWarnings = [];
+
+  if (request.request_type === "cancel") {
+    const rows = await supabaseWrite(
+      `rental_requests?id=eq.${encodeURIComponent(rental.id)}`,
+      "PATCH",
+      {
+        rental_status: "canceled",
+        admin_notes: notes || rental.admin_notes || null,
+        reviewed_at: now
+      }
+    );
+    updatedRental = rows[0] || rental;
+    automationWarnings.push(...await runRentalReviewAutomations(updatedRental, "canceled", notes, { req }));
+  } else {
+    const patch = buildRentalPatch(request.requested_payload || {});
+    const merged = { ...rental, ...patch };
+    if (
+      merged.rental_type === "hourly"
+      && merged.is_private_event !== false
+      && (patch.event_start_time || patch.event_end_time)
+      && patch.rental_hours === undefined
+    ) {
+      patch.rental_hours = rentalHoursBetween(merged.event_start_time, merged.event_end_time, merged.rental_hours || 1);
+      merged.rental_hours = patch.rental_hours;
+    }
+    patch.estimated_total_cents = calculateRentalTotalCents(merged);
+    patch.reviewed_at = now;
+    const rows = await supabaseWrite(
+      `rental_requests?id=eq.${encodeURIComponent(rental.id)}`,
+      "PATCH",
+      patch
+    );
+    updatedRental = rows[0] || rental;
+    automationWarnings.push(...await runRentalReviewAutomations(updatedRental, updatedRental.rental_status, notes, { req }));
+  }
+
+  await supabaseWrite(
+    `rental_change_requests?id=eq.${encodeURIComponent(changeRequestId)}`,
+    "PATCH",
+    {
+      status: "approved",
+      review_notes: notes || null,
+      reviewed_by_member_id: manager?.id || null,
+      reviewed_at: now
+    }
+  );
+
+  const [linkedEvents, changeRequests] = await Promise.all([
+    loadLinkedCalendarEventMap([updatedRental.id]),
+    loadRentalChangeRequestsMap([updatedRental.id])
+  ]);
+
+  return {
+    success: true,
+    request: mapRow(updatedRental, linkedEvents.get(updatedRental.id), changeRequests.get(updatedRental.id) || []),
+    automationWarnings
+  };
+}
+
+async function sendApplicantEmail(record, status, adminNotes, req) {
   if (!RESEND_API_KEY) {
     console.warn("Rental applicant email skipped: RESEND_API_KEY is not configured.");
     return null;
@@ -725,7 +926,19 @@ async function sendApplicantEmail(record, status, adminNotes) {
     return null;
   }
 
-  const email = buildRentalApplicantEmail({ record, status, adminNotes });
+  let emailRecord = record;
+  let manageUrl = "";
+  if (status === "confirmed") {
+    try {
+      const claim = await prepareRentalClaimLink(record, req);
+      emailRecord = claim.record || record;
+      manageUrl = claim.manageUrl || "";
+    } catch (error) {
+      console.warn("Rental claim link generation failed:", error?.message || error);
+    }
+  }
+
+  const email = buildRentalApplicantEmail({ record: emailRecord, status, adminNotes, manageUrl });
 
   const responseBody = await sendResendEmail({
     apiKey: RESEND_API_KEY,
@@ -734,9 +947,72 @@ async function sendApplicantEmail(record, status, adminNotes) {
     subject: email.subject,
     text: email.text,
     html: email.html,
-    idempotencyKey: `rental-applicant-${record.id}-${status || "update"}`
+    idempotencyKey: `rental-applicant-${record.id}-${status || "update"}-${String(emailRecord.claim_token_hash || emailRecord.reviewed_at || "").slice(0, 24)}`
   });
 
   console.info(`Rental applicant email sent to ${record.contact_email}.`, responseBody?.id ? `Resend id: ${responseBody.id}` : "");
   return responseBody;
+}
+
+async function prepareRentalClaimLink(record, req) {
+  if (!record?.id) return { record, manageUrl: "" };
+  if (record.claimed_member_id) {
+    return {
+      record,
+      manageUrl: `${siteOrigin(req)}/member-dashboard/?booking=${encodeURIComponent(record.booking_number || record.id)}`
+    };
+  }
+
+  const token = crypto.randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + CLAIM_LINK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+  const rows = await supabaseWrite(
+    `rental_requests?id=eq.${encodeURIComponent(record.id)}`,
+    "PATCH",
+    {
+      claim_token_hash: hashToken(token),
+      claim_token_expires_at: expiresAt
+    }
+  );
+  const nextRecord = rows[0] || { ...record, claim_token_expires_at: expiresAt };
+  return {
+    record: nextRecord,
+    manageUrl: `${siteOrigin(req)}/rental-account/?token=${encodeURIComponent(token)}`
+  };
+}
+
+function hashToken(token) {
+  return crypto.createHash("sha256").update(String(token || "")).digest("hex");
+}
+
+function siteOrigin(req) {
+  const configured = PUBLIC_SITE_URL;
+  if (configured) return configured;
+  const host = req?.headers?.["x-forwarded-host"] || req?.headers?.host || "";
+  const proto = req?.headers?.["x-forwarded-proto"] || "https";
+  return host ? `${proto}://${host}` : "https://ruthobenchainrc.com";
+}
+
+async function supabaseWrite(path, method, payload) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    method,
+    headers: {
+      apikey: SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      "Content-Type": "application/json",
+      Prefer: "return=representation"
+    },
+    body: JSON.stringify(payload)
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`REST write failed: ${response.status} ${text}`);
+  }
+  const text = await response.text();
+  return text ? JSON.parse(text) : [];
+}
+
+function httpError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
 }

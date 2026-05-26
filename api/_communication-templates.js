@@ -196,6 +196,7 @@ function rentalDetailRows(record) {
     : "TBD";
 
   return [
+    ["Booking Number", record?.booking_number || record?.bookingNumber || "Pending"],
     ["Event Name", record?.event_name || "TBD"],
     ["Rental Category", record?.event_type || "TBD"],
     ["Date", formatRentalDate(record?.event_date)],
@@ -234,12 +235,25 @@ function buildRentalDetailsText(record) {
   ].join("\n");
 }
 
-function buildRentalApplicantEmail({ record, status, adminNotes }) {
+function buildRentalApplicantEmail({ record, status, adminNotes, manageUrl }) {
   const firstName = (record?.contact_name || "").split(" ")[0] || "there";
   const isConfirmed = status === "confirmed";
   const trimmedNotes = typeof adminNotes === "string" ? adminNotes.trim() : "";
   const detailsHtml = isConfirmed ? buildRentalDetailsHtml(record) : "";
   const detailsText = isConfirmed ? buildRentalDetailsText(record) : "";
+  const bookingNumber = record?.booking_number || record?.bookingNumber || "";
+  const manageLink = String(manageUrl || "").trim();
+  const manageHtml = isConfirmed && manageLink
+    ? `
+<div style="margin:20px 0;padding:16px;background:#191919;border:1px solid #333;border-radius:10px;">
+  <p style="margin:0 0 12px;color:#f5f5f5;font-size:15px;font-weight:700;">Manage this booking</p>
+  <p style="margin:0 0 14px;color:#ccc;font-size:14px;line-height:1.55;">Use this secure link to create or connect a limited RORC rental account, view booking details, and request changes.</p>
+  <p style="margin:0;">
+    <a href="${escapeHtml(manageLink)}" style="display:inline-block;background:#f23a36;color:#fff;text-decoration:none;border-radius:999px;padding:12px 18px;font-weight:700;">Manage This Booking</a>
+  </p>
+  <p style="margin:12px 0 0;color:#888;font-size:12px;line-height:1.45;word-break:break-all;">If the button does not work, copy this link: ${escapeHtml(manageLink)}</p>
+</div>`
+    : "";
 
   const notesHtml = trimmedNotes
     ? `<p style="margin:16px 0 0;padding:14px 16px;background:#222;border-radius:8px;color:#ccc;font-size:14px;text-align:left;">${escapeHtml(trimmedNotes)}</p>`
@@ -249,8 +263,10 @@ function buildRentalApplicantEmail({ record, status, adminNotes }) {
     ? `
 <p style="margin:0 0 16px;color:#ccc;font-size:15px;">Hi ${escapeHtml(firstName)},</p>
 <p style="margin:0 0 16px;color:#ccc;font-size:15px;">Great news — your rental request for a <strong style="color:#fff;">${escapeHtml(record?.event_type)}</strong> on <strong style="color:#fff;">${escapeHtml(record?.event_date)}</strong> has been <strong style="color:#fff;">confirmed</strong>.</p>
+${bookingNumber ? `<p style="margin:0 0 16px;color:#ccc;font-size:15px;">Your booking number is <strong style="color:#fff;">${escapeHtml(bookingNumber)}</strong>.</p>` : ""}
 <p style="margin:0 0 16px;color:#ccc;font-size:15px;">RORC staff will be in touch with next steps and payment details. If you have any questions, please reach out to us directly.</p>
 ${detailsHtml}
+${manageHtml}
 ${notesHtml}
 <p style="margin:24px 0 0;color:#888;font-size:13px;">We look forward to hosting your event!</p>
 `
@@ -267,8 +283,10 @@ ${notesHtml}
       `Hi ${firstName},`,
       "",
       `Great news — your rental request for a ${record?.event_type || "rental"} on ${record?.event_date || "the requested date"} has been confirmed.`,
+      bookingNumber ? `Booking number: ${bookingNumber}` : "",
       "RORC staff will be in touch with next steps and payment details. If you have any questions, please reach out to us directly.",
       detailsText,
+      manageLink ? `Manage this booking: ${manageLink}` : "",
       trimmedNotes ? `Notes: ${trimmedNotes}` : "",
       "",
       "We look forward to hosting your event!"

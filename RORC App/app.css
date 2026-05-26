@@ -5119,6 +5119,31 @@ textarea:focus-visible,
   line-height: 1.6;
 }
 
+.rental-change-request-panel {
+  border-color: rgba(245, 158, 11, 0.36);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.rental-change-request-card {
+  display: grid;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.rental-change-request-card:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.rental-change-request-card strong {
+  color: var(--text);
+}
+
+.rental-change-request-card small {
+  color: var(--muted);
+}
+
 /* ── Footer ── */
 .rental-card-footer {
   display: flex;

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Claim Rental Booking | RORC</title>
+  <link rel="stylesheet" href="../style.css" />
+  <script src="/scripts/rorc-supabase-client.js" defer></script>
+  <script src="/scripts/rorc-auth-nav.js" defer></script>
+</head>
+<body>
+  <div class="site-menu">
+    <input type="checkbox" id="site-menu-toggle" class="site-menu-toggle" />
+    <div class="site-menu-bar">
+      <a class="site-menu-brand" href="/">RORC</a>
+      <div class="site-menu-actions">
+        <a class="site-menu-login" href="/membership-login/">Login</a>
+        <label class="site-menu-button" for="site-menu-toggle">Menu</label>
+      </div>
+    </div>
+    <label class="site-menu-backdrop" for="site-menu-toggle" aria-hidden="true"></label>
+    <div class="site-menu-panel" role="dialog" aria-label="Site menu">
+      <label class="site-menu-close" for="site-menu-toggle">Close</label>
+      <nav class="site-menu-links" aria-label="Site">
+        <a href="/">Home</a>
+        <a href="/about-rorc/">About</a>
+        <a href="/memberships/">Memberships</a>
+        <a href="/rentals/">Rentals</a>
+        <a href="/events/">Events</a>
+      </nav>
+      <div class="site-menu-legal" aria-label="Legal">
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </div>
+    </div>
+  </div>
+
+  <main class="page-content membership-page rental-claim-page">
+    <section class="membership-hero">
+      <p class="eyebrow">Rental Booking</p>
+      <h1>Claim Your Booking</h1>
+      <p>Create a limited rental account to view booking details and request changes without becoming a full membership account.</p>
+    </section>
+
+    <section class="rorc-card rental-claim-card">
+      <div id="rentalClaimContent" class="rorc-card-text">
+        Loading booking...
+      </div>
+    </section>
+  </main>
+
+  <script src="/scripts/rorc-rental-account.js" defer></script>
+</body>
+</html>

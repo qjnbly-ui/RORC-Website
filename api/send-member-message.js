@@ -320,7 +320,8 @@ async function loadMembers(memberIds) {
     .join(",");
   if (!idList) return [];
 
-  return supabaseRest(`account_members?select=id,member_name,phone_number,email_address&id=in.(${idList})`);
+  const rows = await supabaseRest(`account_members?select=id,member_name,phone_number,email_address,account_type&id=in.(${idList})`);
+  return (rows || []).filter((member) => String(member.account_type || "").trim() !== "Rental Account");
 }
 
 async function createScheduledMemberMessage({

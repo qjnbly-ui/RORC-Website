@@ -12,6 +12,7 @@ const ADMIN_REVIEW_EMAIL = process.env.ADMIN_REVIEW_EMAIL || "qjnbly@hotmail.com
 const ADMIN_REVIEW_PHONE = process.env.ADMIN_REVIEW_PHONE || "5418916772";
 const { sendResendEmail } = require("./_resend");
 const PENDING_ACCOUNT_TYPE = "RESTRICTED ACCOUNT";
+const RENTAL_ACCOUNT_TYPE = "Rental Account";
 const stripe = process.env.STRIPE_SECRET_KEY
   ? Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2026-02-25.clover" })
   : null;
@@ -76,6 +77,11 @@ module.exports = async (req, res) => {
 
     validateSignupPayload(payload);
     const checkoutPrices = await resolveCheckoutPrices(plan);
+
+    if (payload.upgradeFromRental) {
+      return await completeRentalAccountUpgrade(req, res, payload, plan, checkoutPrices);
+    }
+
     const existingMember = await findAccountMemberByEmail(payload.primary.email);
     if (existingMember) {
       throw httpError(409, "This email is already linked to a RORC account. Use member login or a different email.");
@@ -256,6 +262,7 @@ function normalizeSignupPayload(body) {
   const householdMembers = Array.isArray(body.householdMembers) ? body.householdMembers : [];
   return {
     inviteToken: stringValue(body.inviteToken),
+    upgradeFromRental: Boolean(body.upgradeFromRental),
     planId: stringValue(body.planId),
     primary: {
       name: stringValue(body.primary?.name),
@@ -318,7 +325,7 @@ function validateSignupPayload(payload) {
   if (payload.primary.accessPin && !/^\d{4}$/.test(payload.primary.accessPin)) {
     throw httpError(400, "Four digit account password must be exactly 4 numbers.");
   }
-  if (!payload.primary.password || payload.primary.password.length < 8) {
+  if (!payload.upgradeFromRental && (!payload.primary.password || payload.primary.password.length < 8)) {
     throw httpError(400, "Login password must be at least 8 characters.");
   }
   if (payload.signature.questionsOrConcerns) {
@@ -498,6 +505,195 @@ async function completeAccountInvite(req, res, payload) {
     contractId: contract.id,
     accountNumber: account.account_number,
     loginUrl: "/membership-login/?signup=pending_review"
+  });
+}
+
+async function completeRentalAccountUpgrade(req, res, payload, plan, checkoutPrices) {
+  const token = bearerToken(req);
+  if (!token) {
+    throw httpError(401, "Sign in with the Rental Account before upgrading.");
+  }
+
+  const user = await getSupabaseUser(token);
+  const currentMember = await getAccountMemberByAuthUserId(user.id);
+  if (!currentMember) {
+    throw httpError(403, "This session is not linked to a RORC account.");
+  }
+  if (currentMember.account_type !== RENTAL_ACCOUNT_TYPE) {
+    throw httpError(400, "Only Rental Accounts can use this upgrade path.");
+  }
+
+  const signedInEmail = stringValue(currentMember.email_address || user.email).toLowerCase();
+  if (!signedInEmail || payload.primary.email !== signedInEmail) {
+    throw httpError(400, "Use the email address already connected to this Rental Account.");
+  }
+
+  const account = await getAccountById(currentMember.account_id);
+  if (!account) {
+    throw httpError(404, "The Rental Account could not be found.");
+  }
+
+  await validateAdditionalUserEmailsAvailable(payload);
+
+  await updateSupabaseRows(
+    `accounts?id=eq.${encodeURIComponent(account.id)}`,
+    {
+      membership_details: plan.label,
+      notes_on_account: appendAccountNote(account.notes_on_account, `Rental Account upgrade submitted for ${plan.label}.`),
+      heater_pin: payload.primary.accessPin || account.heater_pin || null
+    }
+  );
+
+  await updateSupabaseRows(
+    `account_members?id=eq.${encodeURIComponent(currentMember.id)}`,
+    {
+      member_name: payload.primary.name,
+      phone_number: payload.primary.phone || currentMember.phone_number || null,
+      email_address: payload.primary.email,
+      date_of_birth: payload.primary.dateOfBirth || null,
+      allow_guest_entry: Boolean(payload.permissions.allowGuestEntry),
+      allow_heater_use: Boolean(payload.permissions.allowHeaterUse),
+      can_access_independently: true,
+      is_billing_owner: true,
+      account_type: RENTAL_ACCOUNT_TYPE
+    }
+  );
+
+  const primaryMember = {
+    ...currentMember,
+    member_name: payload.primary.name,
+    phone_number: payload.primary.phone || currentMember.phone_number || null,
+    email_address: payload.primary.email
+  };
+
+  const householdMembers = [];
+  const accountInvites = [];
+  for (const member of payload.householdMembers) {
+    if (isUnder13(member.dateOfBirth)) {
+      householdMembers.push(await insertSupabaseRow("account_members", {
+        account_id: account.id,
+        member_name: member.name,
+        account_type: PENDING_ACCOUNT_TYPE,
+        phone_number: member.phone || null,
+        email_address: member.email || null,
+        date_of_birth: member.dateOfBirth || null,
+        guardian_member_id: primaryMember.id,
+        can_access_independently: false,
+        allow_guest_entry: false,
+        allow_heater_use: false,
+        is_billing_owner: false
+      }));
+      continue;
+    }
+
+    accountInvites.push(await createAccountUserInvite({
+      req,
+      account,
+      inviterMember: primaryMember,
+      member,
+      accountType: plan.accountType
+    }));
+  }
+
+  const billing = await getAccountBilling(account.id);
+  const customerId = await ensureStripeCustomer({
+    existingCustomerId: billing?.stripe_customer_id,
+    payload,
+    account,
+    primaryMember,
+    planId: payload.planId
+  });
+
+  await upsertAccountBilling(account.id, {
+    stripe_customer_id: customerId,
+    billing_status: "incomplete",
+    last_sync: new Date().toISOString()
+  });
+
+  const contract = await insertSupabaseRow("signup_contracts", {
+    account_id: account.id,
+    primary_member_id: primaryMember.id,
+    requested_account_number: account.account_number,
+    applicant_name: payload.primary.name,
+    applicant_email: payload.primary.email,
+    applicant_phone: payload.primary.phone || null,
+    requested_account_type: plan.accountType,
+    contract_payload: {
+      ...contractPayloadFromSignup(payload),
+      planLabel: plan.label,
+      accountNumber: account.account_number,
+      upgradeFromRental: true,
+      previousAccountType: RENTAL_ACCOUNT_TYPE,
+      householdMemberIds: householdMembers.map((member) => member.id),
+      accountInviteIds: accountInvites.map((invite) => invite.id),
+      invitedAccountUsers: accountInvites.map((invite) => ({
+        id: invite.id,
+        invitedName: invite.invitedName,
+        invitedEmail: invite.invitedEmail,
+        invitedPhone: invite.invitedPhone,
+        sentEmail: invite.sentEmail,
+        sentText: invite.sentText,
+        deliveryErrors: invite.deliveryErrors
+      })),
+      submittedFrom: {
+        ip: requestIp(req),
+        userAgent: req.headers["user-agent"] || ""
+      }
+    },
+    contract_signed_at: new Date().toISOString(),
+    signup_status: "submitted"
+  });
+
+  const checkout = await createCheckoutSession({
+    req,
+    plan,
+    payload,
+    account,
+    primaryMember,
+    contract,
+    customerId,
+    checkoutPrices
+  });
+
+  if (checkout?.id) {
+    await updateSupabaseRows(
+      `signup_contracts?id=eq.${encodeURIComponent(contract.id)}`,
+      {
+        stripe_checkout_session_id: checkout.id,
+        signup_status: "awaiting_payment"
+      }
+    );
+  }
+
+  await sendReviewCreatedNotifications({
+    req,
+    contract,
+    account,
+    applicantName: payload.primary.name,
+    applicantEmail: payload.primary.email,
+    applicantPhone: payload.primary.phone,
+    requestedAccountType: plan.accountType,
+    sourceLabel: "Rental account membership upgrade"
+  }).catch((notificationError) => {
+    console.warn("Review notification failed.", notificationError);
+  });
+
+  return res.status(200).json({
+    success: true,
+    upgradedFromRental: true,
+    accountId: account.id,
+    memberId: primaryMember.id,
+    accountNumber: account.account_number,
+    invitedUsers: accountInvites.map((invite) => ({
+      inviteId: invite.id,
+      invitedName: invite.invitedName,
+      sentEmail: invite.sentEmail,
+      sentText: invite.sentText,
+      deliveryErrors: invite.deliveryErrors
+    })),
+    stripeCustomerId: customerId,
+    checkoutUrl: checkout?.url || "",
+    checkoutRequired: Boolean(checkout?.url)
   });
 }
 
@@ -831,15 +1027,18 @@ async function sendAdminReviewText({ req, contract, account, applicantName, requ
   await sendTwilioText(to, message);
 }
 
-async function sendApplicantPendingReviewNotifications({ req, account, applicantName, applicantEmail, applicantPhone }) {
+async function sendApplicantPendingReviewNotifications({ req, account, applicantName, applicantEmail, applicantPhone, sourceLabel }) {
   const loginUrl = `${siteOrigin(req)}/member-dashboard/?signup=pending_review`;
   const accountNumber = account?.account_number || "";
+  const pendingAccountLabel = /rental account/i.test(String(sourceLabel || ""))
+    ? "Rental Account"
+    : "RESTRICTED ACCOUNT";
   const subject = "RORC account pending review";
   const text = [
     `Hi ${applicantName || "there"},`,
     "",
     "Your RORC account contract was received and is waiting for admin approval.",
-    "Your dashboard may show RESTRICTED ACCOUNT until approval is complete.",
+    `Your dashboard may show ${pendingAccountLabel} until approval is complete.`,
     accountNumber ? `Account: ${accountNumber}` : "",
     "",
     `Open your dashboard: ${loginUrl}`
@@ -854,7 +1053,7 @@ async function sendApplicantPendingReviewNotifications({ req, account, applicant
           Your RORC account contract was received and is waiting for admin approval.
         </p>
         <p style="margin:0 0 20px;color:#d1d5db;line-height:1.65;font-size:16px;text-align:center;">
-          Your dashboard may show <strong>RESTRICTED ACCOUNT</strong> until approval is complete.
+          Your dashboard may show <strong>${escapeHtml(pendingAccountLabel)}</strong> until approval is complete.
         </p>
         ${accountNumber ? `<p style="margin:0 0 20px;color:#d1d5db;text-align:center;"><strong>Account:</strong> ${escapeHtml(accountNumber)}</p>` : ""}
         <p style="margin:0;text-align:center;">
@@ -877,7 +1076,7 @@ async function sendApplicantPendingReviewNotifications({ req, account, applicant
   if (phone && TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN) {
     await sendTwilioText(
       phone,
-      `RORC account received. Your dashboard may show RESTRICTED ACCOUNT until admin approval is complete. ${loginUrl}`
+      `RORC account received. Your dashboard may show ${pendingAccountLabel} until admin approval is complete. ${loginUrl}`
     );
   }
 }
@@ -916,12 +1115,34 @@ async function createAuthUser({ email, password, name, accountId, accountMemberI
     throw new Error(`Could not create login user: ${response.status} ${message}`);
   }
 
-  return body;
+  return body?.user || body;
+}
+
+async function getSupabaseUser(token) {
+  const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    headers: {
+      apikey: SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) {
+    throw httpError(401, "Invalid session.");
+  }
+
+  return response.json();
 }
 
 async function findAccountMemberByEmail(email) {
   if (!email) return null;
-  const rows = await supabaseRest(`account_members?select=id&email_address=eq.${encodeURIComponent(email)}&limit=1`);
+  const rows = await supabaseRest(`account_members?select=id,account_id,member_name,account_type,email_address,phone_number,auth_user_id&email_address=eq.${encodeURIComponent(email)}&limit=1`);
+  return rows[0] || null;
+}
+
+async function getAccountMemberByAuthUserId(authUserId) {
+  const rows = await supabaseRest(
+    `account_members?select=id,account_id,member_name,account_type,email_address,phone_number,auth_user_id&auth_user_id=eq.${encodeURIComponent(authUserId)}&limit=1`
+  );
   return rows[0] || null;
 }
 
@@ -933,8 +1154,57 @@ async function findPendingInvitationByToken(inviteToken) {
 }
 
 async function getAccountById(accountId) {
-  const rows = await supabaseRest(`accounts?select=id,account_number&id=eq.${encodeURIComponent(accountId)}&limit=1`);
+  const rows = await supabaseRest(`accounts?select=id,account_number,membership_details,notes_on_account,heater_pin&id=eq.${encodeURIComponent(accountId)}&limit=1`);
   return rows[0] || null;
+}
+
+async function getAccountBilling(accountId) {
+  const rows = await supabaseRest(`account_billing?select=*&account_id=eq.${encodeURIComponent(accountId)}&limit=1`);
+  return rows[0] || null;
+}
+
+async function ensureStripeCustomer({ existingCustomerId, payload, account, primaryMember, planId }) {
+  if (existingCustomerId) {
+    await stripe.customers.update(existingCustomerId, {
+      name: payload.primary.name,
+      email: payload.primary.email,
+      phone: payload.primary.phone || undefined,
+      metadata: {
+        rorc_account_id: account.id,
+        rorc_primary_member_id: primaryMember.id,
+        rorc_membership_plan: planId
+      }
+    }).catch((error) => {
+      console.warn("Could not update existing Stripe customer.", error);
+    });
+    return existingCustomerId;
+  }
+
+  const customer = await stripe.customers.create({
+    name: payload.primary.name,
+    email: payload.primary.email,
+    phone: payload.primary.phone || undefined,
+    metadata: {
+      rorc_account_id: account.id,
+      rorc_primary_member_id: primaryMember.id,
+      rorc_membership_plan: planId
+    }
+  });
+
+  return customer.id;
+}
+
+async function upsertAccountBilling(accountId, payload) {
+  const existing = await getAccountBilling(accountId);
+  if (existing) {
+    await updateSupabaseRows(`account_billing?account_id=eq.${encodeURIComponent(accountId)}`, payload);
+    return;
+  }
+
+  await insertSupabaseRow("account_billing", {
+    account_id: accountId,
+    ...payload
+  });
 }
 
 async function getAccountLimitStats(accountId, { excludeInvitationId = "" } = {}) {
@@ -1087,11 +1357,23 @@ function requestIp(req) {
   return String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").split(",")[0].trim();
 }
 
+function bearerToken(req) {
+  const header = req.headers.authorization || req.headers.Authorization || "";
+  const match = String(header).match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : "";
+}
+
 function siteOrigin(req) {
   if (process.env.PUBLIC_SITE_URL) return process.env.PUBLIC_SITE_URL.replace(/\/+$/, "");
   const host = req.headers["x-forwarded-host"] || req.headers.host;
   const proto = req.headers["x-forwarded-proto"] || "https";
   return host ? `${proto}://${host}` : "https://www.ruthobenchainrc.com";
+}
+
+function appendAccountNote(existing, note) {
+  const current = stringValue(existing);
+  if (!current) return note;
+  return `${current}\n${note}`;
 }
 
 function stringValue(value) {
