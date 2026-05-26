@@ -440,6 +440,74 @@ a { color: inherit; }
   margin-right: auto;
 }
 
+.rental-bookings-card {
+  padding: 0;
+}
+
+.rental-bookings-details {
+  padding: 22px;
+}
+
+.rental-bookings-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.rental-bookings-summary::-webkit-details-marker {
+  display: none;
+}
+
+.rental-bookings-summary::after {
+  content: "+";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(148, 163, 184, 0.38);
+  border-radius: 999px;
+  color: #f8fafc;
+  font-weight: 800;
+  flex: 0 0 auto;
+}
+
+.rental-bookings-details[open] .rental-bookings-summary::after {
+  content: "-";
+}
+
+.rental-bookings-summary .rorc-card-title,
+.rental-bookings-summary .rorc-card-text {
+  display: block;
+}
+
+.rental-bookings-summary .rorc-card-title {
+  margin: 0 0 8px;
+}
+
+.rental-bookings-summary .rorc-card-text {
+  margin: 0;
+}
+
+.rental-bookings-count {
+  border: 1px solid rgba(242, 58, 54, 0.42);
+  border-radius: 999px;
+  background: rgba(242, 58, 54, 0.12);
+  color: #fecaca;
+  padding: 5px 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin-left: auto;
+}
+
+.rental-bookings-details:not([open]) .rental-bookings-list {
+  display: none;
+}
+
 .rental-claim-summary,
 .rental-booking-card {
   border: 1px solid rgba(148, 163, 184, 0.28);
@@ -508,10 +576,58 @@ a { color: inherit; }
   color: #fde68a;
 }
 
+.rental-booking-declined {
+  border-left: 3px solid #ef4444;
+  padding-left: 10px;
+  color: #fecaca;
+}
+
+.rental-change-modal .rorc-password-dialog {
+  width: min(860px, 94vw);
+  max-height: 90vh;
+  overflow: auto;
+}
+
+.rental-change-section {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.rental-change-section-title {
+  margin: 0;
+  color: #e7d2a0;
+  font-size: 0.82rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
 .rental-change-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+}
+
+.rental-change-check-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+.rental-change-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #d9dde5;
+}
+
+.rental-change-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: #f23a36;
 }
 
 .rental-change-modal textarea.rorc-auth-input {
@@ -521,7 +637,8 @@ a { color: inherit; }
 
 @media (max-width: 700px) {
   .rental-booking-card header,
-  .rental-change-grid {
+  .rental-change-grid,
+  .rental-change-check-grid {
     grid-template-columns: 1fr;
     flex-direction: column;
   }

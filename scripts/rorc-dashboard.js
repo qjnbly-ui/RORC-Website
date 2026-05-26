@@ -575,6 +575,7 @@
   async function loadRentalBookings() {
     const card = byId("rentalBookingsCard");
     const list = byId("rentalBookings");
+    const count = byId("rentalBookingsCount");
     if (!card || !list || !currentSession) return;
 
     try {
@@ -593,10 +594,15 @@
       }
 
       card.hidden = false;
+      if (count) {
+        count.textContent = String(bookings.length);
+      }
       renderRentalBookings(bookings);
     } catch (error) {
       if (isRentalAccount(currentProfile)) {
         card.hidden = false;
+        byId("rentalBookingsDetails")?.setAttribute("open", "");
+        if (count) count.textContent = "!";
         list.innerHTML = `<p class="rorc-card-text">${escapeHtml(error.message || "Could not load bookings.")}</p>`;
       } else {
         card.hidden = true;
@@ -608,6 +614,11 @@
     const list = byId("rentalBookings");
     if (!list) return;
     list._bookings = bookings;
+    const details = byId("rentalBookingsDetails");
+    const highlight = new URLSearchParams(window.location.search).get("booking") || "";
+    if (details && highlight) {
+      details.open = true;
+    }
 
     if (!bookings.length) {
       list.innerHTML = `<p class="rorc-card-text">No claimed rental bookings are connected to this account yet.</p>`;
@@ -622,7 +633,6 @@
       button.addEventListener("click", () => submitRentalCancellationRequest(button.dataset.rentalCancel || ""));
     });
 
-    const highlight = new URLSearchParams(window.location.search).get("booking") || "";
     if (highlight) {
       const card = list.querySelector(`[data-booking-match="${cssEscape(highlight)}"]`)
         || list.querySelector(`[data-booking-id="${cssEscape(highlight)}"]`);
@@ -633,7 +643,10 @@
 
   function renderRentalBookingCard(booking) {
     const pending = (booking.changeRequests || []).find((request) => request.status === "pending");
+    const statusKey = String(booking.rentalStatus || "").trim().toLowerCase();
+    const isRejected = statusKey === "rejected";
     const addons = [
+      booking.addonCleaningMaintenance && "Standard Maintenance Fee",
       booking.addonTables && "Tables",
       booking.addonChairs && "Chairs",
       booking.addonTarp && "Tarp",
@@ -648,6 +661,20 @@
     const publicTime = booking.publicEventStartTime && booking.publicEventEndTime
       ? `<p><strong>Public Event Time:</strong> ${escapeHtml(formatTimeRange(booking.publicEventStartTime, booking.publicEventEndTime))}</p>`
       : "";
+    const actions = isRejected
+      ? `
+        <p class="rental-booking-declined">This rental request was declined. Contact RORC if you have questions, or submit a new rental request with updated details.</p>
+        <div class="rorc-actions" style="justify-content:flex-start;">
+          <a class="rorc-btn rorc-btn-neutral" href="/support/">Contact Us</a>
+          <a class="rorc-btn rorc-btn-gold" href="/rentals/">New Rental Request</a>
+        </div>
+      `
+      : `
+        <div class="rorc-actions" style="justify-content:flex-start;">
+          <button class="rorc-btn rorc-btn-neutral" type="button" data-rental-change="${escapeHtml(booking.id)}" ${pending ? "disabled" : ""}>Request Change</button>
+          <button class="rorc-btn rorc-btn-danger" type="button" data-rental-cancel="${escapeHtml(booking.id)}" ${pending ? "disabled" : ""}>Request Cancellation</button>
+        </div>
+      `;
     return `
       <article class="rental-booking-card" data-booking-id="${escapeHtml(booking.id)}" data-booking-match="${escapeHtml(booking.bookingNumber || booking.id)}">
         <header>
@@ -666,17 +693,52 @@
           ${addons.length ? `<p><strong>Add-ons:</strong> ${escapeHtml(addons.join(", "))}</p>` : ""}
           ${pending ? `<p class="rental-booking-pending"><strong>Pending ${escapeHtml(pending.requestType)} request:</strong> waiting for RORC approval.</p>` : ""}
         </div>
-        <div class="rorc-actions" style="justify-content:flex-start;">
-          <button class="rorc-btn rorc-btn-neutral" type="button" data-rental-change="${escapeHtml(booking.id)}" ${pending ? "disabled" : ""}>Request Change</button>
-          <button class="rorc-btn rorc-btn-danger" type="button" data-rental-cancel="${escapeHtml(booking.id)}" ${pending ? "disabled" : ""}>Request Cancellation</button>
-        </div>
+        ${actions}
       </article>
+    `;
+  }
+
+  function timeInputValue(value) {
+    const match = String(value || "").match(/^(\d{1,2}):(\d{2})/);
+    if (!match) return "";
+    return `${String(match[1]).padStart(2, "0")}:${match[2]}`;
+  }
+
+  function checkboxAttribute(value) {
+    return value ? "checked" : "";
+  }
+
+  function optionHtml(value, label, selectedValue) {
+    const selected = String(selectedValue ?? "") === String(value) ? "selected" : "";
+    return `<option value="${escapeHtml(value)}" ${selected}>${escapeHtml(label)}</option>`;
+  }
+
+  function yesNoOptions(selectedValue) {
+    return [
+      optionHtml("true", "Yes", selectedValue ? "true" : "false"),
+      optionHtml("false", "No", selectedValue ? "true" : "false")
+    ].join("");
+  }
+
+  function rentalChangeAddonCheckbox(id, label, checked) {
+    return `
+      <label class="rental-change-check">
+        <input id="${escapeHtml(id)}" type="checkbox" ${checkboxAttribute(checked)} />
+        <span>${escapeHtml(label)}</span>
+      </label>
     `;
   }
 
   function openRentalChangeDialog(rentalRequestId) {
     const booking = currentRentalBookings().find((item) => item.id === rentalRequestId);
     if (!booking) return;
+    const eventTypeOptions = ["Birthday Party", "Private Party", "Meeting", "Memorial Service", "Other"];
+    const currentEventType = booking.eventType || "Other";
+    if (currentEventType && !eventTypeOptions.includes(currentEventType)) {
+      eventTypeOptions.push(currentEventType);
+    }
+    const currentRentalType = booking.rentalType === "hourly" ? "hourly" : "all_day";
+    const rentalHours = Number(booking.rentalHours || 1) || 1;
     const overlay = document.createElement("div");
     overlay.className = "rorc-password-modal rental-change-modal";
     overlay.innerHTML = `
@@ -685,30 +747,122 @@
         <button type="button" class="rorc-password-close" data-close>Close</button>
         <h2 class="rorc-card-title">Request Booking Change</h2>
         <div class="rorc-password-form">
-          <label class="rorc-auth-label">
-            <span>Event Date</span>
-            <input id="bookingChangeDate" class="rorc-auth-input" type="date" value="${escapeHtml(booking.eventDate || "")}" />
-          </label>
-          <div class="rental-change-grid">
+          <section class="rental-change-section">
+            <h3 class="rental-change-section-title">Contact Information</h3>
+            <div class="rental-change-grid">
+              <label class="rorc-auth-label">
+                <span>Primary Contact Name</span>
+                <input id="bookingChangeContactName" class="rorc-auth-input" type="text" value="${escapeHtml(booking.contactName || "")}" />
+              </label>
+              <label class="rorc-auth-label">
+                <span>Phone Number</span>
+                <input id="bookingChangeContactPhone" class="rorc-auth-input" type="tel" value="${escapeHtml(booking.contactPhone || "")}" />
+              </label>
+            </div>
+            <div class="rental-change-grid">
+              <label class="rorc-auth-label">
+                <span>Email Address</span>
+                <input id="bookingChangeContactEmail" class="rorc-auth-input" type="email" value="${escapeHtml(booking.contactEmail || "")}" />
+              </label>
+              <label class="rorc-auth-label">
+                <span>Mailing Address</span>
+                <input id="bookingChangeContactAddress" class="rorc-auth-input" type="text" value="${escapeHtml(booking.contactAddress || "")}" />
+              </label>
+            </div>
+          </section>
+
+          <section class="rental-change-section">
+            <h3 class="rental-change-section-title">Event Details</h3>
             <label class="rorc-auth-label">
-              <span>Rental Access Start</span>
-              <input id="bookingChangeStart" class="rorc-auth-input" type="time" value="${escapeHtml(booking.eventStartTime || "")}" />
+              <span>Event Name</span>
+              <input id="bookingChangeEventName" class="rorc-auth-input" type="text" value="${escapeHtml(booking.eventName || "")}" />
             </label>
-            <label class="rorc-auth-label">
-              <span>Rental Access End</span>
-              <input id="bookingChangeEnd" class="rorc-auth-input" type="time" value="${escapeHtml(booking.eventEndTime || "")}" />
-            </label>
-          </div>
-          <div class="rental-change-grid">
-            <label class="rorc-auth-label">
-              <span>Public Event Start</span>
-              <input id="bookingChangePublicStart" class="rorc-auth-input" type="time" value="${escapeHtml(booking.publicEventStartTime || "")}" />
-            </label>
-            <label class="rorc-auth-label">
-              <span>Public Event End</span>
-              <input id="bookingChangePublicEnd" class="rorc-auth-input" type="time" value="${escapeHtml(booking.publicEventEndTime || "")}" />
-            </label>
-          </div>
+            <div class="rental-change-grid">
+              <label class="rorc-auth-label">
+                <span>Type of Event</span>
+                <select id="bookingChangeEventType" class="rorc-auth-input">
+                  ${eventTypeOptions.map((option) => optionHtml(option, option, currentEventType)).join("")}
+                </select>
+              </label>
+              <label class="rorc-auth-label">
+                <span>Event Date</span>
+                <input id="bookingChangeDate" class="rorc-auth-input" type="date" value="${escapeHtml(booking.eventDate || "")}" />
+              </label>
+            </div>
+            <div class="rental-change-grid">
+              <label class="rorc-auth-label">
+                <span>Rental Access Start</span>
+                <input id="bookingChangeStart" class="rorc-auth-input" type="time" value="${escapeHtml(timeInputValue(booking.eventStartTime))}" />
+              </label>
+              <label class="rorc-auth-label">
+                <span>Rental Access End</span>
+                <input id="bookingChangeEnd" class="rorc-auth-input" type="time" value="${escapeHtml(timeInputValue(booking.eventEndTime))}" />
+              </label>
+            </div>
+            <div class="rental-change-grid">
+              <label class="rorc-auth-label">
+                <span>Public Event Start</span>
+                <input id="bookingChangePublicStart" class="rorc-auth-input" type="time" value="${escapeHtml(timeInputValue(booking.publicEventStartTime))}" />
+              </label>
+              <label class="rorc-auth-label">
+                <span>Public Event End</span>
+                <input id="bookingChangePublicEnd" class="rorc-auth-input" type="time" value="${escapeHtml(timeInputValue(booking.publicEventEndTime))}" />
+              </label>
+            </div>
+            <div class="rental-change-grid">
+              <label class="rorc-auth-label">
+                <span>Estimated Attendance</span>
+                <input id="bookingChangeAttendance" class="rorc-auth-input" type="number" min="1" step="1" value="${escapeHtml(booking.estimatedAttendance || "")}" />
+              </label>
+              <label class="rorc-auth-label">
+                <span>Food or Drinks</span>
+                <select id="bookingChangeFood" class="rorc-auth-input">${yesNoOptions(Boolean(booking.foodOrDrinks))}</select>
+              </label>
+            </div>
+            <div class="rental-change-grid">
+              <label class="rorc-auth-label">
+                <span>Alcohol</span>
+                <select id="bookingChangeAlcohol" class="rorc-auth-input">
+                  ${optionHtml("No", "No", booking.alcohol || "No")}
+                  ${optionHtml("Yes", "Yes", booking.alcohol || "No")}
+                </select>
+              </label>
+              <label class="rorc-auth-label">
+                <span>Private Event</span>
+                <select id="bookingChangePrivate" class="rorc-auth-input">${yesNoOptions(booking.isPrivateEvent !== false)}</select>
+              </label>
+            </div>
+          </section>
+
+          <section class="rental-change-section">
+            <h3 class="rental-change-section-title">Rental & Add-Ons</h3>
+            <div class="rental-change-grid">
+              <label class="rorc-auth-label">
+                <span>Rental Type</span>
+                <select id="bookingChangeRentalType" class="rorc-auth-input">
+                  ${optionHtml("all_day", "All Day", currentRentalType)}
+                  ${optionHtml("hourly", "By the Hour", currentRentalType)}
+                </select>
+              </label>
+              <label class="rorc-auth-label">
+                <span>Rental Hours</span>
+                <input id="bookingChangeRentalHours" class="rorc-auth-input" type="number" min="0.25" max="24" step="0.25" value="${escapeHtml(rentalHours)}" />
+              </label>
+            </div>
+            <div class="rental-change-check-grid">
+              ${rentalChangeAddonCheckbox("bookingChangeCleaning", "Standard Maintenance Fee", booking.addonCleaningMaintenance)}
+              ${rentalChangeAddonCheckbox("bookingChangeTables", "Tables", booking.addonTables)}
+              ${rentalChangeAddonCheckbox("bookingChangeChairs", "Chairs", booking.addonChairs)}
+              ${rentalChangeAddonCheckbox("bookingChangeTarp", "Tarp", booking.addonTarp)}
+              ${rentalChangeAddonCheckbox("bookingChangeHeater", "Heater", booking.addonHeater)}
+              ${rentalChangeAddonCheckbox("bookingChangeAc", "AC ($2/hr)", booking.addonAc)}
+              ${rentalChangeAddonCheckbox("bookingChangeEarlySetup", "Early Setup", booking.addonEarlySetup)}
+              ${rentalChangeAddonCheckbox("bookingChangeEarlyDay", "Extra Day (Early)", booking.addonEarlyDayRental)}
+              ${rentalChangeAddonCheckbox("bookingChangeLateCleanup", "Late Cleanup", booking.addonLateCleanup)}
+              ${rentalChangeAddonCheckbox("bookingChangeLateDay", "Extra Day (Late)", booking.addonLateDayRental)}
+            </div>
+          </section>
+
           <label class="rorc-auth-label">
             <span>Message For RORC</span>
             <textarea id="bookingChangeMessage" class="rorc-auth-input" rows="4" placeholder="Describe what needs to change."></textarea>
@@ -728,11 +882,33 @@
     });
     overlay.querySelector("#bookingChangeSubmit")?.addEventListener("click", async () => {
       await submitRentalChangeRequest(rentalRequestId, {
+        contact_name: byId("bookingChangeContactName")?.value || "",
+        contact_phone: byId("bookingChangeContactPhone")?.value || "",
+        contact_email: byId("bookingChangeContactEmail")?.value || "",
+        contact_address: byId("bookingChangeContactAddress")?.value || "",
+        event_name: byId("bookingChangeEventName")?.value || "",
+        event_type: byId("bookingChangeEventType")?.value || "",
         event_date: byId("bookingChangeDate")?.value || "",
         event_start_time: byId("bookingChangeStart")?.value || "",
         event_end_time: byId("bookingChangeEnd")?.value || "",
         public_event_start_time: byId("bookingChangePublicStart")?.value || "",
         public_event_end_time: byId("bookingChangePublicEnd")?.value || "",
+        estimated_attendance: byId("bookingChangeAttendance")?.value || "",
+        food_or_drinks: byId("bookingChangeFood")?.value === "true",
+        alcohol: byId("bookingChangeAlcohol")?.value || "No",
+        is_private_event: byId("bookingChangePrivate")?.value !== "false",
+        rental_type: byId("bookingChangeRentalType")?.value || "all_day",
+        rental_hours: byId("bookingChangeRentalHours")?.value || "1",
+        addon_cleaning_maintenance: Boolean(byId("bookingChangeCleaning")?.checked),
+        addon_tables: Boolean(byId("bookingChangeTables")?.checked),
+        addon_chairs: Boolean(byId("bookingChangeChairs")?.checked),
+        addon_tarp: Boolean(byId("bookingChangeTarp")?.checked),
+        addon_heater: Boolean(byId("bookingChangeHeater")?.checked),
+        addon_ac: Boolean(byId("bookingChangeAc")?.checked),
+        addon_early_setup: Boolean(byId("bookingChangeEarlySetup")?.checked),
+        addon_early_day_rental: Boolean(byId("bookingChangeEarlyDay")?.checked),
+        addon_late_cleanup: Boolean(byId("bookingChangeLateCleanup")?.checked),
+        addon_late_day_rental: Boolean(byId("bookingChangeLateDay")?.checked),
         adminNotes: byId("bookingChangeMessage")?.value || ""
       }, overlay);
     });

@@ -4299,6 +4299,7 @@ function buildRentalCard(r) {
 
   const isActionable = status === "submitted" || status === "pending_review";
   const isConfirmed  = status === "confirmed";
+  const isRejected = status === "rejected";
   const pendingRenterRequests = (r.changeRequests || []).filter((request) => request.status === "pending");
   const editButton = `<button class="rental-btn rental-btn-ghost" data-rental-edit="${escapeAttribute(r.id)}" type="button">Edit Booking</button>`;
   const notifyButton = `<button class="rental-btn rental-btn-ghost" data-rental-notify="${escapeAttribute(r.id)}" type="button">Notify Members</button>`;
@@ -4322,6 +4323,15 @@ function buildRentalCard(r) {
         ${notifyButton}
         <button class="rental-btn rental-btn-view-cal" data-rental-view-calendar="${escapeAttribute(r.eventDate || "")}">View on Calendar</button>
         <button class="rental-btn rental-btn-cancel" data-rental-action="cancel" data-rental-id="${escapeAttribute(r.id)}">Cancel Booking</button>
+        <button class="rental-btn rental-btn-decline" data-rental-action="delete" data-rental-id="${escapeAttribute(r.id)}">Delete Request</button>
+      </div>
+    </div>
+  ` : isRejected ? `
+    <div class="rental-card-actions" id="rental-actions-${escapeAttribute(r.id)}">
+      <div class="rental-card-btn-row">
+        ${editButton}
+        <button class="rental-btn rental-btn-ghost" data-rental-action="pending_review" data-rental-id="${escapeAttribute(r.id)}">Reopen Review</button>
+        <button class="rental-btn rental-btn-confirm" data-rental-action="confirm" data-rental-id="${escapeAttribute(r.id)}">Confirm Booking</button>
         <button class="rental-btn rental-btn-decline" data-rental-action="delete" data-rental-id="${escapeAttribute(r.id)}">Delete Request</button>
       </div>
     </div>
@@ -4418,7 +4428,7 @@ function renderRentalChangeRequestPanel(rental, requests) {
         <article class="rental-change-request-card">
           <div>
             <strong>${escapeHtml(request.requestType === "cancel" ? "Cancellation request" : "Change request")}</strong>
-            <p class="rental-card-notes-text">${escapeHtml(rentalChangeRequestSummary(request))}</p>
+            ${renderRentalChangeRequestDetails(request)}
             <small>${escapeHtml(formatShortDateTime(request.createdAt))}</small>
           </div>
           <div class="rental-card-btn-row">
@@ -4431,21 +4441,70 @@ function renderRentalChangeRequestPanel(rental, requests) {
   `;
 }
 
-function rentalChangeRequestSummary(request) {
+function renderRentalChangeRequestDetails(request) {
   const payload = request?.requestedPayload || {};
   if (request?.requestType === "cancel") {
-    return payload.message || "Renter requested cancellation.";
+    return `<p class="rental-card-notes-text">${escapeHtml(payload.message || "Renter requested cancellation.")}</p>`;
   }
-  const pieces = [];
-  if (payload.event_date) pieces.push(`Date: ${payload.event_date}`);
+  const rows = [];
+  const hasField = (key) => Object.prototype.hasOwnProperty.call(payload, key);
+  const addRow = (label, value) => {
+    if (value === undefined || value === null || String(value).trim() === "") return;
+    rows.push(`
+      <div class="rental-change-request-row">
+        <dt>${escapeHtml(label)}</dt>
+        <dd>${escapeHtml(value)}</dd>
+      </div>
+    `);
+  };
+
+  addRow("Contact", payload.contact_name);
+  addRow("Phone", payload.contact_phone);
+  addRow("Email", payload.contact_email);
+  addRow("Address", payload.contact_address);
+  addRow("Event Name", payload.event_name);
+  addRow("Event Type", payload.event_type);
+  addRow("Date", payload.event_date);
   if (payload.event_start_time || payload.event_end_time) {
-    pieces.push(`Rental access: ${payload.event_start_time || "?"} - ${payload.event_end_time || "?"}`);
+    addRow("Rental Access", `${payload.event_start_time || "?"} - ${payload.event_end_time || "?"}`);
   }
   if (payload.public_event_start_time || payload.public_event_end_time) {
-    pieces.push(`Public time: ${payload.public_event_start_time || "?"} - ${payload.public_event_end_time || "?"}`);
+    addRow("Public Event Time", `${payload.public_event_start_time || "?"} - ${payload.public_event_end_time || "?"}`);
   }
-  if (payload.adminNotes) pieces.push(`Message: ${payload.adminNotes}`);
-  return pieces.join(" · ") || "Renter requested booking changes.";
+  addRow("Attendance", payload.estimated_attendance);
+  if (hasField("food_or_drinks")) addRow("Food or Drinks", payload.food_or_drinks ? "Yes" : "No");
+  addRow("Alcohol", payload.alcohol);
+  if (hasField("is_private_event")) addRow("Private Event", payload.is_private_event ? "Yes" : "No");
+  if (payload.rental_type) {
+    const rentalType = payload.rental_type === "hourly" ? "By the Hour" : "All Day";
+    addRow("Rental Type", payload.rental_type === "hourly" && payload.rental_hours
+      ? `${rentalType} (${payload.rental_hours} hrs)`
+      : rentalType);
+  }
+  const addonFields = [
+    ["addon_cleaning_maintenance", "Standard Maintenance Fee"],
+    ["addon_tables", "Tables"],
+    ["addon_chairs", "Chairs"],
+    ["addon_tarp", "Tarp"],
+    ["addon_heater", "Heater"],
+    ["addon_ac", "AC ($2/hr)"],
+    ["addon_early_setup", "Early Setup"],
+    ["addon_early_day_rental", "Extra Day (Early)"],
+    ["addon_late_cleanup", "Late Cleanup"],
+    ["addon_late_day_rental", "Extra Day (Late)"]
+  ];
+  if (addonFields.some(([key]) => hasField(key))) {
+    const selectedAddons = addonFields
+      .filter(([key]) => payload[key])
+      .map(([, label]) => label);
+    addRow("Add-ons", selectedAddons.length ? selectedAddons.join(", ") : "None");
+  }
+  addRow("Message", payload.adminNotes);
+
+  if (!rows.length) {
+    return `<p class="rental-card-notes-text">Renter requested booking changes.</p>`;
+  }
+  return `<dl class="rental-change-request-details">${rows.join("")}</dl>`;
 }
 
 async function reviewRentalChangeRequest(button, root) {

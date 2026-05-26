@@ -34,7 +34,7 @@ module.exports = async (req, res) => {
     }
 
     if (type === "rental_review") {
-      const preview = await rentalReviewPreview(req.body || {});
+      const preview = await rentalReviewPreview(req, req.body || {});
       return res.status(200).json({ success: true, preview });
     }
 
@@ -70,7 +70,7 @@ async function signupReviewPreview(body) {
   }));
 }
 
-async function rentalReviewPreview(body) {
+async function rentalReviewPreview(req, body) {
   const id = stringValue(body.id);
   const notes = stringValue(body.adminNotes ?? body.notes);
   const statusMap = {
@@ -96,7 +96,20 @@ async function rentalReviewPreview(body) {
     throw httpError(404, "Rental request was not found.");
   }
 
-  return previewPayload(buildRentalApplicantEmail({ record, status, adminNotes: notes }));
+  return previewPayload(buildRentalApplicantEmail({
+    record,
+    status,
+    adminNotes: notes,
+    manageUrl: rentalManagePreviewUrl(req, record, status)
+  }));
+}
+
+function rentalManagePreviewUrl(req, record, status) {
+  if (status !== "confirmed") return "";
+  if (record?.claimed_member_id) {
+    return `${siteOrigin(req)}/member-dashboard/?booking=${encodeURIComponent(record.booking_number || record.id)}`;
+  }
+  return `${siteOrigin(req)}/rental-account/?token=secure-link-created-when-confirmed`;
 }
 
 function previewPayload(email) {
@@ -159,6 +172,14 @@ async function supabaseRest(path) {
 
 function stringValue(value) {
   return String(value || "").trim();
+}
+
+function siteOrigin(req) {
+  if (process.env.PUBLIC_SITE_URL) return process.env.PUBLIC_SITE_URL.replace(/\/+$/, "");
+  if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/+$/, "");
+  const host = req.headers["x-forwarded-host"] || req.headers.host;
+  const proto = req.headers["x-forwarded-proto"] || "https";
+  return host ? `${proto}://${host}` : "https://ruthobenchainrc.com";
 }
 
 function httpError(statusCode, message) {

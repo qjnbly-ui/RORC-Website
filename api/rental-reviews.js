@@ -522,6 +522,9 @@ function buildRentalPatch(body) {
     patch.estimated_attendance = Math.max(1, Number(body.estimated_attendance ?? body.estimatedAttendance ?? 1) || 1);
   }
   if (body.food_or_drinks !== undefined || body.foodOrDrinks !== undefined) patch.food_or_drinks = Boolean(body.food_or_drinks ?? body.foodOrDrinks);
+  if (body.addon_cleaning_maintenance !== undefined || body.addonCleaningMaintenance !== undefined) {
+    patch.addon_cleaning_maintenance = Boolean(body.addon_cleaning_maintenance ?? body.addonCleaningMaintenance);
+  }
   if (body.addon_tables !== undefined || body.addonTables !== undefined) patch.addon_tables = Boolean(body.addon_tables ?? body.addonTables);
   if (body.addon_chairs !== undefined || body.addonChairs !== undefined) patch.addon_chairs = Boolean(body.addon_chairs ?? body.addonChairs);
   if (body.addon_tarp !== undefined || body.addonTarp !== undefined) patch.addon_tarp = Boolean(body.addon_tarp ?? body.addonTarp);
@@ -689,6 +692,7 @@ function mapRow(row, linkedEvent = null, changeRequests = []) {
     estimatedAttendance: row.estimated_attendance,
     foodOrDrinks: row.food_or_drinks,
     alcohol: row.alcohol,
+    addonCleaningMaintenance: row.addon_cleaning_maintenance,
     addonTables: row.addon_tables,
     addonChairs: row.addon_chairs,
     addonTarp: row.addon_tarp,
