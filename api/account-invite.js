@@ -7,6 +7,7 @@ const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "+15416526065";
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@ruthobenchainrc.com>";
+const { sendResendEmail: sendResendEmailRequest } = require("./_resend");
 
 module.exports = async (req, res) => {
   if (!SERVICE_ROLE_KEY) {
@@ -418,25 +419,15 @@ async function sendResendEmail({ to, subject, text, title, invitedName, inviteUr
     `
   });
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: RESEND_FROM_EMAIL,
-      to: [to],
-      subject,
-      text,
-      html
-    })
+  await sendResendEmailRequest({
+    apiKey: RESEND_API_KEY,
+    from: RESEND_FROM_EMAIL,
+    to: [to],
+    subject,
+    text,
+    html,
+    idempotencyKey: `account-invite-${to}-${accountNumber || "account"}`
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Resend request failed: ${response.status} ${errorText}`);
-  }
 }
 
 function buildEmailTemplate({ title, bodyHtml }) {

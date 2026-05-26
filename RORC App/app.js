@@ -19,12 +19,14 @@ const drawerUserEmail = document.getElementById("drawerUserEmail");
 const supabaseSettings = window.RORC_SUPABASE_CONFIG || {};
 const STRIPE_FALLBACK_PORTAL = "https://payments.ruthobenchainrc.com/p/login/eVaeWh2tN0vxgSs288";
 const APP_REFRESH_ROUTE_KEY = "rorc-app-refresh-route";
+const APP_INVALID_SESSION_REFRESH_KEY = "rorc-app-invalid-session-refreshing";
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
 let supabaseClient = null;
 let currentAuthSession = null;
 let deferredInstallPrompt = null;
 let installFallbackTimer = null;
 let appReloadingForUpdate = false;
+let invalidSessionRefreshTimer = null;
 
 let accounts = [];
 let accountMembers = [];
@@ -216,8 +218,7 @@ const accountManagerOnlyRoutes = new Set([
   "messageCompose",
   "contracts",
   "adminNotes",
-  "rentalReviews",
-  "calendar"
+  "rentalReviews"
 ]);
 
 const kioskAllowedRoutes = new Set([
@@ -229,7 +230,8 @@ const kioskAllowedRoutes = new Set([
   "notifications",
   "feedback",
   "about",
-  "share"
+  "share",
+  "calendar"
 ]);
 
 let frontDoorSession = buildSession("");
@@ -347,6 +349,11 @@ const routes = {
     template: "feedbackTemplate",
     afterRender: renderCalendarPage
   },
+  myEvents: {
+    title: "My Events",
+    template: "feedbackTemplate",
+    afterRender: renderMyEventsPage
+  },
   about: {
     title: "About",
     template: "feedbackTemplate",
@@ -442,6 +449,33 @@ function isKioskAccount(memberOrSession) {
 
 function isKioskModeSession(memberOrSession) {
   return isKioskAccount(memberOrSession) && String(memberOrSession?.memberName || "").trim().toLowerCase() === "rorc";
+}
+
+function isSpecialAccessAccount(memberOrSession) {
+  return canonicalAccountType(memberOrSession?.accountType) === "Special Access Account";
+}
+
+function canOwnCalendarEvents(memberOrSession) {
+  const accountType = canonicalAccountType(memberOrSession?.accountType);
+  return Boolean(memberOrSession?.memberId || memberOrSession?.id)
+    && accountType !== "RESTRICTED ACCOUNT"
+    && accountType !== "Kiosk Account";
+}
+
+function isRestrictedAccount(memberOrSession) {
+  return canonicalAccountType(memberOrSession?.accountType) === "RESTRICTED ACCOUNT";
+}
+
+function canViewCalendarRoute(memberOrSession = appUserSession) {
+  return Boolean(memberOrSession?.memberId) && !isRestrictedAccount(memberOrSession);
+}
+
+function canRequestCalendarEventChanges(memberOrSession = appUserSession) {
+  return canOwnCalendarEvents(memberOrSession) && !isAccountManager(memberOrSession);
+}
+
+function canViewMyEventsRoute(memberOrSession = appUserSession) {
+  return canOwnCalendarEvents(memberOrSession) && hasOwnedCalendarEvents;
 }
 
 function escapeHtml(value) {
@@ -3488,6 +3522,20 @@ function showAppShell() {
   }
 }
 
+function showInvalidSessionRefreshReturnMessage() {
+  let shouldShow = false;
+  try {
+    shouldShow = sessionStorage.getItem(APP_INVALID_SESSION_REFRESH_KEY) === "1";
+    sessionStorage.removeItem(APP_INVALID_SESSION_REFRESH_KEY);
+  } catch {}
+  if (!shouldShow) return;
+
+  window.setTimeout(() => {
+    if (!currentAuthSession) return;
+    showAppNotice("Session refreshed.", "Session Restored");
+  }, 600);
+}
+
 function setRouteViewPending(isPending) {
   if (view) {
     if (isPending) {
@@ -3516,6 +3564,7 @@ function revealReadyContent(element) {
 }
 
 function renderRouteLoadError(route, error) {
+  if (maybeRefreshForInvalidSession(error)) return;
   if (!view) return;
   view.innerHTML = `
     <section class="empty-state">
@@ -3625,6 +3674,7 @@ function clearLiveData() {
   gymLightsModeFetchedAt = 0;
   gymLightsModeLoading = false;
   supportsMinorMemberFields = false;
+  hasOwnedCalendarEvents = false;
 }
 
 function initialForSession(session) {
@@ -3665,10 +3715,23 @@ function updateNavigationVisibility() {
       item.hidden = kioskMode || !showAccountManagerPages;
     });
 
+  drawerItems
+    .filter((item) => item.dataset.route === "calendar")
+    .forEach((item) => {
+      item.hidden = !canViewCalendarRoute(appUserSession);
+    });
+
+  drawerItems
+    .filter((item) => item.dataset.route === "myEvents")
+    .forEach((item) => {
+      item.hidden = !canViewMyEventsRoute(appUserSession);
+    });
+
   if (kioskMode) {
     drawerItems.forEach((item) => {
       const routeName = item.dataset.route;
-      item.hidden = !["feedback", "notifications", "about", "share"].includes(routeName);
+      item.hidden = !["feedback", "notifications", "about", "share", "calendar"].includes(routeName)
+        || (routeName === "calendar" && !canViewCalendarRoute(appUserSession));
     });
   }
 
@@ -5404,12 +5467,18 @@ const initialFacilityDate = facilityDateParts(new Date());
 let calendarYear = Number(initialFacilityDate?.year || new Date().getFullYear());
 let calendarMonth = Number(initialFacilityDate?.month || (new Date().getMonth() + 1)) - 1;
 let pendingCalendarRentalCreate = false;
+let pendingCalendarMemberCreate = false;
+let pendingCalendarMemberEditId = "";
+let calendarEventRequests = [];
+let calendarRequestNotice = "";
+let hasOwnedCalendarEvents = false;
 const DEFAULT_FACILITY_HOURS = {
   start: "07:00",
   end: "21:00"
 };
 let facilityHours = { ...DEFAULT_FACILITY_HOURS };
 let facilityHourOverrides = {};
+let calendarFacilityBlocks = [];
 
 function normalizeHourValue(raw, fallback) {
   const match = String(raw || "").match(/^([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$/);
@@ -5499,7 +5568,10 @@ function facilityOpenWindowsForDate(dateIso, events = calendarEvents) {
   if (start === null || end === null || end <= start) return [];
 
   let windows = [{ start, end }];
-  (events || [])
+  const blockingEvents = events === calendarEvents
+    ? [...(events || []), ...calendarFacilityBlocks]
+    : (events || []);
+  blockingEvents
     .map((ev) => blockingEventIntervalForDate(ev, dateIso))
     .filter(Boolean)
     .sort((a, b) => a.start - b.start)
@@ -5528,6 +5600,349 @@ function formatFacilityWindow(window) {
 function facilityHoursDisplayForDate(dateIso) {
   const windows = facilityOpenWindowsForDate(dateIso);
   return windows.length ? windows.map(formatFacilityWindow).join(", ") : "Closed";
+}
+
+function currentMemberCalendarSnapshot() {
+  const member = findMember(appUserSession.memberId) || {};
+  return {
+    memberName: member.memberName || appUserSession.memberName || "",
+    accountType: canonicalAccountType(member.accountType || appUserSession.accountType),
+    phoneNumber: member.phoneNumber || "",
+    emailAddress: member.emailAddress || appState.currentUserEmail || "",
+    mailingAddress: member.mailingAddress || ""
+  };
+}
+
+function calendarOwnerIdFromCreatedBy(createdBy) {
+  const match = String(createdBy || "").match(/^(?:member|special_access):([a-zA-Z0-9_-]+)/);
+  return match ? match[1] : "";
+}
+
+function isOwnedCalendarEvent(event) {
+  return calendarOwnerIdFromCreatedBy(event?.createdBy) === appUserSession.memberId;
+}
+
+function canEditCalendarEventForSession(event) {
+  if (!event || event.pendingRequestId) return false;
+  if (isAccountManager(appUserSession)) return true;
+  if (event.rentalRequestId) return false;
+  return canRequestCalendarEventChanges(appUserSession) && isOwnedCalendarEvent(event);
+}
+
+function requestPayloadDateKey(payload) {
+  return calendarTimestampDateKey(payload?.start_at || payload?.startAt, Boolean(payload?.all_day ?? payload?.allDay));
+}
+
+function pendingEventFromRequest(request) {
+  const payload = request?.eventPayload || {};
+  const createdBy = `pending_request:${request.id}${payload.detail_only ? ":detail" : ""}`;
+  return {
+    id: `request:${request.id}`,
+    title: payload.title || "Pending event",
+    description: payload.description || "",
+    eventType: normalizeEventTypeForUi(payload.event_type || payload.eventType || "rorc"),
+    startAt: payload.start_at || payload.startAt || "",
+    endAt: payload.end_at || payload.endAt || "",
+    allDay: Boolean(payload.all_day ?? payload.allDay),
+    isPublic: true,
+    status: "pending",
+    rentalRequestId: "",
+    rentalAccessStartAt: "",
+    rentalAccessEndAt: "",
+    createdBy,
+    detailOnly: Boolean(payload.detail_only ?? payload.detailOnly),
+    isRecurring: false,
+    recurringSeriesId: "",
+    pendingRequestId: request.id,
+    pendingRequestType: request.requestType,
+    pendingStatus: request.status
+  };
+}
+
+function calendarEventsForCurrentViewer() {
+  return calendarEvents;
+}
+
+async function fetchCalendarEventRequests({ includeEvents = false, mineOnly = false } = {}) {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) throw new Error("Please sign in again.");
+  const params = new URLSearchParams();
+  if (includeEvents) params.set("includeEvents", "true");
+  if (mineOnly) params.set("scope", "mine");
+  const query = params.toString();
+  const url = `/api/calendar-event-requests${query ? `?${query}` : ""}`;
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not load calendar requests.");
+  }
+  return body;
+}
+
+function updateOwnedCalendarEventAvailability(events = [], requests = []) {
+  hasOwnedCalendarEvents = canOwnCalendarEvents(appUserSession)
+    && ((Array.isArray(events) && events.length > 0) || (Array.isArray(requests) && requests.length > 0));
+  updateNavigationVisibility();
+}
+
+async function refreshOwnedCalendarEventAvailability() {
+  if (!canOwnCalendarEvents(appUserSession)) {
+    updateOwnedCalendarEventAvailability([], []);
+    return;
+  }
+
+  try {
+    const body = await fetchCalendarEventRequests({ includeEvents: true, mineOnly: true });
+    updateOwnedCalendarEventAvailability(body.events || [], body.requests || []);
+  } catch (error) {
+    console.warn("Could not refresh owned calendar events.", error);
+    updateOwnedCalendarEventAvailability([], []);
+  }
+}
+
+function requestTypeLabel(requestType) {
+  if (requestType === "create") return "New event";
+  if (requestType === "update") return "Edit request";
+  if (requestType === "delete") return "Delete request";
+  return "Request";
+}
+
+function requestStatusLabel(status) {
+  if (status === "pending") return "Pending Approval";
+  if (status === "approved") return "Approved";
+  if (status === "rejected") return "Rejected";
+  if (status === "canceled") return "Canceled";
+  return status || "Pending";
+}
+
+function calendarRequestDateLabel(request) {
+  const payload = request?.eventPayload || {};
+  const dateKey = requestPayloadDateKey(payload);
+  if (!dateKey) return "No date";
+  const dateLabel = new Date(`${dateKey}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  if (request.requestType === "delete") return dateLabel;
+  const timeLabel = payload.all_day ? "All Day" : facilityTimeRange(payload.start_at, payload.end_at);
+  return `${dateLabel}${timeLabel ? ` · ${timeLabel}` : ""}`;
+}
+
+function renderCalendarRequestsAdminPanel() {
+  if (!isAccountManager(appUserSession)) return "";
+  const pending = calendarEventRequests.filter((request) => request.status === "pending");
+  if (!pending.length) return "";
+
+  return `
+    <section class="calendar-request-panel" aria-label="Pending calendar requests">
+      <div class="calendar-request-panel-head">
+        <span>Member Event Requests</span>
+        <strong>${pending.length}</strong>
+      </div>
+      <div class="calendar-request-list">
+        ${pending.map((request) => {
+          const payload = request.eventPayload || {};
+          const requester = request.requester || {};
+          return `
+            <article class="calendar-request-card">
+              <div>
+                <span class="calendar-request-kicker">${escapeHtml(requestTypeLabel(request.requestType))}</span>
+                <h3>${escapeHtml(payload.title || "Calendar event")}</h3>
+                <p>${escapeHtml(calendarRequestDateLabel(request))}</p>
+                <p>${escapeHtml(requester.memberName || "Member account")}${requester.emailAddress ? ` · ${escapeHtml(requester.emailAddress)}` : ""}${requester.phoneNumber ? ` · ${escapeHtml(requester.phoneNumber)}` : ""}</p>
+              </div>
+              <div class="calendar-request-actions">
+                <button class="app-admin-btn app-admin-btn-secondary" type="button" data-calendar-request-action="reject" data-request-id="${escapeAttribute(request.id)}">Reject</button>
+                <button class="app-admin-btn app-admin-btn-primary" type="button" data-calendar-request-action="approve" data-request-id="${escapeAttribute(request.id)}">Approve</button>
+              </div>
+            </article>`;
+        }).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderCalendarRequestNotice() {
+  if (!calendarRequestNotice) return "";
+  const notice = calendarRequestNotice;
+  calendarRequestNotice = "";
+  return `<div class="calendar-request-notice">${escapeHtml(notice)}</div>`;
+}
+
+async function reviewCalendarEventRequest(root, requestId, action) {
+  if (!isAccountManager(appUserSession) || !requestId || !["approve", "reject"].includes(action)) return;
+  const request = calendarEventRequests.find((item) => item.id === requestId);
+  const confirmed = await openLinkedDeleteDialog({
+    title: `${action === "approve" ? "Approve" : "Reject"} calendar request?`,
+    message: action === "approve"
+      ? `This will ${request?.requestType === "delete" ? "commit the delete from" : "write the change to"} the public calendar.`
+      : "This keeps the public calendar unchanged and marks the request rejected.",
+    confirmLabel: action === "approve" ? "Approve" : "Reject",
+    cancelLabel: "Cancel"
+  });
+  if (!confirmed) return;
+
+  try {
+    const token = currentAuthSession?.access_token || "";
+    const response = await fetch("/api/calendar-event-requests", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ id: requestId, action })
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.success === false) {
+      throw new Error(body.error || "Could not review request.");
+    }
+    calendarRequestNotice = action === "approve" ? "Calendar request approved." : "Calendar request rejected.";
+    await renderCalendarPage();
+  } catch (error) {
+    root.insertAdjacentHTML("afterbegin", `<div class="feedback-error">${escapeHtml(error.message || "Could not review request.")}</div>`);
+  }
+}
+
+async function renderMyEventsPage() {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+  root.classList.add("my-events-page");
+  deferContentUntilReady(root);
+
+  if (!canViewMyEventsRoute(appUserSession)) {
+    revealReadyContent(root);
+    root.innerHTML = `<p class="feedback-empty">My Events appears after your account has an owned or pending event.</p>`;
+    return;
+  }
+
+  try {
+    const body = await fetchCalendarEventRequests({ includeEvents: true, mineOnly: true });
+    calendarEventRequests = body.requests || [];
+    updateOwnedCalendarEventAvailability(body.events || [], calendarEventRequests);
+    renderMyEventsView(root, body.events || [], calendarEventRequests);
+  } catch (error) {
+    revealReadyContent(root);
+    root.innerHTML = `<p class="feedback-empty">${escapeHtml(error.message || "Could not load your events.")}</p>`;
+  }
+}
+
+function renderMyEventsView(root, events, requests) {
+  revealReadyContent(root);
+  const pendingRequests = (requests || []).filter((request) => request.status === "pending");
+  const hiddenTargetIds = new Set(
+    pendingRequests
+      .filter((request) => request.targetEventId && ["update", "delete"].includes(request.requestType))
+      .map((request) => request.targetEventId)
+  );
+  const visibleEvents = (events || [])
+    .filter((event) => !hiddenTargetIds.has(event.id))
+    .sort((a, b) => String(a.startAt || "").localeCompare(String(b.startAt || "")));
+
+  root.innerHTML = `
+    <section class="my-events-hero">
+      <div>
+        <span class="calendar-request-kicker">Account Events</span>
+        <h2>My Events</h2>
+        <p>Add events to the calendar and track approval status here. New events, edits, and deletes stay pending until an admin approves them.</p>
+      </div>
+      <button class="app-admin-btn app-admin-btn-primary" id="myEventsNewRequest" type="button">+ Add Event</button>
+    </section>
+
+    <section class="my-events-section">
+      <h3>Pending Approval</h3>
+      ${pendingRequests.length
+        ? `<div class="my-events-list">${pendingRequests.map(renderMyEventsRequestCard).join("")}</div>`
+        : `<p class="feedback-empty">No pending event requests.</p>`}
+    </section>
+
+    <section class="my-events-section">
+      <h3>Approved Events</h3>
+      ${visibleEvents.length
+        ? `<div class="my-events-list">${visibleEvents.map(renderMyEventsApprovedEventCard).join("")}</div>`
+        : `<p class="feedback-empty">No approved events yet.</p>`}
+    </section>
+  `;
+
+  root.querySelector("#myEventsNewRequest")?.addEventListener("click", () => {
+    pendingCalendarMemberCreate = true;
+    navigateTo("calendar");
+  });
+
+  root.querySelectorAll("[data-my-event-edit]").forEach((button) => {
+    button.addEventListener("click", () => {
+      pendingCalendarMemberEditId = button.dataset.myEventEdit || "";
+      navigateTo("calendar");
+    });
+  });
+
+  root.querySelectorAll("[data-my-event-delete]").forEach((button) => {
+    button.addEventListener("click", () => submitMyEventsDeleteRequest(root, button.dataset.myEventDelete || ""));
+  });
+}
+
+function renderMyEventsRequestCard(request) {
+  const payload = request.eventPayload || {};
+  return `
+    <article class="my-events-card">
+      <div>
+        <span class="calendar-request-kicker">${escapeHtml(requestTypeLabel(request.requestType))}</span>
+        <h4>${escapeHtml(payload.title || "Calendar event")}</h4>
+        <p>${escapeHtml(calendarRequestDateLabel(request))}</p>
+        <span class="my-events-status">${escapeHtml(requestStatusLabel(request.status))}</span>
+      </div>
+    </article>
+  `;
+}
+
+function renderMyEventsApprovedEventCard(event) {
+  const canEdit = canEditCalendarEventForSession(event);
+  return `
+    <article class="my-events-card">
+      <div>
+        <span class="calendar-request-kicker">Approved</span>
+        <h4>${escapeHtml(event.title || "Calendar event")}</h4>
+        <p>${escapeHtml(calendarEventDateLabel(event))}</p>
+        ${canEdit ? "" : `<span class="my-events-status">Managed by rental/admin</span>`}
+      </div>
+      ${canEdit ? `
+        <div class="my-events-actions">
+          <button class="app-admin-btn app-admin-btn-secondary" type="button" data-my-event-edit="${escapeAttribute(event.id)}">Edit</button>
+          <button class="app-admin-btn app-admin-btn-danger" type="button" data-my-event-delete="${escapeAttribute(event.id)}">Request Delete</button>
+        </div>
+      ` : ""}
+    </article>
+  `;
+}
+
+function calendarEventDateLabel(event) {
+  const dateKey = calendarTimestampDateKey(event?.startAt, Boolean(event?.allDay));
+  if (!dateKey) return "No date";
+  const dateLabel = new Date(`${dateKey}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return `${dateLabel}${event?.allDay ? " · All Day" : ` · ${facilityTimeRange(event?.startAt, event?.endAt)}`}`;
+}
+
+async function submitMyEventsDeleteRequest(root, eventId) {
+  const event = (eventId && Array.isArray(calendarEvents)) ? calendarEvents.find((item) => item.id === eventId) : null;
+  const confirmed = await openLinkedDeleteDialog({
+    title: "Request event delete?",
+    message: "This will hide the event from your calendar while it waits for admin approval.",
+    confirmLabel: "Submit Delete",
+    cancelLabel: "Cancel"
+  });
+  if (!confirmed) return;
+
+  try {
+    const token = currentAuthSession?.access_token || "";
+    const response = await fetch("/api/calendar-event-requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ requestType: "delete", targetEventId: eventId || event?.id })
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.success === false) throw new Error(body.error || "Could not submit delete request.");
+    calendarRequestNotice = "Event delete submitted for approval.";
+    hasOwnedCalendarEvents = true;
+    updateNavigationVisibility();
+    await renderMyEventsPage();
+  } catch (error) {
+    root.insertAdjacentHTML("afterbegin", `<div class="feedback-error">${escapeHtml(error.message || "Could not submit delete request.")}</div>`);
+  }
 }
 
 async function loadFacilityHoursFromServer() {
@@ -5571,26 +5986,51 @@ async function renderCalendarPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
   root.classList.add("calendar-admin-page");
+  root.classList.toggle("calendar-readonly-page", !isAccountManager(appUserSession));
+  root.classList.toggle("calendar-member-owned-page", canRequestCalendarEventChanges(appUserSession));
   deferContentUntilReady(root);
 
   try {
     const token = currentAuthSession?.access_token || "";
     if (!token) throw new Error("Please sign in again.");
-    const [res, sharedHours] = await Promise.all([
+    const [eventsResult, requestsResult] = await Promise.all([
       fetch("/api/events", {
         headers: { Authorization: `Bearer ${token}` }
       }),
-      loadFacilityHoursFromServer()
+      (isAccountManager(appUserSession) || canRequestCalendarEventChanges(appUserSession))
+        ? fetchCalendarEventRequests()
+        : Promise.resolve({ requests: [] })
     ]);
-    const body  = await res.json();
-    if (!res.ok || !body.success) throw new Error(body.error || "Could not load events");
-    facilityHours = normalizeFacilityHours(sharedHours.hours);
-    facilityHourOverrides = normalizeFacilityHourOverrides(sharedHours.overrides);
+    const body  = await eventsResult.json();
+    if (!eventsResult.ok || !body.success) throw new Error(body.error || "Could not load events");
+    const sharedHours = body.facilityHours || {};
+    facilityHours = normalizeFacilityHours(sharedHours);
+    facilityHourOverrides = normalizeFacilityHourOverrides(sharedHours.overrides || {});
+    calendarFacilityBlocks = Array.isArray(body.facilityBlocks) ? body.facilityBlocks : [];
     calendarEvents = body.events || [];
+    calendarEventRequests = requestsResult.requests || [];
+    if (canOwnCalendarEvents(appUserSession) && calendarEventRequests.length) {
+      updateOwnedCalendarEventAvailability([], calendarEventRequests);
+    }
     renderCalendarView(root);
     if (pendingCalendarRentalCreate) {
+      if (!isAccountManager(appUserSession)) {
+        pendingCalendarRentalCreate = false;
+        return;
+      }
       pendingCalendarRentalCreate = false;
       openNewRentalCalendarModal(root);
+    }
+    const canOpenPendingMemberEvent = isAccountManager(appUserSession) || canRequestCalendarEventChanges(appUserSession);
+    if (pendingCalendarMemberCreate && canOpenPendingMemberEvent) {
+      pendingCalendarMemberCreate = false;
+      openCalendarModal(root, null, null);
+    }
+    if (pendingCalendarMemberEditId && canOpenPendingMemberEvent) {
+      const editId = pendingCalendarMemberEditId;
+      pendingCalendarMemberEditId = "";
+      const event = calendarEvents.find((ev) => ev.id === editId);
+      if (event && canEditCalendarEventForSession(event)) openCalendarModal(root, event, null);
     }
   } catch (err) {
     revealReadyContent(root);
@@ -5605,6 +6045,10 @@ function getRecurringEventsForMonth(year, month) {
 function renderCalendarView(root) {
   revealReadyContent(root);
 
+  const canManageCalendar = isAccountManager(appUserSession);
+  const canRequestCalendar = canRequestCalendarEventChanges(appUserSession);
+  const canAddCalendarEvent = canManageCalendar || canRequestCalendar;
+  const viewerEvents = calendarEventsForCurrentViewer();
   const now   = new Date();
   const year  = calendarYear;
   const month = calendarMonth;
@@ -5620,7 +6064,7 @@ function renderCalendarView(root) {
     if (!byDate[d]) byDate[d] = [];
     byDate[d].push(ev);
   });
-  calendarEvents.forEach((ev) => {
+  viewerEvents.forEach((ev) => {
     const d = calendarTimestampDateKey(ev.startAt, ev.allDay);
     if (!byDate[d]) byDate[d] = [];
     byDate[d].push(ev);
@@ -5638,10 +6082,11 @@ function renderCalendarView(root) {
     const dayEventRows = dayEvs.slice(0, 3).map((ev) => {
       const color = EVENT_COLORS[ev.eventType] || "#8a97a8";
       const title = escapeHtml(ev.title || "Event");
+      const pendingTitle = ev.pendingRequestId ? `${title} (pending)` : title;
       return `
-        <div class="cal-day-mini-event">
+        <div class="cal-day-mini-event${ev.pendingRequestId ? " cal-day-mini-event-pending" : ""}">
           <span class="cal-dot" style="background:${color}"></span>
-          <span class="cal-day-mini-title">${title}</span>
+          <span class="cal-day-mini-title">${pendingTitle}</span>
         </div>`;
     }).join("");
     const overflowCount = dayEvs.length - 3;
@@ -5657,11 +6102,13 @@ function renderCalendarView(root) {
   }
 
   root.innerHTML = `
+    ${renderCalendarRequestNotice()}
+    ${renderCalendarRequestsAdminPanel()}
     <div class="cal-toolbar">
       <button class="app-admin-btn app-admin-btn-secondary cal-nav" id="calPrev">&#8249;</button>
       <span class="cal-month-label">${monthName} ${year}</span>
       <button class="app-admin-btn app-admin-btn-secondary cal-nav" id="calNext">&#8250;</button>
-      <button class="app-admin-btn app-admin-btn-primary cal-new-btn" id="calNewEvent">+ New Event</button>
+      ${canAddCalendarEvent ? `<button class="app-admin-btn app-admin-btn-primary cal-new-btn" id="calNewEvent">+ New Event</button>` : ""}
     </div>
 
     <div class="cal-grid">
@@ -5705,6 +6152,7 @@ function renderCalendarView(root) {
       <div class="cal-modal-inner">
         <h3 id="calModalTitle" class="cal-modal-heading">New Event</h3>
         <div id="calModalError" class="feedback-error" hidden></div>
+        <div id="calRequesterInfo" class="cal-requester-info" hidden></div>
 
         <label class="cal-field-label">Title
           <input id="calEvTitle" class="rorc-input" type="text" maxlength="200" placeholder="Event title" />
@@ -5901,6 +6349,10 @@ function renderCalendarView(root) {
 }
 
 function bindCalendarEvents(root) {
+  const canManageCalendar = isAccountManager(appUserSession);
+  const canRequestCalendar = canRequestCalendarEventChanges(appUserSession);
+  const canEditCalendar = canManageCalendar || canRequestCalendar;
+
   root.querySelector("#calPrev").addEventListener("click", () => {
     calendarMonth--;
     if (calendarMonth < 0) { calendarMonth = 11; calendarYear--; }
@@ -5913,7 +6365,7 @@ function bindCalendarEvents(root) {
     renderCalendarView(root);
   });
 
-  root.querySelector("#calNewEvent").addEventListener("click", () => {
+  root.querySelector("#calNewEvent")?.addEventListener("click", () => {
     openCalendarModal(root, null, null);
   });
 
@@ -5924,25 +6376,37 @@ function bindCalendarEvents(root) {
     });
   });
 
-  root.querySelector("#calModalCancel").addEventListener("click", () => {
+  root.querySelector("#calModalCancel")?.addEventListener("click", () => {
     root.querySelector("#calEventModal").hidden = true;
   });
 
-  root.querySelector("#calModalSave").addEventListener("click", () => saveCalendarEvent(root));
-  root.querySelector("#calModalDelete").addEventListener("click", () => deleteCalendarEvent(root));
-  root.querySelector("#calHoursCancel").addEventListener("click", () => {
-    root.querySelector("#calHoursModal").hidden = true;
-  });
-  root.querySelector("#calHoursSave").addEventListener("click", () => {
-    saveFacilityHoursFromModal(root);
-  });
-  root.querySelector("#calHoursDefault").addEventListener("click", () => {
-    saveFacilityHoursDefaultFromModal(root);
-  });
-  root.querySelector("#calHoursClosed").addEventListener("change", () => {
-    syncFacilityHoursModalState(root);
-  });
-  root.querySelector("#calEvType").addEventListener("change", () => {
+  if (canManageCalendar) {
+    root.querySelectorAll("[data-calendar-request-action]").forEach((button) => {
+      button.addEventListener("click", () => {
+        reviewCalendarEventRequest(root, button.dataset.requestId, button.dataset.calendarRequestAction);
+      });
+    });
+  }
+
+  if (!canEditCalendar) return;
+
+  root.querySelector("#calModalSave")?.addEventListener("click", () => saveCalendarEvent(root));
+  root.querySelector("#calModalDelete")?.addEventListener("click", () => deleteCalendarEvent(root));
+  if (canManageCalendar) {
+    root.querySelector("#calHoursCancel")?.addEventListener("click", () => {
+      root.querySelector("#calHoursModal").hidden = true;
+    });
+    root.querySelector("#calHoursSave")?.addEventListener("click", () => {
+      saveFacilityHoursFromModal(root);
+    });
+    root.querySelector("#calHoursDefault")?.addEventListener("click", () => {
+      saveFacilityHoursDefaultFromModal(root);
+    });
+    root.querySelector("#calHoursClosed")?.addEventListener("change", () => {
+      syncFacilityHoursModalState(root);
+    });
+  }
+  root.querySelector("#calEvType")?.addEventListener("change", () => {
     syncCalendarRentalDetailsVisibility(root);
     syncRecurringVisibility(root);
     syncCalendarRentalScheduleFromEvent(root);
@@ -5952,12 +6416,14 @@ function bindCalendarEvents(root) {
     field?.addEventListener("input", () => syncCalendarRentalScheduleFromEvent(root));
     field?.addEventListener("change", () => syncCalendarRentalScheduleFromEvent(root));
   });
-  root.querySelector("#calEvRecurring").addEventListener("change", () => syncRecurringVisibility(root));
-  root.querySelector("#calRecurringUnit").addEventListener("change", () => syncRecurringVisibility(root));
+  root.querySelector("#calEvRecurring")?.addEventListener("change", () => syncRecurringVisibility(root));
+  root.querySelector("#calRecurringUnit")?.addEventListener("change", () => syncRecurringVisibility(root));
   root.querySelectorAll("input[name='calRecurringEndsMode']").forEach((radio) => {
     radio.addEventListener("change", () => syncRecurringVisibility(root));
   });
-  bindCalendarRentalContactAutocomplete(root);
+  if (canManageCalendar) {
+    bindCalendarRentalContactAutocomplete(root);
+  }
   [
     "calRentalPrivateEvent",
     "calRentalSpecialAccessDiscount",
@@ -5993,9 +6459,13 @@ function calendarJumpToDate(dateIso) {
 
 function showCalDayPanel(root, dateIso) {
   const panel  = root.querySelector("#calDayPanel");
-  const dayEvs = calendarEvents.filter((ev) => calendarTimestampDateKey(ev.startAt, ev.allDay) === dateIso);
+  const viewerEvents = calendarEventsForCurrentViewer();
+  const dayEvs = viewerEvents.filter((ev) => calendarTimestampDateKey(ev.startAt, ev.allDay) === dateIso);
   const label  = new Date(dateIso + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
   const hasHourOverride = Boolean(facilityHourOverrides[dateIso]);
+  const canManageCalendar = isAccountManager(appUserSession);
+  const canRequestCalendar = canRequestCalendarEventChanges(appUserSession);
+  const canAddCalendarEvent = canManageCalendar || canRequestCalendar;
 
   const evHtml = dayEvs.length
     ? dayEvs.map((ev) => `
@@ -6004,11 +6474,12 @@ function showCalDayPanel(root, dateIso) {
           <div class="cal-day-event-info">
             <strong>${escapeHtml(ev.title)}</strong>
             <span>${ev.allDay ? "All Day" : escapeHtml(facilityTimeRange(ev.startAt, ev.endAt))}</span>
+            ${ev.pendingRequestId ? `<span class="cal-recurring-badge">Pending approval</span>` : ""}
             ${ev.isRecurring ? `<span class="cal-recurring-badge">Recurring</span>` : ""}
-            ${ev.id ? `<span class="cal-day-event-badge">${ev.isPublic ? "Public" : "Private"}</span>` : ""}
-            ${ev.eventType === "rental" && ev.rentalRequestId ? `<span class="cal-day-event-badge cal-rental-link" data-rental-id="${escapeAttribute(ev.rentalRequestId)}">View Rental Request →</span>` : ""}
+            ${canManageCalendar && ev.id ? `<span class="cal-day-event-badge">${ev.isPublic ? "Public" : "Private"}</span>` : ""}
+            ${canManageCalendar && ev.eventType === "rental" && ev.rentalRequestId ? `<span class="cal-day-event-badge cal-rental-link" data-rental-id="${escapeAttribute(ev.rentalRequestId)}">View Rental Request →</span>` : ""}
           </div>
-          ${ev.id ? `<button class="cal-day-edit-btn" data-ev-id="${ev.id}" title="Edit">✏️</button>` : ""}
+          ${canEditCalendarEventForSession(ev) ? `<button class="cal-day-edit-btn" data-ev-id="${ev.id}" title="Edit">Edit</button>` : ""}
         </div>`)
       .join("")
     : `<p class="cal-day-empty">No events on this day.</p>`;
@@ -6017,17 +6488,17 @@ function showCalDayPanel(root, dateIso) {
   panel.innerHTML = `
     <div class="cal-day-header">
       <strong>${escapeHtml(label)}</strong>
-      <button class="cal-day-add-btn" data-date="${dateIso}">+ Add Event</button>
+      ${canAddCalendarEvent ? `<button class="cal-day-add-btn" data-date="${dateIso}">+ Add Event</button>` : ""}
     </div>
     <div class="cal-hours-strip">
       <span class="cal-hours-label">Facility hours</span>
       <span class="cal-hours-value">${escapeHtml(facilityHoursDisplayForDate(dateIso))}${hasHourOverride ? " (custom)" : ""}</span>
-      <button class="cal-hours-edit-btn" type="button">Edit</button>
+      ${canManageCalendar ? `<button class="cal-hours-edit-btn" type="button">Edit</button>` : ""}
     </div>
     ${evHtml}
   `;
 
-  panel.querySelector(".cal-day-add-btn").addEventListener("click", (e) => {
+  panel.querySelector(".cal-day-add-btn")?.addEventListener("click", (e) => {
     openCalendarModal(root, null, e.currentTarget.dataset.date);
   });
   panel.querySelector(".cal-hours-edit-btn")?.addEventListener("click", () => {
@@ -6037,7 +6508,7 @@ function showCalDayPanel(root, dateIso) {
   panel.querySelectorAll(".cal-day-edit-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       const ev = calendarEvents.find((e) => e.id === btn.dataset.evId);
-      if (ev) openCalendarModal(root, ev, null);
+      if (ev && canEditCalendarEventForSession(ev)) openCalendarModal(root, ev, null);
     });
   });
 
@@ -6060,6 +6531,7 @@ function syncFacilityHoursModalState(root) {
 }
 
 function openFacilityHoursModal(root, dateIso = "") {
+  if (!isAccountManager(appUserSession)) return;
   const modal = root.querySelector("#calHoursModal");
   const errEl = root.querySelector("#calHoursError");
   if (!modal) return;
@@ -6080,6 +6552,7 @@ function openFacilityHoursModal(root, dateIso = "") {
 }
 
 async function saveFacilityHoursFromModal(root) {
+  if (!isAccountManager(appUserSession)) return;
   const modal = root.querySelector("#calHoursModal");
   const errEl = root.querySelector("#calHoursError");
   if (errEl) errEl.hidden = true;
@@ -6105,6 +6578,7 @@ async function saveFacilityHoursFromModal(root) {
 }
 
 async function saveFacilityHoursDefaultFromModal(root) {
+  if (!isAccountManager(appUserSession)) return;
   const modal = root.querySelector("#calHoursModal");
   const errEl = root.querySelector("#calHoursError");
   const dateIso = modal?.dataset?.date || "";
@@ -6120,11 +6594,16 @@ async function saveFacilityHoursDefaultFromModal(root) {
 }
 
 function openCalendarModal(root, event, prefillDate) {
+  const canManageCalendar = isAccountManager(appUserSession);
+  const canRequestCalendar = canRequestCalendarEventChanges(appUserSession);
+  if (!canManageCalendar && !canRequestCalendar) return;
+  if (!canManageCalendar && event && !canEditCalendarEventForSession(event)) return;
   const modal     = root.querySelector("#calEventModal");
   const titleEl   = root.querySelector("#calModalTitle");
   const deleteBtn = root.querySelector("#calModalDelete");
   const errEl     = root.querySelector("#calModalError");
   const rentalInfo = root.querySelector("#calRentalInfo");
+  const requesterInfo = root.querySelector("#calRequesterInfo");
 
   errEl.hidden = true;
   modal.dataset.evId = event ? event.id : "";
@@ -6139,17 +6618,22 @@ function openCalendarModal(root, event, prefillDate) {
   modal.dataset.rentalPublicEnd = "";
   modal.dataset.rentalAccessStart = "";
   modal.dataset.rentalAccessEnd = "";
+  modal.dataset.calendarOwnerId = event ? calendarOwnerIdFromCreatedBy(event.createdBy) : "";
+  modal.dataset.calendarOwnerName = "";
 
-  titleEl.textContent = event ? "Edit Event" : "New Event";
-  deleteBtn.hidden    = !event;
+  titleEl.textContent = canManageCalendar
+    ? (event ? "Edit Event" : "New Event")
+    : (event ? "Request Event Edit" : "Request New Event");
+  deleteBtn.hidden    = !event || (!canManageCalendar && !canEditCalendarEventForSession(event));
+  deleteBtn.textContent = canManageCalendar ? "Delete" : "Request Delete";
 
   root.querySelector("#calEvTitle").value   = event ? event.title : "";
-  root.querySelector("#calEvType").value    = event ? normalizeEventTypeForUi(event.eventType) : "rorc";
+  root.querySelector("#calEvType").value    = canManageCalendar && event ? normalizeEventTypeForUi(event.eventType) : "rorc";
   root.querySelector("#calEvDate").value    = event ? calendarTimestampDateKey(event.startAt, event.allDay) : (prefillDate || "");
   root.querySelector("#calEvStart").value   = event ? facilityTimeInputValue(event.startAt) : "";
   root.querySelector("#calEvEnd").value     = event ? facilityTimeInputValue(event.endAt) : "";
   root.querySelector("#calEvAllDay").checked  = event ? event.allDay : false;
-  root.querySelector("#calEvPublic").checked  = event ? event.isPublic : false;
+  root.querySelector("#calEvPublic").checked  = canManageCalendar ? (event ? event.isPublic : false) : true;
   root.querySelector("#calEvDetailOnly").checked = event ? Boolean(event.detailOnly) : false;
   root.querySelector("#calEvDesc").value    = event ? (event.description || "") : "";
   root.querySelector("#calEvRecurring").checked = false;
@@ -6169,17 +6653,39 @@ function openCalendarModal(root, event, prefillDate) {
     if (seedInput) seedInput.checked = true;
   }
 
+  const typeField = root.querySelector("#calEvType");
+  const publicField = root.querySelector("#calEvPublic");
+  if (typeField) typeField.disabled = !canManageCalendar;
+  if (publicField) publicField.disabled = !canManageCalendar;
+
+  if (requesterInfo) {
+    const snapshot = currentMemberCalendarSnapshot();
+    requesterInfo.hidden = canManageCalendar;
+    requesterInfo.innerHTML = canManageCalendar ? "" : `
+      <span class="cal-requester-kicker">Submitted as</span>
+      <strong>${escapeHtml(snapshot.memberName || "Member account")}</strong>
+      <span>${escapeHtml(snapshot.accountType)}${snapshot.emailAddress ? ` · ${escapeHtml(snapshot.emailAddress)}` : ""}${snapshot.phoneNumber ? ` · ${escapeHtml(snapshot.phoneNumber)}` : ""}</span>
+      <small>Your member details are attached to this request and cannot be edited here.</small>
+    `;
+  }
+
   resetCalendarRentalFields(root, event?.title || "");
-  syncCalendarRentalDetailsVisibility(root, !event && normalizeEventTypeForUi(root.querySelector("#calEvType").value) === "rental");
+  syncCalendarRentalDetailsVisibility(root, canManageCalendar && !event && normalizeEventTypeForUi(root.querySelector("#calEvType").value) === "rental");
   syncRecurringVisibility(root);
+  if (!canManageCalendar) {
+    root.querySelector("#calRentalDetails").hidden = true;
+    root.querySelector("#calRentalDetails").open = false;
+  }
 
   rentalInfo.hidden = true;
   rentalInfo.innerHTML = "";
 
-  if (event?.rentalRequestId) {
+  if (canManageCalendar && event?.rentalRequestId) {
     loadCalRentalInfo(root, event.rentalRequestId);
   }
 
+  const saveBtn = root.querySelector("#calModalSave");
+  if (saveBtn) saveBtn.textContent = canManageCalendar ? "Save Event" : "Submit Request";
   modal.hidden = false;
 }
 
@@ -6328,8 +6834,23 @@ function uidSeriesToken() {
 }
 
 function parseSeriesToken(createdBy) {
-  const match = String(createdBy || "").match(/^series:([a-zA-Z0-9_-]+)/);
+  const match = String(createdBy || "").match(/(?:^|:)series:([a-zA-Z0-9_-]+)/);
   return match ? match[1] : "";
+}
+
+function createdByForSelectedCalendarOwner(root, fallbackCreatedBy = "admin") {
+  const modal = root.querySelector("#calEventModal");
+  const ownerId = String(modal?.dataset?.calendarOwnerId || "").trim();
+  if (!ownerId) return fallbackCreatedBy;
+  return `member:${ownerId}:admin`;
+}
+
+function cleanCreatedByCore(createdBy) {
+  return String(createdBy || "admin")
+    .replace(/(^|[:;|])detail(?:$|[:;|])/g, "")
+    .replace(/[:;|]{2,}/g, ":")
+    .replace(/^[:;|]|[:;|]$/g, "")
+    || "admin";
 }
 
 function isSameOrAfterFacilityDate(aIso, bIso) {
@@ -6664,6 +7185,16 @@ function bindCalendarRentalContactAutocomplete(root) {
   const suggestions = root.querySelector("#calRentalContactSuggestions");
   if (!input || !suggestions || input.dataset.autocompleteBound === "true") return;
 
+  const clearSelectedOwnerIfChanged = () => {
+    const modal = root.querySelector("#calEventModal");
+    if (!modal?.dataset?.calendarOwnerName) return;
+    if (input.value.trim() === modal.dataset.calendarOwnerName) return;
+    modal.dataset.calendarOwnerId = "";
+    modal.dataset.calendarOwnerName = "";
+    setCalendarSpecialAccessDiscountState(root, false);
+    updateCalendarRentalTotal(root);
+  };
+
   const hideSuggestions = () => {
     suggestions.hidden = true;
     suggestions.innerHTML = "";
@@ -6694,7 +7225,10 @@ function bindCalendarRentalContactAutocomplete(root) {
   };
 
   input.dataset.autocompleteBound = "true";
-  input.addEventListener("input", renderSuggestions);
+  input.addEventListener("input", () => {
+    clearSelectedOwnerIfChanged();
+    renderSuggestions();
+  });
   input.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       hideSuggestions();
@@ -6743,6 +7277,9 @@ function rentalContactAutocompleteMembers() {
 function applyCalendarRentalContactMember(root, memberId) {
   const member = findMember(memberId);
   if (!member) return;
+  const modal = root.querySelector("#calEventModal");
+  const isSpecialAccessMember = canonicalAccountType(member.accountType) === "Special Access Account";
+  const canLinkOwner = canOwnCalendarEvents({ id: member.id, accountType: member.accountType });
 
   const values = {
     calRentalContactName: member.memberName || "",
@@ -6755,7 +7292,11 @@ function applyCalendarRentalContactMember(root, memberId) {
     const field = root.querySelector(`#${id}`);
     if (field) field.value = value;
   });
-  setCalendarSpecialAccessDiscountState(root, canonicalAccountType(member.accountType) === "Special Access Account");
+  if (modal) {
+    modal.dataset.calendarOwnerId = canLinkOwner ? member.id : "";
+    modal.dataset.calendarOwnerName = canLinkOwner ? String(member.memberName || "").trim() : "";
+  }
+  setCalendarSpecialAccessDiscountState(root, isSpecialAccessMember);
   updateCalendarRentalTotal(root);
 }
 
@@ -6893,7 +7434,102 @@ async function loadCalRentalInfo(root, rentalRequestId) {
   }
 }
 
+async function submitMemberCalendarRequest(root, options) {
+  const modal = root.querySelector("#calEventModal");
+  const errEl = root.querySelector("#calModalError");
+  const saveBtn = root.querySelector("#calModalSave");
+  const targetEvent = options.evId ? calendarEvents.find((event) => event.id === options.evId) : null;
+
+  if (options.evId && !canEditCalendarEventForSession(targetEvent)) {
+    showCalError(errEl, "You can only change your own approved events.");
+    return;
+  }
+
+  errEl.hidden = true;
+  saveBtn.disabled = true;
+  saveBtn.textContent = "Submitting…";
+
+  try {
+    const token = currentAuthSession?.access_token || "";
+    if (!token) throw new Error("Please sign in again before submitting.");
+
+    const requestType = options.evId ? "update" : "create";
+    const requestBodies = [];
+
+    if (options.recurringEnabled && !options.evId) {
+      const dateList = buildRecurringDateSeries({
+        seedDate: options.date,
+        selectedDays: options.recurringDays,
+        every: options.recurringEvery,
+        unit: options.recurringUnit,
+        endMode: options.recurringEndMode,
+        endDate: options.recurringEndDate,
+        occurrences: options.recurringCount
+      });
+      if (!dateList.length) throw new Error("Could not create recurrence from current settings.");
+      dateList.forEach((dateKey) => {
+        requestBodies.push({
+          requestType,
+          event: {
+            title: options.title,
+            event_type: "rorc",
+            start_at: options.allDay ? facilityWallTimeToIso(dateKey, "00:00") : facilityWallTimeToIso(dateKey, options.start || "00:00"),
+            end_at: options.allDay ? facilityWallTimeToIso(dateKey, "23:59") : facilityWallTimeToIso(dateKey, options.end || "23:59"),
+            all_day: options.allDay,
+            is_public: true,
+            description: options.desc || null,
+            detail_only: options.detailOnly
+          }
+        });
+      });
+    } else {
+      requestBodies.push({
+        requestType,
+        targetEventId: options.evId || null,
+        event: {
+          title: options.title,
+          event_type: "rorc",
+          start_at: options.startAt,
+          end_at: options.endAt,
+          all_day: options.allDay,
+          is_public: true,
+          description: options.desc || null,
+          detail_only: options.detailOnly
+        }
+      });
+    }
+
+    for (const requestBody of requestBodies) {
+      const response = await fetch("/api/calendar-event-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(requestBody)
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || body.success === false) {
+        throw new Error(body.error || "Could not submit calendar request.");
+      }
+    }
+
+    calendarRequestNotice = requestBodies.length > 1
+      ? `${requestBodies.length} event requests were submitted for approval.`
+      : (options.evId ? "Event edit submitted for approval." : "Event submitted for approval.");
+    hasOwnedCalendarEvents = true;
+    updateNavigationVisibility();
+    modal.hidden = true;
+    await renderCalendarPage();
+  } catch (error) {
+    showCalError(errEl, error.message || "Could not submit calendar request.");
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Submit Request";
+  }
+}
+
 async function saveCalendarEvent(root) {
+  const canManageCalendar = isAccountManager(appUserSession);
+  const canRequestCalendar = canRequestCalendarEventChanges(appUserSession);
+  if (!canManageCalendar && !canRequestCalendar) return;
   const modal  = root.querySelector("#calEventModal");
   const errEl  = root.querySelector("#calModalError");
   const saveBtn = root.querySelector("#calModalSave");
@@ -6944,6 +7580,29 @@ async function saveCalendarEvent(root) {
     ? facilityWallTimeToIso(date, "23:59")
     : facilityWallTimeToIso(date, end || "23:59");
 
+  if (!canManageCalendar) {
+    await submitMemberCalendarRequest(root, {
+      evId,
+      title,
+      date,
+      start,
+      end,
+      startAt,
+      endAt,
+      allDay,
+      detailOnly,
+      desc,
+      recurringEnabled,
+      recurringEvery,
+      recurringUnit,
+      recurringCount,
+      recurringDays,
+      recurringEndMode,
+      recurringEndDate
+    });
+    return;
+  }
+
   errEl.hidden = true;
   saveBtn.disabled = true;
   saveBtn.textContent = "Saving…";
@@ -6953,7 +7612,8 @@ async function saveCalendarEvent(root) {
     if (!token) throw new Error("Please sign in again before saving.");
     const method = evId ? "PATCH" : "POST";
     const existingCreatedBy = String(modal.dataset.createdBy || "admin");
-    const createdByCore = existingCreatedBy.replace(/(^|[:;|])detail(?:$|[:;|])/g, "").replace(/[:;|]{2,}/g, ":").replace(/^[:;|]|[:;|]$/g, "") || "admin";
+    const selectedOwnerCreatedBy = createdByForSelectedCalendarOwner(root, existingCreatedBy);
+    const createdByCore = cleanCreatedByCore(selectedOwnerCreatedBy);
     const createdBy = detailOnly ? `${createdByCore}:detail` : createdByCore;
     const basePayload = { title, event_type: type, start_at: startAt, end_at: endAt, all_day: allDay, is_public: isPublic, description: desc || null, created_by: createdBy };
     const payload = evId ? { ...basePayload, id: evId } : { ...basePayload };
@@ -7006,7 +7666,10 @@ async function saveCalendarEvent(root) {
       });
       if (!dateList.length) throw new Error("Could not create recurrence from current settings.");
       const seriesId = uidSeriesToken();
-      const seriesCreatedBy = detailOnly ? `series:${seriesId}:detail` : `series:${seriesId}`;
+      const seriesBaseCreatedBy = calendarOwnerIdFromCreatedBy(createdByCore)
+        ? `${createdByCore}:series:${seriesId}`
+        : `series:${seriesId}`;
+      const seriesCreatedBy = detailOnly ? `${seriesBaseCreatedBy}:detail` : seriesBaseCreatedBy;
       const concurrency = 8;
       for (let i = 0; i < dateList.length; i += concurrency) {
         const chunk = dateList.slice(i, i + concurrency);
@@ -7085,12 +7748,52 @@ async function saveCalendarEvent(root) {
 }
 
 async function deleteCalendarEvent(root) {
+  const canManageCalendar = isAccountManager(appUserSession);
+  const canRequestCalendar = canRequestCalendarEventChanges(appUserSession);
+  if (!canManageCalendar && !canRequestCalendar) return;
   const modal = root.querySelector("#calEventModal");
   const errEl = root.querySelector("#calModalError");
   const evId  = modal.dataset.evId;
   const rentalRequestId = modal.dataset.rentalRequestId || "";
   const seriesId = modal.dataset.seriesId || "";
   if (!evId) return;
+
+  if (!canManageCalendar) {
+    const targetEvent = calendarEvents.find((ev) => ev.id === evId);
+    if (!canEditCalendarEventForSession(targetEvent)) {
+      showCalError(errEl, "You can only delete your own approved events.");
+      return;
+    }
+    const confirmed = await openLinkedDeleteDialog({
+      title: "Request event delete?",
+      message: "This hides the event from your calendar now. Admin approval finalizes the delete.",
+      confirmLabel: "Submit Delete",
+      cancelLabel: "Cancel"
+    });
+    if (!confirmed) return;
+
+    try {
+      const token = currentAuthSession?.access_token || "";
+      if (!token) throw new Error("Please sign in again before submitting.");
+      const response = await fetch("/api/calendar-event-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ requestType: "delete", targetEventId: evId })
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || body.success === false) {
+        throw new Error(body.error || "Could not submit delete request.");
+      }
+      calendarRequestNotice = "Event delete submitted for approval.";
+      hasOwnedCalendarEvents = true;
+      updateNavigationVisibility();
+      modal.hidden = true;
+      await renderCalendarPage();
+    } catch (error) {
+      showCalError(errEl, error.message || "Could not submit delete request.");
+    }
+    return;
+  }
 
   let recurringScope = "this";
   if (seriesId) {
@@ -7179,7 +7882,42 @@ function showCalError(el, msg) {
 function createHttpError(message, statusCode) {
   const error = new Error(message);
   error.statusCode = Number(statusCode) || 500;
+  maybeRefreshForInvalidSession(error);
   return error;
+}
+
+function isInvalidSessionError(error) {
+  const message = String(error?.message || error?.error_description || "").toLowerCase();
+  const statusCode = Number(error?.statusCode || error?.status || 0);
+  return statusCode === 401
+    || message.includes("invalid session")
+    || message.includes("invalid supabase session")
+    || message.includes("missing session token")
+    || message.includes("missing supabase session")
+    || message.includes("jwt expired")
+    || message.includes("refresh token");
+}
+
+function maybeRefreshForInvalidSession(error) {
+  if (!isInvalidSessionError(error)) return false;
+  scheduleInvalidSessionRefresh();
+  return true;
+}
+
+function scheduleInvalidSessionRefresh() {
+  if (invalidSessionRefreshTimer) return;
+
+  const message = "Invalid session. Refreshing now...";
+  try {
+    sessionStorage.setItem(APP_INVALID_SESSION_REFRESH_KEY, "1");
+  } catch {}
+
+  showAppNotice(message, "Invalid Session");
+  setAuthMessage(message, "error");
+
+  invalidSessionRefreshTimer = window.setTimeout(() => {
+    window.location.reload();
+  }, 1100);
 }
 
 function mapTimesheetEntryRow(row) {
@@ -8130,8 +8868,10 @@ async function hydrateFromSupabase() {
     } catch (realtimeError) {
       console.warn("Could not start realtime sync.", realtimeError);
     }
+    await refreshOwnedCalendarEventAvailability();
   } catch (error) {
     console.error("Supabase data load failed.", error);
+    if (maybeRefreshForInvalidSession(error)) return false;
     clearLiveData();
     appState.dataStatus = "error";
     appState.dataError = error.message || "Data load failed.";
@@ -8142,6 +8882,7 @@ async function hydrateFromSupabase() {
   }
 
   render(appState.currentRoute);
+  showInvalidSessionRefreshReturnMessage();
   return appState.dataStatus === "live";
 }
 
@@ -12726,6 +13467,14 @@ function render(routeName) {
     resolvedRouteName = "myAccount";
   }
 
+  if (resolvedRouteName === "calendar" && !canViewCalendarRoute(appUserSession)) {
+    resolvedRouteName = "myAccount";
+  }
+
+  if (resolvedRouteName === "myEvents" && !canViewMyEventsRoute(appUserSession)) {
+    resolvedRouteName = "myAccount";
+  }
+
   if (resolvedRouteName === "otherUsers" && !hasOtherUsersOnCurrentAccount()) {
     resolvedRouteName = "myAccount";
   }
@@ -12857,6 +13606,7 @@ async function initApp() {
     await hydrateFromSupabase();
   } catch (error) {
     console.error("RORC app auth failed.", error);
+    if (maybeRefreshForInvalidSession(error)) return;
     showAuthGate(error.message || "Could not check your RORC login.", "error");
   }
 }

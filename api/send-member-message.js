@@ -8,6 +8,7 @@ const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "+15416526065";
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@ruthobenchainrc.com>";
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
+const { sendResendBatchEmails } = require("./_resend");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -169,13 +170,15 @@ module.exports = async (req, res) => {
       } else if (!uniqueEmails.length) {
         errors.push("No selected members have email addresses.");
       } else {
-        for (const email of uniqueEmails) {
-          try {
-            await sendResendEmail(email, title, message);
-            sentEmailCount += 1;
-          } catch (error) {
-            errors.push(`Email to ${email} failed: ${error.message}`);
-          }
+        try {
+          const result = await sendResendBatchEmails({
+            apiKey: RESEND_API_KEY,
+            emails: buildMemberMessageEmails(uniqueEmails, title, message),
+            idempotencyKeyPrefix: `member-message-${dispatchId}`
+          });
+          sentEmailCount += result.sentCount;
+        } catch (error) {
+          errors.push(`Email batch failed: ${error.message}`);
         }
       }
     }
@@ -390,33 +393,20 @@ async function sendTwilioText(to, body) {
   }
 }
 
-async function sendResendEmail(to, subject, message) {
+function buildMemberMessageEmails(recipients, subject, message) {
   const safeSubject = escapeHtml(subject);
   const safeMessage = escapeHtml(message).replaceAll("\n", "<br />");
   const html = buildEmailTemplate({
     title: safeSubject,
     bodyHtml: `<p style="margin:0;color:#d1d5db;line-height:1.65;font-size:16px;text-align:center;">${safeMessage}</p>`
   });
-
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
+  return (recipients || []).map((to) => ({
       from: RESEND_FROM_EMAIL,
       to: [to],
       subject,
       text: message,
       html
-    })
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Resend request failed: ${response.status} ${errorText}`);
-  }
+  }));
 }
 
 function buildEmailTemplate({ title, bodyHtml }) {

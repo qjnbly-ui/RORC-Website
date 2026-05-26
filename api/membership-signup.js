@@ -10,6 +10,7 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@ruthobenchainrc.com>";
 const ADMIN_REVIEW_EMAIL = process.env.ADMIN_REVIEW_EMAIL || "qjnbly@hotmail.com";
 const ADMIN_REVIEW_PHONE = process.env.ADMIN_REVIEW_PHONE || "5418916772";
+const { sendResendEmail } = require("./_resend");
 const PENDING_ACCOUNT_TYPE = "RESTRICTED ACCOUNT";
 const stripe = process.env.STRIPE_SECRET_KEY
   ? Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2026-02-25.clover" })
@@ -696,25 +697,15 @@ async function sendInviteEmail({ to, subject, text, invitedName, inviteUrl, acco
     `
   });
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: RESEND_FROM_EMAIL,
-      to: [to],
-      subject,
-      text,
-      html
-    })
+  await sendResendEmail({
+    apiKey: RESEND_API_KEY,
+    from: RESEND_FROM_EMAIL,
+    to: [to],
+    subject,
+    text,
+    html,
+    idempotencyKey: `membership-invite-${to}-${accountNumber || "account"}`
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Resend request failed: ${response.status} ${errorText}`);
-  }
 }
 
 async function sendTwilioText(to, body) {
@@ -747,25 +738,15 @@ async function sendTwilioText(to, body) {
 }
 
 async function sendEmail({ to, subject, text, html }) {
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: RESEND_FROM_EMAIL,
-      to: [to],
-      subject,
-      text,
-      html
-    })
+  await sendResendEmail({
+    apiKey: RESEND_API_KEY,
+    from: RESEND_FROM_EMAIL,
+    to: [to],
+    subject,
+    text,
+    html,
+    idempotencyKey: `membership-email-${to}-${subject}`
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Resend request failed: ${response.status} ${errorText}`);
-  }
 }
 
 async function sendReviewCreatedNotifications(args) {
@@ -821,25 +802,15 @@ async function sendAdminReviewEmail({ req, contract, account, applicantName, app
     `
   });
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: RESEND_FROM_EMAIL,
-      to: [ADMIN_REVIEW_EMAIL],
-      subject,
-      text,
-      html
-    })
+  await sendResendEmail({
+    apiKey: RESEND_API_KEY,
+    from: RESEND_FROM_EMAIL,
+    to: [ADMIN_REVIEW_EMAIL],
+    subject,
+    text,
+    html,
+    idempotencyKey: `admin-review-${contract.id}`
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Resend request failed: ${response.status} ${errorText}`);
-  }
 }
 
 async function sendAdminReviewText({ req, contract, account, applicantName, requestedAccountType, sourceLabel }) {

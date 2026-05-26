@@ -8,6 +8,7 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RORC_NOTIFY_EMAIL = process.env.RORC_NOTIFY_EMAIL;
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@ruthobenchainrc.com>";
+const { sendResendEmail } = require("./_resend");
 
 const VALID_EVENT_TYPES = ["Birthday Party", "Private Party", "Meeting", "Memorial Service", "Other"];
 const VALID_ALCOHOL_VALUES = ["Yes", "No"];
@@ -557,29 +558,14 @@ async function sendNotificationEmail(record) {
 <p style="margin:24px 0 0;color:#888;font-size:13px;">Review this request in the RORC app under <strong style="color:#ccc;">Rentals</strong>.</p>
 `;
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: RESEND_FROM_EMAIL,
-      to: [RORC_NOTIFY_EMAIL],
-      subject: `New Rental Request — ${record?.event_type || "Event"} on ${record?.event_date || "TBD"}`,
-      html: buildEmailTemplate({ title: "New Rental Request", bodyHtml })
-    })
+  const responseBody = await sendResendEmail({
+    apiKey: RESEND_API_KEY,
+    from: RESEND_FROM_EMAIL,
+    to: [RORC_NOTIFY_EMAIL],
+    subject: `New Rental Request - ${record?.event_type || "Event"} on ${record?.event_date || "TBD"}`,
+    html: buildEmailTemplate({ title: "New Rental Request", bodyHtml }),
+    idempotencyKey: `rental-request-${record?.id || record?.event_date || Date.now()}`
   });
-
-  const responseText = await response.text();
-  let responseBody = null;
-  try {
-    responseBody = responseText ? JSON.parse(responseText) : null;
-  } catch {}
-
-  if (!response.ok) {
-    throw new Error(`Resend rental notification failed: ${response.status} ${responseText}`);
-  }
 
   console.info(`Rental notification email sent to ${RORC_NOTIFY_EMAIL}.`, responseBody?.id ? `Resend id: ${responseBody.id}` : "");
   return responseBody;

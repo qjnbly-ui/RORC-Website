@@ -3,6 +3,7 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@ruthobenchainrc.com>";
 const FEEDBACK_TO_EMAIL = "quentin.nichols@ruthobenchainrc.com";
+const { sendResendEmail } = require("./_resend");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -84,26 +85,16 @@ module.exports = async (req, res) => {
       `
     });
 
-    const resendResponse = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${RESEND_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        from: RESEND_FROM_EMAIL,
-        to: [FEEDBACK_TO_EMAIL],
-        reply_to: memberEmail ? [memberEmail] : undefined,
-        subject: emailSubject,
-        text: textBody,
-        html: htmlBody
-      })
+    await sendResendEmail({
+      apiKey: RESEND_API_KEY,
+      from: RESEND_FROM_EMAIL,
+      to: [FEEDBACK_TO_EMAIL],
+      replyTo: memberEmail ? [memberEmail] : undefined,
+      subject: emailSubject,
+      text: textBody,
+      html: htmlBody,
+      idempotencyKey: `app-feedback-${userId || "anonymous"}-${submittedAt}`
     });
-
-    if (!resendResponse.ok) {
-      const resendError = await resendResponse.text();
-      throw new Error(`Resend error: ${resendResponse.status} ${resendError}`);
-    }
 
     return res.status(200).json({
       success: true

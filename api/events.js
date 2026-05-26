@@ -53,14 +53,16 @@ module.exports = async (req, res) => {
         path = "events?select=*&is_public=eq.true&status=eq.confirmed&order=start_at.asc&limit=200";
       }
 
-      const [rows, calendarSettings, facilityBlocks] = await Promise.all([
+      const [rows, calendarSettings, facilityBlocks, pendingRequests] = await Promise.all([
         supabaseRest(path),
         loadCalendarSettings(),
-        isAdmin ? Promise.resolve([]) : loadFacilityBlocks()
+        isAdmin ? Promise.resolve([]) : loadFacilityBlocks(),
+        loadPendingCalendarEventRequests()
       ]);
+      const displayRows = applyPendingCalendarRequestOverlay(rows, pendingRequests);
       return res.status(200).json({
         success: true,
-        events: rows.map(mapEvent),
+        events: displayRows.map(mapEvent),
         facilityHours: calendarSettings,
         facilityBlocks
       });
@@ -227,7 +229,7 @@ function mapEvent(row) {
   if (!row) return null;
   const normalizedType = normalizeEventType(row.event_type);
   const createdBy = String(row.created_by || "");
-  const seriesMatch = createdBy.match(/^series:([a-zA-Z0-9_-]+)/);
+  const seriesMatch = createdBy.match(/(?:^|:)series:([a-zA-Z0-9_-]+)/);
   const detailOnly = /(^|[:;|])detail(?:$|[:;|])/.test(createdBy);
   const rentalTiming = row.rental_requests || null;
   const rentalAccessStartAt = buildLocalDateTime(rentalTiming?.event_date, rentalTiming?.event_start_time);
@@ -249,8 +251,93 @@ function mapEvent(row) {
     detailOnly,
     isRecurring:      Boolean(seriesMatch),
     recurringSeriesId: seriesMatch ? seriesMatch[1] : "",
+    pendingRequestId:  row.pending_request_id || "",
+    pendingRequestType: row.pending_request_type || "",
     createdAt:        row.created_at,
     updatedAt:        row.updated_at
+  };
+}
+
+async function loadPendingCalendarEventRequests() {
+  try {
+    return await supabaseRest(
+      "calendar_event_requests?select=*&status=eq.pending&order=created_at.asc&limit=300"
+    );
+  } catch (error) {
+    console.warn("Pending calendar requests unavailable:", error?.message || error);
+    return [];
+  }
+}
+
+function applyPendingCalendarRequestOverlay(baseRows, pendingRequests) {
+  if (!Array.isArray(pendingRequests) || !pendingRequests.length) {
+    return baseRows || [];
+  }
+
+  const hiddenTargetIds = new Set();
+  const pendingRows = [];
+
+  pendingRequests.forEach((request) => {
+    if (request.request_type === "delete" && request.target_event_id) {
+      hiddenTargetIds.add(request.target_event_id);
+      return;
+    }
+
+    if (request.request_type === "update" && request.target_event_id) {
+      hiddenTargetIds.add(request.target_event_id);
+      const row = pendingCalendarRequestToEventRow(request);
+      if (row) pendingRows.push(row);
+      return;
+    }
+
+    if (request.request_type === "create") {
+      const row = pendingCalendarRequestToEventRow(request);
+      if (row) pendingRows.push(row);
+    }
+  });
+
+  return [
+    ...(baseRows || []).filter((row) => !hiddenTargetIds.has(row.id)),
+    ...pendingRows
+  ].sort((a, b) => String(a.start_at || "").localeCompare(String(b.start_at || "")));
+}
+
+function pendingCalendarRequestToEventRow(request) {
+  const payload = normalizePendingCalendarPayload(request?.event_payload || {});
+  if (!payload) return null;
+  return {
+    id: `request:${request.id}`,
+    title: payload.title,
+    description: payload.description,
+    event_type: payload.event_type,
+    start_at: payload.start_at,
+    end_at: payload.end_at,
+    all_day: payload.all_day,
+    is_public: true,
+    status: "confirmed",
+    rental_request_id: null,
+    created_by: `pending_request:${request.id}:${request.request_type}${payload.detail_only ? ":detail" : ""}`,
+    created_at: request.created_at,
+    updated_at: request.updated_at,
+    pending_request_id: request.id,
+    pending_request_type: request.request_type
+  };
+}
+
+function normalizePendingCalendarPayload(payload) {
+  const title = String(payload?.title || "").trim();
+  const startAt = String(payload?.start_at || payload?.startAt || "").trim();
+  const endAt = String(payload?.end_at || payload?.endAt || "").trim();
+  if (!title || !startAt || !endAt) return null;
+  if (Number.isNaN(Date.parse(startAt)) || Number.isNaN(Date.parse(endAt))) return null;
+  return {
+    title,
+    description: String(payload.description || "").trim() || null,
+    event_type: canonicalDbEventType(payload.event_type || payload.eventType || "public_event"),
+    start_at: startAt,
+    end_at: endAt,
+    all_day: Boolean(payload.all_day ?? payload.allDay),
+    detail_only: Boolean(payload.detail_only ?? payload.detailOnly)
   };
 }
 

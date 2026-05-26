@@ -3,6 +3,7 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@ruthobenchainrc.com>";
 const { buildRentalApplicantEmail } = require("./_communication-templates");
+const { sendResendEmail } = require("./_resend");
 
 const VALID_STATUSES = ["submitted", "pending_review", "confirmed", "rejected", "canceled"];
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
@@ -726,30 +727,15 @@ async function sendApplicantEmail(record, status, adminNotes) {
 
   const email = buildRentalApplicantEmail({ record, status, adminNotes });
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: RESEND_FROM_EMAIL,
-      to: [record.contact_email],
-      subject: email.subject,
-      text: email.text,
-      html: email.html
-    })
+  const responseBody = await sendResendEmail({
+    apiKey: RESEND_API_KEY,
+    from: RESEND_FROM_EMAIL,
+    to: [record.contact_email],
+    subject: email.subject,
+    text: email.text,
+    html: email.html,
+    idempotencyKey: `rental-applicant-${record.id}-${status || "update"}`
   });
-
-  const responseText = await response.text();
-  let responseBody = null;
-  try {
-    responseBody = responseText ? JSON.parse(responseText) : null;
-  } catch {}
-
-  if (!response.ok) {
-    throw new Error(`Resend rental applicant email failed: ${response.status} ${responseText}`);
-  }
 
   console.info(`Rental applicant email sent to ${record.contact_email}.`, responseBody?.id ? `Resend id: ${responseBody.id}` : "");
   return responseBody;

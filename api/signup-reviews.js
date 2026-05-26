@@ -3,6 +3,7 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@ruthobenchainrc.com>";
 const { buildSignupReviewEmail } = require("./_communication-templates");
+const { sendResendEmail } = require("./_resend");
 
 module.exports = async (req, res) => {
   if (!SERVICE_ROLE_KEY) {
@@ -159,25 +160,15 @@ async function sendApplicantReviewEmail({ contract, approved, notes }) {
 
   const email = buildSignupReviewEmail({ contract, approved, notes });
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      from: RESEND_FROM_EMAIL,
-      to: [contract.applicant_email],
-      subject: email.subject,
-      text: email.text,
-      html: email.html
-    })
+  await sendResendEmail({
+    apiKey: RESEND_API_KEY,
+    from: RESEND_FROM_EMAIL,
+    to: [contract.applicant_email],
+    subject: email.subject,
+    text: email.text,
+    html: email.html,
+    idempotencyKey: `signup-review-${contract.id}-${approved ? "approved" : "rejected"}`
   });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Resend request failed: ${response.status} ${errorText}`);
-  }
 }
 
 function bearerToken(req) {
