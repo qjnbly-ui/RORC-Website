@@ -166,8 +166,10 @@ function validate(body) {
   const rentalType = str(body.rentalType) || "all_day";
   if (!["all_day", "hourly"].includes(rentalType)) errors.push("Invalid rental type.");
   if (rentalType === "hourly") {
-    const hours = Number(body.rentalHours);
-    if (!Number.isFinite(hours) || hours <= 0 || hours > 9) errors.push("Hourly rental duration must be greater than 0 and no more than 9 hours.");
+    const hours = rentalHoursBetween(body.eventStartTime, body.eventEndTime, 0);
+    if (!Number.isFinite(hours) || hours <= 0 || hours > 9) {
+      errors.push("Hourly rental duration must be based on the rental access start/end time and be no more than 9 hours.");
+    }
   }
 
   return errors;
@@ -200,6 +202,7 @@ function buildRecord(body, options = {}) {
     addon_chairs: body.addonChairs === true,
     addon_tarp: body.addonTarp === true,
     addon_heater: body.addonHeater === true,
+    addon_cleaning_maintenance: body.addonCleaningMaintenance === true,
     addon_ac: body.addonAc === true,
     addon_early_setup: body.addonEarlySetup === true,
     addon_early_day_rental: body.addonEarlyDayRental === true,
@@ -211,14 +214,15 @@ function buildRecord(body, options = {}) {
     special_access_discount: options.specialAccessDiscount === true,
 
     rental_type: rentalType,
-    rental_hours: rentalType === "hourly" ? normalizeRentalHours(body.rentalHours) : null,
+    rental_hours: rentalType === "hourly"
+      ? normalizeRentalHours(rentalHoursBetween(body.eventStartTime, body.eventEndTime, 1))
+      : null,
 
     agreed_to_no_guarantee: true,
     agreed_to_guidelines: true
   };
   record.estimated_total_cents = calculateRentalTotalCents({
-    ...record,
-    addon_cleaning_maintenance: body.addonCleaningMaintenance === true
+    ...record
   });
   return record;
 }
@@ -239,7 +243,10 @@ function calculateRentalTotalCents(record) {
       * RENTAL_PRICE_CENTS.nonPrivateHourly
     );
   } else if (record?.rental_type === "hourly") {
-    total = Math.round(normalizeRentalHours(record?.rental_hours || 1) * RENTAL_PRICE_CENTS.privateHourly);
+    total = Math.round(
+      normalizeRentalHours(rentalHoursBetween(record?.event_start_time, record?.event_end_time, record?.rental_hours || 1))
+      * RENTAL_PRICE_CENTS.privateHourly
+    );
   } else {
     total = RENTAL_PRICE_CENTS.allDay;
   }
@@ -532,7 +539,7 @@ async function sendNotificationEmail(record) {
   const rentalTypeLabel = record?.is_private_event === false
     ? `Non-private (${rentalBillableHoursLabel(rentalHoursBetween(record?.event_start_time, record?.event_end_time, record?.rental_hours || 1))} @ $5/hr)`
     : record?.rental_type === "hourly"
-      ? `By the Hour (${rentalHoursLabel(record?.rental_hours || 1)})`
+      ? `By the Hour (${rentalHoursLabel(rentalHoursBetween(record?.event_start_time, record?.event_end_time, record?.rental_hours || 1))})`
       : "All Day (7 AM – 9 PM)";
 
   const bodyHtml = `

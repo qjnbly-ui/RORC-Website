@@ -163,8 +163,11 @@ function sanitizeRequestedPayload(raw) {
     payload.rental_type = stringValue(raw.rental_type ?? raw.rentalType) === "hourly" ? "hourly" : "all_day";
   }
   if (raw.rental_hours !== undefined || raw.rentalHours !== undefined) {
-    const hours = Number(raw.rental_hours ?? raw.rentalHours);
-    payload.rental_hours = Number.isFinite(hours) && hours > 0 ? Math.min(24, Math.round(hours * 100) / 100) : 1;
+    const rawHours = raw.rental_hours ?? raw.rentalHours;
+    if (rawHours !== null && rawHours !== "") {
+      const hours = Number(rawHours);
+      payload.rental_hours = Number.isFinite(hours) && hours > 0 ? Math.min(24, Math.round(hours * 100) / 100) : 1;
+    }
   }
   return payload;
 }

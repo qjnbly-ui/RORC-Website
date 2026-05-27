@@ -704,6 +704,22 @@
     return `${String(match[1]).padStart(2, "0")}:${match[2]}`;
   }
 
+  function timeMinutes(value) {
+    const match = String(value || "").match(/^(\d{1,2}):(\d{2})/);
+    if (!match) return null;
+    const hours = Number(match[1]);
+    const minutes = Number(match[2]);
+    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
+    return (hours * 60) + minutes;
+  }
+
+  function rentalHoursBetweenInputs(startValue, endValue, fallback = 1) {
+    const start = timeMinutes(startValue);
+    const end = timeMinutes(endValue);
+    if (start === null || end === null || end <= start) return fallback;
+    return Math.min(24, Math.max(0.01, Math.round(((end - start) / 60) * 100) / 100));
+  }
+
   function checkboxAttribute(value) {
     return value ? "checked" : "";
   }
@@ -738,7 +754,9 @@
       eventTypeOptions.push(currentEventType);
     }
     const currentRentalType = booking.rentalType === "hourly" ? "hourly" : "all_day";
-    const rentalHours = Number(booking.rentalHours || 1) || 1;
+    const rentalHours = currentRentalType === "hourly"
+      ? rentalHoursBetweenInputs(booking.eventStartTime, booking.eventEndTime, Number(booking.rentalHours || 1) || 1)
+      : "";
     const overlay = document.createElement("div");
     overlay.className = "rorc-password-modal rental-change-modal";
     overlay.innerHTML = `
@@ -845,8 +863,8 @@
                 </select>
               </label>
               <label class="rorc-auth-label">
-                <span>Rental Hours</span>
-                <input id="bookingChangeRentalHours" class="rorc-auth-input" type="number" min="0.25" max="24" step="0.25" value="${escapeHtml(rentalHours)}" />
+                <span>Billable Hours (auto)</span>
+                <input id="bookingChangeRentalHours" class="rorc-auth-input" type="number" min="0.25" max="24" step="0.25" value="${escapeHtml(rentalHours)}" readonly />
               </label>
             </div>
             <div class="rental-change-check-grid">
@@ -880,7 +898,27 @@
     overlay.addEventListener("click", (event) => {
       if (event.target?.hasAttribute("data-close")) close();
     });
+    const syncRentalHours = () => {
+      const type = byId("bookingChangeRentalType")?.value || "all_day";
+      const hoursInput = byId("bookingChangeRentalHours");
+      if (!hoursInput) return;
+      if (type !== "hourly") {
+        hoursInput.value = "";
+        return;
+      }
+      hoursInput.value = String(rentalHoursBetweenInputs(
+        byId("bookingChangeStart")?.value || "",
+        byId("bookingChangeEnd")?.value || "",
+        rentalHours || 1
+      ));
+    };
+    ["bookingChangeRentalType", "bookingChangeStart", "bookingChangeEnd"].forEach((id) => {
+      byId(id)?.addEventListener("input", syncRentalHours);
+      byId(id)?.addEventListener("change", syncRentalHours);
+    });
+    syncRentalHours();
     overlay.querySelector("#bookingChangeSubmit")?.addEventListener("click", async () => {
+      const rentalType = byId("bookingChangeRentalType")?.value || "all_day";
       await submitRentalChangeRequest(rentalRequestId, {
         contact_name: byId("bookingChangeContactName")?.value || "",
         contact_phone: byId("bookingChangeContactPhone")?.value || "",
@@ -897,8 +935,10 @@
         food_or_drinks: byId("bookingChangeFood")?.value === "true",
         alcohol: byId("bookingChangeAlcohol")?.value || "No",
         is_private_event: byId("bookingChangePrivate")?.value !== "false",
-        rental_type: byId("bookingChangeRentalType")?.value || "all_day",
-        rental_hours: byId("bookingChangeRentalHours")?.value || "1",
+        rental_type: rentalType,
+        rental_hours: rentalType === "hourly"
+          ? rentalHoursBetweenInputs(byId("bookingChangeStart")?.value || "", byId("bookingChangeEnd")?.value || "", 1)
+          : null,
         addon_cleaning_maintenance: Boolean(byId("bookingChangeCleaning")?.checked),
         addon_tables: Boolean(byId("bookingChangeTables")?.checked),
         addon_chairs: Boolean(byId("bookingChangeChairs")?.checked),

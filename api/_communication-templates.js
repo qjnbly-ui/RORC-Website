@@ -145,7 +145,10 @@ function calculateRentalTotal(record, includeCleaning = false) {
   if (!isPrivateEvent) {
     total = Math.round(rentalHoursBetween(record?.event_start_time, record?.event_end_time, record?.rental_hours || 1) * 500);
   } else if (record?.rental_type === "hourly") {
-    total = Math.round(normalizeRentalHours(record?.rental_hours || 1) * 1000);
+    total = Math.round(
+      normalizeRentalHours(rentalHoursBetween(record?.event_start_time, record?.event_end_time, record?.rental_hours || 1))
+      * 1000
+    );
   } else {
     total = 10000;
   }
@@ -186,7 +189,7 @@ function rentalDetailRows(record) {
   const rentalType = record?.is_private_event === false
     ? `Non-private (${rentalBillableHoursLabel(rentalHoursBetween(record?.event_start_time, record?.event_end_time, record?.rental_hours || 1))} @ $5/hr)`
     : record?.rental_type === "hourly"
-      ? `By the Hour (${rentalHoursLabel(record?.rental_hours || 1)})`
+      ? `By the Hour (${rentalHoursLabel(rentalHoursBetween(record?.event_start_time, record?.event_end_time, record?.rental_hours || 1))})`
       : "All Day";
   const start = formatRentalTime(record?.event_start_time);
   const end = formatRentalTime(record?.event_end_time);

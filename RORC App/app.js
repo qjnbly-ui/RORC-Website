@@ -3973,7 +3973,7 @@ function rentalBaseCents(values) {
   }
 
   const rentalType = values?.rentalType === "hourly" ? "hourly" : "all_day";
-  const hours = normalizeRentalHours(values?.rentalHours || 1);
+  const hours = normalizeRentalHours(rentalHoursBetween(values?.rentalAccessStart, values?.rentalAccessEnd, values?.rentalHours || 1));
   return rentalType === "hourly"
     ? Math.round(hours * RENTAL_PRICE_CENTS.hourlyRate)
     : RENTAL_PRICE_CENTS.allDay;
@@ -4271,7 +4271,7 @@ function buildRentalCard(r) {
   const rentalTypeLabel = r.isPrivateEvent === false
     ? `Non-private (${rentalBillableHoursLabel(accessHours)} @ $5/hr)`
     : r.rentalType === "hourly"
-      ? `${rentalHoursLabel(r.rentalHours || 1)} @ $10/hr`
+      ? `${rentalHoursLabel(accessHours)} @ $10/hr`
       : "All Day";
 
   const eventDate = r.eventDate
@@ -5080,7 +5080,7 @@ function buildRentalEditForm(r) {
             <option value="hourly"${r.rentalType === "hourly" ? " selected" : ""}>Hourly</option>
           </select>
         </label>
-        <label class="rental-edit-field">Hours
+        <label class="rental-edit-field">Billable Hours (auto)
           <input id="rental-edit-hours-${id}" class="rental-edit-input" type="number" min="0.01" max="9" step="0.01" inputmode="decimal" value="${escapeAttribute(r.rentalHours ? rentalHoursValue(r.rentalHours) : "")}" />
         </label>
         <label class="rental-edit-field">Alcohol
@@ -5152,8 +5152,14 @@ function setRentalEditHoursState(root, id) {
   const hoursEl = root.querySelector(`#rental-edit-hours-${id}`);
   if (!typeEl || !hoursEl) return;
   const isHourly = typeEl.value === "hourly";
+  const accessHours = normalizeRentalHours(rentalHoursBetween(
+    root.querySelector(`#rental-edit-start-${id}`)?.value || "",
+    root.querySelector(`#rental-edit-end-${id}`)?.value || "",
+    Number(hoursEl.value || 1) || 1
+  ));
+  hoursEl.readOnly = true;
   hoursEl.disabled = !isHourly;
-  if (isHourly && !hoursEl.value) hoursEl.value = "1";
+  if (isHourly) hoursEl.value = rentalHoursValue(accessHours);
   if (!isHourly) hoursEl.value = "";
   updateRentalEditTotal(root, id);
 }
@@ -5218,8 +5224,19 @@ function bindRentalEditCalculations(root, id) {
   const actionsEl = root.querySelector(`#rental-actions-${id}`);
   if (!actionsEl) return;
   actionsEl.querySelectorAll("input, select").forEach((field) => {
-    field.addEventListener("input", () => updateRentalEditTotal(root, id));
-    field.addEventListener("change", () => updateRentalEditTotal(root, id));
+    const sync = () => {
+      if (
+        field.id === `rental-edit-start-${id}`
+        || field.id === `rental-edit-end-${id}`
+        || field.id === `rental-edit-type-${id}`
+      ) {
+        setRentalEditHoursState(root, id);
+      } else {
+        updateRentalEditTotal(root, id);
+      }
+    };
+    field.addEventListener("input", sync);
+    field.addEventListener("change", sync);
   });
   updateRentalEditTotal(root, id);
 }
@@ -5227,7 +5244,9 @@ function bindRentalEditCalculations(root, id) {
 function collectRentalEditPayload(id, root) {
   const field = (name) => root.querySelector(`#rental-edit-${name}-${id}`);
   const rentalType = field("type")?.value === "hourly" ? "hourly" : "all_day";
-  const hours = normalizeRentalHours(field("hours")?.value || 1);
+  const accessStart = field("start")?.value || "07:00";
+  const accessEnd = field("end")?.value || "21:00";
+  const hours = normalizeRentalHours(rentalHoursBetween(accessStart, accessEnd, field("hours")?.value || 1));
   const calendarIsPublic = root.querySelector(`#rental-edit-public-toggle-${id}`)?.dataset.publicActive === "true";
   const publicStart = normalizeTimeFieldValue(field("public-start")?.value || "");
   const publicEnd = normalizeTimeFieldValue(field("public-end")?.value || "");
@@ -5236,8 +5255,8 @@ function collectRentalEditPayload(id, root) {
     event_name: field("event-name")?.value.trim() || "",
     event_type: field("event-type")?.value || "Other",
     event_date: field("date")?.value || "",
-    event_start_time: field("start")?.value || "07:00",
-    event_end_time: field("end")?.value || "21:00",
+    event_start_time: accessStart,
+    event_end_time: accessEnd,
     public_event_start_time: calendarIsPublic ? (publicStart || null) : null,
     public_event_end_time: calendarIsPublic ? (publicEnd || null) : null,
     calendar_is_public: calendarIsPublic,
@@ -7127,7 +7146,7 @@ function calendarRentalDerivedSchedule(root) {
       ? minutesFromTimeValue(accessEnd) - minutesFromTimeValue(accessStart)
       : 0;
     const rentalHours = rentalType === "hourly"
-      ? rentalHoursValue(root.querySelector("#calRentalHours")?.value || rentalHoursFromMinutes(durationMinutes) || 1)
+      ? rentalHoursValue(rentalHoursFromMinutes(durationMinutes) || root.querySelector("#calRentalHours")?.value || 1)
       : "";
     return {
       ready: Boolean(accessStart && accessEnd),
@@ -7246,11 +7265,15 @@ function syncCalendarRentalScheduleFromEvent(root) {
 
 function calendarRentalTotalValues(root) {
   const rentalType = root.querySelector("#calRentalType")?.value === "hourly" ? "hourly" : "all_day";
+  const rentalAccessStart = root.querySelector("#calRentalPublicStart")?.value || "";
+  const rentalAccessEnd = root.querySelector("#calRentalPublicEnd")?.value || "";
   return {
     rentalType,
-    rentalHours: normalizeRentalHours(root.querySelector("#calRentalHours")?.value || 1),
-    rentalAccessStart: root.querySelector("#calRentalPublicStart")?.value || "",
-    rentalAccessEnd: root.querySelector("#calRentalPublicEnd")?.value || "",
+    rentalHours: rentalType === "hourly"
+      ? normalizeRentalHours(rentalHoursBetween(rentalAccessStart, rentalAccessEnd, root.querySelector("#calRentalHours")?.value || 1))
+      : null,
+    rentalAccessStart,
+    rentalAccessEnd,
     isPrivateEvent: root.querySelector("#calRentalPrivateEvent")?.value !== "false",
     specialAccessDiscount: Boolean(root.querySelector("#calRentalSpecialAccessDiscount")?.checked),
     addonCleaningMaintenance: Boolean(root.querySelector("#calRentalCleaning")?.checked),
@@ -7507,6 +7530,9 @@ function collectCalendarRentalPayload(root, defaults) {
     || (defaults.allDay ? "07:00" : (defaults.start || "07:00"));
   const rentalAccessEnd = normalizeTimeFieldValue(root.querySelector("#calRentalPublicEnd")?.value || "")
     || (defaults.allDay ? "21:00" : (defaults.end || "21:00"));
+  const rentalHours = rentalType === "hourly"
+    ? normalizeRentalHours(rentalHoursBetween(rentalAccessStart, rentalAccessEnd, root.querySelector("#calRentalHours")?.value || 1))
+    : null;
   const publicWindow = rentalPublicWindowPatch(defaults);
   const payload = {
     title: defaults.title,
@@ -7526,7 +7552,7 @@ function collectCalendarRentalPayload(root, defaults) {
     is_private_event: root.querySelector("#calRentalPrivateEvent")?.value !== "false",
     special_access_discount: Boolean(root.querySelector("#calRentalSpecialAccessDiscount")?.checked),
     rental_type: rentalType,
-    rental_hours: rentalType === "hourly" ? normalizeRentalHours(root.querySelector("#calRentalHours")?.value || 1) : null,
+    rental_hours: rentalHours,
     addon_cleaning_maintenance: Boolean(root.querySelector("#calRentalCleaning")?.checked),
     addon_tables: Boolean(root.querySelector("#calRentalTables")?.checked),
     addon_chairs: Boolean(root.querySelector("#calRentalChairs")?.checked),

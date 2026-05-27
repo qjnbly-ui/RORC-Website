@@ -41,6 +41,7 @@ create table if not exists public.rental_requests (
   addon_chairs boolean not null default false,
   addon_tarp boolean not null default false,
   addon_heater boolean not null default false,
+  addon_cleaning_maintenance boolean not null default false,
   addon_ac boolean not null default false,
   addon_early_setup boolean not null default false,
   addon_early_day_rental boolean not null default false,

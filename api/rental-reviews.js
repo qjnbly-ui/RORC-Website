@@ -454,6 +454,7 @@ function buildRentalRecord(body) {
     addon_tarp: Boolean(body.addon_tarp ?? body.addonTarp),
     addon_heater: Boolean(body.addon_heater ?? body.addonHeater),
     addon_ac: Boolean(body.addon_ac ?? body.addonAc),
+    addon_cleaning_maintenance: Boolean(body.addon_cleaning_maintenance ?? body.addonCleaningMaintenance),
     addon_early_setup: Boolean(body.addon_early_setup ?? body.addonEarlySetup),
     addon_early_day_rental: Boolean(body.addon_early_day_rental ?? body.addonEarlyDayRental),
     addon_late_cleanup: Boolean(body.addon_late_cleanup ?? body.addonLateCleanup),
@@ -463,7 +464,11 @@ function buildRentalRecord(body) {
     special_access_discount: Boolean(bodyFieldValue(body, "special_access_discount", "specialAccessDiscount")),
     rental_type: rentalType,
     rental_hours: rentalType === "hourly"
-      ? normalizeRentalHours(body.rental_hours ?? body.rentalHours ?? 1)
+      ? normalizeRentalHours(rentalHoursBetween(
+        body.event_start_time ?? body.eventStartTime ?? "07:00",
+        body.event_end_time ?? body.eventEndTime ?? "21:00",
+        1
+      ))
       : null,
     agreed_to_no_guarantee: true,
     agreed_to_guidelines: true,
@@ -480,8 +485,7 @@ function buildRentalRecord(body) {
   if (isUuid(claimedMemberId)) record.claimed_member_id = claimedMemberId;
   if (isUuid(claimedAccountId)) record.claimed_account_id = claimedAccountId;
   record.estimated_total_cents = calculateRentalTotalCents({
-    ...record,
-    addon_cleaning_maintenance: Boolean(body.addon_cleaning_maintenance ?? body.addonCleaningMaintenance)
+    ...record
   });
   return record;
 }
@@ -553,10 +557,12 @@ function buildRentalPatch(body) {
   if (body.rental_type !== undefined || body.rentalType !== undefined) {
     patch.rental_type = str(body.rental_type || body.rentalType) === "hourly" ? "hourly" : "all_day";
     patch.rental_hours = patch.rental_type === "hourly"
-      ? normalizeRentalHours(body.rental_hours ?? body.rentalHours ?? 1)
+      ? normalizeRentalHours(rentalHoursBetween(
+        patch.event_start_time ?? body.event_start_time ?? body.eventStartTime ?? "07:00",
+        patch.event_end_time ?? body.event_end_time ?? body.eventEndTime ?? "21:00",
+        body.rental_hours ?? body.rentalHours ?? 1
+      ))
       : null;
-  } else if (body.rental_hours !== undefined || body.rentalHours !== undefined) {
-    patch.rental_hours = normalizeRentalHours(body.rental_hours ?? body.rentalHours ?? 1);
   }
   if (body.estimated_total_cents !== undefined || body.estimatedTotalCents !== undefined) {
     patch.estimated_total_cents = calculateRentalTotalCents(rentalPricingRecordFromBody(body, patch));
@@ -585,7 +591,11 @@ function rentalPricingRecordFromBody(body, patch = {}) {
     event_end_time: patch.event_end_time || str(body.event_end_time || body.eventEndTime || "21:00") || "21:00",
     rental_type: rentalType,
     rental_hours: rentalType === "hourly"
-      ? (patch.rental_hours ?? normalizeRentalHours(body.rental_hours ?? body.rentalHours ?? 1))
+      ? normalizeRentalHours(rentalHoursBetween(
+        patch.event_start_time || str(body.event_start_time || body.eventStartTime || "07:00") || "07:00",
+        patch.event_end_time || str(body.event_end_time || body.eventEndTime || "21:00") || "21:00",
+        patch.rental_hours ?? body.rental_hours ?? body.rentalHours ?? 1
+      ))
       : null,
     is_private_event: hasBodyField(patch, "is_private_event")
       ? patch.is_private_event
@@ -593,7 +603,7 @@ function rentalPricingRecordFromBody(body, patch = {}) {
     special_access_discount: hasBodyField(patch, "special_access_discount")
       ? patch.special_access_discount
       : Boolean(bodyFieldValue(body, "special_access_discount", "specialAccessDiscount")),
-    addon_cleaning_maintenance: Boolean(body.addon_cleaning_maintenance ?? body.addonCleaningMaintenance),
+    addon_cleaning_maintenance: patch.addon_cleaning_maintenance ?? Boolean(body.addon_cleaning_maintenance ?? body.addonCleaningMaintenance),
     addon_tables: patch.addon_tables ?? Boolean(body.addon_tables ?? body.addonTables),
     addon_chairs: patch.addon_chairs ?? Boolean(body.addon_chairs ?? body.addonChairs),
     addon_tarp: patch.addon_tarp ?? Boolean(body.addon_tarp ?? body.addonTarp),
@@ -620,7 +630,10 @@ function calculateRentalTotalCents(record) {
       * RENTAL_PRICE_CENTS.nonPrivateHourly
     );
   } else if (record?.rental_type === "hourly") {
-    total = Math.round(normalizeRentalHours(record?.rental_hours || 1) * RENTAL_PRICE_CENTS.privateHourly);
+    total = Math.round(
+      normalizeRentalHours(rentalHoursBetween(record?.event_start_time, record?.event_end_time, record?.rental_hours || 1))
+      * RENTAL_PRICE_CENTS.privateHourly
+    );
   } else {
     total = RENTAL_PRICE_CENTS.allDay;
   }
@@ -877,14 +890,12 @@ async function reviewRentalChangeRequest({ changeRequestId, action, reviewNotes,
   } else {
     const patch = buildRentalPatch(request.requested_payload || {});
     const merged = { ...rental, ...patch };
-    if (
-      merged.rental_type === "hourly"
-      && merged.is_private_event !== false
-      && (patch.event_start_time || patch.event_end_time)
-      && patch.rental_hours === undefined
-    ) {
+    if (merged.rental_type === "hourly") {
       patch.rental_hours = rentalHoursBetween(merged.event_start_time, merged.event_end_time, merged.rental_hours || 1);
       merged.rental_hours = patch.rental_hours;
+    } else {
+      patch.rental_hours = null;
+      merged.rental_hours = null;
     }
     patch.estimated_total_cents = calculateRentalTotalCents(merged);
     patch.reviewed_at = now;

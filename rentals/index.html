@@ -812,7 +812,9 @@
           return Math.round(hours * NON_PRIVATE_HOURLY_CENTS);
         }
         if (getRentalType() === "hourly") {
-          return Math.round(normalizeRentalHours(hoursInput.value) * PRIVATE_HOURLY_CENTS);
+          const range = getSelectedTimeRange();
+          const hours = normalizeRentalHours(range ? range.hours : hoursInput.value);
+          return Math.round(hours * PRIVATE_HOURLY_CENTS);
         }
         return ALLDAY_CENTS;
       }
@@ -829,8 +831,11 @@
         }
         const isHourly = getRentalType() === "hourly";
         if (isHourly) {
+          const range = getSelectedTimeRange();
+          const hours = normalizeRentalHours(range ? range.hours : hoursInput.value);
           const base = getBaseCents();
-          baseLabel.textContent = "Hourly Rental (" + rentalHoursLabel(hoursInput.value) + ")";
+          hoursInput.value = rentalHoursValue(hours);
+          baseLabel.textContent = "Hourly Rental (" + rentalHoursLabel(hours) + ")";
           basePrice.textContent = formatRentalMoney(base);
         } else {
           baseLabel.textContent = "Standard Day Rental";
@@ -1247,8 +1252,12 @@
         const fd = new FormData(form);
         const foodVal    = fd.get("foodOrDrinks");
         const alcohol    = fd.get("alcohol") || "";
+        syncRentalTypeFromTimes();
         const rentalType = getRentalType();
-        const rentalHours = rentalType === "hourly" ? normalizeRentalHours(hoursInput.value) : null;
+        const rentalRange = getSelectedTimeRange();
+        const rentalHours = rentalType === "hourly"
+          ? normalizeRentalHours(rentalRange ? rentalRange.hours : hoursInput.value)
+          : null;
 
         const payload = {
           contactName:    fd.get("contactName") || "",
