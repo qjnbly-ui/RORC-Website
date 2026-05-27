@@ -12,14 +12,14 @@ module.exports = async (req, res) => {
     return res.status(405).json({ success: false, error: "Method not allowed" });
   }
 
-  if (!SERVICE_ROLE_KEY || !stripe || !process.env.STRIPE_WEBHOOK_SECRET) {
+  if (!SERVICE_ROLE_KEY || !stripe || !stripeWebhookSecrets().length) {
     return res.status(500).json({ success: false, error: "Webhook is not configured." });
   }
 
   try {
     const rawBody = await readRawBody(req);
     const signature = req.headers["stripe-signature"];
-    const event = stripe.webhooks.constructEvent(rawBody, signature, process.env.STRIPE_WEBHOOK_SECRET);
+    const event = constructStripeWebhookEvent(rawBody, signature);
 
     if (event.type === "checkout.session.completed") {
       await handleCheckoutCompleted(event.data.object);
@@ -158,15 +158,46 @@ async function upsertAccountBilling({ accountId, customerId, subscriptionId, bil
 }
 
 async function readRawBody(req) {
-  if (Buffer.isBuffer(req.body)) return req.body;
-  if (typeof req.body === "string") return Buffer.from(req.body);
-  if (req.body && typeof req.body === "object") return Buffer.from(JSON.stringify(req.body));
+  if (Buffer.isBuffer(req.rawBody)) return req.rawBody;
+  if (typeof req.rawBody === "string") return Buffer.from(req.rawBody, "utf8");
 
   const chunks = [];
   for await (const chunk of req) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
-  return Buffer.concat(chunks);
+  const rawBody = Buffer.concat(chunks);
+  if (rawBody.length) return rawBody;
+
+  if (Buffer.isBuffer(req.body)) return req.body;
+  if (typeof req.body === "string") return Buffer.from(req.body, "utf8");
+
+  throw new Error("Stripe webhook raw body was not available. Ensure Vercel body parsing is disabled for this endpoint.");
+}
+
+function constructStripeWebhookEvent(rawBody, signature) {
+  if (!signature) throw new Error("Missing Stripe-Signature header.");
+
+  const secrets = stripeWebhookSecrets();
+  let lastError = null;
+  for (const secret of secrets) {
+    try {
+      return stripe.webhooks.constructEvent(rawBody, signature, secret);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("Could not verify Stripe webhook signature.");
+}
+
+function stripeWebhookSecrets() {
+  return [
+    process.env.STRIPE_WEBHOOK_SECRET,
+    process.env.STRIPE_WEBHOOK_SECRETS
+  ]
+    .filter(Boolean)
+    .flatMap((value) => String(value).split(","))
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 async function supabaseRest(path) {
