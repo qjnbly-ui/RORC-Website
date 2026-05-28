@@ -1,10 +1,20 @@
 (function() {
   const LOGIN_PATH = "/membership-login/";
   const STRIPE_FALLBACK_PORTAL = "https://payments.ruthobenchainrc.com/p/login/eVaeWh2tN0vxgSs288";
+  const ACCOUNT_TYPE_OPTIONS = [
+    "Account Manager",
+    "Kiosk Account",
+    "Special Access Account",
+    "Active Membership",
+    "Weight Room Only",
+    "Open Gym Only",
+    "RESTRICTED ACCOUNT"
+  ];
 
   let supabaseClient = null;
   let currentSession = null;
   let currentProfile = null;
+  let currentAccountBilling = null;
   let visibleProfiles = [];
   let recoveryMode = false;
 
@@ -53,6 +63,10 @@
     return profile?.account_type === "Account Manager";
   }
 
+  function canUseAccountAdminTools(profile = currentProfile) {
+    return isAccountManager(profile);
+  }
+
   function isRentalAccount(profile) {
     return profile?.account_type === "Rental Account";
   }
@@ -75,6 +89,40 @@
   function formatTimeRange(start, end) {
     if (!start || !end) return "Not set";
     return `${formatTime(start)} - ${formatTime(end)}`;
+  }
+
+  function normalizeDateInput(value) {
+    if (!value) return "";
+    const text = String(value);
+    if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+    const date = new Date(text);
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toISOString().slice(0, 10);
+  }
+
+  function sameAccountProfiles() {
+    if (!currentProfile?.account_id) return [];
+    return (visibleProfiles || [])
+      .filter((profile) => profile.account_id === currentProfile.account_id)
+      .sort((a, b) => String(a.member_name || "").localeCompare(String(b.member_name || ""), undefined, { sensitivity: "base" }));
+  }
+
+  function setElementsHidden(selector, hidden) {
+    document.querySelectorAll(selector).forEach((element) => {
+      element.hidden = Boolean(hidden);
+    });
+  }
+
+  function setSelectValue(select, value) {
+    if (!select) return;
+    select.value = value;
+    if (select.value !== value && value) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value;
+      select.appendChild(option);
+      select.value = value;
+    }
   }
 
   function formatCurrency(cents) {
@@ -113,6 +161,33 @@
     } catch (error) {
       console.warn("Stripe membership sync failed.", error);
       return false;
+    }
+  }
+
+  async function loadCurrentAccountBilling() {
+    currentAccountBilling = null;
+
+    if (!supabaseClient || !currentProfile?.account_id) {
+      return null;
+    }
+
+    try {
+      const { data, error } = await supabaseClient
+        .from("account_billing")
+        .select("stripe_customer_id,billing_status,stripe_status,current_period_end,last_sync")
+        .eq("account_id", currentProfile.account_id)
+        .maybeSingle();
+
+      if (error) {
+        console.warn("Account billing details unavailable.", error.message || error);
+        return null;
+      }
+
+      currentAccountBilling = data || null;
+      return currentAccountBilling;
+    } catch (error) {
+      console.warn("Account billing details unavailable.", error);
+      return null;
     }
   }
 
@@ -167,6 +242,8 @@
       visibleProfiles = refreshed.profiles || [];
     }
 
+    await loadCurrentAccountBilling();
+
     return true;
   }
 
@@ -213,8 +290,35 @@
   }
 
   function hydrateAccountForm() {
+    const canUseAdminTools = canUseAccountAdminTools();
+    const isRental = isRentalAccount(currentProfile);
+    const accountMemberName = byId("accountMemberName");
     const accountPhone = byId("accountPhone");
     const accountEmail = byId("accountEmail");
+    const accountHeaterPin = byId("accountHeaterPin");
+    const accountNumber = byId("accountNumber");
+    const accountType = byId("accountType");
+    const accountAllowGuestEntry = byId("accountAllowGuestEntry");
+    const accountAllowHeaterUse = byId("accountAllowHeaterUse");
+    const accountDateOfBirth = byId("accountDateOfBirth");
+    const accountGuardianMemberId = byId("accountGuardianMemberId");
+    const accountCanAccessIndependently = byId("accountCanAccessIndependently");
+    const accountStripeCustomerId = byId("accountStripeCustomerId");
+    const accountInfoPermissionNote = byId("accountInfoPermissionNote");
+
+    setElementsHidden("[data-account-admin-only]", !canUseAdminTools);
+    setElementsHidden("[data-account-non-rental-only]", isRental);
+
+    if (accountInfoPermissionNote) {
+      accountInfoPermissionNote.textContent = canUseAdminTools
+        ? "Account Manager access is active, so this matches the app member editor for this profile and shared account."
+        : "You can edit your contact information and shared account heater PIN. Account control fields are only editable by Account Managers, same as the app.";
+    }
+
+    if (accountMemberName) {
+      accountMemberName.value = currentProfile?.member_name || "";
+      accountMemberName.disabled = !canUseAdminTools;
+    }
 
     if (accountPhone) {
       accountPhone.value = currentProfile?.phone_number || "";
@@ -222,6 +326,65 @@
 
     if (accountEmail) {
       accountEmail.value = currentProfile?.email_address || currentSession?.user?.email || "";
+    }
+
+    if (accountHeaterPin) {
+      accountHeaterPin.value = currentProfile?.heater_pin || "";
+      accountHeaterPin.dataset.originalValue = currentProfile?.heater_pin || "";
+    }
+
+    if (!canUseAdminTools) {
+      return;
+    }
+
+    if (accountNumber) {
+      accountNumber.value = currentProfile?.account_number || "";
+      accountNumber.dataset.originalValue = currentProfile?.account_number || "";
+    }
+
+    if (accountType) {
+      accountType.innerHTML = ACCOUNT_TYPE_OPTIONS.map((option) => `
+        <option value="${escapeHtml(option)}">${escapeHtml(option)}</option>
+      `).join("");
+      setSelectValue(accountType, currentProfile?.account_type || "");
+    }
+
+    if (accountAllowGuestEntry) {
+      accountAllowGuestEntry.value = currentProfile?.allow_guest_entry ? "yes" : "no";
+    }
+
+    if (accountAllowHeaterUse) {
+      accountAllowHeaterUse.value = currentProfile?.allow_heater_use ? "yes" : "no";
+    }
+
+    if (accountDateOfBirth) {
+      accountDateOfBirth.value = normalizeDateInput(currentProfile?.date_of_birth);
+    }
+
+    if (accountGuardianMemberId) {
+      const currentMemberId = currentProfile?.account_member_id || "";
+      const guardianOptions = sameAccountProfiles()
+        .filter((profile) => profile.account_member_id !== currentMemberId)
+        .map((profile) => `
+          <option value="${escapeHtml(profile.account_member_id)}">${escapeHtml(profile.member_name || "Unnamed Member")}</option>
+        `)
+        .join("");
+
+      accountGuardianMemberId.innerHTML = `
+        <option value="">No guardian linked</option>
+        ${guardianOptions}
+      `;
+      setSelectValue(accountGuardianMemberId, currentProfile?.guardian_member_id || "");
+    }
+
+    if (accountCanAccessIndependently) {
+      accountCanAccessIndependently.value = currentProfile?.can_access_independently === false ? "no" : "yes";
+    }
+
+    if (accountStripeCustomerId) {
+      const stripeCustomerId = currentAccountBilling?.stripe_customer_id || currentProfile?.stripe_customer_id || "";
+      accountStripeCustomerId.value = stripeCustomerId;
+      accountStripeCustomerId.dataset.originalValue = stripeCustomerId;
     }
   }
 
@@ -403,9 +566,57 @@
     currentSession = result.session;
     currentProfile = result.profile;
     visibleProfiles = result.profiles || [];
+    await loadCurrentAccountBilling();
     renderDashboard();
     hydrateAccountForm();
     loadRentalBookings();
+  }
+
+  async function postAuthenticatedJson(path, payload) {
+    const { data } = await supabaseClient.auth.getSession();
+    const token = data.session?.access_token || currentSession?.access_token || "";
+
+    if (!token) {
+      window.location.href = LOGIN_PATH;
+      return null;
+    }
+
+    const response = await fetch(path, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok || body.success === false) {
+      throw new Error(body.error || `Request failed (${response.status}).`);
+    }
+
+    return body;
+  }
+
+  async function updateSharedHeaterPin(accountId, heaterPin) {
+    return postAuthenticatedJson("/api/update-account-heater-pin", {
+      accountId,
+      heaterPin: heaterPin || null
+    });
+  }
+
+  async function updateAccountStripeCustomerId(accountId, stripeCustomerId) {
+    return postAuthenticatedJson("/api/update-account-billing", {
+      accountId,
+      stripeCustomerId: stripeCustomerId || null
+    });
+  }
+
+  async function moveCurrentMemberToAccount(targetAccountNumber) {
+    return postAuthenticatedJson("/api/move-member-account", {
+      memberId: currentProfile.account_member_id,
+      targetAccountNumber
+    });
   }
 
   function bindAccountInfoModal() {
@@ -416,11 +627,19 @@
 
     if (!openButton || !modal || !updateButton) return;
 
-    openButton.addEventListener("click", () => {
+    openButton.addEventListener("click", async () => {
       hydrateAccountForm();
       setMessage(result, "");
       modal.hidden = false;
-      byId("accountPhone")?.focus();
+
+      if (canUseAccountAdminTools()) {
+        setMessage(result, "Loading account details...");
+        await loadCurrentAccountBilling();
+        hydrateAccountForm();
+        setMessage(result, "");
+      }
+
+      (byId("accountMemberName") || byId("accountPhone"))?.focus();
     });
 
     modal.addEventListener("click", (event) => {
@@ -430,11 +649,40 @@
     });
 
     updateButton.addEventListener("click", async () => {
+      const canUseAdminTools = canUseAccountAdminTools();
+      const memberName = String(byId("accountMemberName")?.value || currentProfile?.member_name || "").trim();
       const phone = String(byId("accountPhone")?.value || "").trim();
       const email = String(byId("accountEmail")?.value || "").trim().toLowerCase();
+      const heaterPin = String(byId("accountHeaterPin")?.value || "").trim();
+      const originalHeaterPin = String(byId("accountHeaterPin")?.dataset.originalValue || "").trim();
+      const accountNumber = String(byId("accountNumber")?.value || currentProfile?.account_number || "").trim();
+      const originalAccountNumber = String(byId("accountNumber")?.dataset.originalValue || currentProfile?.account_number || "").trim();
+      const accountType = String(byId("accountType")?.value || currentProfile?.account_type || "").trim();
+      const allowGuestEntry = String(byId("accountAllowGuestEntry")?.value || "no") === "yes";
+      const allowHeaterUse = String(byId("accountAllowHeaterUse")?.value || "no") === "yes";
+      const dateOfBirth = String(byId("accountDateOfBirth")?.value || "").trim();
+      const guardianMemberId = String(byId("accountGuardianMemberId")?.value || "").trim();
+      const canAccessIndependently = String(byId("accountCanAccessIndependently")?.value || "yes") === "yes";
+      const stripeCustomerId = String(byId("accountStripeCustomerId")?.value || "").trim();
+      const originalStripeCustomerId = String(byId("accountStripeCustomerId")?.dataset.originalValue || "").trim();
 
       if (!email) {
         setMessage(result, "Email address is required.", "error");
+        return;
+      }
+
+      if (canUseAdminTools && !memberName) {
+        setMessage(result, "Member name is required.", "error");
+        return;
+      }
+
+      if (canUseAdminTools && !accountNumber) {
+        setMessage(result, "Account number is required.", "error");
+        return;
+      }
+
+      if (heaterPin && !/^\d{4}$/.test(heaterPin)) {
+        setMessage(result, "Shared account heater PIN must be 4 digits.", "error");
         return;
       }
 
@@ -442,27 +690,71 @@
       setMessage(result, "Updating account information...");
 
       try {
+        const memberPatch = {
+          phone_number: phone,
+          email_address: email
+        };
+
+        if (canUseAdminTools) {
+          Object.assign(memberPatch, {
+            member_name: memberName,
+            allow_guest_entry: allowGuestEntry,
+            allow_heater_use: allowHeaterUse,
+            date_of_birth: dateOfBirth || null,
+            guardian_member_id: guardianMemberId || null,
+            can_access_independently: canAccessIndependently
+          });
+        }
+
         const { error } = await supabaseClient
           .from("account_members")
-          .update({
-            phone_number: phone,
-            email_address: email
-          })
+          .update(memberPatch)
           .eq("id", currentProfile.account_member_id);
 
         if (error) {
           throw error;
         }
 
+        let accountIdForSharedUpdates = currentProfile.account_id;
+
+        if (canUseAdminTools) {
+          let accountMoved = false;
+
+          if (accountNumber !== originalAccountNumber) {
+            const moveResult = await moveCurrentMemberToAccount(accountNumber);
+            accountIdForSharedUpdates = moveResult?.targetAccountId || accountIdForSharedUpdates;
+            accountMoved = true;
+          }
+
+          if (stripeCustomerId !== originalStripeCustomerId) {
+            await updateAccountStripeCustomerId(accountIdForSharedUpdates, stripeCustomerId);
+          }
+
+          const accountTypeUpdate = supabaseClient
+            .from("account_members")
+            .update({ account_type: accountType });
+          const { error: accountTypeError } = accountMoved
+            ? await accountTypeUpdate.eq("id", currentProfile.account_member_id)
+            : await accountTypeUpdate.eq("account_id", currentProfile.account_id);
+
+          if (accountTypeError) {
+            throw accountTypeError;
+          }
+        }
+
+        if (!isRentalAccount(currentProfile) && heaterPin !== originalHeaterPin) {
+          await updateSharedHeaterPin(accountIdForSharedUpdates, heaterPin);
+        }
+
         const metadata = currentSession.user.user_metadata || {};
         const metadataUpdate = {
           data: {
             ...metadata,
-            display_name: currentProfile.member_name,
+            display_name: canUseAdminTools ? memberName : currentProfile.member_name,
             email,
-            full_name: currentProfile.member_name,
-            member_name: currentProfile.member_name,
-            name: currentProfile.member_name,
+            full_name: canUseAdminTools ? memberName : currentProfile.member_name,
+            member_name: canUseAdminTools ? memberName : currentProfile.member_name,
+            name: canUseAdminTools ? memberName : currentProfile.member_name,
             phone,
             phone_number: phone
           }

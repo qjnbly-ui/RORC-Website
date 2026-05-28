@@ -168,13 +168,20 @@
     </div>
   </div>
 
-  <div id="accountInfoModal" class="rorc-password-modal" hidden>
+  <div id="accountInfoModal" class="rorc-password-modal account-info-modal" hidden>
     <div class="rorc-password-backdrop" data-close></div>
     <div class="rorc-password-dialog" role="dialog" aria-modal="true" aria-labelledby="accountInfoTitle">
       <button type="button" class="rorc-password-close" data-close>Close</button>
       <h2 id="accountInfoTitle" class="rorc-card-title">Account Information</h2>
 
       <div class="rorc-password-form">
+        <p id="accountInfoPermissionNote" class="rorc-card-text account-info-note"></p>
+
+        <label class="rorc-auth-label">
+          <span>Member Name</span>
+          <input id="accountMemberName" class="rorc-auth-input" type="text" autocomplete="name" />
+        </label>
+
         <label class="rorc-auth-label">
           <span>Phone Number</span>
           <input id="accountPhone" class="rorc-auth-input" type="text" inputmode="tel" />
@@ -184,6 +191,72 @@
           <span>Email Address</span>
           <input id="accountEmail" class="rorc-auth-input" type="email" inputmode="email" />
         </label>
+
+        <label class="rorc-auth-label" data-account-non-rental-only>
+          <span>Shared Account Heater PIN</span>
+          <input id="accountHeaterPin" class="rorc-auth-input" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" minlength="4" autocomplete="off" />
+        </label>
+
+        <section class="account-info-section" data-account-admin-only hidden>
+          <h3>Account Manager Fields</h3>
+
+          <div class="account-info-grid">
+            <label class="rorc-auth-label">
+              <span>Account Number</span>
+              <input id="accountNumber" class="rorc-auth-input" type="text" />
+            </label>
+
+            <label class="rorc-auth-label">
+              <span>Account Type</span>
+              <select id="accountType" class="rorc-auth-input"></select>
+            </label>
+          </div>
+
+          <div class="account-info-grid">
+            <label class="rorc-auth-label">
+              <span>Day Pass Guest Permission</span>
+              <select id="accountAllowGuestEntry" class="rorc-auth-input">
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+
+            <label class="rorc-auth-label">
+              <span>Heater Permission</span>
+              <select id="accountAllowHeaterUse" class="rorc-auth-input">
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="account-info-grid">
+            <label class="rorc-auth-label">
+              <span>Date of Birth</span>
+              <input id="accountDateOfBirth" class="rorc-auth-input" type="date" />
+            </label>
+
+            <label class="rorc-auth-label">
+              <span>Guardian / Responsible Adult</span>
+              <select id="accountGuardianMemberId" class="rorc-auth-input"></select>
+            </label>
+          </div>
+
+          <div class="account-info-grid">
+            <label class="rorc-auth-label">
+              <span>Can Access Independently</span>
+              <select id="accountCanAccessIndependently" class="rorc-auth-input">
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+
+            <label class="rorc-auth-label">
+              <span>Stripe Customer ID</span>
+              <input id="accountStripeCustomerId" class="rorc-auth-input" type="text" placeholder="cus_..." autocapitalize="off" autocomplete="off" spellcheck="false" />
+            </label>
+          </div>
+        </section>
 
         <div class="rorc-actions" style="justify-content:flex-start;">
           <button id="updateAccountBtn" class="rorc-btn rorc-btn-neutral">

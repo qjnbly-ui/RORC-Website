@@ -636,6 +636,7 @@ a { color: inherit; }
 }
 
 @media (max-width: 700px) {
+  .account-info-grid,
   .rental-booking-card header,
   .rental-change-grid,
   .rental-change-check-grid {
@@ -717,6 +718,12 @@ a { color: inherit; }
   animation: rorc-modal-in 0.3s ease forwards;
 }
 
+.account-info-modal .rorc-password-dialog {
+  width: min(780px, 94vw);
+  max-height: 90vh;
+  overflow: auto;
+}
+
 @keyframes rorc-modal-in {
   to {
     transform: translateY(0) scale(1);
@@ -763,6 +770,43 @@ a { color: inherit; }
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: #0b0f14;
   color: #f5f5f5;
+}
+
+.rorc-auth-input:disabled {
+  opacity: 0.68;
+  cursor: not-allowed;
+}
+
+.account-info-note {
+  margin: 0;
+  color: #b6c9ff;
+}
+
+.account-info-section {
+  display: grid;
+  gap: 12px;
+  margin-top: 2px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.account-info-section[hidden] {
+  display: none !important;
+}
+
+.account-info-section h3 {
+  margin: 0;
+  color: #e7d2a0;
+  font-family: var(--font-display);
+  font-size: 16px;
+}
+
+.account-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .password-reveal-field {
