@@ -44,7 +44,7 @@ module.exports = async (req, res) => {
     }
 
     const thermostatId = thermostatIdForSystem(systemType);
-    const reportQuery = buildRuntimeQuery(startDate, endDate);
+    const reportQuery = buildRuntimeQuery(startDate, endDate, systemType);
     const cacheKey = [thermostatId, reportQuery.startDate, reportQuery.endDate, reportQuery.startInterval, reportQuery.endInterval].join("|");
     const cached = runtimeCache.get(cacheKey);
     let report;
@@ -52,26 +52,7 @@ module.exports = async (req, res) => {
     if (cached && Date.now() - cached.cachedAt < RUNTIME_CACHE_MS) {
       report = cached.report;
     } else {
-      try {
-        report = await getEcobeeRuntimeReport({
-          thermostatId,
-          startDate: reportQuery.startDate,
-          startInterval: reportQuery.startInterval,
-          endDate: reportQuery.endDate,
-          endInterval: reportQuery.endInterval,
-          columns: reportQuery.columns
-        });
-      } catch (primaryError) {
-        const compactQuery = compactDateQuery(reportQuery);
-        report = await getEcobeeRuntimeReport({
-          thermostatId,
-          startDate: compactQuery.startDate,
-          startInterval: compactQuery.startInterval,
-          endDate: compactQuery.endDate,
-          endInterval: compactQuery.endInterval,
-          columns: compactQuery.columns
-        });
-      }
+      report = await requestRuntimeWithFallbacks({ thermostatId, reportQuery, systemType });
       runtimeCache.set(cacheKey, {
         cachedAt: Date.now(),
         report
@@ -116,12 +97,14 @@ function thermostatIdForSystem(systemType) {
   return heatId;
 }
 
-function buildRuntimeQuery(startAt, endAt) {
+function buildRuntimeQuery(startAt, endAt, systemType = "heat") {
   const startDateUtc = `${startAt.getUTCFullYear()}-${String(startAt.getUTCMonth() + 1).padStart(2, "0")}-${String(startAt.getUTCDate()).padStart(2, "0")}`;
   const endDateUtc = `${endAt.getUTCFullYear()}-${String(endAt.getUTCMonth() + 1).padStart(2, "0")}-${String(endAt.getUTCDate()).padStart(2, "0")}`;
   const startInterval = intervalForDate(startAt);
   const endInterval = intervalForDate(endAt);
-  const metricColumns = ["auxHeat1", "auxHeat2", "auxHeat3", "compHeat1", "compHeat2", "compHeat3", "compCool1", "compCool2", "fan"];
+  const metricColumns = systemType === "ac"
+    ? ["compCool1", "compCool2", "fan"]
+    : ["auxHeat1", "auxHeat2", "auxHeat3", "compHeat1", "compHeat2", "compHeat3", "fan"];
   return {
     startDate: startDateUtc,
     endDate: endDateUtc,
@@ -144,6 +127,48 @@ function compactDateQuery(query) {
     startDate: String(query.startDate || "").replaceAll("-", ""),
     endDate: String(query.endDate || "").replaceAll("-", "")
   };
+}
+
+async function requestRuntimeWithFallbacks({ thermostatId, reportQuery, systemType }) {
+  const attemptQueries = buildQueryAttempts(reportQuery, systemType);
+  let lastError = null;
+
+  for (const query of attemptQueries) {
+    try {
+      return await getEcobeeRuntimeReport({
+        thermostatId,
+        startDate: query.startDate,
+        startInterval: query.startInterval,
+        endDate: query.endDate,
+        endInterval: query.endInterval,
+        columns: query.columns
+      });
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("Ecobee runtime report request failed.");
+}
+
+function buildQueryAttempts(baseQuery, systemType) {
+  const narrowMetricColumns = systemType === "ac"
+    ? ["compCool1"]
+    : ["auxHeat1", "compHeat1"];
+  const narrowQuery = {
+    ...baseQuery,
+    metricColumns: narrowMetricColumns,
+    columns: `date,time,${narrowMetricColumns.join(",")}`
+  };
+  const compactBase = compactDateQuery(baseQuery);
+  const compactNarrow = compactDateQuery(narrowQuery);
+
+  return [
+    baseQuery,
+    compactBase,
+    narrowQuery,
+    compactNarrow
+  ];
 }
 
 function summarizeRuntimeReport(report, metricColumns) {
