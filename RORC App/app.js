@@ -2280,6 +2280,7 @@ function openMasterLogEditor(recordType, recordId, options = {}) {
       <p id="masterLogEditorResult" class="member-edit-result"></p>
       <footer>
         ${adminControls ? `
+        ${!isTimesheet ? `<button class="master-log-verify-runtime" type="button">Verify Runtime</button>` : ""}
         <button class="master-log-remove-billing" type="button" ${linkedBillingItems.length ? "" : "disabled"}>Remove Billing</button>
         <button class="master-log-delete" type="button">Delete</button>
         ` : ""}
@@ -2310,6 +2311,49 @@ function openMasterLogEditor(recordType, recordId, options = {}) {
   const saveButton = overlay.querySelector(".master-log-save");
   const deleteButton = overlay.querySelector(".master-log-delete");
   const removeBillingButton = overlay.querySelector(".master-log-remove-billing");
+  const verifyRuntimeButton = overlay.querySelector(".master-log-verify-runtime");
+
+  verifyRuntimeButton?.addEventListener("click", async () => {
+    const startAt = fromDatetimeLocalValue(String(overlay.querySelector("#masterLogHeaterStartAt")?.value || ""));
+    const endAt = fromDatetimeLocalValue(String(overlay.querySelector("#masterLogHeaterEndAt")?.value || ""));
+    const systemType = String(overlay.querySelector("#masterLogThermostatSystem")?.value || record.systemType || "heat");
+    if (!startAt || !endAt) {
+      setResult("Start At and End At are required before runtime verification.", "error");
+      return;
+    }
+
+    verifyRuntimeButton.disabled = true;
+    saveButton.disabled = true;
+    deleteButton.disabled = true;
+    if (removeBillingButton) removeBillingButton.disabled = true;
+    setResult("Verifying runtime with Ecobee...");
+
+    try {
+      const runtime = await verifyThermostatRuntimeForRecord({
+        systemType,
+        startAt,
+        endAt
+      });
+      const projectedEndLocal = toDatetimeLocalValue(runtime.projectedEndAt);
+      if (projectedEndLocal) {
+        const endInput = overlay.querySelector("#masterLogHeaterEndAt");
+        if (endInput) endInput.value = projectedEndLocal;
+      }
+      const existingNote = String(overlay.querySelector("#masterLogHeaterNote")?.value || "").trim();
+      const verifyNote = `[Runtime Verified ${formatShortDateTime(runtime.fetchedAt)}] ${runtime.systemType.toUpperCase()} runtime ${runtime.verifiedRuntimeMinutes} min (${runtime.rowsMatched} rows, source: ${runtime.source}).`;
+      const nextNote = existingNote ? `${existingNote}\n${verifyNote}` : verifyNote;
+      const noteField = overlay.querySelector("#masterLogHeaterNote");
+      if (noteField) noteField.value = nextNote;
+      setResult(`Runtime verified: ${runtime.verifiedRuntimeMinutes} min. End time updated for billing review.`, "success");
+    } catch (error) {
+      setResult(error.message || "Could not verify runtime.", "error");
+    } finally {
+      verifyRuntimeButton.disabled = false;
+      saveButton.disabled = false;
+      deleteButton.disabled = false;
+      if (removeBillingButton) removeBillingButton.disabled = linkedBillingItems.length === 0;
+    }
+  });
 
   saveButton?.addEventListener("click", async () => {
     const client = await createSupabaseClient();
@@ -3010,6 +3054,32 @@ async function triggerHeaterOffSequence(memberIds = [], options = {}) {
   if (!response.ok || body.success === false) {
     throw new Error(body.error || "Heater-off sequence failed.");
   }
+}
+
+async function verifyThermostatRuntimeForRecord({ systemType, startAt, endAt }) {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) {
+    throw new Error("You must be signed in to verify runtime.");
+  }
+
+  const response = await fetch("/api/verify-heater-runtime", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      systemType,
+      startAt,
+      endAt
+    })
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not verify thermostat runtime.");
+  }
+
+  return body.runtime || null;
 }
 
 async function verifyHeaterPin(memberId, pin) {

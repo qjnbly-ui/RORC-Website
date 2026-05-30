@@ -177,6 +177,59 @@ async function getEcobeeThermostatSummary({ thermostatId }) {
   return result.summary;
 }
 
+async function getEcobeeRuntimeReport({
+  thermostatId,
+  startDate,
+  endDate,
+  startInterval = 0,
+  endInterval = 287,
+  columns = ""
+}) {
+  if (!ECOBEE_CLIENT_ID || !ECOBEE_ACCESS_TOKEN || !ECOBEE_REFRESH_TOKEN || !thermostatId) {
+    throw new Error("Ecobee credentials are not configured. Thermostat ID is required.");
+  }
+
+  let token = ECOBEE_ACCESS_TOKEN;
+  let result = await getEcobeeRuntimeReportWithToken({
+    token,
+    thermostatId,
+    startDate,
+    endDate,
+    startInterval,
+    endInterval,
+    columns
+  });
+
+  if (result.ok) return result.report;
+
+  const bodyText = result.text || "";
+  const expired = result.status === 401
+    || bodyText.includes('"code":14')
+    || bodyText.toLowerCase().includes("authentication token has expired");
+
+  if (!expired) {
+    throw new Error(`Ecobee runtime report request failed: ${result.status} ${bodyText}`);
+  }
+
+  const refreshed = await refreshEcobeeToken();
+  token = refreshed.access_token;
+  result = await getEcobeeRuntimeReportWithToken({
+    token,
+    thermostatId,
+    startDate,
+    endDate,
+    startInterval,
+    endInterval,
+    columns
+  });
+
+  if (!result.ok) {
+    throw new Error(`Ecobee runtime report retry failed: ${result.status} ${result.text || ""}`);
+  }
+
+  return result.report;
+}
+
 async function postEcobeePayload({ token, thermostatId, payload }) {
   const response = await fetch("https://api.ecobee.com/1/thermostat?format=json", {
     method: "POST",
@@ -285,6 +338,45 @@ async function fetchEcobeeThermostatSummaryQuery({ token, query, queryParam, the
   };
 }
 
+async function getEcobeeRuntimeReportWithToken({
+  token,
+  thermostatId,
+  startDate,
+  endDate,
+  startInterval,
+  endInterval,
+  columns
+}) {
+  const query = encodeURIComponent(JSON.stringify({
+    selection: {
+      selectionType: "thermostats",
+      selectionMatch: thermostatId
+    },
+    startDate,
+    startInterval,
+    endDate,
+    endInterval,
+    columns
+  }));
+
+  const response = await fetch(`https://api.ecobee.com/1/runtimeReport?format=json&body=${query}`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json;charset=UTF-8",
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  const text = await response.text();
+  const body = parseJson(text);
+  return {
+    ok: response.ok && Number(body?.status?.code || 0) === 0,
+    status: response.status,
+    text,
+    report: body
+  };
+}
+
 function parseThermostatSummary(body, thermostatId) {
   const revisionRows = Array.isArray(body?.revisionList) ? body.revisionList : [];
   const statusRows = Array.isArray(body?.statusList) ? body.statusList : [];
@@ -377,6 +469,7 @@ function parseJson(value) {
 }
 
 module.exports = {
+  getEcobeeRuntimeReport,
   getEcobeeThermostat,
   getEcobeeThermostatSummary,
   resumeEcobeeProgram,
