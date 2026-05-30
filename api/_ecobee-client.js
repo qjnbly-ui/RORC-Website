@@ -359,7 +359,18 @@ async function getEcobeeRuntimeReportWithToken({
     columns
   }));
 
-  const response = await fetch(`https://api.ecobee.com/1/runtimeReport?format=json&body=${query}`, {
+  let result = await fetchEcobeeRuntimeReportQuery({ token, query, queryParam: "json" });
+  if (!result.ok) {
+    const fallback = await fetchEcobeeRuntimeReportQuery({ token, query, queryParam: "body" });
+    if (fallback.ok || !isExpiredEcobeeResponse(result)) {
+      result = fallback;
+    }
+  }
+  return result;
+}
+
+async function fetchEcobeeRuntimeReportQuery({ token, query, queryParam }) {
+  const response = await fetch(`https://api.ecobee.com/1/runtimeReport?format=json&${queryParam}=${query}`, {
     method: "GET",
     headers: {
       "Content-Type": "application/json;charset=UTF-8",

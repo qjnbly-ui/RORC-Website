@@ -3074,12 +3074,22 @@ async function verifyThermostatRuntimeForRecord({ systemType, startAt, endAt }) 
       endAt
     })
   });
-  const body = await response.json().catch(() => ({}));
+  const rawText = await response.text();
+  const body = parseJsonSafely(rawText);
   if (!response.ok || body.success === false) {
-    throw new Error(body.error || "Could not verify thermostat runtime.");
+    const detail = body.error || rawText || "Could not verify thermostat runtime.";
+    throw new Error(detail);
   }
 
   return body.runtime || null;
+}
+
+function parseJsonSafely(value) {
+  try {
+    return JSON.parse(value || "{}");
+  } catch {
+    return {};
+  }
 }
 
 async function verifyHeaterPin(memberId, pin) {

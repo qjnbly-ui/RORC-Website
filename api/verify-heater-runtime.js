@@ -52,14 +52,26 @@ module.exports = async (req, res) => {
     if (cached && Date.now() - cached.cachedAt < RUNTIME_CACHE_MS) {
       report = cached.report;
     } else {
-      report = await getEcobeeRuntimeReport({
-        thermostatId,
-        startDate: reportQuery.startDate,
-        startInterval: reportQuery.startInterval,
-        endDate: reportQuery.endDate,
-        endInterval: reportQuery.endInterval,
-        columns: reportQuery.columns
-      });
+      try {
+        report = await getEcobeeRuntimeReport({
+          thermostatId,
+          startDate: reportQuery.startDate,
+          startInterval: reportQuery.startInterval,
+          endDate: reportQuery.endDate,
+          endInterval: reportQuery.endInterval,
+          columns: reportQuery.columns
+        });
+      } catch (primaryError) {
+        const compactQuery = compactDateQuery(reportQuery);
+        report = await getEcobeeRuntimeReport({
+          thermostatId,
+          startDate: compactQuery.startDate,
+          startInterval: compactQuery.startInterval,
+          endDate: compactQuery.endDate,
+          endInterval: compactQuery.endInterval,
+          columns: compactQuery.columns
+        });
+      }
       runtimeCache.set(cacheKey, {
         cachedAt: Date.now(),
         report
@@ -105,8 +117,8 @@ function thermostatIdForSystem(systemType) {
 }
 
 function buildRuntimeQuery(startAt, endAt) {
-  const startDateUtc = `${startAt.getUTCFullYear()}${String(startAt.getUTCMonth() + 1).padStart(2, "0")}${String(startAt.getUTCDate()).padStart(2, "0")}`;
-  const endDateUtc = `${endAt.getUTCFullYear()}${String(endAt.getUTCMonth() + 1).padStart(2, "0")}${String(endAt.getUTCDate()).padStart(2, "0")}`;
+  const startDateUtc = `${startAt.getUTCFullYear()}-${String(startAt.getUTCMonth() + 1).padStart(2, "0")}-${String(startAt.getUTCDate()).padStart(2, "0")}`;
+  const endDateUtc = `${endAt.getUTCFullYear()}-${String(endAt.getUTCMonth() + 1).padStart(2, "0")}-${String(endAt.getUTCDate()).padStart(2, "0")}`;
   const startInterval = intervalForDate(startAt);
   const endInterval = intervalForDate(endAt);
   const metricColumns = ["auxHeat1", "auxHeat2", "auxHeat3", "compHeat1", "compHeat2", "compHeat3", "compCool1", "compCool2", "fan"];
@@ -126,6 +138,14 @@ function intervalForDate(value) {
   return Math.max(0, Math.min(287, Math.floor(((hours * 60) + minutes) / 5)));
 }
 
+function compactDateQuery(query) {
+  return {
+    ...query,
+    startDate: String(query.startDate || "").replaceAll("-", ""),
+    endDate: String(query.endDate || "").replaceAll("-", "")
+  };
+}
+
 function summarizeRuntimeReport(report, metricColumns) {
   const columns = String(report?.columns || "")
     .split(",")
@@ -140,14 +160,16 @@ function summarizeRuntimeReport(report, metricColumns) {
     rows.forEach((row) => {
       const values = String(row || "").split(",");
       rowCount += 1;
+      let rowBillableSeconds = 0;
       metricColumns.forEach((columnName) => {
         const index = columns.indexOf(columnName);
         if (index < 0) return;
         const numeric = Number(values[index] || 0);
         if (Number.isFinite(numeric) && numeric > 0) {
-          runtimeSeconds += numeric;
+          rowBillableSeconds = Math.max(rowBillableSeconds, Math.min(300, numeric));
         }
       });
+      runtimeSeconds += rowBillableSeconds;
     });
   });
 
