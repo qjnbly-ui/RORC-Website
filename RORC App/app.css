@@ -683,6 +683,13 @@ h1 {
   padding: 16px;
 }
 
+.access-shell {
+  display: grid;
+  gap: 16px;
+  margin: 0 auto;
+  max-width: 720px;
+}
+
 .feedback-shell {
   display: grid;
   gap: 16px;
@@ -819,6 +826,8 @@ h1 {
   text-decoration: underline;
 }
 
+.access-hero,
+.access-control-card,
 .feedback-hero,
 .feedback-form {
   background:
@@ -828,6 +837,7 @@ h1 {
   border-radius: 20px;
 }
 
+.access-hero,
 .feedback-hero {
   display: grid;
   gap: 12px;
@@ -836,16 +846,74 @@ h1 {
   text-align: center;
 }
 
+.access-hero h2,
 .feedback-hero h2 {
   font-size: clamp(2rem, 6vw, 3rem);
   line-height: 0.95;
   margin: 0;
 }
 
+.access-hero p:not(.eyebrow),
 .feedback-hero p:not(.eyebrow) {
   color: var(--muted);
   margin: 0;
   max-width: 700px;
+}
+
+.access-control-card {
+  align-items: center;
+  display: grid;
+  gap: 16px;
+  justify-items: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.door-unlock-button {
+  align-items: center;
+  appearance: none;
+  background: var(--accent);
+  border: 0;
+  border-radius: 16px;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 900;
+  gap: 12px;
+  justify-content: center;
+  min-height: 76px;
+  min-width: min(100%, 320px);
+  padding: 0 24px;
+  text-transform: uppercase;
+}
+
+.door-unlock-button svg {
+  fill: none;
+  height: 30px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.2;
+  width: 30px;
+}
+
+.door-unlock-button:disabled {
+  cursor: default;
+  opacity: 0.68;
+}
+
+.access-status {
+  color: var(--muted);
+  font-weight: 800;
+  margin: 0;
+}
+
+.access-status[data-tone="success"] {
+  color: #9bd59b;
+}
+
+.access-status[data-tone="error"] {
+  color: #ff9a9a;
 }
 
 .feedback-form {
@@ -3273,7 +3341,7 @@ h1 {
   border-top: 1px solid var(--bar-border);
   bottom: 0;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   height: calc(var(--bottom-nav-height) + var(--safe-bottom));
   left: 0;
   padding-bottom: var(--safe-bottom);
@@ -3319,6 +3387,7 @@ h1 {
 .toolbar-btn:focus-visible,
 .icon-btn:focus-visible,
 .primary-action:focus-visible,
+.door-unlock-button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,

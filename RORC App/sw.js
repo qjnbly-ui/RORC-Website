@@ -1,9 +1,9 @@
-const CACHE_VERSION = "rorc-app-v26";
+const CACHE_VERSION = "rorc-app-v27";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./app.css",
-  "./app.js?v=20260522-equipment-active-only",
+  "./app.js?v=20260603-access",
   "./app.config.js",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",

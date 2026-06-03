@@ -21,12 +21,16 @@ const STRIPE_FALLBACK_PORTAL = "https://payments.ruthobenchainrc.com/p/login/eVa
 const APP_REFRESH_ROUTE_KEY = "rorc-app-refresh-route";
 const APP_INVALID_SESSION_REFRESH_KEY = "rorc-app-invalid-session-refreshing";
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
+const DOOR_UNLOCK_URL = "https://door.n3xra.co/unlock";
+const DOOR_UNLOCK_COOLDOWN_MS = 5000;
 let supabaseClient = null;
 let currentAuthSession = null;
 let deferredInstallPrompt = null;
 let installFallbackTimer = null;
 let appReloadingForUpdate = false;
 let invalidSessionRefreshTimer = null;
+let doorUnlockCooldownUntil = 0;
+let doorUnlockCooldownTimer = null;
 
 let accounts = [];
 let accountMembers = [];
@@ -235,6 +239,7 @@ const kioskAllowedRoutes = new Set([
   "memberSignIn",
   "guestSignIn",
   "currentlySignedIn",
+  "access",
   "heaterRecords",
   "heaterForm",
   "notifications",
@@ -247,6 +252,7 @@ const kioskAllowedRoutes = new Set([
 const rentalAccountAllowedRoutes = new Set([
   "myAccount",
   "notifications",
+  "access",
   "feedback",
   "about",
   "share",
@@ -280,6 +286,11 @@ const routes = {
     title: "Thermostat",
     template: "heaterRecordsTemplate",
     afterRender: renderHeaterRecords
+  },
+  access: {
+    title: "Access",
+    template: "feedbackTemplate",
+    afterRender: renderAccessPage
   },
   heaterForm: {
     title: "Heater Use",
@@ -921,6 +932,97 @@ function renderSharePage() {
   `;
 
   bindSharePageActions();
+}
+
+function renderAccessPage() {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+
+  root.innerHTML = `
+    <div class="access-shell">
+      <section class="access-hero">
+        <p class="eyebrow">Entrance</p>
+        <h2>Door Access</h2>
+        <p>Unlock the entrance door temporarily for member entry.</p>
+      </section>
+
+      <section class="access-control-card" aria-label="Door unlock control">
+        <button id="doorUnlockButton" class="door-unlock-button" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="4" y="10" width="16" height="10" rx="2"></rect>
+            <path d="M8 10V7a4 4 0 0 1 7.7-1.5"></path>
+            <path d="M12 14v3"></path>
+          </svg>
+          <span>Unlock Door</span>
+        </button>
+        <p id="doorUnlockStatus" class="access-status" aria-live="polite">Ready.</p>
+      </section>
+    </div>
+  `;
+
+  bindDoorUnlockControl();
+}
+
+function doorUnlockCooldownSecondsLeft() {
+  return Math.max(0, Math.ceil((doorUnlockCooldownUntil - Date.now()) / 1000));
+}
+
+function setDoorUnlockStatus(message, tone = "default") {
+  const status = document.getElementById("doorUnlockStatus");
+  if (!status) return;
+
+  status.textContent = message;
+  status.dataset.tone = tone;
+}
+
+function updateDoorUnlockButton() {
+  const button = document.getElementById("doorUnlockButton");
+  if (!button) return;
+
+  const secondsLeft = doorUnlockCooldownSecondsLeft();
+  const label = button.querySelector("span");
+  button.disabled = secondsLeft > 0;
+  if (label) {
+    label.textContent = secondsLeft > 0 ? `Wait ${secondsLeft}s` : "Unlock Door";
+  }
+
+  if (doorUnlockCooldownTimer) {
+    window.clearTimeout(doorUnlockCooldownTimer);
+    doorUnlockCooldownTimer = null;
+  }
+
+  if (secondsLeft > 0) {
+    doorUnlockCooldownTimer = window.setTimeout(updateDoorUnlockButton, 250);
+  }
+}
+
+function startDoorUnlockCooldown() {
+  doorUnlockCooldownUntil = Date.now() + DOOR_UNLOCK_COOLDOWN_MS;
+  updateDoorUnlockButton();
+}
+
+function bindDoorUnlockControl() {
+  updateDoorUnlockButton();
+
+  document.getElementById("doorUnlockButton")?.addEventListener("click", async () => {
+    if (doorUnlockCooldownSecondsLeft() > 0) return;
+
+    startDoorUnlockCooldown();
+    setDoorUnlockStatus("Sending unlock request...");
+
+    try {
+      await fetch(DOOR_UNLOCK_URL, {
+        method: "GET",
+        mode: "no-cors",
+        cache: "no-store",
+        credentials: "omit"
+      });
+      setDoorUnlockStatus("Unlock request sent.", "success");
+    } catch (error) {
+      console.error("Door unlock request failed.", error);
+      setDoorUnlockStatus("Unlock request failed. Try again after the countdown.", "error");
+    }
+  });
 }
 
 function renderAboutPage() {
@@ -3850,7 +3952,7 @@ function updateNavigationVisibility() {
   if (kioskMode) {
     drawerItems.forEach((item) => {
       const routeName = item.dataset.route;
-      item.hidden = !["feedback", "notifications", "about", "share", "calendar"].includes(routeName)
+      item.hidden = !["access", "feedback", "notifications", "about", "share", "calendar"].includes(routeName)
         || (routeName === "calendar" && !canViewCalendarRoute(appUserSession));
     });
   }
