@@ -224,6 +224,7 @@ const appState = {
 
 const accountManagerOnlyRoutes = new Set([
   "accountInfo",
+  "access",
   "gymProjects",
   "advertisementBanners",
   "message",
@@ -239,7 +240,6 @@ const kioskAllowedRoutes = new Set([
   "memberSignIn",
   "guestSignIn",
   "currentlySignedIn",
-  "access",
   "heaterRecords",
   "heaterForm",
   "notifications",
@@ -252,7 +252,6 @@ const kioskAllowedRoutes = new Set([
 const rentalAccountAllowedRoutes = new Set([
   "myAccount",
   "notifications",
-  "access",
   "feedback",
   "about",
   "share",
@@ -3923,6 +3922,9 @@ function updateNavigationVisibility() {
   }
   navItems.forEach((item) => {
     item.hidden = rentalMode;
+    if (item.dataset.route === "access") {
+      item.hidden = !showAccountManagerPages;
+    }
   });
 
   drawerItems
@@ -3952,7 +3954,7 @@ function updateNavigationVisibility() {
   if (kioskMode) {
     drawerItems.forEach((item) => {
       const routeName = item.dataset.route;
-      item.hidden = !["access", "feedback", "notifications", "about", "share", "calendar"].includes(routeName)
+      item.hidden = !["feedback", "notifications", "about", "share", "calendar"].includes(routeName)
         || (routeName === "calendar" && !canViewCalendarRoute(appUserSession));
     });
   }
