@@ -224,7 +224,6 @@ const appState = {
 
 const accountManagerOnlyRoutes = new Set([
   "accountInfo",
-  "access",
   "gymProjects",
   "advertisementBanners",
   "message",
@@ -3913,6 +3912,7 @@ function hasOtherUsersOnCurrentAccount() {
 function updateNavigationVisibility() {
   const showOtherUsers = hasOtherUsersOnCurrentAccount();
   const showAccountManagerPages = isAccountManager(appUserSession);
+  const showDoorAccess = canUseDoorAccess(appUserSession);
   const kioskMode = isKioskModeSession(appUserSession);
   const rentalMode = isRentalAccount(appUserSession);
   const alwaysVisibleRoutes = new Set(["notifications", "about", "share", "feedback"]);
@@ -3923,7 +3923,7 @@ function updateNavigationVisibility() {
   navItems.forEach((item) => {
     item.hidden = rentalMode;
     if (item.dataset.route === "access") {
-      item.hidden = !showAccountManagerPages;
+      item.hidden = !showDoorAccess;
     }
   });
 
@@ -3937,6 +3937,12 @@ function updateNavigationVisibility() {
     .filter((item) => accountManagerOnlyRoutes.has(item.dataset.route))
     .forEach((item) => {
       item.hidden = kioskMode || !showAccountManagerPages;
+    });
+
+  drawerItems
+    .filter((item) => item.dataset.route === "access")
+    .forEach((item) => {
+      item.hidden = !showDoorAccess;
     });
 
   drawerItems
@@ -10020,6 +10026,17 @@ function isOpenGymWindow(date) {
   return ["Tue", "Thu"].includes(parts.weekday) && minutes >= startsAt && minutes <= endsAt;
 }
 
+function canUseDoorAccess(memberOrSession = appUserSession, now = new Date()) {
+  const accountType = canonicalAccountType(memberOrSession?.accountType);
+  if (["Account Manager", "Special Access Account", "Active Membership", "Work Exchange Membership Program"].includes(accountType)) {
+    return true;
+  }
+  if (accountType === "Open Gym Only") {
+    return isOpenGymWindow(now);
+  }
+  return false;
+}
+
 function accountTypeTone(accountType) {
   const normalizedType = canonicalAccountType(accountType);
   if (normalizedType === "Account Manager") return "gray";
@@ -13892,6 +13909,10 @@ function render(routeName) {
 
   if (resolvedRouteName === "calendar" && !canViewCalendarRoute(appUserSession)) {
     resolvedRouteName = "myAccount";
+  }
+
+  if (resolvedRouteName === "access" && !canUseDoorAccess(appUserSession)) {
+    resolvedRouteName = "currentlySignedIn";
   }
 
   if (resolvedRouteName === "myEvents" && !canViewMyEventsRoute(appUserSession)) {
