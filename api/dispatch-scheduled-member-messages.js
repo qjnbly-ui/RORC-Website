@@ -58,7 +58,7 @@ async function dispatchScheduledMessage(job) {
     const sendEmail = Boolean(channels.email);
     const sendInApp = Boolean(channels.inApp);
     const uniquePhones = [...new Set(members.map((m) => normalizePhone(m.phone_number)).filter(Boolean))];
-    const uniqueEmails = [...new Set(members.map((m) => String(m.email_address || "").trim().toLowerCase()).filter(Boolean))];
+    const emailRecipients = collectEmailRecipients(members);
 
     let sentTextCount = 0;
     let sentEmailCount = 0;
@@ -85,13 +85,19 @@ async function dispatchScheduledMessage(job) {
     if (sendEmail) {
       if (!RESEND_API_KEY) {
         errors.push("Resend API key is not configured.");
-      } else if (!uniqueEmails.length) {
-        errors.push("No selected members have email addresses.");
+      } else if (!emailRecipients.valid.length) {
+        if (emailRecipients.invalid.length) {
+          errors.push(`Skipped invalid email ${emailRecipients.invalid.length === 1 ? "address" : "addresses"} for ${formatInvalidEmailMembers(emailRecipients.invalid)}.`);
+        }
+        errors.push("No selected members have valid email addresses.");
       } else {
+        if (emailRecipients.invalid.length) {
+          errors.push(`Skipped invalid email ${emailRecipients.invalid.length === 1 ? "address" : "addresses"} for ${formatInvalidEmailMembers(emailRecipients.invalid)}.`);
+        }
         try {
           const result = await sendResendBatchEmails({
             apiKey: RESEND_API_KEY,
-            emails: buildScheduledMessageEmails(uniqueEmails, job.title, job.message),
+            emails: buildScheduledMessageEmails(emailRecipients.valid, job.title, job.message),
             idempotencyKeyPrefix: `scheduled-message-${dispatchId || jobId}`
           });
           sentEmailCount += result.sentCount;
@@ -186,6 +192,45 @@ async function loadMembers(memberIds) {
   if (!idList) return [];
 
   return supabaseRest(`account_members?select=id,member_name,phone_number,email_address&id=in.(${idList})`);
+}
+
+function collectEmailRecipients(members) {
+  const valid = [];
+  const seen = new Set();
+  const invalid = [];
+
+  for (const member of members || []) {
+    const rawEmail = String(member?.email_address || "").trim();
+    if (!rawEmail) continue;
+
+    const email = rawEmail.toLowerCase();
+    if (!isValidEmailAddress(email)) {
+      invalid.push({
+        name: String(member?.member_name || "Unknown member").trim() || "Unknown member",
+        email: rawEmail
+      });
+      continue;
+    }
+
+    if (!seen.has(email)) {
+      seen.add(email);
+      valid.push(email);
+    }
+  }
+
+  return { valid, invalid };
+}
+
+function isValidEmailAddress(value) {
+  return /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(String(value || ""));
+}
+
+function formatInvalidEmailMembers(invalidRecipients) {
+  return invalidRecipients
+    .slice(0, 5)
+    .map((recipient) => `${recipient.name} (${recipient.email})`)
+    .join(", ")
+    + (invalidRecipients.length > 5 ? `, and ${invalidRecipients.length - 5} more` : "");
 }
 
 async function sendTwilioText(to, body) {
