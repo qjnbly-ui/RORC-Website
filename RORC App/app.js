@@ -38,6 +38,7 @@ let globalMemberDirectory = [];
 let timesheetEntries = [];
 let heaterUseEntries = [];
 let billingLineItems = [];
+let doorAccessEntries = [];
 let notificationDispatchRecords = [];
 let memberNotifications = [];
 let adminNotes = [];
@@ -999,6 +1000,39 @@ function startDoorUnlockCooldown() {
   updateDoorUnlockButton();
 }
 
+async function recordDoorAccessRequest() {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) {
+    throw new Error("Please sign in again before requesting door access.");
+  }
+
+  const response = await fetch("/api/door-access", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      requestedAt: new Date().toISOString(),
+      source: "app"
+    })
+  });
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not save door access log.");
+  }
+
+  if (body.entry) {
+    doorAccessEntries = [
+      mapDoorAccessEntryRow(body.entry),
+      ...doorAccessEntries.filter((entry) => entry.id !== body.entry.id)
+    ];
+  }
+
+  return body.entry;
+}
+
 function bindDoorUnlockControl() {
   updateDoorUnlockButton();
 
@@ -1009,13 +1043,14 @@ function bindDoorUnlockControl() {
     setDoorUnlockStatus("Sending unlock request...");
 
     try {
+      await recordDoorAccessRequest();
       await fetch(DOOR_UNLOCK_URL, {
         method: "GET",
         mode: "no-cors",
         cache: "no-store",
         credentials: "omit"
       });
-      setDoorUnlockStatus("Unlock request sent.", "success");
+      setDoorUnlockStatus("Unlock request sent and logged.", "success");
     } catch (error) {
       console.error("Door unlock request failed.", error);
       setDoorUnlockStatus("Unlock request failed. Try again after the countdown.", "error");
@@ -2068,6 +2103,7 @@ function renderMasterLogsPage() {
   const activeTab = appState.masterLogsTab || "timesheet";
   const isThermostatTab = activeTab === "thermostat";
   const isBillingTab = activeTab === "billing";
+  const isDoorAccessTab = activeTab === "doorAccess";
   const billingFilter = String(appState.masterLogsBillingFilter || "all");
   const timesheetRecords = [...timesheetEntries]
     .sort((a, b) => new Date(b.signedInAt) - new Date(a.signedInAt))
@@ -2084,6 +2120,9 @@ function renderMasterLogsPage() {
           : Boolean(item.heaterUseEntryId)
     ))
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+    .slice(0, 500);
+  const doorAccessRecords = [...doorAccessEntries]
+    .sort((a, b) => new Date(b.accessRequestedAt || b.createdAt) - new Date(a.accessRequestedAt || a.createdAt))
     .slice(0, 500);
 
   root.innerHTML = `
@@ -2105,6 +2144,9 @@ function renderMasterLogsPage() {
         </button>
         <button class="master-logs-tab ${activeTab === "billing" ? "is-active" : ""}" data-master-logs-tab="billing" type="button" role="tab" aria-selected="${activeTab === "billing"}">
           Billing
+        </button>
+        <button class="master-logs-tab ${activeTab === "doorAccess" ? "is-active" : ""}" data-master-logs-tab="doorAccess" type="button" role="tab" aria-selected="${activeTab === "doorAccess"}">
+          Door Access
         </button>
       </div>
       ${isBillingTab ? `
@@ -2165,6 +2207,27 @@ function renderMasterLogsPage() {
       ` : `
       <section class="empty-state">
         <p>No thermostat logs yet.</p>
+      </section>
+      `) : isDoorAccessTab ? (doorAccessRecords.length ? `
+      <div class="detail-card">
+          <ol class="record-list master-log-list">
+            ${doorAccessRecords.map((entry) => {
+              const member = findMember(entry.requestedByMemberId);
+              return `
+                <li data-master-log-type="doorAccess" data-master-log-id="${escapeAttribute(entry.id)}">
+                  <div>
+                    <strong>Door Access · ${escapeHtml(member?.memberName || "Unknown Member")}</strong>
+                    <span>${formatShortDateTime(entry.accessRequestedAt)} · ${escapeHtml(entry.requestSource || "app")}</span>
+                  </div>
+                  <b>${escapeHtml(entry.requestStatus || "sent")}</b>
+                </li>
+              `;
+            }).join("")}
+          </ol>
+      </div>
+      ` : `
+      <section class="empty-state">
+        <p>No door access logs yet.</p>
       </section>
       `) : (billingRecords.length ? `
       <div class="detail-card">
@@ -2287,7 +2350,66 @@ function openRecordDetail(recordType, recordId) {
     return;
   }
 
+  if (recordType === "doorAccess") {
+    openDoorAccessLogViewer(recordId);
+    return;
+  }
+
   openMasterLogEditor(recordType, recordId);
+}
+
+function openDoorAccessLogViewer(recordId) {
+  const record = doorAccessEntries.find((entry) => entry.id === recordId);
+  if (!record) {
+    showDetailActionMessage("Record not found.");
+    return;
+  }
+
+  const member = findMember(record.requestedByMemberId);
+  const overlay = document.createElement("div");
+  overlay.className = "master-log-modal-overlay";
+  overlay.innerHTML = `
+    <section class="master-log-modal" role="dialog" aria-modal="true" aria-label="Door access log record">
+      <h3>Door Access Log Record</h3>
+      <p class="master-log-subtitle">${escapeHtml(member?.memberName || "Unknown Member")} · ${escapeHtml(record.id)}</p>
+      <div class="master-log-form">
+        <label>
+          <span>Requested At</span>
+          <input type="text" value="${escapeAttribute(formatShortDateTime(record.accessRequestedAt))}" disabled />
+        </label>
+        <label>
+          <span>Status</span>
+          <input type="text" value="${escapeAttribute(record.requestStatus || "sent")}" disabled />
+        </label>
+        <label>
+          <span>Source</span>
+          <input type="text" value="${escapeAttribute(record.requestSource || "app")}" disabled />
+        </label>
+        <label>
+          <span>Note</span>
+          <textarea rows="4" disabled>${escapeHtml(record.note || "")}</textarea>
+        </label>
+      </div>
+      <footer>
+        <button class="master-log-cancel" type="button">Close</button>
+      </footer>
+    </section>
+  `;
+
+  const close = () => {
+    overlay.remove();
+    document.removeEventListener("keydown", onKeydown);
+  };
+  const onKeydown = (event) => {
+    if (event.key === "Escape") close();
+  };
+
+  overlay.querySelector(".master-log-cancel")?.addEventListener("click", close);
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+  document.addEventListener("keydown", onKeydown);
+  document.body.appendChild(overlay);
 }
 
 function openMasterLogEditor(recordType, recordId, options = {}) {
@@ -3877,6 +3999,7 @@ function clearLiveData() {
   timesheetEntries = [];
   heaterUseEntries = [];
   billingLineItems = [];
+  doorAccessEntries = [];
   notificationDispatchRecords = [];
   memberNotifications = [];
   notifiedIds = new Set();
@@ -8357,6 +8480,18 @@ function mapTimesheetEntryRow(row) {
   };
 }
 
+function mapDoorAccessEntryRow(row) {
+  return {
+    id: row.id,
+    requestedByMemberId: row.requested_by_member_id,
+    accessRequestedAt: row.access_requested_at || row.created_at,
+    requestStatus: row.request_status || "sent",
+    requestSource: row.request_source || "app",
+    note: row.note || "",
+    createdAt: row.created_at
+  };
+}
+
 function mergeTimesheetRows(...rowGroups) {
   const byId = new Map();
   rowGroups.flat().filter(Boolean).forEach((row) => {
@@ -9192,6 +9327,7 @@ async function hydrateFromSupabase() {
       heaterResult,
       heaterGroupResult,
       billingResult,
+      doorAccessResult,
       permissionsResult
     ] = await Promise.all([
       fetchVisibleTimesheetRows(client),
@@ -9210,6 +9346,11 @@ async function hydrateFromSupabase() {
         .order("created_at", { ascending: false })
         .limit(1000),
       client
+        .from("door_access_entries")
+        .select("*")
+        .order("access_requested_at", { ascending: false })
+        .limit(1000),
+      client
         .from("account_type_permissions")
         .select("*")
     ]);
@@ -9219,6 +9360,7 @@ async function hydrateFromSupabase() {
       ["heater records", heaterResult.error],
       ["heater group records", heaterGroupResult.error],
       ["billing records", billingResult.error],
+      ["door access records", doorAccessResult.error],
       ["account type permissions", permissionsResult.error]
     ].filter(([, error]) => Boolean(error));
 
@@ -9228,6 +9370,7 @@ async function hydrateFromSupabase() {
       heaterRows: heaterResult.error ? [] : (heaterResult.data || []),
       heaterGroupRows: heaterGroupResult.error ? [] : (heaterGroupResult.data || []),
       billingRows: billingResult.error ? [] : (billingResult.data || []),
+      doorAccessRows: doorAccessResult.error ? [] : (doorAccessResult.data || []),
       permissionsRows: permissionsResult.error ? [] : (permissionsResult.data || [])
     });
 
@@ -9405,6 +9548,7 @@ function applySupabaseData({
   heaterRows,
   heaterGroupRows,
   billingRows,
+  doorAccessRows,
   permissionsRows
 }) {
   applyAccountProfileData(profiles, permissionsRows);
@@ -9448,6 +9592,7 @@ function applySupabaseData({
     postedToStripeAt: row.posted_to_stripe_at
   }));
 
+  doorAccessEntries = (doorAccessRows || []).map(mapDoorAccessEntryRow);
 }
 
 function normalizeAccountTypePolicies(rows = []) {
@@ -10541,6 +10686,7 @@ function recordsForMember(memberId) {
     timesheet: timesheetEntries.filter((entry) => entry.memberId === memberId),
     guests: timesheetEntries.filter((entry) => entry.memberOrGuest === "Guest" && entry.memberEnteredWithId === memberId),
     heater: heaterUseEntries.filter((entry) => entry.responsibleMemberId === memberId || entry.groupMemberIds.includes(memberId)),
+    doorAccess: doorAccessEntries.filter((entry) => entry.requestedByMemberId === memberId),
     billing: billingLineItems.filter((item) => (
       item.accountMemberId === memberId
       || (member?.isBillingOwner && sameAccountMembers.includes(item.accountMemberId))
@@ -11393,6 +11539,7 @@ function renderAccountDetail(memberId) {
     const minutes = durationMinutes(entry.startAt, entry.endAt);
     return total + (minutes || 0);
   }, 0);
+  const doorAccessCount = currentMonthRecords(records.doorAccess, "accessRequestedAt").length;
   const canEditDetails = canEditMember(member);
   const canManageBilling = canManageBillingForMember(member);
 
@@ -11431,6 +11578,10 @@ function renderAccountDetail(memberId) {
             <span>Heater Hours</span>
             <strong>${(heaterMinutes / 60).toFixed(1)}</strong>
           </article>
+          <article>
+            <span>Door Access</span>
+            <strong>${doorAccessCount}</strong>
+          </article>
         </div>
       </header>
 
@@ -11440,6 +11591,7 @@ function renderAccountDetail(memberId) {
         <button class="detail-tab" data-detail-panel="timesheet" type="button">Timesheet</button>
         <button class="detail-tab" data-detail-panel="guests" type="button">Guest Entries</button>
         <button class="detail-tab" data-detail-panel="heater" type="button">Heater Use</button>
+        <button class="detail-tab" data-detail-panel="doorAccess" type="button">Door Access</button>
       </nav>
 
       <div class="detail-panel-stack">
@@ -11457,6 +11609,9 @@ function renderAccountDetail(memberId) {
         </section>
         <section class="detail-panel" data-detail-panel-view="heater">
           ${renderHeaterPanel(records.heater)}
+        </section>
+        <section class="detail-panel" data-detail-panel-view="doorAccess">
+          ${renderDoorAccessPanel(records.doorAccess)}
         </section>
       </div>
     </div>
@@ -11587,6 +11742,27 @@ function renderHeaterPanel(items) {
               <span>${formatShortDate(item.usedOn)} · ${formatDuration(item.startAt, item.endAt)} · Set ${thermostatTempLabel(item.targetTemperatureF)}</span>
             </div>
             <b>${escapeHtml(heaterDisplayState(item))}</b>
+          </li>
+        `).join("")}
+      </ol>
+    </div>
+  `;
+}
+
+function renderDoorAccessPanel(items) {
+  if (items.length === 0) return renderPanelEmpty("No door access requests for this member.");
+
+  return `
+    <div class="detail-card">
+      <h3>Door Access</h3>
+      <ol class="record-list">
+        ${items.map((item) => `
+          <li data-detail-log-type="doorAccess" data-detail-log-id="${escapeAttribute(item.id)}" role="button" tabindex="0">
+            <div>
+              <strong>${formatShortDateTime(item.accessRequestedAt)}</strong>
+              <span>${escapeHtml(item.requestSource || "app")} · ${escapeHtml(item.note || "Entrance unlock requested")}</span>
+            </div>
+            <b>${escapeHtml(item.requestStatus || "sent")}</b>
           </li>
         `).join("")}
       </ol>
