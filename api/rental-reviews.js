@@ -125,7 +125,7 @@ module.exports = async (req, res) => {
   }
 
   if (req.method === "PATCH") {
-    const { id, status, adminNotes, changeRequestId, action, reviewNotes } = req.body || {};
+    const { id, status, adminNotes, changeRequestId, action, reviewNotes, billingAction } = req.body || {};
 
     if (changeRequestId) {
       if (!VALID_CHANGE_REVIEW_ACTIONS.has(String(action || ""))) {
@@ -148,6 +148,20 @@ module.exports = async (req, res) => {
 
     if (!id || typeof id !== "string") {
       return res.status(400).json({ success: false, error: "Missing rental request ID" });
+    }
+    if (billingAction) {
+      try {
+        const result = await handleRentalBillingAction({
+          id,
+          billingAction,
+          body: req.body || {},
+          manager
+        });
+        return res.status(200).json(result);
+      } catch (err) {
+        console.error("rental billing action error:", err);
+        return res.status(Number(err.statusCode) || 500).json({ success: false, error: err.message || "Could not update rental billing" });
+      }
     }
     if (status !== undefined && !VALID_STATUSES.includes(status)) {
       return res.status(400).json({ success: false, error: `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}` });
@@ -709,6 +723,128 @@ function rentalPricingRecordFromBody(body, patch = {}, existingRecord = {}) {
   };
 }
 
+async function handleRentalBillingAction({ id, billingAction, body, manager }) {
+  const rental = await loadRentalRequestById(id);
+  if (!rental) throw httpError(404, "Rental request not found");
+  if (rental.rental_status !== "confirmed") {
+    throw httpError(409, "Only confirmed rentals can be billed");
+  }
+
+  const action = String(billingAction || "").trim();
+  if (action === "finalize") {
+    return finalizeRentalBill({ rental, body, manager });
+  }
+  if (action === "mark_paid") {
+    return markRentalBillStatus({ rental, manager, paid: true });
+  }
+  if (action === "mark_unpaid") {
+    return markRentalBillStatus({ rental, manager, paid: false });
+  }
+  throw httpError(400, "Invalid rental billing action");
+}
+
+async function finalizeRentalBill({ rental, body, manager }) {
+  const accountMemberId = str(body.account_member_id || body.accountMemberId || rental.claimed_member_id);
+  if (!isUuid(accountMemberId)) {
+    throw httpError(409, "Attach this rental to an account member before creating a bill");
+  }
+
+  const amountCentsRaw = body.amount_cents ?? body.amountCents ?? rental.estimated_total_cents;
+  const amountCents = Math.max(0, Math.round(Number(amountCentsRaw || 0)));
+  if (!Number.isFinite(amountCents) || amountCents <= 0) {
+    throw httpError(400, "Bill amount must be greater than zero");
+  }
+
+  const reason = str(body.reason)
+    || rentalBillReason(rental);
+  const existingRows = await supabaseRest(
+    `billing_line_items?select=id&rental_request_id=eq.${encodeURIComponent(rental.id)}&limit=1`
+  ).catch(() => []);
+  const existingId = existingRows?.[0]?.id || "";
+
+  if (existingId) {
+    await supabaseWrite(
+      `billing_line_items?id=eq.${encodeURIComponent(existingId)}`,
+      "PATCH",
+      {
+        account_member_id: accountMemberId,
+        amount_cents: amountCents,
+        reason,
+        posted_to_stripe_at: null
+      }
+    );
+  } else {
+    await supabaseWrite(
+      "billing_line_items",
+      "POST",
+      {
+        account_member_id: accountMemberId,
+        rental_request_id: rental.id,
+        amount_cents: amountCents,
+        reason,
+        posted_to_stripe_at: null
+      }
+    );
+  }
+
+  const rows = await supabaseWrite(
+    `rental_requests?id=eq.${encodeURIComponent(rental.id)}`,
+    "PATCH",
+    {
+      payment_status: "unpaid",
+      billing_finalized_at: new Date().toISOString(),
+      billing_finalized_by_member_id: manager?.id || null,
+      estimated_total_cents: amountCents,
+      reviewed_at: new Date().toISOString()
+    }
+  );
+  return buildRentalBillingResponse(rows[0] || { ...rental, payment_status: "unpaid", estimated_total_cents: amountCents });
+}
+
+async function markRentalBillStatus({ rental, manager, paid }) {
+  const existingRows = await supabaseRest(
+    `billing_line_items?select=id&rental_request_id=eq.${encodeURIComponent(rental.id)}&limit=1`
+  );
+  if (!existingRows.length) {
+    throw httpError(409, "Create the rental bill before marking it paid");
+  }
+
+  await supabaseWrite(
+    `billing_line_items?rental_request_id=eq.${encodeURIComponent(rental.id)}`,
+    "PATCH",
+    { posted_to_stripe_at: paid ? new Date().toISOString() : null }
+  );
+
+  const rows = await supabaseWrite(
+    `rental_requests?id=eq.${encodeURIComponent(rental.id)}`,
+    "PATCH",
+    {
+      payment_status: paid ? "paid" : "unpaid",
+      billing_finalized_by_member_id: manager?.id || rental.billing_finalized_by_member_id || null,
+      reviewed_at: new Date().toISOString()
+    }
+  );
+  return buildRentalBillingResponse(rows[0] || { ...rental, payment_status: paid ? "paid" : "unpaid" });
+}
+
+async function buildRentalBillingResponse(rental) {
+  const [linkedEvents, changeRequests] = await Promise.all([
+    loadLinkedCalendarEventMap([rental.id]),
+    loadRentalChangeRequestsMap([rental.id])
+  ]);
+  return {
+    success: true,
+    request: mapRow(rental, linkedEvents.get(rental.id), changeRequests.get(rental.id) || [])
+  };
+}
+
+function rentalBillReason(rental) {
+  const booking = rental.booking_number || rental.id;
+  const name = rental.event_name || rental.event_type || "Rental";
+  const date = rental.event_date || "";
+  return `Rental booking ${booking} - ${name}${date ? ` (${date})` : ""}`;
+}
+
 function rentalHoursBetween(startValue, endValue, fallback = 1) {
   const start = parseTimeMinutes(startValue);
   const end = parseTimeMinutes(endValue);
@@ -774,6 +910,11 @@ function bodyFieldValue(body, snakeKey, camelKey) {
   return undefined;
 }
 
+function normalizePaymentStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["unbilled", "unpaid", "paid", "waived"].includes(normalized) ? normalized : "unbilled";
+}
+
 function calendarPublicOverrideFromBody(body) {
   const provided = hasBodyField(body, "calendar_is_public") || hasBodyField(body, "calendarIsPublic");
   return {
@@ -816,6 +957,9 @@ function mapRow(row, linkedEvent = null, changeRequests = []) {
     rentalType: row.rental_type,
     rentalHours: row.rental_hours,
     rentalStatus: row.rental_status,
+    paymentStatus: normalizePaymentStatus(row.payment_status),
+    billingFinalizedAt: row.billing_finalized_at || null,
+    billingFinalizedByMemberId: row.billing_finalized_by_member_id || null,
     adminNotes: row.admin_notes,
     claimedAccountId: row.claimed_account_id || null,
     claimedMemberId: row.claimed_member_id || null,

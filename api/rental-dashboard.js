@@ -233,6 +233,8 @@ function mapRental(row, changeRequests = []) {
     addonLateCleanup: Boolean(row.addon_late_cleanup),
     addonLateDayRental: Boolean(row.addon_late_day_rental),
     estimatedTotalCents: Number(row.estimated_total_cents || 0),
+    paymentStatus: row.payment_status || "unbilled",
+    billingFinalizedAt: row.billing_finalized_at || "",
     isPrivateEvent: row.is_private_event !== false,
     specialAccessDiscount: Boolean(row.special_access_discount),
     rentalType: row.rental_type || "",

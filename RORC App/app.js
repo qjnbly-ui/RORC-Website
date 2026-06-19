@@ -2157,15 +2157,7 @@ function renderMasterLogsPage() {
     .sort((a, b) => new Date(b.startAt || b.usedOn) - new Date(a.startAt || a.usedOn))
     .slice(0, 500);
   const billingRecords = [...billingLineItems]
-    .filter((item) => (
-      billingFilter === "all"
-        ? true
-        : billingFilter === "guest"
-          ? Boolean(item.timesheetEntryId)
-          : billingFilter === "thermostat"
-            ? Boolean(item.heaterUseEntryId)
-            : isManualBillingItem(item)
-    ))
+    .filter((item) => billingItemMatchesFilter(item, billingFilter))
     .filter((item) => billingItemFacilityMonth(item) === billingMonth)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 500);
@@ -2220,6 +2212,7 @@ function renderMasterLogsPage() {
           <button class="master-logs-filter-chip ${billingFilter === "all" ? "is-active" : ""}" data-master-billing-filter="all" type="button">All</button>
           <button class="master-logs-filter-chip ${billingFilter === "guest" ? "is-active" : ""}" data-master-billing-filter="guest" type="button">Guest Sign-In</button>
           <button class="master-logs-filter-chip ${billingFilter === "thermostat" ? "is-active" : ""}" data-master-billing-filter="thermostat" type="button">Thermostat</button>
+          <button class="master-logs-filter-chip ${billingFilter === "rental" ? "is-active" : ""}" data-master-billing-filter="rental" type="button">Rental</button>
           <button class="master-logs-filter-chip ${billingFilter === "manual" ? "is-active" : ""}" data-master-billing-filter="manual" type="button">Manual</button>
         </div>
       </div>
@@ -2394,12 +2387,13 @@ function billingItemFacilityMonth(item) {
 }
 
 function isManualBillingItem(item) {
-  return !item?.timesheetEntryId && !item?.heaterUseEntryId;
+  return !item?.timesheetEntryId && !item?.heaterUseEntryId && !item?.rentalRequestId;
 }
 
 function billingItemMatchesFilter(item, filter) {
   if (filter === "guest") return Boolean(item.timesheetEntryId);
   if (filter === "thermostat") return Boolean(item.heaterUseEntryId);
+  if (filter === "rental") return Boolean(item.rentalRequestId);
   if (filter === "manual") return isManualBillingItem(item);
   return true;
 }
@@ -2407,6 +2401,7 @@ function billingItemMatchesFilter(item, filter) {
 function billingItemSourceLabel(item) {
   if (item?.timesheetEntryId) return "Guest Sign-In";
   if (item?.heaterUseEntryId) return "Thermostat";
+  if (item?.rentalRequestId) return "Rental";
   return "Manual";
 }
 
@@ -2428,7 +2423,15 @@ function formatBillingRuntime(minutes) {
 }
 
 function billingItemMetaLabel(item, member) {
-  const parts = [member?.memberName || "Unknown Member", billingItemSourceLabel(item)];
+  const parts = [
+    member?.memberName || "Unknown Member",
+    billingItemSourceLabel(item)
+  ];
+  if (item?.rentalRequestId) {
+    const rental = rentalAllRequests.find((request) => request.id === item.rentalRequestId);
+    if (rental?.bookingNumber) parts.push(`Booking ${rental.bookingNumber}`);
+    else if (rental?.eventName) parts.push(rental.eventName);
+  }
   const runtimeMinutes = billingItemRuntimeMinutes(item);
   if (runtimeMinutes > 0) parts.push(`Runtime ${formatBillingRuntime(runtimeMinutes)}`);
   parts.push(formatShortDateTime(item.createdAt), billingStatusLabel(item));
@@ -2583,6 +2586,7 @@ async function markBillingItemsPaid(itemIds, triggerButton, successMessage = "Bi
       ids.includes(item.id) ? { ...item, postedToStripeAt: paidAt } : item
     ));
     await syncHeaterPaidStateForBillingItems(client, affectedItems, billingLineItems);
+    await syncRentalPaymentStateForBillingItems(client, affectedItems, billingLineItems);
     refreshAfterRecordMutation();
     showDetailActionMessage(successMessage);
     return true;
@@ -2627,6 +2631,55 @@ async function syncHeaterPaidStateForBillingItems(client, affectedItems = [], bi
       : unpaidIds.includes(entry.id)
         ? { ...entry, paid: false }
         : entry
+  ));
+}
+
+async function syncRentalPaymentStateForBillingItems(client, affectedItems = [], billingRows = billingLineItems) {
+  const rentalIds = [...new Set(
+    affectedItems
+      .map((item) => item?.rentalRequestId)
+      .filter(Boolean)
+  )];
+  if (!client || !rentalIds.length) return;
+
+  const paidIds = [];
+  const unpaidIds = [];
+  const unbilledIds = [];
+
+  rentalIds.forEach((rentalId) => {
+    const linkedRows = billingRows.filter((item) => item.rentalRequestId === rentalId);
+    if (!linkedRows.length) {
+      unbilledIds.push(rentalId);
+      return;
+    }
+    const isPaid = linkedRows.every((item) => Boolean(item.postedToStripeAt));
+    if (isPaid) paidIds.push(rentalId);
+    else unpaidIds.push(rentalId);
+  });
+
+  if (paidIds.length) {
+    const { error } = await client.from("rental_requests").update({ payment_status: "paid" }).in("id", paidIds);
+    if (error) throw error;
+  }
+
+  if (unpaidIds.length) {
+    const { error } = await client.from("rental_requests").update({ payment_status: "unpaid" }).in("id", unpaidIds);
+    if (error) throw error;
+  }
+
+  if (unbilledIds.length) {
+    const { error } = await client.from("rental_requests").update({ payment_status: "unbilled" }).in("id", unbilledIds);
+    if (error) throw error;
+  }
+
+  rentalAllRequests = rentalAllRequests.map((rental) => (
+    paidIds.includes(rental.id)
+      ? { ...rental, paymentStatus: "paid" }
+      : unpaidIds.includes(rental.id)
+        ? { ...rental, paymentStatus: "unpaid" }
+        : unbilledIds.includes(rental.id)
+          ? { ...rental, paymentStatus: "unbilled" }
+          : rental
   ));
 }
 
@@ -3082,11 +3135,18 @@ function openBillingLogEditor(recordId, options = {}) {
   const heaterRecord = item.heaterUseEntryId
     ? heaterUseEntries.find((entry) => entry.id === item.heaterUseEntryId)
     : null;
+  const rentalRecord = item.rentalRequestId
+    ? rentalAllRequests.find((request) => request.id === item.rentalRequestId)
+    : null;
   const sourceLabel = timesheetRecord
     ? `Guest sign-in · ${timesheetRecord.guestName || timesheetRecord.memberOrGuest || "Timesheet"}`
     : heaterRecord
       ? `Thermostat use · ${thermostatSystemLabel(heaterRecord.systemType)}`
-      : "Manual billing item";
+      : rentalRecord
+        ? `Rental · ${rentalRecord.bookingNumber || rentalRecord.eventName || rentalRecord.eventType || "Event"}`
+        : item.rentalRequestId
+          ? "Rental"
+          : "Manual billing item";
   const amountValue = ((item.amountCents || 0) / 100).toFixed(2);
   const overlay = document.createElement("div");
   overlay.className = "master-log-modal-overlay";
@@ -3207,6 +3267,7 @@ function openBillingLogEditor(recordId, options = {}) {
           : billingItem
       ));
       await syncHeaterPaidStateForBillingItems(client, affectedItems, billingLineItems);
+      await syncRentalPaymentStateForBillingItems(client, affectedItems, billingLineItems);
       await hydrateFromSupabase();
       refreshAfterRecordMutation();
       close();
@@ -3261,6 +3322,7 @@ function openBillingLogEditor(recordId, options = {}) {
         billingItem.id === recordId ? { ...billingItem, postedToStripeAt: null } : billingItem
       ));
       await syncHeaterPaidStateForBillingItems(client, affectedItems, billingLineItems);
+      await syncRentalPaymentStateForBillingItems(client, affectedItems, billingLineItems);
       refreshAfterRecordMutation();
       close();
     } catch (error) {
@@ -3286,9 +3348,12 @@ function openBillingLogEditor(recordId, options = {}) {
     setResult("Deleting...");
 
     try {
+      const affectedItems = billingLineItems.filter((billingItem) => billingItem.id === recordId);
       const { error } = await client.from("billing_line_items").delete().eq("id", recordId);
       if (error) throw error;
 
+      billingLineItems = billingLineItems.filter((billingItem) => billingItem.id !== recordId);
+      await syncRentalPaymentStateForBillingItems(client, affectedItems, billingLineItems);
       await hydrateFromSupabase();
       refreshAfterRecordMutation();
       close();
@@ -4961,6 +5026,22 @@ function renderRentalPipeline(root) {
     btn.addEventListener("click", () => openRentalNotifyDialog(btn.dataset.rentalNotify));
   });
 
+  root.querySelectorAll("[data-rental-bill-open]").forEach((btn) => {
+    btn.addEventListener("click", () => showRentalBillForm(btn.dataset.rentalBillOpen, root));
+  });
+
+  root.querySelectorAll("[data-rental-bill-status]").forEach((btn) => {
+    btn.addEventListener("click", () => submitRentalBillingStatus(btn.dataset.rentalBillStatus, btn.dataset.rentalId, btn, root));
+  });
+
+  root.querySelectorAll("[data-rental-bill-close]").forEach((btn) => {
+    btn.addEventListener("click", () => renderRentalPipeline(root));
+  });
+
+  root.querySelectorAll("[data-rental-bill-submit]").forEach((btn) => {
+    btn.addEventListener("click", () => submitRentalBill(btn.dataset.rentalBillSubmit, btn, root));
+  });
+
   root.querySelectorAll("[data-rental-change-review]").forEach((btn) => {
     btn.addEventListener("click", () => reviewRentalChangeRequest(btn, root));
   });
@@ -5002,6 +5083,11 @@ function buildRentalCard(r) {
   const status      = r.rentalStatus || "submitted";
   const statusLabel = RENTAL_STATUS_LABEL[status] || status;
   const statusColor = RENTAL_STATUS_COLOR[status] || "#8a97a8";
+  const paymentStatus = normalizeRentalPaymentStatus(r.paymentStatus);
+  const paymentLabel = rentalPaymentStatusLabel(paymentStatus);
+  const paymentTone = paymentStatus === "paid" ? "#8fd19e"
+    : paymentStatus === "unpaid" ? "#ffca6a"
+      : "#8a97a8";
 
   const totalDollars = r.estimatedTotalCents
     ? formatCurrency(r.estimatedTotalCents)
@@ -5043,6 +5129,12 @@ function buildRentalCard(r) {
   const pendingRenterRequests = (r.changeRequests || []).filter((request) => request.status === "pending");
   const editButton = `<button class="rental-btn rental-btn-ghost" data-rental-edit="${escapeAttribute(r.id)}" type="button">Edit Booking</button>`;
   const notifyButton = `<button class="rental-btn rental-btn-ghost" data-rental-notify="${escapeAttribute(r.id)}" type="button">Notify Members</button>`;
+  const billButtonLabel = paymentStatus === "unbilled" ? "Create Bill" : "Review Bill";
+  const billingButtons = `
+    <button class="rental-btn rental-btn-ghost" data-rental-bill-open="${escapeAttribute(r.id)}" type="button">${escapeHtml(billButtonLabel)}</button>
+    ${paymentStatus === "unpaid" ? `<button class="rental-btn rental-btn-confirm" data-rental-bill-status="mark_paid" data-rental-id="${escapeAttribute(r.id)}" type="button">Mark Paid</button>` : ""}
+    ${paymentStatus === "paid" ? `<button class="rental-btn rental-btn-ghost" data-rental-bill-status="mark_unpaid" data-rental-id="${escapeAttribute(r.id)}" type="button">Mark Unpaid</button>` : ""}
+  `;
 
   const actionsHtml = isActionable ? `
     <div class="rental-card-actions" id="rental-actions-${escapeAttribute(r.id)}">
@@ -5061,6 +5153,7 @@ function buildRentalCard(r) {
       <div class="rental-card-btn-row">
         ${editButton}
         ${notifyButton}
+        ${billingButtons}
         <button class="rental-btn rental-btn-view-cal" data-rental-view-calendar="${escapeAttribute(r.eventDate || "")}">View on Calendar</button>
         <button class="rental-btn rental-btn-cancel" data-rental-action="cancel" data-rental-id="${escapeAttribute(r.id)}">Cancel Booking</button>
         <button class="rental-btn rental-btn-decline" data-rental-action="delete" data-rental-id="${escapeAttribute(r.id)}">Delete Request</button>
@@ -5121,6 +5214,12 @@ function buildRentalCard(r) {
           <dt>Est. Total</dt>
           <dd class="rental-card-total">${escapeHtml(totalDollars || "—")}</dd>
         </div>
+        <div class="rental-card-field">
+          <dt>Payment</dt>
+          <dd>
+            <span class="rental-card-pill" style="--status-color:${paymentTone}">${escapeHtml(paymentLabel)}</span>
+          </dd>
+        </div>
       </dl>
 
       ${addons.length ? `
@@ -5158,6 +5257,136 @@ function buildRentalCard(r) {
       ${actionsHtml}
     </article>
   `;
+}
+
+function normalizeRentalPaymentStatus(value) {
+  const status = String(value || "").trim().toLowerCase();
+  return ["unbilled", "unpaid", "paid", "waived"].includes(status) ? status : "unbilled";
+}
+
+function rentalPaymentStatusLabel(status) {
+  const labels = {
+    unbilled: "Unbilled",
+    unpaid: "Unpaid",
+    paid: "Paid",
+    waived: "Waived"
+  };
+  return labels[normalizeRentalPaymentStatus(status)] || "Unbilled";
+}
+
+function rentalBillingReason(rental) {
+  const booking = rental?.bookingNumber || rental?.id || "";
+  const name = rental?.eventName || rental?.eventType || "Rental";
+  const date = rental?.eventDate || "";
+  return `Rental booking ${booking} - ${name}${date ? ` (${date})` : ""}`;
+}
+
+function showRentalBillForm(rentalId, root) {
+  const rental = rentalAllRequests.find((item) => item.id === rentalId);
+  const actions = document.getElementById(`rental-actions-${rentalId}`);
+  if (!rental || !actions) return;
+
+  const linkedItem = billingLineItems.find((item) => item.rentalRequestId === rentalId);
+  const amountValue = ((linkedItem?.amountCents ?? rental.estimatedTotalCents ?? 0) / 100).toFixed(2);
+  const reasonValue = linkedItem?.reason || rentalBillingReason(rental);
+  const canFinalize = Boolean(rental.claimedMemberId);
+
+  actions.innerHTML = `
+    <div class="rental-card-notes rental-bill-review">
+      <span class="rental-card-notes-label">${escapeHtml(canFinalize ? "Review Bill" : "Account Required")}</span>
+      ${canFinalize ? "" : `<p class="rental-card-notes-text">Attach or claim this rental to an account before creating a bill.</p>`}
+      <div class="master-log-form">
+        <label>
+          <span>Reason</span>
+          <input id="rentalBillReason-${escapeAttribute(rentalId)}" type="text" value="${escapeAttribute(reasonValue)}" ${canFinalize ? "" : "disabled"} />
+        </label>
+        <label>
+          <span>Amount</span>
+          <input id="rentalBillAmount-${escapeAttribute(rentalId)}" type="number" min="0" step="0.01" value="${escapeAttribute(amountValue)}" ${canFinalize ? "" : "disabled"} />
+        </label>
+        <label>
+          <span>Status</span>
+          <input type="text" value="${escapeAttribute(rentalPaymentStatusLabel(rental.paymentStatus))}" disabled />
+        </label>
+      </div>
+      <p id="rentalBillResult-${escapeAttribute(rentalId)}" class="member-edit-result"></p>
+      <div class="rental-card-btn-row">
+        <button class="rental-btn rental-btn-ghost" data-rental-bill-close type="button">Back</button>
+        <button class="rental-btn rental-btn-confirm" data-rental-bill-submit="${escapeAttribute(rentalId)}" type="button" ${canFinalize ? "" : "disabled"}>Finalize Bill</button>
+      </div>
+    </div>
+  `;
+
+  actions.querySelector("[data-rental-bill-close]")?.addEventListener("click", () => renderRentalPipeline(root));
+  actions.querySelector("[data-rental-bill-submit]")?.addEventListener("click", (event) => {
+    submitRentalBill(rentalId, event.currentTarget, root);
+  });
+}
+
+async function submitRentalBill(rentalId, button, root) {
+  const rental = rentalAllRequests.find((item) => item.id === rentalId);
+  if (!rental) return;
+  const amountInput = document.getElementById(`rentalBillAmount-${rentalId}`);
+  const reasonInput = document.getElementById(`rentalBillReason-${rentalId}`);
+  const result = document.getElementById(`rentalBillResult-${rentalId}`);
+  const amountCents = Math.round(Number(amountInput?.value || 0) * 100);
+  if (!Number.isFinite(amountCents) || amountCents <= 0) {
+    if (result) result.textContent = "Enter an amount greater than zero.";
+    return;
+  }
+
+  if (button) button.disabled = true;
+  if (result) result.textContent = "Finalizing bill...";
+  try {
+    const body = await sendRentalBillingAction({
+      id: rentalId,
+      billingAction: "finalize",
+      accountMemberId: rental.claimedMemberId,
+      amountCents,
+      reason: reasonInput?.value || rentalBillingReason(rental)
+    });
+    await afterRentalBillingAction(body, root);
+  } catch (error) {
+    if (result) result.textContent = error.message || "Could not finalize bill.";
+    if (button) button.disabled = false;
+  }
+}
+
+async function submitRentalBillingStatus(action, rentalId, button, root) {
+  const rental = rentalAllRequests.find((item) => item.id === rentalId);
+  if (!rental || !["mark_paid", "mark_unpaid"].includes(action)) return;
+  const label = action === "mark_paid" ? "paid" : "unpaid";
+  if (!window.confirm(`Mark this rental bill ${label}?`)) return;
+  if (button) button.disabled = true;
+  try {
+    const body = await sendRentalBillingAction({ id: rentalId, billingAction: action });
+    await afterRentalBillingAction(body, root);
+  } catch (error) {
+    showAppNotice(error.message || "Could not update rental bill.");
+    if (button) button.disabled = false;
+  }
+}
+
+async function sendRentalBillingAction(payload) {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) throw new Error("Please sign in again before updating billing.");
+  const res = await fetch("/api/rental-reviews", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body.success === false) throw new Error(body.error || "Could not update rental bill.");
+  return body;
+}
+
+async function afterRentalBillingAction(body, root) {
+  if (body.request?.id) {
+    const index = rentalAllRequests.findIndex((item) => item.id === body.request.id);
+    if (index >= 0) rentalAllRequests[index] = body.request;
+  }
+  await refreshBillingLineItems();
+  renderRentalPipeline(root);
 }
 
 function renderRentalChangeRequestPanel(rental, requests) {
@@ -10069,18 +10298,39 @@ function applySupabaseData({
     note: row.note || ""
   }));
 
-  billingLineItems = billingRows.map((row) => ({
+  billingLineItems = billingRows.map(mapBillingLineItemRow);
+
+  doorAccessEntries = (doorAccessRows || []).map(mapDoorAccessEntryRow);
+}
+
+function mapBillingLineItemRow(row) {
+  return {
     id: row.id,
     accountMemberId: row.account_member_id,
     timesheetEntryId: row.timesheet_entry_id,
     heaterUseEntryId: row.heater_use_entry_id,
+    rentalRequestId: row.rental_request_id || "",
     createdAt: row.created_at,
     amountCents: row.amount_cents || 0,
     reason: row.reason || "Billing item",
     postedToStripeAt: row.posted_to_stripe_at
-  }));
+  };
+}
 
-  doorAccessEntries = (doorAccessRows || []).map(mapDoorAccessEntryRow);
+async function refreshBillingLineItems() {
+  const client = await createSupabaseClient();
+  if (!client) return false;
+  const { data, error } = await client
+    .from("billing_line_items")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(1000);
+  if (error) {
+    console.warn("Billing refresh failed:", error.message || error);
+    return false;
+  }
+  billingLineItems = (data || []).map(mapBillingLineItemRow);
+  return true;
 }
 
 function normalizeAccountTypePolicies(rows = []) {
