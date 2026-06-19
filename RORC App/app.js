@@ -21,8 +21,33 @@ const STRIPE_FALLBACK_PORTAL = "https://payments.ruthobenchainrc.com/p/login/eVa
 const APP_REFRESH_ROUTE_KEY = "rorc-app-refresh-route";
 const APP_INVALID_SESSION_REFRESH_KEY = "rorc-app-invalid-session-refreshing";
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
-const DOOR_UNLOCK_URL = "https://door.n3xra.co/unlock";
 const DOOR_UNLOCK_COOLDOWN_MS = 5000;
+const DOOR_ACTIONS = [
+  {
+    key: "unlock",
+    label: "Unlock Door",
+    statusLabel: "unlock request",
+    icon: `<rect x="4" y="10" width="16" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 7.7-1.5"></path><path d="M12 14v3"></path>`
+  },
+  {
+    key: "lock",
+    label: "Lock Door",
+    statusLabel: "lock request",
+    icon: `<rect x="4" y="10" width="16" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path><path d="M12 14v3"></path>`
+  },
+  {
+    key: "remain_unlocked",
+    label: "Remain Unlocked",
+    statusLabel: "remain unlocked request",
+    icon: `<rect x="4" y="10" width="16" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 7.7-1.5"></path><path d="M12 14v3"></path><path d="M17 6h3v3"></path><path d="M20 6l-5 5"></path>`
+  },
+  {
+    key: "remain_locked",
+    label: "Remain Locked",
+    statusLabel: "remain locked request",
+    icon: `<rect x="4" y="10" width="16" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path><path d="M12 14v3"></path><path d="M17 6h3v3"></path><path d="M20 6l-5 5"></path>`
+  }
+];
 let supabaseClient = null;
 let currentAuthSession = null;
 let deferredInstallPrompt = null;
@@ -942,18 +967,18 @@ function renderAccessPage() {
       <section class="access-hero">
         <p class="eyebrow">Entrance</p>
         <h2>Door Access</h2>
-        <p>Unlock the entrance door temporarily for member entry.</p>
+        <p>Send entrance door commands from your approved RORC account.</p>
       </section>
 
-      <section class="access-control-card" aria-label="Door unlock control">
-        <button id="doorUnlockButton" class="door-unlock-button" type="button">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="4" y="10" width="16" height="10" rx="2"></rect>
-            <path d="M8 10V7a4 4 0 0 1 7.7-1.5"></path>
-            <path d="M12 14v3"></path>
-          </svg>
-          <span>Unlock Door</span>
-        </button>
+      <section class="access-control-card" aria-label="Door controls">
+        <div class="door-action-grid">
+          ${DOOR_ACTIONS.map((action) => `
+            <button class="door-action-button" type="button" data-door-action="${escapeAttribute(action.key)}">
+              <svg viewBox="0 0 24 24" aria-hidden="true">${action.icon}</svg>
+              <span>${escapeHtml(action.label)}</span>
+            </button>
+          `).join("")}
+        </div>
         <p id="doorUnlockStatus" class="access-status" aria-live="polite">Ready.</p>
       </section>
     </div>
@@ -975,15 +1000,18 @@ function setDoorUnlockStatus(message, tone = "default") {
 }
 
 function updateDoorUnlockButton() {
-  const button = document.getElementById("doorUnlockButton");
-  if (!button) return;
+  const buttons = [...document.querySelectorAll("[data-door-action]")];
+  if (!buttons.length) return;
 
   const secondsLeft = doorUnlockCooldownSecondsLeft();
-  const label = button.querySelector("span");
-  button.disabled = secondsLeft > 0;
-  if (label) {
-    label.textContent = secondsLeft > 0 ? `Wait ${secondsLeft}s` : "Unlock Door";
-  }
+  buttons.forEach((button) => {
+    const label = button.querySelector("span");
+    const action = DOOR_ACTIONS.find((item) => item.key === button.dataset.doorAction);
+    button.disabled = secondsLeft > 0;
+    if (label && action) {
+      label.textContent = secondsLeft > 0 ? `Wait ${secondsLeft}s` : action.label;
+    }
+  });
 
   if (doorUnlockCooldownTimer) {
     window.clearTimeout(doorUnlockCooldownTimer);
@@ -1000,7 +1028,7 @@ function startDoorUnlockCooldown() {
   updateDoorUnlockButton();
 }
 
-async function recordDoorAccessRequest() {
+async function recordDoorAccessRequest(action) {
   const token = currentAuthSession?.access_token || "";
   if (!token) {
     throw new Error("Please sign in again before requesting door access.");
@@ -1013,6 +1041,7 @@ async function recordDoorAccessRequest() {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
+      action,
       requestedAt: new Date().toISOString(),
       source: "app"
     })
@@ -1036,26 +1065,23 @@ async function recordDoorAccessRequest() {
 function bindDoorUnlockControl() {
   updateDoorUnlockButton();
 
-  document.getElementById("doorUnlockButton")?.addEventListener("click", async () => {
+  document.querySelectorAll("[data-door-action]").forEach((button) => button.addEventListener("click", async () => {
     if (doorUnlockCooldownSecondsLeft() > 0) return;
 
+    const action = DOOR_ACTIONS.find((item) => item.key === button.dataset.doorAction);
+    if (!action) return;
+
     startDoorUnlockCooldown();
-    setDoorUnlockStatus("Sending unlock request...");
+    setDoorUnlockStatus(`Sending ${action.statusLabel}...`);
 
     try {
-      await recordDoorAccessRequest();
-      await fetch(DOOR_UNLOCK_URL, {
-        method: "GET",
-        mode: "no-cors",
-        cache: "no-store",
-        credentials: "omit"
-      });
-      setDoorUnlockStatus("Unlock request sent and logged.", "success");
+      await recordDoorAccessRequest(action.key);
+      setDoorUnlockStatus(`${action.label} sent and logged.`, "success");
     } catch (error) {
       console.error("Door unlock request failed.", error);
-      setDoorUnlockStatus("Unlock request failed. Try again after the countdown.", "error");
+      setDoorUnlockStatus(`${action.label} failed. Try again after the countdown.`, "error");
     }
-  });
+  }));
 }
 
 function renderAboutPage() {

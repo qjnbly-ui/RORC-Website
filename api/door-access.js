@@ -1,6 +1,24 @@
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
+const DOOR_ACTIONS = {
+  unlock: {
+    label: "Unlock Door",
+    url: "https://door.n3xra.co/unlock"
+  },
+  lock: {
+    label: "Lock Door",
+    url: "https://door.n3xra.co/lock"
+  },
+  remain_unlocked: {
+    label: "Remain Unlocked",
+    url: "https://door.n3xra.co/remain_unlocked"
+  },
+  remain_locked: {
+    label: "Remain Locked",
+    url: "https://door.n3xra.co/remain_locked"
+  }
+};
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -28,15 +46,32 @@ module.exports = async (req, res) => {
     }
 
     const source = sanitizeSource(req.body?.source);
+    const action = sanitizeDoorAction(req.body?.action);
+    let requestStatus = "sent";
+    let doorError = "";
+
+    try {
+      await sendDoorAction(action);
+    } catch (error) {
+      requestStatus = "failed";
+      doorError = error.message || "Door controller request failed.";
+    }
+
     const rows = await supabaseWrite("door_access_entries", "POST", {
       requested_by_member_id: member.id,
       access_requested_at: new Date().toISOString(),
-      request_status: "sent",
+      request_status: requestStatus,
       request_source: source,
-      note: "Entrance unlock requested from RORC app."
+      note: doorError
+        ? `${DOOR_ACTIONS[action].label} requested from RORC app. ${doorError}`
+        : `${DOOR_ACTIONS[action].label} requested from RORC app.`
     });
 
-    return res.status(200).json({ success: true, entry: rows[0] || null });
+    if (requestStatus === "failed") {
+      return res.status(502).json({ success: false, error: doorError, entry: rows[0] || null });
+    }
+
+    return res.status(200).json({ success: true, action, entry: rows[0] || null });
   } catch (error) {
     return res.status(error.statusCode || 500).json({ success: false, error: error.message || "Server error" });
   }
@@ -80,6 +115,25 @@ function facilityClockParts(date) {
 function sanitizeSource(value) {
   const source = String(value || "app").trim().toLowerCase();
   return ["app", "admin", "kiosk"].includes(source) ? source : "app";
+}
+
+function sanitizeDoorAction(value) {
+  const action = String(value || "unlock").trim().toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(DOOR_ACTIONS, action)) return action;
+  throw httpError(400, "Invalid door action.");
+}
+
+async function sendDoorAction(action) {
+  const response = await fetch(DOOR_ACTIONS[action].url, {
+    method: "GET",
+    cache: "no-store"
+  });
+  const body = await response.json().catch(() => null);
+
+  if (!response.ok || body?.success === false) {
+    const message = body?.message || body?.error || `Door controller returned ${response.status}.`;
+    throw new Error(message);
+  }
 }
 
 function bearerToken(req) {

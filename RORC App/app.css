@@ -869,12 +869,20 @@ h1 {
   text-align: center;
 }
 
-.door-unlock-button {
+.door-action-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 720px;
+  width: 100%;
+}
+
+.door-action-button {
   align-items: center;
   appearance: none;
   background: var(--accent);
   border: 0;
-  border-radius: 16px;
+  border-radius: 8px;
   color: #fff;
   cursor: pointer;
   display: inline-flex;
@@ -882,12 +890,14 @@ h1 {
   gap: 12px;
   justify-content: center;
   min-height: 76px;
-  min-width: min(100%, 320px);
-  padding: 0 24px;
+  min-width: 0;
+  padding: 0 18px;
   text-transform: uppercase;
+  width: 100%;
 }
 
-.door-unlock-button svg {
+.door-action-button svg {
+  flex: 0 0 auto;
   fill: none;
   height: 30px;
   stroke: currentColor;
@@ -897,7 +907,11 @@ h1 {
   width: 30px;
 }
 
-.door-unlock-button:disabled {
+.door-action-button span {
+  overflow-wrap: anywhere;
+}
+
+.door-action-button:disabled {
   cursor: default;
   opacity: 0.68;
 }
@@ -914,6 +928,12 @@ h1 {
 
 .access-status[data-tone="error"] {
   color: #ff9a9a;
+}
+
+@media (max-width: 560px) {
+  .door-action-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .feedback-form {
@@ -3387,7 +3407,7 @@ h1 {
 .toolbar-btn:focus-visible,
 .icon-btn:focus-visible,
 .primary-action:focus-visible,
-.door-unlock-button:focus-visible,
+.door-action-button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
