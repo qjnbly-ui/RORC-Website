@@ -5042,6 +5042,10 @@ function renderRentalPipeline(root) {
     btn.addEventListener("click", () => submitRentalBill(btn.dataset.rentalBillSubmit, btn, root));
   });
 
+  root.querySelectorAll("[data-rental-thermostat-action]").forEach((btn) => {
+    btn.addEventListener("click", () => submitRentalThermostatAction(btn, root));
+  });
+
   root.querySelectorAll("[data-rental-change-review]").forEach((btn) => {
     btn.addEventListener("click", () => reviewRentalChangeRequest(btn, root));
   });
@@ -5243,6 +5247,8 @@ function buildRentalCard(r) {
 
       ${pendingRenterRequests.length ? renderRentalChangeRequestPanel(r, pendingRenterRequests) : ""}
 
+      ${isConfirmed ? renderRentalThermostatReviewPanel(r) : ""}
+
       ${r.adminNotes ? `
       <div class="rental-card-notes">
         <span class="rental-card-notes-label">Admin Notes</span>
@@ -5387,6 +5393,96 @@ async function afterRentalBillingAction(body, root) {
   }
   await refreshBillingLineItems();
   renderRentalPipeline(root);
+}
+
+function renderRentalThermostatReviewPanel(rental) {
+  const review = rental?.thermostatReview || {};
+  const attached = Array.isArray(review.attached) ? review.attached : [];
+  const suggestions = Array.isArray(review.suggestions) ? review.suggestions : [];
+  const addonLabels = [];
+  if (rental?.addonHeater) addonLabels.push("Heat");
+  if (rental?.addonAc) addonLabels.push("AC");
+  const hasAddon = addonLabels.length > 0 || Boolean(review.hasThermostatAddon);
+
+  if (!attached.length && !suggestions.length && !hasAddon) return "";
+
+  return `
+    <div class="rental-card-notes rental-thermostat-review">
+      <span class="rental-card-notes-label">Thermostat Review</span>
+      ${attached.length ? `
+        <div class="rental-card-notes-text">
+          <strong>Attached thermostat use</strong>
+          ${attached.map((record) => renderRentalThermostatRecordRow(rental.id, record, "attached")).join("")}
+        </div>
+      ` : ""}
+      ${suggestions.length ? `
+        <div class="rental-card-notes-text">
+          <strong>Possible thermostat use for this rental</strong>
+          ${suggestions.map((record) => renderRentalThermostatRecordRow(rental.id, record, "suggestion")).join("")}
+        </div>
+      ` : ""}
+      ${!attached.length && !suggestions.length && hasAddon ? `
+        <p class="rental-card-notes-text">${escapeHtml(`${addonLabels.join(" and ") || "Thermostat"} selected. Matching same-day thermostat records will appear here if created.`)}</p>
+      ` : ""}
+    </div>
+  `;
+}
+
+function renderRentalThermostatRecordRow(rentalId, record, mode) {
+  const member = findMember(record.responsibleMemberId);
+  const runtimeMinutes = durationMinutes(record.startAt, record.endAt);
+  const runtimeLabel = runtimeMinutes !== null
+    ? formatBillingRuntime(runtimeMinutes)
+    : "Active or incomplete";
+  const statusLabel = record.paid ? "Paid" : "Open";
+  const targetLabel = record.targetTemperatureF ? ` · Set ${thermostatTempLabel(record.targetTemperatureF)}` : "";
+  const matchLabel = record.matchesAddon ? " · Matches rental add-on" : "";
+  return `
+    <div class="rental-change-request-card rental-thermostat-row">
+      <div>
+        <strong>${escapeHtml(record.systemLabel || thermostatSystemLabel(record.systemType))}${escapeHtml(targetLabel)}</strong>
+        <small>${escapeHtml(formatShortDateTime(record.startAt || record.usedOn))} · ${escapeHtml(member?.memberName || "No responsible member")} · ${escapeHtml(runtimeLabel)} · ${escapeHtml(statusLabel)}${escapeHtml(matchLabel)}</small>
+      </div>
+      ${mode === "suggestion" ? `
+        <div class="rental-card-btn-row">
+          <button class="rental-btn rental-btn-confirm" type="button" data-rental-thermostat-action="attach" data-rental-id="${escapeAttribute(rentalId)}" data-heater-use-entry-id="${escapeAttribute(record.id)}">Attach</button>
+          <button class="rental-btn rental-btn-ghost" type="button" data-rental-thermostat-action="ignore" data-rental-id="${escapeAttribute(rentalId)}" data-heater-use-entry-id="${escapeAttribute(record.id)}">Ignore</button>
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
+async function submitRentalThermostatAction(button, root) {
+  const rentalId = String(button.dataset.rentalId || "").trim();
+  const heaterUseEntryId = String(button.dataset.heaterUseEntryId || "").trim();
+  const thermostatAction = String(button.dataset.rentalThermostatAction || "").trim();
+  if (!rentalId || !heaterUseEntryId || !["attach", "ignore"].includes(thermostatAction)) return;
+
+  button.disabled = true;
+  try {
+    const token = currentAuthSession?.access_token || "";
+    if (!token) throw new Error("Please sign in again before updating thermostat review.");
+    const res = await fetch("/api/rental-reviews", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        id: rentalId,
+        thermostatAction,
+        heaterUseEntryId
+      })
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || body.success === false) throw new Error(body.error || "Could not update thermostat review.");
+    if (body.request?.id) {
+      const index = rentalAllRequests.findIndex((item) => item.id === body.request.id);
+      if (index >= 0) rentalAllRequests[index] = body.request;
+    }
+    renderRentalPipeline(root);
+  } catch (error) {
+    showAppNotice(error.message || "Could not update thermostat review.");
+    button.disabled = false;
+  }
 }
 
 function renderRentalChangeRequestPanel(rental, requests) {

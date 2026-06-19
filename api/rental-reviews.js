@@ -65,13 +65,19 @@ module.exports = async (req, res) => {
         "rental_requests?select=*&order=event_date.asc&order=created_at.asc&limit=200"
       );
       const rentalIds = rows.map((row) => row.id);
-      const [linkedEvents, changeRequests] = await Promise.all([
+      const [linkedEvents, changeRequests, thermostatReviews] = await Promise.all([
         loadLinkedCalendarEventMap(rentalIds),
-        loadRentalChangeRequestsMap(rentalIds)
+        loadRentalChangeRequestsMap(rentalIds),
+        loadRentalThermostatReviewMap(rows)
       ]);
       return res.status(200).json({
         success: true,
-        requests: rows.map((row) => mapRow(row, linkedEvents.get(row.id), changeRequests.get(row.id) || []))
+        requests: rows.map((row) => mapRow(
+          row,
+          linkedEvents.get(row.id),
+          changeRequests.get(row.id) || [],
+          thermostatReviews.get(row.id)
+        ))
       });
     } catch (err) {
       console.error("rental-reviews GET error:", err);
@@ -125,7 +131,7 @@ module.exports = async (req, res) => {
   }
 
   if (req.method === "PATCH") {
-    const { id, status, adminNotes, changeRequestId, action, reviewNotes, billingAction } = req.body || {};
+    const { id, status, adminNotes, changeRequestId, action, reviewNotes, billingAction, thermostatAction } = req.body || {};
 
     if (changeRequestId) {
       if (!VALID_CHANGE_REVIEW_ACTIONS.has(String(action || ""))) {
@@ -148,6 +154,20 @@ module.exports = async (req, res) => {
 
     if (!id || typeof id !== "string") {
       return res.status(400).json({ success: false, error: "Missing rental request ID" });
+    }
+    if (thermostatAction) {
+      try {
+        const result = await handleRentalThermostatAction({
+          id,
+          thermostatAction,
+          heaterUseEntryId: req.body?.heaterUseEntryId || req.body?.heater_use_entry_id,
+          manager
+        });
+        return res.status(200).json(result);
+      } catch (err) {
+        console.error("rental thermostat action error:", err);
+        return res.status(Number(err.statusCode) || 500).json({ success: false, error: err.message || "Could not update rental thermostat review" });
+      }
     }
     if (billingAction) {
       try {
@@ -224,16 +244,17 @@ module.exports = async (req, res) => {
       const automationWarnings = record
         ? await runRentalReviewAutomations(record, status, adminNotes, { calendarPublicOverride, req })
         : [];
-      const linkedEvents = record
-        ? await loadLinkedCalendarEventMap([record.id])
-        : new Map();
-      const changeRequests = record
-        ? await loadRentalChangeRequestsMap([record.id])
-        : new Map();
+      const [linkedEvents, changeRequests, thermostatReviews] = record
+        ? await Promise.all([
+          loadLinkedCalendarEventMap([record.id]),
+          loadRentalChangeRequestsMap([record.id]),
+          loadRentalThermostatReviewMap([record])
+        ])
+        : [new Map(), new Map(), new Map()];
 
       return res.status(200).json({
         success: true,
-        request: record ? mapRow(record, linkedEvents.get(record.id), changeRequests.get(record.id) || []) : null,
+        request: record ? mapRow(record, linkedEvents.get(record.id), changeRequests.get(record.id) || [], thermostatReviews.get(record.id)) : null,
         automationWarnings
       });
     } catch (err) {
@@ -828,13 +849,14 @@ async function markRentalBillStatus({ rental, manager, paid }) {
 }
 
 async function buildRentalBillingResponse(rental) {
-  const [linkedEvents, changeRequests] = await Promise.all([
+  const [linkedEvents, changeRequests, thermostatReviews] = await Promise.all([
     loadLinkedCalendarEventMap([rental.id]),
-    loadRentalChangeRequestsMap([rental.id])
+    loadRentalChangeRequestsMap([rental.id]),
+    loadRentalThermostatReviewMap([rental])
   ]);
   return {
     success: true,
-    request: mapRow(rental, linkedEvents.get(rental.id), changeRequests.get(rental.id) || [])
+    request: mapRow(rental, linkedEvents.get(rental.id), changeRequests.get(rental.id) || [], thermostatReviews.get(rental.id))
   };
 }
 
@@ -843,6 +865,64 @@ function rentalBillReason(rental) {
   const name = rental.event_name || rental.event_type || "Rental";
   const date = rental.event_date || "";
   return `Rental booking ${booking} - ${name}${date ? ` (${date})` : ""}`;
+}
+
+async function handleRentalThermostatAction({ id, thermostatAction, heaterUseEntryId, manager }) {
+  const rental = await loadRentalRequestById(id);
+  if (!rental) throw httpError(404, "Rental request not found");
+  if (rental.rental_status !== "confirmed") {
+    throw httpError(409, "Only confirmed rentals can attach thermostat records");
+  }
+  if (!isUuid(heaterUseEntryId)) {
+    throw httpError(400, "Thermostat record is required");
+  }
+
+  const action = String(thermostatAction || "").trim();
+  if (!["attach", "ignore"].includes(action)) {
+    throw httpError(400, "Invalid thermostat action");
+  }
+
+  const heaterRows = await supabaseRest(
+    `heater_use_entries?select=*&used_on=eq.${encodeURIComponent(rental.event_date)}&id=eq.${encodeURIComponent(heaterUseEntryId)}&limit=1`
+  );
+  if (!heaterRows.length) {
+    throw httpError(404, "Matching thermostat record not found for this rental date");
+  }
+  const groupRows = await supabaseRest(
+    `heater_use_group_members?select=account_member_id&heater_use_entry_id=eq.${encodeURIComponent(heaterUseEntryId)}`
+  ).catch(() => []);
+  const groupMemberIds = (groupRows || []).map((row) => row.account_member_id).filter(Boolean);
+  if (!isThermostatCandidateForRental(heaterRows[0], rental, groupMemberIds)) {
+    throw httpError(409, "Thermostat record does not match this rental account");
+  }
+
+  await supabaseDelete(
+    `rental_thermostat_links?rental_request_id=eq.${encodeURIComponent(rental.id)}&heater_use_entry_id=eq.${encodeURIComponent(heaterUseEntryId)}`
+  );
+  await supabaseWrite(
+    "rental_thermostat_links",
+    "POST",
+    {
+      rental_request_id: rental.id,
+      heater_use_entry_id: heaterUseEntryId,
+      created_by_member_id: manager?.id || null,
+      ignored_at: action === "ignore" ? new Date().toISOString() : null
+    }
+  );
+
+  return buildRentalThermostatResponse(rental);
+}
+
+async function buildRentalThermostatResponse(rental) {
+  const [linkedEvents, changeRequests, thermostatReviews] = await Promise.all([
+    loadLinkedCalendarEventMap([rental.id]),
+    loadRentalChangeRequestsMap([rental.id]),
+    loadRentalThermostatReviewMap([rental])
+  ]);
+  return {
+    success: true,
+    request: mapRow(rental, linkedEvents.get(rental.id), changeRequests.get(rental.id) || [], thermostatReviews.get(rental.id))
+  };
 }
 
 function rentalHoursBetween(startValue, endValue, fallback = 1) {
@@ -915,6 +995,10 @@ function normalizePaymentStatus(value) {
   return ["unbilled", "unpaid", "paid", "waived"].includes(normalized) ? normalized : "unbilled";
 }
 
+function normalizeThermostatSystemType(value) {
+  return String(value || "").trim().toLowerCase() === "ac" ? "ac" : "heat";
+}
+
 function calendarPublicOverrideFromBody(body) {
   const provided = hasBodyField(body, "calendar_is_public") || hasBodyField(body, "calendarIsPublic");
   return {
@@ -923,7 +1007,7 @@ function calendarPublicOverrideFromBody(body) {
   };
 }
 
-function mapRow(row, linkedEvent = null, changeRequests = []) {
+function mapRow(row, linkedEvent = null, changeRequests = [], thermostatReview = null) {
   return {
     id: row.id,
     bookingNumber: row.booking_number || "",
@@ -968,8 +1052,19 @@ function mapRow(row, linkedEvent = null, changeRequests = []) {
     linkedCalendarEventId: linkedEvent?.id || null,
     calendarIsPublic: Boolean(linkedEvent?.is_public),
     changeRequests: (changeRequests || []).map(mapRentalChangeRequest),
+    thermostatReview: normalizeThermostatReview(thermostatReview),
     reviewedAt: row.reviewed_at,
     createdAt: row.created_at
+  };
+}
+
+function normalizeThermostatReview(review = null) {
+  return {
+    attached: Array.isArray(review?.attached) ? review.attached : [],
+    suggestions: Array.isArray(review?.suggestions) ? review.suggestions : [],
+    ignoredThermostatRecordIds: Array.isArray(review?.ignoredThermostatRecordIds) ? review.ignoredThermostatRecordIds : [],
+    hasThermostatAddon: Boolean(review?.hasThermostatAddon),
+    addonSystemTypes: Array.isArray(review?.addonSystemTypes) ? review.addonSystemTypes : []
   };
 }
 
@@ -1071,6 +1166,147 @@ async function loadRentalChangeRequestsMap(rentalIds = []) {
   }
 }
 
+async function loadRentalThermostatReviewMap(rentals = []) {
+  const confirmedRentals = (rentals || []).filter((rental) => (
+    rental?.id
+    && rental.rental_status === "confirmed"
+    && rental.event_date
+  ));
+  const reviewMap = new Map();
+
+  confirmedRentals.forEach((rental) => {
+    const addonSystemTypes = rentalThermostatAddonSystemTypes(rental);
+    reviewMap.set(rental.id, {
+      attached: [],
+      suggestions: [],
+      ignoredThermostatRecordIds: [],
+      hasThermostatAddon: addonSystemTypes.length > 0,
+      addonSystemTypes
+    });
+  });
+
+  if (!confirmedRentals.length) return reviewMap;
+
+  const rentalIds = [...new Set(confirmedRentals.map((rental) => rental.id))];
+  let linkRows = [];
+  try {
+    linkRows = await supabaseRest(
+      `rental_thermostat_links?select=*&rental_request_id=in.(${rentalIds.map(encodeURIComponent).join(",")})`
+    );
+  } catch (error) {
+    console.warn("Rental thermostat links unavailable:", error?.message || error);
+    return reviewMap;
+  }
+
+  const dates = [...new Set(confirmedRentals.map((rental) => rental.event_date).filter(Boolean))];
+  let heaterRows = [];
+  if (dates.length) {
+    heaterRows = await supabaseRest(
+      `heater_use_entries?select=*&used_on=in.(${dates.map(encodeURIComponent).join(",")})&order=used_on.asc&order=start_at.asc&limit=1000`
+    ).catch((error) => {
+      console.warn("Rental thermostat candidates unavailable:", error?.message || error);
+      return [];
+    });
+  }
+
+  const heaterIds = [...new Set([
+    ...heaterRows.map((row) => row.id),
+    ...linkRows.map((row) => row.heater_use_entry_id)
+  ].filter(Boolean))];
+  const groupRows = heaterIds.length
+    ? await supabaseRest(
+      `heater_use_group_members?select=*&heater_use_entry_id=in.(${heaterIds.map(encodeURIComponent).join(",")})`
+    ).catch(() => [])
+    : [];
+  const groupMemberMap = groupRows.reduce((map, row) => {
+    const current = map.get(row.heater_use_entry_id) || [];
+    current.push(row.account_member_id);
+    map.set(row.heater_use_entry_id, current);
+    return map;
+  }, new Map());
+
+  const linkedHeaterIds = linkRows.map((row) => row.heater_use_entry_id).filter(Boolean);
+  if (linkedHeaterIds.length) {
+    const missingLinkedIds = linkedHeaterIds.filter((id) => !heaterRows.some((row) => row.id === id));
+    if (missingLinkedIds.length) {
+      const linkedHeaterRows = await supabaseRest(
+        `heater_use_entries?select=*&id=in.(${missingLinkedIds.map(encodeURIComponent).join(",")})&limit=1000`
+      ).catch(() => []);
+      heaterRows.push(...linkedHeaterRows);
+    }
+  }
+
+  const heaterById = new Map(heaterRows.map((row) => [row.id, row]));
+  const linksByRental = linkRows.reduce((map, row) => {
+    const list = map.get(row.rental_request_id) || [];
+    list.push(row);
+    map.set(row.rental_request_id, list);
+    return map;
+  }, new Map());
+
+  confirmedRentals.forEach((rental) => {
+    const review = reviewMap.get(rental.id) || normalizeThermostatReview();
+    const links = linksByRental.get(rental.id) || [];
+    const ignoredIds = new Set(links.filter((link) => link.ignored_at).map((link) => link.heater_use_entry_id));
+    const attachedIds = new Set(links.filter((link) => !link.ignored_at).map((link) => link.heater_use_entry_id));
+    review.ignoredThermostatRecordIds = [...ignoredIds];
+
+    review.attached = [...attachedIds]
+      .map((heaterId) => heaterById.get(heaterId))
+      .filter(Boolean)
+      .map((heater) => mapThermostatReviewRecord(heater, groupMemberMap.get(heater.id) || [], rental));
+
+    review.suggestions = heaterRows
+      .filter((heater) => isThermostatCandidateForRental(heater, rental, groupMemberMap.get(heater.id) || []))
+      .filter((heater) => !ignoredIds.has(heater.id) && !attachedIds.has(heater.id))
+      .map((heater) => mapThermostatReviewRecord(heater, groupMemberMap.get(heater.id) || [], rental))
+      .sort((a, b) => (
+        Number(b.matchesAddon) - Number(a.matchesAddon)
+        || new Date(a.startAt || a.usedOn) - new Date(b.startAt || b.usedOn)
+      ));
+
+    reviewMap.set(rental.id, review);
+  });
+
+  return reviewMap;
+}
+
+function rentalThermostatAddonSystemTypes(rental) {
+  const systems = [];
+  if (rental?.addon_heater) systems.push("heat");
+  if (rental?.addon_ac) systems.push("ac");
+  return systems;
+}
+
+function isThermostatCandidateForRental(heater, rental, groupMemberIds = []) {
+  if (!heater?.id || !rental?.id) return false;
+  if (String(heater.used_on || "") !== String(rental.event_date || "")) return false;
+  const claimedMemberId = String(rental.claimed_member_id || "");
+  if (!claimedMemberId) return false;
+  return String(heater.responsible_member_id || "") === claimedMemberId
+    || groupMemberIds.map(String).includes(claimedMemberId);
+}
+
+function mapThermostatReviewRecord(heater, groupMemberIds = [], rental = {}) {
+  const systemType = normalizeThermostatSystemType(heater.system_type);
+  const addonSystemTypes = rentalThermostatAddonSystemTypes(rental);
+  return {
+    id: heater.id,
+    usedOn: heater.used_on,
+    systemType,
+    systemLabel: systemType === "ac" ? "AC" : "Heat",
+    responsibleMemberId: heater.responsible_member_id || null,
+    groupMemberIds,
+    groupPay: Boolean(heater.group_pay),
+    startAt: heater.start_at || null,
+    endAt: heater.end_at || null,
+    targetTemperatureF: Number(heater.target_temperature_f || 0) || null,
+    paid: Boolean(heater.paid),
+    note: heater.note || "",
+    matchesAddon: addonSystemTypes.includes(systemType)
+  };
+}
+
 async function loadRentalChangeRequestById(id) {
   const rows = await supabaseRest(`rental_change_requests?select=*&id=eq.${encodeURIComponent(id)}&limit=1`);
   return rows[0] || null;
@@ -1102,11 +1338,16 @@ async function reviewRentalChangeRequest({ changeRequestId, action, reviewNotes,
       }
     );
     const rental = await loadRentalRequestById(request.rental_request_id);
-    const linkedEvents = rental ? await loadLinkedCalendarEventMap([rental.id]) : new Map();
-    const changes = rental ? await loadRentalChangeRequestsMap([rental.id]) : new Map();
+    const [linkedEvents, changes, thermostatReviews] = rental
+      ? await Promise.all([
+        loadLinkedCalendarEventMap([rental.id]),
+        loadRentalChangeRequestsMap([rental.id]),
+        loadRentalThermostatReviewMap([rental])
+      ])
+      : [new Map(), new Map(), new Map()];
     return {
       success: true,
-      request: rental ? mapRow(rental, linkedEvents.get(rental.id), changes.get(rental.id) || []) : null,
+      request: rental ? mapRow(rental, linkedEvents.get(rental.id), changes.get(rental.id) || [], thermostatReviews.get(rental.id)) : null,
       automationWarnings: []
     };
   }
@@ -1161,14 +1402,15 @@ async function reviewRentalChangeRequest({ changeRequestId, action, reviewNotes,
     }
   );
 
-  const [linkedEvents, changeRequests] = await Promise.all([
+  const [linkedEvents, changeRequests, thermostatReviews] = await Promise.all([
     loadLinkedCalendarEventMap([updatedRental.id]),
-    loadRentalChangeRequestsMap([updatedRental.id])
+    loadRentalChangeRequestsMap([updatedRental.id]),
+    loadRentalThermostatReviewMap([updatedRental])
   ]);
 
   return {
     success: true,
-    request: mapRow(updatedRental, linkedEvents.get(updatedRental.id), changeRequests.get(updatedRental.id) || []),
+    request: mapRow(updatedRental, linkedEvents.get(updatedRental.id), changeRequests.get(updatedRental.id) || [], thermostatReviews.get(updatedRental.id)),
     automationWarnings
   };
 }
@@ -1266,6 +1508,21 @@ async function supabaseWrite(path, method, payload) {
   }
   const text = await response.text();
   return text ? JSON.parse(text) : [];
+}
+
+async function supabaseDelete(path) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    method: "DELETE",
+    headers: {
+      apikey: SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      Prefer: "return=minimal"
+    }
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`REST delete failed: ${response.status} ${text}`);
+  }
 }
 
 function httpError(statusCode, message) {
