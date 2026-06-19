@@ -73,24 +73,83 @@
           New banner, new design, or renewal? Use this form.
         </p>
       </div>
-      <div class="sponsors-cta">
-        <div>
-          <p class="sponsors-cta-lead">
-            Want your own banner on the wall?
-          </p>
-          <p class="sponsors-cta-sub">
-            Submit your info and artwork. We will send the right invoice and follow up on design.
-          </p>
+      <form id="sponsorBannerForm" class="sponsors-form">
+        <fieldset>
+          <legend>Sponsor Information</legend>
+          <label>
+            <span>Business / Sponsor Name *</span>
+            <input name="businessName" type="text" autocomplete="organization" required />
+          </label>
+          <label>
+            <span>Contact Name *</span>
+            <input name="contactName" type="text" autocomplete="name" required />
+          </label>
+          <label>
+            <span>Email Address *</span>
+            <input name="emailAddress" type="email" autocomplete="email" required />
+          </label>
+          <label>
+            <span>Phone Number</span>
+            <input name="phoneNumber" type="tel" autocomplete="tel" />
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Sponsorship Type</legend>
+          <p class="sponsors-form-help">Is this a new banner or a renewal?</p>
+          <div class="sponsors-choice-grid" role="radiogroup" aria-label="Sponsorship type">
+            <label class="sponsors-choice">
+              <input name="sponsorshipType" type="radio" value="new" required />
+              <span>New Sponsorship <strong>$125 first year</strong></span>
+            </label>
+            <label class="sponsors-choice">
+              <input name="sponsorshipType" type="radio" value="renewal" required />
+              <span>Renewal <strong>$100</strong></span>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Banner Details</legend>
+          <label>
+            <span>Text you would like displayed on the banner</span>
+            <textarea name="bannerText" rows="4"></textarea>
+          </label>
+          <label>
+            <span>Upload your logo or artwork (PNG preferred)</span>
+            <input name="logoFiles" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,application/pdf" multiple />
+          </label>
+          <p class="sponsors-form-help">Upload up to 5 files. PNG, JPG, WebP, SVG, or PDF. Max 10 MB per file.</p>
+          <label>
+            <span>Design preferences or special requests</span>
+            <textarea name="designRequests" rows="4"></textarea>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Payment</legend>
+          <p class="sponsors-form-help">How would you like to pay?</p>
+          <div class="sponsors-choice-grid" role="radiogroup" aria-label="Payment method">
+            <label class="sponsors-choice">
+              <input name="paymentMethod" type="radio" value="mail_check" required />
+              <span>Mail a check</span>
+            </label>
+            <label class="sponsors-choice">
+              <input name="paymentMethod" type="radio" value="stripe_invoice" required />
+              <span>Digital invoice through Stripe (secure billing)</span>
+            </label>
+          </div>
+          <label class="sponsors-checkbox">
+            <input name="priceAcknowledged" type="checkbox" required />
+            <span>I understand banner sponsorship is $125 the first year and $100 annually thereafter. *</span>
+          </label>
+        </fieldset>
+
+        <div class="sponsors-form-actions">
+          <button class="sponsors-button" type="submit">Submit Sponsor Information</button>
+          <p id="sponsorBannerFormStatus" class="sponsors-form-status" role="status" aria-live="polite"></p>
         </div>
-        <a
-          class="sponsors-button"
-          href="https://docs.google.com/forms/d/e/1FAIpQLSeIHTrb1bVPoegsqW0Du6LFP5IaqQm9UFOzj0Yu-y8j0Uy0CQ/viewform?usp=header"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Open Banner Form
-        </a>
-      </div>
+      </form>
     </section>
 
     <section class="sponsors-section">
@@ -246,6 +305,92 @@
         if (event.key === "Escape") closeLightbox();
         if (event.key === "ArrowRight") showNext();
         if (event.key === "ArrowLeft") showPrev();
+      });
+    })();
+  </script>
+  <script>
+    (() => {
+      const form = document.getElementById("sponsorBannerForm");
+      const status = document.getElementById("sponsorBannerFormStatus");
+      if (!form || !status) return;
+
+      const MAX_FILES = 5;
+      const MAX_FILE_BYTES = 10 * 1024 * 1024;
+
+      const setStatus = (message, tone = "") => {
+        status.textContent = message;
+        status.dataset.tone = tone;
+      };
+
+      const fileToPayload = (file) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = String(reader.result || "");
+          resolve({
+            name: file.name,
+            contentType: file.type || "application/octet-stream",
+            dataBase64: result.split(",")[1] || ""
+          });
+        };
+        reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
+        reader.readAsDataURL(file);
+      });
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        setStatus("");
+
+        const submitButton = form.querySelector("button[type='submit']");
+        const formData = new FormData(form);
+        const files = Array.from(form.querySelector("input[name='logoFiles']")?.files || []);
+
+        if (files.length > MAX_FILES) {
+          setStatus(`Please upload no more than ${MAX_FILES} files.`, "error");
+          return;
+        }
+        const oversized = files.find((file) => file.size > MAX_FILE_BYTES);
+        if (oversized) {
+          setStatus(`${oversized.name} is larger than 10 MB.`, "error");
+          return;
+        }
+
+        submitButton.disabled = true;
+        setStatus("Submitting sponsor information...");
+
+        try {
+          const logoFiles = [];
+          for (const file of files) {
+            logoFiles.push(await fileToPayload(file));
+          }
+
+          const response = await fetch("/api/sponsor-submission", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              businessName: String(formData.get("businessName") || ""),
+              contactName: String(formData.get("contactName") || ""),
+              emailAddress: String(formData.get("emailAddress") || ""),
+              phoneNumber: String(formData.get("phoneNumber") || ""),
+              sponsorshipType: String(formData.get("sponsorshipType") || ""),
+              bannerText: String(formData.get("bannerText") || ""),
+              designRequests: String(formData.get("designRequests") || ""),
+              paymentMethod: String(formData.get("paymentMethod") || ""),
+              priceAcknowledged: formData.get("priceAcknowledged") === "on",
+              logoFiles
+            })
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok || body.success === false) {
+            const message = Array.isArray(body.errors) ? body.errors.join(" ") : body.error;
+            throw new Error(message || "Could not submit sponsor information.");
+          }
+          form.reset();
+          setStatus("Sponsor information submitted. We will follow up with invoice and banner details.", "success");
+        } catch (error) {
+          setStatus(error.message || "Could not submit sponsor information.", "error");
+        } finally {
+          submitButton.disabled = false;
+        }
       });
     })();
   </script>
