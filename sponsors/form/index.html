@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sponsor Information</title>
+  <meta property="og:title" content="RORC Sponsor Information" />
+  <meta property="og:description" content="Submit a new banner sponsorship or renew an existing RORC banner." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://www.ruthobenchainrc.com/sponsors/form/" />
+  <meta property="og:image" content="https://www.ruthobenchainrc.com/Images/Banners/ExtraImages/banneradd.jpg" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="RORC Sponsor Information" />
+  <meta name="twitter:description" content="Submit a new banner sponsorship or renew an existing RORC banner." />
+  <meta name="twitter:image" content="https://www.ruthobenchainrc.com/Images/Banners/ExtraImages/banneradd.jpg" />
+  <link rel="stylesheet" href="../../style.css" />
+  <script src="/scripts/rorc-auth-nav.js" defer></script>
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-EGC30XZVXV"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-EGC30XZVXV');
+  </script>
+</head>
+<body class="interior-page">
+  <div class="site-menu">
+    <input type="checkbox" id="site-menu-toggle" class="site-menu-toggle" />
+    <div class="site-menu-bar">
+      <a class="site-menu-brand" href="/">RORC</a>
+      <div class="site-menu-actions">
+        <a class="site-menu-login" href="/membership-login/">Login</a>
+        <label class="site-menu-button" for="site-menu-toggle">Menu</label>
+      </div>
+    </div>
+    <label class="site-menu-backdrop" for="site-menu-toggle" aria-hidden="true"></label>
+    <div class="site-menu-panel" role="dialog" aria-label="Site menu">
+      <label class="site-menu-close" for="site-menu-toggle">Close</label>
+      <div>
+        <nav class="site-menu-links" aria-label="Site">
+          <a href="/">Home</a>
+          <a href="/about-rorc/">About</a>
+          <a href="/memberships/">Memberships</a>
+          <a href="/rentals/">Rentals</a>
+          <a href="/sponsors/">Sponsors</a>
+          <a href="/projects/">Projects</a>
+          <a href="/news-updates/">News & Updates</a>
+          <a href="/events/">Events</a>
+        </nav>
+      </div>
+      <div class="site-menu-legal" aria-label="Legal">
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </div>
+    </div>
+  </div>
+
+  <main class="page-content sponsors-content sponsors-form-page">
+    <section class="sponsors-hero">
+      <p class="sponsors-kicker">Ruth Obenchain Recreation Center</p>
+      <h1>Sponsor Information</h1>
+      <p class="sponsors-lead">
+        Submit a new banner sponsorship or renew an existing banner.
+      </p>
+    </section>
+
+    <section class="sponsors-section">
+      <form id="sponsorBannerForm" class="sponsors-form">
+        <fieldset>
+          <legend>Sponsor Information</legend>
+          <div class="sponsors-form-grid">
+            <label>
+              <span>Business / Sponsor Name *</span>
+              <input name="businessName" type="text" autocomplete="organization" required />
+            </label>
+            <label>
+              <span>Contact Name *</span>
+              <input name="contactName" type="text" autocomplete="name" required />
+            </label>
+            <label>
+              <span>Email Address *</span>
+              <input name="emailAddress" type="email" autocomplete="email" required />
+            </label>
+            <label>
+              <span>Phone Number</span>
+              <input name="phoneNumber" type="tel" autocomplete="tel" />
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Sponsorship Type</legend>
+          <p class="sponsors-form-help">Is this a new banner or a renewal?</p>
+          <div class="sponsors-choice-grid sponsors-choice-grid-two" role="radiogroup" aria-label="Sponsorship type">
+            <label class="sponsors-choice">
+              <input name="sponsorshipType" type="radio" value="new" required />
+              <span>New Sponsorship <strong>$125 first year</strong></span>
+            </label>
+            <label class="sponsors-choice">
+              <input name="sponsorshipType" type="radio" value="renewal" required />
+              <span>Renewal <strong>$100</strong></span>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset id="sponsorBannerDetailsSection">
+          <legend>Banner Details</legend>
+          <label>
+            <span>Text you would like displayed on the banner</span>
+            <textarea name="bannerText" rows="3"></textarea>
+          </label>
+          <label>
+            <span>Upload your logo or artwork (PNG preferred)</span>
+            <input name="logoFiles" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml,application/pdf" multiple />
+          </label>
+          <p class="sponsors-form-help">Upload up to 5 files. PNG, JPG, WebP, SVG, or PDF. Max 10 MB per file.</p>
+          <label>
+            <span>Design preferences or special requests</span>
+            <textarea name="designRequests" rows="3"></textarea>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>Payment</legend>
+          <p id="sponsorPaymentSummary" class="sponsors-form-help">New sponsorship is $125. Renewal is $100.</p>
+          <div class="sponsors-choice-grid sponsors-choice-grid-two" role="radiogroup" aria-label="Payment method">
+            <label class="sponsors-choice">
+              <input name="paymentMethod" type="radio" value="mail_check" required />
+              <span>Mail a check</span>
+            </label>
+            <label class="sponsors-choice">
+              <input name="paymentMethod" type="radio" value="stripe_invoice" required />
+              <span>Digital invoice through Stripe</span>
+            </label>
+          </div>
+          <label class="sponsors-checkbox">
+            <input name="priceAcknowledged" type="checkbox" required />
+            <span>I understand banner sponsorship is $125 the first year and $100 annually thereafter. *</span>
+          </label>
+        </fieldset>
+
+        <div class="sponsors-form-actions">
+          <a class="sponsors-button sponsors-button-secondary" href="/sponsors/">Back to Sponsors</a>
+          <button class="sponsors-button" type="submit">Submit Sponsor Information</button>
+          <p id="sponsorBannerFormStatus" class="sponsors-form-status" role="status" aria-live="polite"></p>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <div>© 2026 Ruth Obenchain Recreation Center</div>
+      <div class="site-footer-links">
+        <a href="/support/">Support</a>
+        <a href="/privacy-policy/">Privacy Policy</a>
+        <a href="/terms-of-service/">Terms of Service</a>
+      </div>
+      <div>Operated by Bly Community Action Team</div>
+      <div>Designed &amp; Built by <a href="https://n3xra.com"><strong>N3XRA</strong></a></div>
+    </div>
+  </footer>
+
+  <script>
+    (() => {
+      const form = document.getElementById("sponsorBannerForm");
+      const status = document.getElementById("sponsorBannerFormStatus");
+      const detailsSection = document.getElementById("sponsorBannerDetailsSection");
+      const paymentSummary = document.getElementById("sponsorPaymentSummary");
+      if (!form || !status || !detailsSection || !paymentSummary) return;
+
+      const MAX_FILES = 5;
+      const MAX_FILE_BYTES = 10 * 1024 * 1024;
+
+      const setStatus = (message, tone = "") => {
+        status.textContent = message;
+        status.dataset.tone = tone;
+      };
+
+      const selectedType = () => String(new FormData(form).get("sponsorshipType") || "");
+
+      const syncSponsorshipType = () => {
+        const type = selectedType();
+        const isRenewal = type === "renewal";
+        detailsSection.hidden = isRenewal;
+        detailsSection.querySelectorAll("input, textarea").forEach((input) => {
+          input.disabled = isRenewal;
+        });
+        paymentSummary.textContent = isRenewal
+          ? "Renewal total: $100."
+          : type === "new"
+            ? "New sponsorship total: $125 for the first year."
+            : "New sponsorship is $125. Renewal is $100.";
+      };
+
+      const urlType = new URLSearchParams(window.location.search).get("type");
+      if (urlType === "new" || urlType === "renewal") {
+        const typeInput = form.querySelector(`input[name="sponsorshipType"][value="${urlType}"]`);
+        if (typeInput) typeInput.checked = true;
+      }
+      syncSponsorshipType();
+
+      form.querySelectorAll("input[name='sponsorshipType']").forEach((input) => {
+        input.addEventListener("change", syncSponsorshipType);
+      });
+
+      const fileToPayload = (file) => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = String(reader.result || "");
+          resolve({
+            name: file.name,
+            contentType: file.type || "application/octet-stream",
+            dataBase64: result.split(",")[1] || ""
+          });
+        };
+        reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
+        reader.readAsDataURL(file);
+      });
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        setStatus("");
+
+        const submitButton = form.querySelector("button[type='submit']");
+        const formData = new FormData(form);
+        const type = String(formData.get("sponsorshipType") || "");
+        const files = type === "renewal"
+          ? []
+          : Array.from(form.querySelector("input[name='logoFiles']")?.files || []);
+
+        if (files.length > MAX_FILES) {
+          setStatus(`Please upload no more than ${MAX_FILES} files.`, "error");
+          return;
+        }
+        const oversized = files.find((file) => file.size > MAX_FILE_BYTES);
+        if (oversized) {
+          setStatus(`${oversized.name} is larger than 10 MB.`, "error");
+          return;
+        }
+
+        submitButton.disabled = true;
+        setStatus("Submitting sponsor information...");
+
+        try {
+          const logoFiles = [];
+          for (const file of files) {
+            logoFiles.push(await fileToPayload(file));
+          }
+
+          const response = await fetch("/api/sponsor-submission", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              businessName: String(formData.get("businessName") || ""),
+              contactName: String(formData.get("contactName") || ""),
+              emailAddress: String(formData.get("emailAddress") || ""),
+              phoneNumber: String(formData.get("phoneNumber") || ""),
+              sponsorshipType: type,
+              bannerText: type === "renewal" ? "" : String(formData.get("bannerText") || ""),
+              designRequests: type === "renewal" ? "" : String(formData.get("designRequests") || ""),
+              paymentMethod: String(formData.get("paymentMethod") || ""),
+              priceAcknowledged: formData.get("priceAcknowledged") === "on",
+              logoFiles
+            })
+          });
+          const body = await response.json().catch(() => ({}));
+          if (!response.ok || body.success === false) {
+            const message = Array.isArray(body.errors) ? body.errors.join(" ") : body.error;
+            throw new Error(message || "Could not submit sponsor information.");
+          }
+          form.reset();
+          syncSponsorshipType();
+          setStatus("Sponsor information submitted. We will follow up with invoice and banner details.", "success");
+        } catch (error) {
+          setStatus(error.message || "Could not submit sponsor information.", "error");
+        } finally {
+          submitButton.disabled = false;
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
