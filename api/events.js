@@ -36,7 +36,7 @@ module.exports = async (req, res) => {
         ]);
         const rows = [
           ...eventRows.filter(isStandaloneAvailabilityEvent),
-          ...rentalRows.map(rentalRowToAvailabilityRow)
+          ...rentalRows.flatMap(rentalRowToAvailabilityRows)
         ];
         const availability = collectRentalAvailabilityBlocks(rows);
         return res.status(200).json({
@@ -522,7 +522,7 @@ async function loadFacilityBlocks() {
   ]);
   const rows = [
     ...eventRows.filter(isStandaloneAvailabilityEvent),
-    ...rentalRows.map(rentalRowToAvailabilityRow)
+    ...rentalRows.flatMap(rentalRowToAvailabilityRows)
   ];
   return rows.map((row) => {
     const rentalTiming = row.rental_requests || null;
@@ -537,16 +537,48 @@ async function loadFacilityBlocks() {
 
 async function loadConfirmedRentalRows() {
   return supabaseRest(
-    "rental_requests?select=event_date,event_start_time,event_end_time,rental_type&rental_status=eq.confirmed&order=event_date.asc&limit=500"
+    "rental_requests?select=event_date,event_start_time,event_end_time,rental_type,addon_early_setup,addon_early_day_rental,addon_late_cleanup,addon_late_day_rental&rental_status=eq.confirmed&order=event_date.asc&limit=500"
   );
 }
 
-function rentalRowToAvailabilityRow(row) {
-  return {
+function rentalRowToAvailabilityRows(row) {
+  return rentalAvailabilityBlocks(row).map((block) => ({
     event_type: "rental",
     all_day: false,
-    rental_requests: row
-  };
+    rental_requests: {
+      event_date: block.date,
+      event_start_time: block.start,
+      event_end_time: block.end,
+      rental_type: row.rental_type
+    }
+  }));
+}
+
+function rentalAvailabilityBlocks(row) {
+  const eventDate = String(row?.event_date || "").slice(0, 10);
+  const blocks = [];
+  if (!eventDate) return blocks;
+
+  blocks.push({
+    date: eventDate,
+    start: row.event_start_time,
+    end: row.event_end_time
+  });
+
+  const previousDate = shiftDateKey(eventDate, -1);
+  const nextDate = shiftDateKey(eventDate, 1);
+  if (row.addon_early_day_rental) blocks.push({ date: previousDate, start: "07:00", end: "21:00" });
+  else if (row.addon_early_setup) blocks.push({ date: previousDate, start: "18:00", end: "21:00" });
+  if (row.addon_late_day_rental) blocks.push({ date: nextDate, start: "07:00", end: "21:00" });
+  else if (row.addon_late_cleanup) blocks.push({ date: nextDate, start: "07:00", end: "09:00" });
+  return blocks.filter((block) => block.date && block.start && block.end);
+}
+
+function shiftDateKey(dateKey, days) {
+  const [year, month, day] = String(dateKey || "").split("-").map(Number);
+  if (![year, month, day].every(Number.isFinite)) return "";
+  const date = new Date(Date.UTC(year, month - 1, day + days, 12));
+  return date.toISOString().slice(0, 10);
 }
 
 function isStandaloneAvailabilityEvent(row) {

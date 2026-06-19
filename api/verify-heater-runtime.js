@@ -6,6 +6,7 @@ const ECOBEE_HEATER_THERMOSTAT_ID = process.env.ECOBEE_HEATER_THERMOSTAT_ID || p
 const ECOBEE_AC_THERMOSTAT_ID = process.env.ECOBEE_AC_THERMOSTAT_ID || "";
 
 const RUNTIME_CACHE_MS = 15 * 60 * 1000;
+const ECOBEE_RUNTIME_MAX_DAYS = 31;
 const runtimeCache = new Map();
 
 module.exports = async (req, res) => {
@@ -42,6 +43,12 @@ module.exports = async (req, res) => {
     if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime()) || endDate <= startDate) {
       return res.status(400).json({ success: false, error: "Invalid runtime window." });
     }
+    if ((endDate.getTime() - startDate.getTime()) > ECOBEE_RUNTIME_MAX_DAYS * 24 * 60 * 60 * 1000) {
+      return res.status(400).json({
+        success: false,
+        error: `Ecobee runtime reports can only cover up to ${ECOBEE_RUNTIME_MAX_DAYS} days at a time. Narrow Start At and End At before verifying.`
+      });
+    }
 
     const thermostatId = thermostatIdForSystem(systemType);
     const reportQuery = buildRuntimeQuery(startDate, endDate, systemType);
@@ -77,7 +84,7 @@ module.exports = async (req, res) => {
       }
     });
   } catch (error) {
-    return res.status(500).json({ success: false, error: error.message || "Could not verify thermostat runtime." });
+    return res.status(error.statusCode || 500).json({ success: false, error: error.message || "Could not verify thermostat runtime." });
   }
 };
 
@@ -148,7 +155,19 @@ async function requestRuntimeWithFallbacks({ thermostatId, reportQuery, systemTy
     }
   }
 
+  if (isEcobeeProcessingError(lastError)) {
+    throw httpError(
+      422,
+      "Ecobee could not process a runtime report for that historical window. Narrow Start At and End At to the actual heater runtime; if it is an older record, Ecobee may no longer have report data for that date."
+    );
+  }
+
   throw lastError || new Error("Ecobee runtime report request failed.");
+}
+
+function isEcobeeProcessingError(error) {
+  const message = String(error?.message || "");
+  return message.includes('"code":3') || message.includes('"code": 3') || message.includes("Processing error");
 }
 
 function buildQueryAttempts(baseQuery, systemType) {
@@ -241,4 +260,10 @@ async function supabaseRest(path) {
   }
 
   return response.json();
+}
+
+function httpError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
 }

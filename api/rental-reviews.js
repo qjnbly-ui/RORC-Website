@@ -182,7 +182,9 @@ module.exports = async (req, res) => {
 
     try {
       const calendarPublicOverride = calendarPublicOverrideFromBody(req.body || {});
-      const patchBody = buildRentalPatch(req.body || {});
+      const existingRows = await supabaseRest(`rental_requests?select=*&id=eq.${encodeURIComponent(id)}&limit=1`);
+      const existingRecord = existingRows[0] || {};
+      const patchBody = buildRentalPatch(req.body || {}, existingRecord);
       const patchRes = await fetch(
         `${SUPABASE_URL}/rest/v1/rental_requests?id=eq.${encodeURIComponent(id)}`,
         {
@@ -295,13 +297,17 @@ async function createOrUpdateCalendarEvent(record, options = {}) {
     : `${record.event_type} - ${record.contact_name}`;
 
   const existingRows = await supabaseRest(
-    `events?select=id,is_public,created_by&rental_request_id=eq.${encodeURIComponent(record.id)}&limit=1`
+    `events?select=id,is_public,created_by&rental_request_id=eq.${encodeURIComponent(record.id)}`
   );
-  const existingEvent = existingRows[0] || null;
-  const existingId = existingEvent?.id;
+  const existingMainEvent = (existingRows || []).find((event) => String(event?.created_by || "").includes(":calendar:main"))
+    || existingRows[0]
+    || null;
   const calendarPublicOverride = options.calendarPublicOverride || {};
 
-  const payload = {
+  const createdByBase = record.claimed_member_id
+    ? `member:${record.claimed_member_id}:rental:${record.id}`
+    : calendarCreatedByBase(existingMainEvent?.created_by);
+  const mainPayload = {
     title,
     event_type: "rental",
     start_at: startAt,
@@ -309,27 +315,47 @@ async function createOrUpdateCalendarEvent(record, options = {}) {
     all_day:  renderAsAllDay,
     is_public: calendarPublicOverride.provided
       ? Boolean(calendarPublicOverride.value)
-      : existingEvent ? Boolean(existingEvent.is_public) : usePublicWindow,
+      : existingMainEvent ? Boolean(existingMainEvent.is_public) : usePublicWindow,
     status: "confirmed",
     rental_request_id: record.id,
-    created_by: record.claimed_member_id
-      ? `member:${record.claimed_member_id}:rental:${record.id}`
-      : existingEvent?.created_by || "system"
+    created_by: `${createdByBase}:calendar:main`
   };
 
+  const payloads = [
+    mainPayload,
+    ...rentalExtensionCalendarPayloads(record, title, createdByBase)
+  ];
+
+  if (existingRows.length) {
+    const deleteRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/events?rental_request_id=eq.${encodeURIComponent(record.id)}`,
+      {
+        method: "DELETE",
+        headers: {
+          apikey: SERVICE_ROLE_KEY,
+          Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+          Prefer: "return=minimal"
+        }
+      }
+    );
+
+    if (!deleteRes.ok) {
+      const text = await deleteRes.text();
+      throw new Error(`Event cleanup failed: ${deleteRes.status} ${text}`);
+    }
+  }
+
   const res = await fetch(
-    existingId
-      ? `${SUPABASE_URL}/rest/v1/events?id=eq.${encodeURIComponent(existingId)}`
-      : `${SUPABASE_URL}/rest/v1/events`,
+    `${SUPABASE_URL}/rest/v1/events`,
     {
-      method: existingId ? "PATCH" : "POST",
+      method: "POST",
       headers: {
         apikey: SERVICE_ROLE_KEY,
         Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
         "Content-Type": "application/json",
         Prefer: "return=minimal"
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payloads)
     }
   );
 
@@ -337,6 +363,69 @@ async function createOrUpdateCalendarEvent(record, options = {}) {
     const text = await res.text();
     throw new Error(`Event upsert failed: ${res.status} ${text}`);
   }
+}
+
+function rentalExtensionCalendarPayloads(record, baseTitle, createdByBase) {
+  const eventDate = String(record.event_date || "").slice(0, 10);
+  if (!eventDate) return [];
+
+  const previousDate = shiftDateKey(eventDate, -1);
+  const nextDate = shiftDateKey(eventDate, 1);
+  const extensions = [
+    record.addon_early_day_rental && {
+      key: "early-day",
+      title: `${baseTitle} - Extra Day Early`,
+      date: previousDate,
+      start: "07:00",
+      end: "21:00"
+    },
+    !record.addon_early_day_rental && record.addon_early_setup && {
+      key: "early-setup",
+      title: `${baseTitle} - Early Setup`,
+      date: previousDate,
+      start: "18:00",
+      end: "21:00"
+    },
+    !record.addon_late_day_rental && record.addon_late_cleanup && {
+      key: "late-cleanup",
+      title: `${baseTitle} - Late Cleanup`,
+      date: nextDate,
+      start: "07:00",
+      end: "09:00"
+    },
+    record.addon_late_day_rental && {
+      key: "late-day",
+      title: `${baseTitle} - Extra Day Late`,
+      date: nextDate,
+      start: "07:00",
+      end: "21:00"
+    }
+  ].filter(Boolean);
+
+  return extensions.map((extension) => ({
+    title: extension.title,
+    event_type: "rental",
+    start_at: buildIsoTimestamp(extension.date, extension.start),
+    end_at: buildIsoTimestamp(extension.date, extension.end),
+    all_day: false,
+    is_public: false,
+    status: "confirmed",
+    rental_request_id: record.id,
+    created_by: `${createdByBase}:calendar:${extension.key}`
+  }));
+}
+
+function calendarCreatedByBase(value) {
+  const markerIndex = String(value || "").indexOf(":calendar:");
+  if (markerIndex >= 0) return String(value).slice(0, markerIndex);
+  return String(value || "system") || "system";
+}
+
+function shiftDateKey(dateKey, days) {
+  const [year, month, day] = String(dateKey || "").split("-").map(Number);
+  if (![year, month, day].every(Number.isFinite)) return "";
+  const date = new Date(Date.UTC(year, month - 1, day + days, 12));
+  return date.toISOString().slice(0, 10);
 }
 
 async function syncLinkedCalendarEventStatus(rentalRequestId, eventStatus) {
@@ -455,9 +544,9 @@ function buildRentalRecord(body) {
     addon_heater: Boolean(body.addon_heater ?? body.addonHeater),
     addon_ac: Boolean(body.addon_ac ?? body.addonAc),
     addon_cleaning_maintenance: Boolean(body.addon_cleaning_maintenance ?? body.addonCleaningMaintenance),
-    addon_early_setup: Boolean(body.addon_early_setup ?? body.addonEarlySetup),
+    addon_early_setup: Boolean(body.addon_early_setup ?? body.addonEarlySetup) && !Boolean(body.addon_early_day_rental ?? body.addonEarlyDayRental),
     addon_early_day_rental: Boolean(body.addon_early_day_rental ?? body.addonEarlyDayRental),
-    addon_late_cleanup: Boolean(body.addon_late_cleanup ?? body.addonLateCleanup),
+    addon_late_cleanup: Boolean(body.addon_late_cleanup ?? body.addonLateCleanup) && !Boolean(body.addon_late_day_rental ?? body.addonLateDayRental),
     addon_late_day_rental: Boolean(body.addon_late_day_rental ?? body.addonLateDayRental),
     estimated_total_cents: 0,
     is_private_event: bodyFieldValue(body, "is_private_event", "isPrivateEvent") !== false,
@@ -490,7 +579,7 @@ function buildRentalRecord(body) {
   return record;
 }
 
-function buildRentalPatch(body) {
+function buildRentalPatch(body, existingRecord = {}) {
   const patch = {};
   const allowedFields = [
     ["contact_name", body.contact_name ?? body.contactName],
@@ -536,8 +625,12 @@ function buildRentalPatch(body) {
   if (body.addon_ac !== undefined || body.addonAc !== undefined) patch.addon_ac = Boolean(body.addon_ac ?? body.addonAc);
   if (body.addon_early_setup !== undefined || body.addonEarlySetup !== undefined) patch.addon_early_setup = Boolean(body.addon_early_setup ?? body.addonEarlySetup);
   if (body.addon_early_day_rental !== undefined || body.addonEarlyDayRental !== undefined) patch.addon_early_day_rental = Boolean(body.addon_early_day_rental ?? body.addonEarlyDayRental);
+  if (patch.addon_early_day_rental) patch.addon_early_setup = false;
+  else if (patch.addon_early_setup) patch.addon_early_day_rental = false;
   if (body.addon_late_cleanup !== undefined || body.addonLateCleanup !== undefined) patch.addon_late_cleanup = Boolean(body.addon_late_cleanup ?? body.addonLateCleanup);
   if (body.addon_late_day_rental !== undefined || body.addonLateDayRental !== undefined) patch.addon_late_day_rental = Boolean(body.addon_late_day_rental ?? body.addonLateDayRental);
+  if (patch.addon_late_day_rental) patch.addon_late_cleanup = false;
+  else if (patch.addon_late_cleanup) patch.addon_late_day_rental = false;
   if (hasBodyField(body, "is_private_event") || hasBodyField(body, "isPrivateEvent")) {
     patch.is_private_event = bodyFieldValue(body, "is_private_event", "isPrivateEvent") !== false;
   }
@@ -565,7 +658,7 @@ function buildRentalPatch(body) {
       : null;
   }
   if (body.estimated_total_cents !== undefined || body.estimatedTotalCents !== undefined) {
-    patch.estimated_total_cents = calculateRentalTotalCents(rentalPricingRecordFromBody(body, patch));
+    patch.estimated_total_cents = calculateRentalTotalCents(rentalPricingRecordFromBody(body, patch, existingRecord));
   }
 
   if (body.status !== undefined) patch.rental_status = body.status;
@@ -584,7 +677,7 @@ function str(value) {
   return String(value || "").trim();
 }
 
-function rentalPricingRecordFromBody(body, patch = {}) {
+function rentalPricingRecordFromBody(body, patch = {}, existingRecord = {}) {
   const rentalType = patch.rental_type || (str(body.rental_type || body.rentalType) === "hourly" ? "hourly" : "all_day");
   return {
     event_start_time: patch.event_start_time || str(body.event_start_time || body.eventStartTime || "07:00") || "07:00",
@@ -602,7 +695,9 @@ function rentalPricingRecordFromBody(body, patch = {}) {
       : bodyFieldValue(body, "is_private_event", "isPrivateEvent") !== false,
     special_access_discount: hasBodyField(patch, "special_access_discount")
       ? patch.special_access_discount
-      : Boolean(bodyFieldValue(body, "special_access_discount", "specialAccessDiscount")),
+      : hasBodyField(body, "special_access_discount") || hasBodyField(body, "specialAccessDiscount")
+        ? Boolean(bodyFieldValue(body, "special_access_discount", "specialAccessDiscount"))
+        : Boolean(existingRecord.special_access_discount),
     addon_cleaning_maintenance: patch.addon_cleaning_maintenance ?? Boolean(body.addon_cleaning_maintenance ?? body.addonCleaningMaintenance),
     addon_tables: patch.addon_tables ?? Boolean(body.addon_tables ?? body.addonTables),
     addon_chairs: patch.addon_chairs ?? Boolean(body.addon_chairs ?? body.addonChairs),
@@ -796,11 +891,14 @@ async function loadLinkedCalendarEventMap(rentalIds = []) {
   if (!ids.length) return new Map();
 
   const rows = await supabaseRest(
-    `events?select=id,rental_request_id,is_public,status&rental_request_id=in.(${ids.map(encodeURIComponent).join(",")})&status=neq.cancelled`
+    `events?select=id,rental_request_id,is_public,status,created_by&rental_request_id=in.(${ids.map(encodeURIComponent).join(",")})&status=neq.cancelled`
   );
   const byRentalId = new Map();
   (rows || []).forEach((event) => {
-    if (event.rental_request_id && !byRentalId.has(event.rental_request_id)) {
+    if (!event.rental_request_id) return;
+    const current = byRentalId.get(event.rental_request_id);
+    const isMain = String(event.created_by || "").includes(":calendar:main");
+    if (!current || isMain) {
       byRentalId.set(event.rental_request_id, event);
     }
   });

@@ -7,3 +7,4 @@ features/build/*
 RORC App/app.config.js
 Appsheet Inspect/
 supabase/.temp/
+private/

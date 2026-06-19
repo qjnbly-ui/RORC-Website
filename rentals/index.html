@@ -406,7 +406,7 @@
                           <input type="checkbox" name="addonEarlyDayRental" data-price="100" />
                           <div class="rental-addon-info">
                             <span class="rental-addon-name">Extra Day (Early)</span>
-                            <span class="rental-addon-desc">Access before 6 PM prior day</span>
+                            <span class="rental-addon-desc">Full prior facility day</span>
                             <span class="rental-addon-price">+$100</span>
                           </div>
                         </label>
@@ -422,7 +422,7 @@
                           <input type="checkbox" name="addonLateDayRental" data-price="100" />
                           <div class="rental-addon-info">
                             <span class="rental-addon-name">Extra Day (Late)</span>
-                            <span class="rental-addon-desc">Access past 9 AM next day</span>
+                            <span class="rental-addon-desc">Full next facility day</span>
                             <span class="rental-addon-price">+$100</span>
                           </div>
                         </label>
@@ -1205,6 +1205,17 @@
         });
       }
 
+      function syncAccessExtensionChoices(changedField) {
+        const earlySetup = form.elements.addonEarlySetup;
+        const earlyDay = form.elements.addonEarlyDayRental;
+        const lateCleanup = form.elements.addonLateCleanup;
+        const lateDay = form.elements.addonLateDayRental;
+        if (changedField === earlySetup && earlySetup.checked && earlyDay) earlyDay.checked = false;
+        if (changedField === earlyDay && earlyDay.checked && earlySetup) earlySetup.checked = false;
+        if (changedField === lateCleanup && lateCleanup.checked && lateDay) lateDay.checked = false;
+        if (changedField === lateDay && lateDay.checked && lateCleanup) lateCleanup.checked = false;
+      }
+
       form.addEventListener("change", function (e) {
         const t = e.target;
         if (t.name === "rentalType") {
@@ -1225,6 +1236,7 @@
           updateBaseDisplay();
           updateTotal();
         } else if (t.dataset.price !== undefined) {
+          syncAccessExtensionChoices(t);
           updateTotal();
           syncAddonCards();
         }
@@ -1258,6 +1270,8 @@
         const rentalHours = rentalType === "hourly"
           ? normalizeRentalHours(rentalRange ? rentalRange.hours : hoursInput.value)
           : null;
+        const earlyDay = fd.get("addonEarlyDayRental") === "on";
+        const lateDay = fd.get("addonLateDayRental") === "on";
 
         const payload = {
           contactName:    fd.get("contactName") || "",
@@ -1287,10 +1301,10 @@
           addonTarp:         fd.get("addonTarp") === "on",
           addonHeater:       fd.get("addonHeater") === "on",
           addonAc:           fd.get("addonAc") === "on",
-          addonEarlySetup:   fd.get("addonEarlySetup") === "on",
-          addonEarlyDayRental: fd.get("addonEarlyDayRental") === "on",
-          addonLateCleanup:  fd.get("addonLateCleanup") === "on",
-          addonLateDayRental: fd.get("addonLateDayRental") === "on",
+          addonEarlySetup:   fd.get("addonEarlySetup") === "on" && !earlyDay,
+          addonEarlyDayRental: earlyDay,
+          addonLateCleanup:  fd.get("addonLateCleanup") === "on" && !lateDay,
+          addonLateDayRental: lateDay,
 
           estimatedTotalCents: calcTotal(),
 

@@ -240,6 +240,8 @@ const appState = {
   currentRoute: "currentlySignedIn",
   masterLogsTab: "timesheet",
   masterLogsBillingFilter: "all",
+  masterLogsBillingView: "accounts",
+  masterLogsBillingMonth: "",
   notificationsHistoryFilter: "all",
   dataStatus: "loading",
   dataError: "",
@@ -2145,6 +2147,9 @@ function renderMasterLogsPage() {
   const isBillingTab = activeTab === "billing";
   const isDoorAccessTab = activeTab === "doorAccess";
   const billingFilter = String(appState.masterLogsBillingFilter || "all");
+  const billingView = String(appState.masterLogsBillingView || "accounts");
+  const billingMonth = normalizedBillingMonth(appState.masterLogsBillingMonth || currentFacilityMonthKey());
+  appState.masterLogsBillingMonth = billingMonth;
   const timesheetRecords = [...timesheetEntries]
     .sort((a, b) => new Date(b.signedInAt) - new Date(a.signedInAt))
     .slice(0, 500);
@@ -2157,10 +2162,16 @@ function renderMasterLogsPage() {
         ? true
         : billingFilter === "guest"
           ? Boolean(item.timesheetEntryId)
-          : Boolean(item.heaterUseEntryId)
+          : billingFilter === "thermostat"
+            ? Boolean(item.heaterUseEntryId)
+            : isManualBillingItem(item)
     ))
+    .filter((item) => billingItemFacilityMonth(item) === billingMonth)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
     .slice(0, 500);
+  const billingAccountSummaries = monthlyBillingAccountSummaries(billingMonth, billingFilter);
+  const billingOpenTotal = billingAccountSummaries.reduce((total, summary) => total + summary.openTotalCents, 0);
+  const billingMonthTotal = billingAccountSummaries.reduce((total, summary) => total + summary.totalCents, 0);
   const doorAccessRecords = [...doorAccessEntries]
     .sort((a, b) => new Date(b.accessRequestedAt || b.createdAt) - new Date(a.accessRequestedAt || a.createdAt))
     .slice(0, 500);
@@ -2191,10 +2202,25 @@ function renderMasterLogsPage() {
       </div>
       ${isBillingTab ? `
       <div class="detail-card">
+        <div class="monthly-billing-toolbar">
+          <label class="monthly-billing-month">
+            <span>Billing Month</span>
+            <input id="masterBillingMonth" type="month" value="${escapeAttribute(billingMonth)}" />
+          </label>
+          <div class="monthly-billing-totals">
+            <span>Open ${formatCurrency(billingOpenTotal)}</span>
+            <strong>Total ${formatCurrency(billingMonthTotal)}</strong>
+          </div>
+        </div>
+        <div class="master-logs-filter-row" role="tablist" aria-label="Billing view">
+          <button class="master-logs-filter-chip ${billingView === "accounts" ? "is-active" : ""}" data-master-billing-view="accounts" type="button">Accounts</button>
+          <button class="master-logs-filter-chip ${billingView === "items" ? "is-active" : ""}" data-master-billing-view="items" type="button">Line Items</button>
+        </div>
         <div class="master-logs-filter-row" role="tablist" aria-label="Billing log filters">
           <button class="master-logs-filter-chip ${billingFilter === "all" ? "is-active" : ""}" data-master-billing-filter="all" type="button">All</button>
           <button class="master-logs-filter-chip ${billingFilter === "guest" ? "is-active" : ""}" data-master-billing-filter="guest" type="button">Guest Sign-In</button>
-          <button class="master-logs-filter-chip ${billingFilter === "heater" ? "is-active" : ""}" data-master-billing-filter="heater" type="button">Heater Use</button>
+          <button class="master-logs-filter-chip ${billingFilter === "thermostat" ? "is-active" : ""}" data-master-billing-filter="thermostat" type="button">Thermostat</button>
+          <button class="master-logs-filter-chip ${billingFilter === "manual" ? "is-active" : ""}" data-master-billing-filter="manual" type="button">Manual</button>
         </div>
       </div>
       ` : ""}
@@ -2269,7 +2295,7 @@ function renderMasterLogsPage() {
       <section class="empty-state">
         <p>No door access logs yet.</p>
       </section>
-      `) : (billingRecords.length ? `
+      `) : billingView === "accounts" ? renderMonthlyBillingAccounts(billingAccountSummaries, billingMonth, billingFilter) : (billingRecords.length ? `
       <div class="detail-card">
           <ol class="record-list master-log-list">
             ${billingRecords.map((item) => {
@@ -2324,6 +2350,229 @@ function bindMasterLogsActions() {
       renderMasterLogsPage();
     });
   });
+
+  document.querySelectorAll("[data-master-billing-view]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const view = String(button.dataset.masterBillingView || "accounts");
+      if (view === appState.masterLogsBillingView) return;
+      appState.masterLogsBillingView = view;
+      renderMasterLogsPage();
+    });
+  });
+
+  document.getElementById("masterBillingMonth")?.addEventListener("change", (event) => {
+    const nextMonth = normalizedBillingMonth(event.currentTarget.value);
+    if (!nextMonth || nextMonth === appState.masterLogsBillingMonth) return;
+    appState.masterLogsBillingMonth = nextMonth;
+    renderMasterLogsPage();
+  });
+
+  document.querySelectorAll("[data-billing-mark-account-paid]").forEach((button) => {
+    button.addEventListener("click", () => {
+      markMonthlyBillingAccountPaid(
+        button.dataset.billingAccountId || "",
+        button.dataset.billingMonth || "",
+        button
+      );
+    });
+  });
+}
+
+function normalizedBillingMonth(value) {
+  const raw = String(value || "").trim();
+  return /^\d{4}-\d{2}$/.test(raw) ? raw : currentFacilityMonthKey();
+}
+
+function currentFacilityMonthKey() {
+  const parts = facilityDateParts(new Date());
+  return parts ? `${parts.year}-${parts.month}` : new Date().toISOString().slice(0, 7);
+}
+
+function billingItemFacilityMonth(item) {
+  const dateKey = facilityDateKey(item?.createdAt);
+  return dateKey ? dateKey.slice(0, 7) : "";
+}
+
+function isManualBillingItem(item) {
+  return !item?.timesheetEntryId && !item?.heaterUseEntryId;
+}
+
+function billingItemMatchesFilter(item, filter) {
+  if (filter === "guest") return Boolean(item.timesheetEntryId);
+  if (filter === "thermostat") return Boolean(item.heaterUseEntryId);
+  if (filter === "manual") return isManualBillingItem(item);
+  return true;
+}
+
+function billingItemSourceLabel(item) {
+  if (item?.timesheetEntryId) return "Guest Sign-In";
+  if (item?.heaterUseEntryId) return "Thermostat";
+  return "Manual";
+}
+
+function monthlyBillingAccountSummaries(monthKey, filter = "all") {
+  const summaries = new Map();
+
+  billingLineItems
+    .filter((item) => billingItemFacilityMonth(item) === monthKey)
+    .filter((item) => billingItemMatchesFilter(item, filter))
+    .forEach((item) => {
+      const member = findMember(item.accountMemberId);
+      if (!member?.accountId) return;
+      const accountId = member.accountId;
+      const account = accountForMember(member);
+      const accountMembersForAccount = accountMembers.filter((accountMember) => accountMember.accountId === accountId);
+      const billingOwner = accountMembersForAccount.find((accountMember) => accountMember.isBillingOwner)
+        || accountMembersForAccount[0]
+        || member;
+
+      if (!summaries.has(accountId)) {
+        summaries.set(accountId, {
+          accountId,
+          account,
+          billingOwner,
+          members: accountMembersForAccount,
+          items: [],
+          totalCents: 0,
+          openTotalCents: 0,
+          paidTotalCents: 0
+        });
+      }
+
+      const summary = summaries.get(accountId);
+      summary.items.push(item);
+      summary.totalCents += Number(item.amountCents || 0);
+      if (item.postedToStripeAt) summary.paidTotalCents += Number(item.amountCents || 0);
+      else summary.openTotalCents += Number(item.amountCents || 0);
+    });
+
+  return [...summaries.values()]
+    .map((summary) => ({
+      ...summary,
+      items: summary.items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+      openItems: summary.items.filter((item) => !item.postedToStripeAt)
+    }))
+    .sort((a, b) => (
+      b.openTotalCents - a.openTotalCents
+      || String(a.account?.accountNumber || "").localeCompare(String(b.account?.accountNumber || ""), undefined, { numeric: true })
+      || String(a.billingOwner?.memberName || "").localeCompare(String(b.billingOwner?.memberName || ""))
+    ));
+}
+
+function renderMonthlyBillingAccounts(summaries, monthKey, filter) {
+  if (!summaries.length) {
+    return `
+      <section class="empty-state">
+        <p>No billing charges for ${escapeHtml(monthKey)}${filter === "all" ? "" : " with this filter"}.</p>
+      </section>
+    `;
+  }
+
+  return `
+    <div class="monthly-billing-list">
+      ${summaries.map((summary) => renderMonthlyBillingAccountCard(summary, monthKey)).join("")}
+    </div>
+  `;
+}
+
+function renderMonthlyBillingAccountCard(summary, monthKey) {
+  const accountNumber = summary.account?.accountNumber || "No account number";
+  const ownerName = summary.billingOwner?.memberName || "Unknown billing owner";
+  const status = summary.openTotalCents > 0 ? "Open" : "Paid";
+  const memberNames = summary.members.map((member) => member.memberName).filter(Boolean).join(", ");
+
+  return `
+    <details class="monthly-billing-card" ${summary.openTotalCents > 0 ? "open" : ""}>
+      <summary>
+        <span>
+          <strong>${escapeHtml(accountNumber)} · ${escapeHtml(ownerName)}</strong>
+          <small>${escapeHtml(memberNames || "No members listed")}</small>
+        </span>
+        <span class="monthly-billing-amounts">
+          <b>${formatCurrency(summary.openTotalCents)}</b>
+          <small>${escapeHtml(status)} · ${summary.items.length} item${summary.items.length === 1 ? "" : "s"}</small>
+        </span>
+      </summary>
+      <div class="monthly-billing-breakdown">
+        <div class="monthly-billing-breakdown-head">
+          <span>Total ${formatCurrency(summary.totalCents)}</span>
+          <span>Paid ${formatCurrency(summary.paidTotalCents)}</span>
+          <span>Open ${formatCurrency(summary.openTotalCents)}</span>
+        </div>
+        <ol class="record-list monthly-billing-items">
+          ${summary.items.map((item) => {
+            const member = findMember(item.accountMemberId);
+            return `
+              <li data-master-log-type="billing" data-master-log-id="${escapeAttribute(item.id)}" role="button" tabindex="0">
+                <div>
+                  <strong>${escapeHtml(item.reason || "Billing item")}</strong>
+                  <span>${escapeHtml(member?.memberName || "Unknown Member")} · ${escapeHtml(billingItemSourceLabel(item))} · ${formatShortDateTime(item.createdAt)} · ${escapeHtml(billingStatusLabel(item))}</span>
+                </div>
+                <b>${formatCurrency(item.amountCents || 0)}</b>
+              </li>
+            `;
+          }).join("")}
+        </ol>
+        <footer class="monthly-billing-actions">
+          <button
+            class="app-admin-btn app-admin-btn-primary"
+            data-billing-mark-account-paid
+            data-billing-account-id="${escapeAttribute(summary.accountId)}"
+            data-billing-month="${escapeAttribute(monthKey)}"
+            type="button"
+            ${summary.openItems.length ? "" : "disabled"}
+          >Mark Account Paid</button>
+        </footer>
+      </div>
+    </details>
+  `;
+}
+
+async function markBillingItemsPaid(itemIds, triggerButton, successMessage = "Billing item(s) marked paid.") {
+  const ids = [...new Set((itemIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
+  if (!ids.length) return;
+
+  const client = await createSupabaseClient();
+  if (!client) {
+    showDetailActionMessage("App data is not available.");
+    return false;
+  }
+
+  if (triggerButton) triggerButton.disabled = true;
+
+  try {
+    const paidAt = new Date().toISOString();
+    const { error } = await client
+      .from("billing_line_items")
+      .update({ posted_to_stripe_at: paidAt })
+      .in("id", ids);
+
+    if (error) throw error;
+
+    billingLineItems = billingLineItems.map((item) => (
+      ids.includes(item.id) ? { ...item, postedToStripeAt: paidAt } : item
+    ));
+    refreshAfterRecordMutation();
+    showDetailActionMessage(successMessage);
+    return true;
+  } catch (error) {
+    showDetailActionMessage(error.message || "Could not mark billing paid.");
+    if (triggerButton) triggerButton.disabled = false;
+    return false;
+  }
+}
+
+async function markMonthlyBillingAccountPaid(accountId, monthKey, triggerButton) {
+  const summary = monthlyBillingAccountSummaries(normalizedBillingMonth(monthKey), appState.masterLogsBillingFilter)
+    .find((item) => item.accountId === accountId);
+  const openIds = (summary?.openItems || []).map((item) => item.id);
+  if (!openIds.length) return;
+
+  const label = summary?.account?.accountNumber || summary?.billingOwner?.memberName || "this account";
+  const confirmed = window.confirm(`Mark ${openIds.length} open billing item(s) paid for ${label}?`);
+  if (!confirmed) return;
+
+  await markBillingItemsPaid(openIds, triggerButton, "Account billing marked paid for the selected month.");
 }
 
 function toDatetimeLocalValue(isoString) {
@@ -2807,6 +3056,8 @@ function openBillingLogEditor(recordId, options = {}) {
       <footer>
         ${adminControls ? '<button class="master-log-delete" type="button">Delete</button>' : ""}
         <button class="master-log-cancel" type="button">${adminControls ? "Cancel" : "Close"}</button>
+        ${adminControls && !item.postedToStripeAt ? '<button class="master-log-mark-paid" type="button">Mark Item Paid</button>' : ""}
+        ${adminControls && item.postedToStripeAt ? '<button class="master-log-reopen" type="button">Reopen Item</button>' : ""}
         ${adminControls ? '<button class="master-log-save" type="button">Save</button>' : ""}
       </footer>
     </section>
@@ -2830,6 +3081,8 @@ function openBillingLogEditor(recordId, options = {}) {
 
   const saveButton = overlay.querySelector(".master-log-save");
   const deleteButton = overlay.querySelector(".master-log-delete");
+  const markPaidButton = overlay.querySelector(".master-log-mark-paid");
+  const reopenButton = overlay.querySelector(".master-log-reopen");
 
   saveButton?.addEventListener("click", async () => {
     const reason = String(overlay.querySelector("#billingLogReason")?.value || "").trim();
@@ -2879,6 +3132,58 @@ function openBillingLogEditor(recordId, options = {}) {
       close();
     } catch (error) {
       setResult(error.message || "Could not save billing item.", "error");
+      saveButton.disabled = false;
+      deleteButton.disabled = false;
+    }
+  });
+
+  markPaidButton?.addEventListener("click", async () => {
+    markPaidButton.disabled = true;
+    saveButton.disabled = true;
+    deleteButton.disabled = true;
+    setResult("Marking paid...");
+    const success = await markBillingItemsPaid([recordId], markPaidButton, "Billing item marked paid.");
+    if (success) {
+      close();
+      return;
+    }
+    markPaidButton.disabled = false;
+    saveButton.disabled = false;
+    deleteButton.disabled = false;
+    setResult("Could not mark billing item paid.", "error");
+  });
+
+  reopenButton?.addEventListener("click", async () => {
+    const confirmed = window.confirm("Reopen this billing item?");
+    if (!confirmed) return;
+
+    const client = await createSupabaseClient();
+    if (!client) {
+      setResult("App data is not available.", "error");
+      return;
+    }
+
+    reopenButton.disabled = true;
+    saveButton.disabled = true;
+    deleteButton.disabled = true;
+    setResult("Reopening...");
+
+    try {
+      const { error } = await client
+        .from("billing_line_items")
+        .update({ posted_to_stripe_at: null })
+        .eq("id", recordId);
+
+      if (error) throw error;
+
+      billingLineItems = billingLineItems.map((billingItem) => (
+        billingItem.id === recordId ? { ...billingItem, postedToStripeAt: null } : billingItem
+      ));
+      refreshAfterRecordMutation();
+      close();
+    } catch (error) {
+      setResult(error.message || "Could not reopen billing item.", "error");
+      reopenButton.disabled = false;
       saveButton.disabled = false;
       deleteButton.disabled = false;
     }
@@ -5449,7 +5754,7 @@ function buildRentalEditForm(r) {
       <div class="rental-edit-checks">
         ${r.specialAccessDiscount ? `
           <label class="rental-edit-check">
-            <input id="rental-edit-special-discount-${id}" type="checkbox" checked disabled />
+            <input id="rental-edit-special-discount-${id}" type="checkbox" checked />
             Special Access discount applied (20%)
           </label>
         ` : ""}
@@ -5543,6 +5848,8 @@ function syncRentalEditPublicEventState(root, id) {
 
 function rentalEditTotalValues(root, id) {
   const field = (name) => root.querySelector(`#rental-edit-${name}-${id}`);
+  const earlyDay = Boolean(field("early-day")?.checked);
+  const lateDay = Boolean(field("late-day")?.checked);
   return {
     rentalType: field("type")?.value === "hourly" ? "hourly" : "all_day",
     rentalHours: normalizeRentalHours(field("hours")?.value || 1),
@@ -5556,10 +5863,10 @@ function rentalEditTotalValues(root, id) {
     addonTarp: Boolean(field("tarp")?.checked),
     addonHeater: Boolean(field("heater")?.checked),
     addonAc: Boolean(field("ac")?.checked),
-    addonEarlySetup: Boolean(field("early-setup")?.checked),
-    addonEarlyDayRental: Boolean(field("early-day")?.checked),
-    addonLateCleanup: Boolean(field("late-cleanup")?.checked),
-    addonLateDayRental: Boolean(field("late-day")?.checked)
+    addonEarlySetup: Boolean(field("early-setup")?.checked) && !earlyDay,
+    addonEarlyDayRental: earlyDay,
+    addonLateCleanup: Boolean(field("late-cleanup")?.checked) && !lateDay,
+    addonLateDayRental: lateDay
   };
 }
 
@@ -5571,6 +5878,14 @@ function updateRentalEditTotal(root, id) {
   const totalEl = root.querySelector(`#rental-edit-total-${id}`);
   if (!totalEl) return;
   totalEl.value = String(Number((calculateRentalEditTotalCents(root, id) / 100).toFixed(2)));
+}
+
+function syncExclusiveRentalExtensionChecks(changedField, pairs = []) {
+  if (!changedField?.checked) return;
+  pairs.forEach(([first, second]) => {
+    if (changedField === first && second) second.checked = false;
+    if (changedField === second && first) first.checked = false;
+  });
 }
 
 function bindRentalEditCalculations(root, id) {
@@ -5585,6 +5900,10 @@ function bindRentalEditCalculations(root, id) {
       ) {
         setRentalEditHoursState(root, id);
       } else {
+        syncExclusiveRentalExtensionChecks(field, [
+          [root.querySelector(`#rental-edit-early-setup-${id}`), root.querySelector(`#rental-edit-early-day-${id}`)],
+          [root.querySelector(`#rental-edit-late-cleanup-${id}`), root.querySelector(`#rental-edit-late-day-${id}`)]
+        ]);
         updateRentalEditTotal(root, id);
       }
     };
@@ -5603,6 +5922,8 @@ function collectRentalEditPayload(id, root) {
   const calendarIsPublic = root.querySelector(`#rental-edit-public-toggle-${id}`)?.dataset.publicActive === "true";
   const publicStart = normalizeTimeFieldValue(field("public-start")?.value || "");
   const publicEnd = normalizeTimeFieldValue(field("public-end")?.value || "");
+  const earlyDay = Boolean(field("early-day")?.checked);
+  const lateDay = Boolean(field("late-day")?.checked);
 
   return {
     event_name: field("event-name")?.value.trim() || "",
@@ -5619,21 +5940,21 @@ function collectRentalEditPayload(id, root) {
     contact_address: field("address")?.value.trim() || "",
     estimated_attendance: Math.max(1, Number(field("attendance")?.value || 1) || 1),
     is_private_event: field("private")?.value !== "false",
-    special_access_discount: Boolean(field("special-discount")?.checked),
     rental_type: rentalType,
     rental_hours: rentalType === "hourly" ? hours : null,
     alcohol: field("alcohol")?.value || "No",
     food_or_drinks: field("food")?.value === "true",
+    special_access_discount: Boolean(field("special-discount")?.checked),
     addon_cleaning_maintenance: Boolean(field("cleaning")?.checked),
     addon_tables: Boolean(field("tables")?.checked),
     addon_chairs: Boolean(field("chairs")?.checked),
     addon_tarp: Boolean(field("tarp")?.checked),
     addon_heater: Boolean(field("heater")?.checked),
     addon_ac: Boolean(field("ac")?.checked),
-    addon_early_setup: Boolean(field("early-setup")?.checked),
-    addon_early_day_rental: Boolean(field("early-day")?.checked),
-    addon_late_cleanup: Boolean(field("late-cleanup")?.checked),
-    addon_late_day_rental: Boolean(field("late-day")?.checked),
+    addon_early_setup: Boolean(field("early-setup")?.checked) && !earlyDay,
+    addon_early_day_rental: earlyDay,
+    addon_late_cleanup: Boolean(field("late-cleanup")?.checked) && !lateDay,
+    addon_late_day_rental: lateDay,
     estimated_total_cents: calculateRentalEditTotalCents(root, id),
     adminNotes: field("notes")?.value.trim() || ""
   };
@@ -5642,9 +5963,10 @@ function collectRentalEditPayload(id, root) {
 function applyRentalEditToCache(id, payload, updatedRequest) {
   const idx = rentalAllRequests.findIndex((r) => r.id === id);
   if (idx === -1) return;
+  const current = rentalAllRequests[idx];
   if (updatedRequest) {
     rentalAllRequests[idx] = {
-      ...rentalAllRequests[idx],
+      ...current,
       ...updatedRequest,
       isPrivateEvent: payload.is_private_event,
       specialAccessDiscount: payload.special_access_discount,
@@ -5655,7 +5977,7 @@ function applyRentalEditToCache(id, payload, updatedRequest) {
   }
 
   rentalAllRequests[idx] = {
-    ...rentalAllRequests[idx],
+    ...current,
     eventName: payload.event_name,
     eventType: payload.event_type,
     eventDate: payload.event_date,
@@ -7011,11 +7333,23 @@ function bindCalendarEvents(root) {
     const field = root.querySelector(`#${id}`);
     field?.addEventListener("input", () => {
       if (id === "calRentalPrivateEvent") syncCalendarRentalScheduleFromEvent(root);
-      else updateCalendarRentalTotal(root);
+      else {
+        syncExclusiveRentalExtensionChecks(field, [
+          [root.querySelector("#calRentalEarlySetup"), root.querySelector("#calRentalEarlyDay")],
+          [root.querySelector("#calRentalLateCleanup"), root.querySelector("#calRentalLateDay")]
+        ]);
+        updateCalendarRentalTotal(root);
+      }
     });
     field?.addEventListener("change", () => {
       if (id === "calRentalPrivateEvent") syncCalendarRentalScheduleFromEvent(root);
-      else updateCalendarRentalTotal(root);
+      else {
+        syncExclusiveRentalExtensionChecks(field, [
+          [root.querySelector("#calRentalEarlySetup"), root.querySelector("#calRentalEarlyDay")],
+          [root.querySelector("#calRentalLateCleanup"), root.querySelector("#calRentalLateDay")]
+        ]);
+        updateCalendarRentalTotal(root);
+      }
     });
   });
 }
@@ -7620,6 +7954,8 @@ function calendarRentalTotalValues(root) {
   const rentalType = root.querySelector("#calRentalType")?.value === "hourly" ? "hourly" : "all_day";
   const rentalAccessStart = root.querySelector("#calRentalPublicStart")?.value || "";
   const rentalAccessEnd = root.querySelector("#calRentalPublicEnd")?.value || "";
+  const earlyDay = Boolean(root.querySelector("#calRentalEarlyDay")?.checked);
+  const lateDay = Boolean(root.querySelector("#calRentalLateDay")?.checked);
   return {
     rentalType,
     rentalHours: rentalType === "hourly"
@@ -7635,10 +7971,10 @@ function calendarRentalTotalValues(root) {
     addonTarp: Boolean(root.querySelector("#calRentalTarp")?.checked),
     addonHeater: Boolean(root.querySelector("#calRentalHeater")?.checked),
     addonAc: Boolean(root.querySelector("#calRentalAc")?.checked),
-    addonEarlySetup: Boolean(root.querySelector("#calRentalEarlySetup")?.checked),
-    addonEarlyDayRental: Boolean(root.querySelector("#calRentalEarlyDay")?.checked),
-    addonLateCleanup: Boolean(root.querySelector("#calRentalLateCleanup")?.checked),
-    addonLateDayRental: Boolean(root.querySelector("#calRentalLateDay")?.checked)
+    addonEarlySetup: Boolean(root.querySelector("#calRentalEarlySetup")?.checked) && !earlyDay,
+    addonEarlyDayRental: earlyDay,
+    addonLateCleanup: Boolean(root.querySelector("#calRentalLateCleanup")?.checked) && !lateDay,
+    addonLateDayRental: lateDay
   };
 }
 
@@ -7661,7 +7997,7 @@ function setCalendarSpecialAccessDiscountState(root, enabled) {
   const active = Boolean(enabled);
   if (field) {
     field.checked = active;
-    field.disabled = true;
+    field.disabled = false;
   }
   if (wrap) wrap.hidden = !active;
 }
@@ -7887,6 +8223,8 @@ function collectCalendarRentalPayload(root, defaults) {
     ? normalizeRentalHours(rentalHoursBetween(rentalAccessStart, rentalAccessEnd, root.querySelector("#calRentalHours")?.value || 1))
     : null;
   const publicWindow = rentalPublicWindowPatch(defaults);
+  const earlyDay = Boolean(root.querySelector("#calRentalEarlyDay")?.checked);
+  const lateDay = Boolean(root.querySelector("#calRentalLateDay")?.checked);
   const payload = {
     title: defaults.title,
     contact_name: root.querySelector("#calRentalContactName")?.value.trim() || defaults.title || "Admin Booking",
@@ -7912,10 +8250,10 @@ function collectCalendarRentalPayload(root, defaults) {
     addon_tarp: Boolean(root.querySelector("#calRentalTarp")?.checked),
     addon_heater: Boolean(root.querySelector("#calRentalHeater")?.checked),
     addon_ac: Boolean(root.querySelector("#calRentalAc")?.checked),
-    addon_early_setup: Boolean(root.querySelector("#calRentalEarlySetup")?.checked),
-    addon_early_day_rental: Boolean(root.querySelector("#calRentalEarlyDay")?.checked),
-    addon_late_cleanup: Boolean(root.querySelector("#calRentalLateCleanup")?.checked),
-    addon_late_day_rental: Boolean(root.querySelector("#calRentalLateDay")?.checked),
+    addon_early_setup: Boolean(root.querySelector("#calRentalEarlySetup")?.checked) && !earlyDay,
+    addon_early_day_rental: earlyDay,
+    addon_late_cleanup: Boolean(root.querySelector("#calRentalLateCleanup")?.checked) && !lateDay,
+    addon_late_day_rental: lateDay,
     estimated_total_cents: calculateCalendarRentalTotalCents(root),
     adminNotes: root.querySelector("#calRentalAdminNotes")?.value.trim() || null,
     rental_status: "confirmed"

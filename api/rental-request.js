@@ -204,9 +204,9 @@ function buildRecord(body, options = {}) {
     addon_heater: body.addonHeater === true,
     addon_cleaning_maintenance: body.addonCleaningMaintenance === true,
     addon_ac: body.addonAc === true,
-    addon_early_setup: body.addonEarlySetup === true,
+    addon_early_setup: body.addonEarlySetup === true && body.addonEarlyDayRental !== true,
     addon_early_day_rental: body.addonEarlyDayRental === true,
-    addon_late_cleanup: body.addonLateCleanup === true,
+    addon_late_cleanup: body.addonLateCleanup === true && body.addonLateDayRental !== true,
     addon_late_day_rental: body.addonLateDayRental === true,
 
     estimated_total_cents: 0,
@@ -266,30 +266,60 @@ function calculateRentalTotalCents(record) {
 }
 
 async function findConfirmedRentalConflict(record) {
-  const requestDate = String(record.event_date || "").slice(0, 10);
-  const requestStart = parseTimeMinutes(record.event_start_time);
-  const requestEnd = parseTimeMinutes(record.event_end_time);
-  if (!requestDate || requestStart === null || requestEnd === null || requestEnd <= requestStart) return null;
+  const requestBlocks = rentalAccessBlocks(record);
+  if (!requestBlocks.length) return null;
 
   const [eventRows, rentalRows] = await Promise.all([
     supabaseRest(
       "events?select=start_at,end_at,event_type,all_day,rental_requests(event_date,event_start_time,event_end_time,rental_type)&event_type=in.(rental,maintenance)&status=eq.confirmed&order=start_at.asc&limit=500"
     ),
     supabaseRest(
-      "rental_requests?select=event_date,event_start_time,event_end_time,rental_type&rental_status=eq.confirmed&order=event_date.asc&limit=500"
+      "rental_requests?select=event_date,event_start_time,event_end_time,rental_type,addon_early_setup,addon_early_day_rental,addon_late_cleanup,addon_late_day_rental&rental_status=eq.confirmed&order=event_date.asc&limit=500"
     )
   ]);
-  const rows = [...eventRows.filter(isStandaloneConflictEvent), ...rentalRows.map((rental) => ({
+  const rows = [...eventRows.filter(isStandaloneConflictEvent), ...rentalRows.flatMap((rental) => rentalAccessBlocks(rental).map((block) => ({
     event_type: "rental",
     all_day: false,
-    rental_requests: rental
-  }))];
+    rental_requests: {
+      event_date: block.date,
+      event_start_time: block.start,
+      event_end_time: block.end,
+      rental_type: rental.rental_type
+    }
+  })))];
 
   return (rows || []).find((row) => {
     const block = eventRentalBlock(row);
-    if (!block || block.date !== requestDate) return false;
-    return requestStart < block.end && requestEnd > block.start;
+    if (!block) return false;
+    return requestBlocks.some((requestBlock) => (
+      block.date === requestBlock.date
+      && requestBlock.start < block.end
+      && requestBlock.end > block.start
+    ));
   }) || null;
+}
+
+function rentalAccessBlocks(record) {
+  const eventDate = String(record?.event_date || "").slice(0, 10);
+  const start = parseTimeMinutes(record?.event_start_time);
+  const end = parseTimeMinutes(record?.event_end_time);
+  if (!eventDate || start === null || end === null || end <= start) return [];
+
+  const blocks = [{ date: eventDate, start, end }];
+  const previousDate = shiftDateKey(eventDate, -1);
+  const nextDate = shiftDateKey(eventDate, 1);
+  if (record?.addon_early_day_rental) blocks.push({ date: previousDate, start: parseTimeMinutes("07:00"), end: parseTimeMinutes("21:00") });
+  else if (record?.addon_early_setup) blocks.push({ date: previousDate, start: parseTimeMinutes("18:00"), end: parseTimeMinutes("21:00") });
+  if (record?.addon_late_day_rental) blocks.push({ date: nextDate, start: parseTimeMinutes("07:00"), end: parseTimeMinutes("21:00") });
+  else if (record?.addon_late_cleanup) blocks.push({ date: nextDate, start: parseTimeMinutes("07:00"), end: parseTimeMinutes("09:00") });
+  return blocks.filter((block) => block.date && block.start !== null && block.end !== null && block.end > block.start);
+}
+
+function shiftDateKey(dateKey, days) {
+  const [year, month, day] = String(dateKey || "").split("-").map(Number);
+  if (![year, month, day].every(Number.isFinite)) return "";
+  const date = new Date(Date.UTC(year, month - 1, day + days, 12));
+  return date.toISOString().slice(0, 10);
 }
 
 function eventRentalBlock(row) {
