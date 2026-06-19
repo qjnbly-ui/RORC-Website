@@ -2531,6 +2531,7 @@ function renderMonthlyBillingAccountCard(summary, monthKey) {
 async function markBillingItemsPaid(itemIds, triggerButton, successMessage = "Billing item(s) marked paid.") {
   const ids = [...new Set((itemIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
   if (!ids.length) return;
+  const affectedItems = billingLineItems.filter((item) => ids.includes(item.id));
 
   const client = await createSupabaseClient();
   if (!client) {
@@ -2552,6 +2553,7 @@ async function markBillingItemsPaid(itemIds, triggerButton, successMessage = "Bi
     billingLineItems = billingLineItems.map((item) => (
       ids.includes(item.id) ? { ...item, postedToStripeAt: paidAt } : item
     ));
+    await syncHeaterPaidStateForBillingItems(client, affectedItems, billingLineItems);
     refreshAfterRecordMutation();
     showDetailActionMessage(successMessage);
     return true;
@@ -2560,6 +2562,43 @@ async function markBillingItemsPaid(itemIds, triggerButton, successMessage = "Bi
     if (triggerButton) triggerButton.disabled = false;
     return false;
   }
+}
+
+async function syncHeaterPaidStateForBillingItems(client, affectedItems = [], billingRows = billingLineItems) {
+  const heaterIds = [...new Set(
+    affectedItems
+      .map((item) => item?.heaterUseEntryId)
+      .filter(Boolean)
+  )];
+  if (!client || !heaterIds.length) return;
+
+  const paidIds = [];
+  const unpaidIds = [];
+
+  heaterIds.forEach((heaterId) => {
+    const linkedRows = billingRows.filter((item) => item.heaterUseEntryId === heaterId);
+    const isPaid = linkedRows.length > 0 && linkedRows.every((item) => Boolean(item.postedToStripeAt));
+    if (isPaid) paidIds.push(heaterId);
+    else unpaidIds.push(heaterId);
+  });
+
+  if (paidIds.length) {
+    const { error } = await client.from("heater_use_entries").update({ paid: true }).in("id", paidIds);
+    if (error) throw error;
+  }
+
+  if (unpaidIds.length) {
+    const { error } = await client.from("heater_use_entries").update({ paid: false }).in("id", unpaidIds);
+    if (error) throw error;
+  }
+
+  heaterUseEntries = heaterUseEntries.map((entry) => (
+    paidIds.includes(entry.id)
+      ? { ...entry, paid: true }
+      : unpaidIds.includes(entry.id)
+        ? { ...entry, paid: false }
+        : entry
+  ));
 }
 
 async function markMonthlyBillingAccountPaid(accountId, monthKey, triggerButton) {
@@ -3127,6 +3166,18 @@ function openBillingLogEditor(recordId, options = {}) {
 
       if (error) throw error;
 
+      const affectedItems = billingLineItems.filter((billingItem) => billingItem.id === recordId);
+      billingLineItems = billingLineItems.map((billingItem) => (
+        billingItem.id === recordId
+          ? {
+              ...billingItem,
+              reason,
+              amountCents: Math.round(amount * 100),
+              postedToStripeAt: postedAt
+            }
+          : billingItem
+      ));
+      await syncHeaterPaidStateForBillingItems(client, affectedItems, billingLineItems);
       await hydrateFromSupabase();
       refreshAfterRecordMutation();
       close();
@@ -3156,6 +3207,7 @@ function openBillingLogEditor(recordId, options = {}) {
   reopenButton?.addEventListener("click", async () => {
     const confirmed = window.confirm("Reopen this billing item?");
     if (!confirmed) return;
+    const affectedItems = billingLineItems.filter((billingItem) => billingItem.id === recordId);
 
     const client = await createSupabaseClient();
     if (!client) {
@@ -3179,6 +3231,7 @@ function openBillingLogEditor(recordId, options = {}) {
       billingLineItems = billingLineItems.map((billingItem) => (
         billingItem.id === recordId ? { ...billingItem, postedToStripeAt: null } : billingItem
       ));
+      await syncHeaterPaidStateForBillingItems(client, affectedItems, billingLineItems);
       refreshAfterRecordMutation();
       close();
     } catch (error) {
@@ -11100,6 +11153,15 @@ function recordsForMember(memberId) {
   };
 }
 
+function openBillingSourceIds(items, sourceKey) {
+  return new Set(
+    (items || [])
+      .filter((item) => !item.postedToStripeAt)
+      .map((item) => item?.[sourceKey])
+      .filter(Boolean)
+  );
+}
+
 function currentMonthRecords(records, dateField) {
   const now = new Date();
 
@@ -11941,7 +12003,12 @@ function renderAccountDetail(memberId) {
   const openBilling = records.billing
     .filter((item) => !item.postedToStripeAt)
     .reduce((total, item) => total + item.amountCents, 0);
-  const heaterMinutes = records.heater.reduce((total, entry) => {
+  const openBillableGuestIds = openBillingSourceIds(records.billing, "timesheetEntryId");
+  const openBillableHeaterIds = openBillingSourceIds(records.billing, "heaterUseEntryId");
+  const openGuestEntryCount = records.guests.filter((entry) => openBillableGuestIds.has(entry.id)).length;
+  const openHeaterMinutes = records.heater
+    .filter((entry) => openBillableHeaterIds.has(entry.id))
+    .reduce((total, entry) => {
     const minutes = durationMinutes(entry.startAt, entry.endAt);
     return total + (minutes || 0);
   }, 0);
@@ -11978,11 +12045,11 @@ function renderAccountDetail(memberId) {
           </article>
           <article>
             <span>Guest Entries</span>
-            <strong>${records.guests.length}</strong>
+            <strong>${openGuestEntryCount}</strong>
           </article>
           <article>
             <span>Heater Hours</span>
-            <strong>${(heaterMinutes / 60).toFixed(1)}</strong>
+            <strong>${(openHeaterMinutes / 60).toFixed(1)}</strong>
           </article>
           <article>
             <span>Door Access</span>
