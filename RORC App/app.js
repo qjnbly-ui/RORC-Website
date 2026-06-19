@@ -2410,6 +2410,31 @@ function billingItemSourceLabel(item) {
   return "Manual";
 }
 
+function billingItemRuntimeMinutes(item) {
+  if (!item?.heaterUseEntryId) return 0;
+  const heaterRecord = heaterUseEntries.find((entry) => entry.id === item.heaterUseEntryId);
+  return durationMinutes(heaterRecord?.startAt, heaterRecord?.endAt) || 0;
+}
+
+function formatBillingRuntime(minutes) {
+  const totalMinutes = Math.max(0, Number(minutes || 0));
+  const hours = Math.floor(totalMinutes / 60);
+  const remainingMinutes = totalMinutes % 60;
+  const decimalHours = (totalMinutes / 60).toFixed(2);
+  const clockText = hours > 0
+    ? `${hours}h${remainingMinutes ? ` ${remainingMinutes}m` : ""}`
+    : `${remainingMinutes}m`;
+  return `${clockText} (${decimalHours} hrs)`;
+}
+
+function billingItemMetaLabel(item, member) {
+  const parts = [member?.memberName || "Unknown Member", billingItemSourceLabel(item)];
+  const runtimeMinutes = billingItemRuntimeMinutes(item);
+  if (runtimeMinutes > 0) parts.push(`Runtime ${formatBillingRuntime(runtimeMinutes)}`);
+  parts.push(formatShortDateTime(item.createdAt), billingStatusLabel(item));
+  return parts.join(" · ");
+}
+
 function monthlyBillingAccountSummaries(monthKey, filter = "all") {
   const summaries = new Map();
 
@@ -2435,13 +2460,16 @@ function monthlyBillingAccountSummaries(monthKey, filter = "all") {
           items: [],
           totalCents: 0,
           openTotalCents: 0,
-          paidTotalCents: 0
+          paidTotalCents: 0,
+          thermostatRuntimeMinutes: 0
         });
       }
 
       const summary = summaries.get(accountId);
+      const runtimeMinutes = billingItemRuntimeMinutes(item);
       summary.items.push(item);
       summary.totalCents += Number(item.amountCents || 0);
+      summary.thermostatRuntimeMinutes += runtimeMinutes;
       if (item.postedToStripeAt) summary.paidTotalCents += Number(item.amountCents || 0);
       else summary.openTotalCents += Number(item.amountCents || 0);
     });
@@ -2498,6 +2526,7 @@ function renderMonthlyBillingAccountCard(summary, monthKey) {
           <span>Total ${formatCurrency(summary.totalCents)}</span>
           <span>Paid ${formatCurrency(summary.paidTotalCents)}</span>
           <span>Open ${formatCurrency(summary.openTotalCents)}</span>
+          ${summary.thermostatRuntimeMinutes > 0 ? `<span>Runtime ${formatBillingRuntime(summary.thermostatRuntimeMinutes)}</span>` : ""}
         </div>
         <ol class="record-list monthly-billing-items">
           ${summary.items.map((item) => {
@@ -2506,7 +2535,7 @@ function renderMonthlyBillingAccountCard(summary, monthKey) {
               <li data-master-log-type="billing" data-master-log-id="${escapeAttribute(item.id)}" role="button" tabindex="0">
                 <div>
                   <strong>${escapeHtml(item.reason || "Billing item")}</strong>
-                  <span>${escapeHtml(member?.memberName || "Unknown Member")} · ${escapeHtml(billingItemSourceLabel(item))} · ${formatShortDateTime(item.createdAt)} · ${escapeHtml(billingStatusLabel(item))}</span>
+                  <span>${escapeHtml(billingItemMetaLabel(item, member))}</span>
                 </div>
                 <b>${formatCurrency(item.amountCents || 0)}</b>
               </li>
