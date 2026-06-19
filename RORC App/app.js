@@ -961,6 +961,7 @@ function renderSharePage() {
 function renderAccessPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
+  const doorActions = allowedDoorActionsForSession();
 
   root.innerHTML = `
     <div class="access-shell">
@@ -972,7 +973,7 @@ function renderAccessPage() {
 
       <section class="access-control-card" aria-label="Door controls">
         <div class="door-action-grid">
-          ${DOOR_ACTIONS.map((action) => `
+          ${doorActions.map((action) => `
             <button class="door-action-button" type="button" data-door-action="${escapeAttribute(action.key)}">
               <svg viewBox="0 0 24 24" aria-hidden="true">${action.icon}</svg>
               <span>${escapeHtml(action.label)}</span>
@@ -985,6 +986,19 @@ function renderAccessPage() {
   `;
 
   bindDoorUnlockControl();
+}
+
+function allowedDoorActionsForSession(memberOrSession = appUserSession) {
+  const accountType = canonicalAccountType(memberOrSession?.accountType);
+  if (accountType === "Account Manager") {
+    return DOOR_ACTIONS;
+  }
+  if (accountType === "Special Access Account") {
+    return DOOR_ACTIONS.filter((action) => action.key !== "remain_locked");
+  }
+  return canUseDoorAccess(memberOrSession)
+    ? DOOR_ACTIONS.filter((action) => action.key === "unlock")
+    : [];
 }
 
 function doorUnlockCooldownSecondsLeft() {
@@ -9269,6 +9283,30 @@ async function startNotificationRealtime() {
     });
 }
 
+function renderAccessRouteDuringHydration(profiles, currentProfile) {
+  if (appState.currentRoute !== "access" || !currentProfile) return false;
+
+  applyAccountProfileData(profiles, []);
+  appState.authMemberId = currentProfile.account_member_id;
+  appState.currentUserEmail = currentAuthSession.user.email || currentProfile.email_address || "";
+  appState.dataStatus = "partial";
+  appState.dataError = "Loading remaining app data.";
+  refreshSessions(appState.authMemberId);
+  updateDrawerIdentity();
+  updateNavigationVisibility();
+
+  if (!canUseDoorAccess(appUserSession)) {
+    appState.dataStatus = "loading";
+    appState.dataError = "";
+    return false;
+  }
+
+  render("access");
+  appState.dataStatus = "loading";
+  appState.dataError = "";
+  return true;
+}
+
 async function hydrateFromSupabase() {
   const client = await createSupabaseClient();
 
@@ -9329,6 +9367,8 @@ async function hydrateFromSupabase() {
       throw new Error("This signed-in user is not linked to a RORC member profile.");
     }
 
+    renderAccessRouteDuringHydration(profiles, currentProfile);
+
     if (await syncStripeMembershipForProfile(currentProfile)) {
       const refreshedProfilesResult = await client
         .from("account_member_profiles")
@@ -9346,6 +9386,8 @@ async function hydrateFromSupabase() {
       if (!currentProfile) {
         throw new Error("This signed-in user is not linked to a RORC member profile.");
       }
+
+      renderAccessRouteDuringHydration(profiles, currentProfile);
     }
 
     const [

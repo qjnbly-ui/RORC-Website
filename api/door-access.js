@@ -41,12 +41,12 @@ module.exports = async (req, res) => {
       return res.status(403).json({ success: false, error: "No linked member profile found." });
     }
 
-    if (!canUseDoorAccess(member)) {
-      return res.status(403).json({ success: false, error: "Door access is not available for this account." });
-    }
-
     const source = sanitizeSource(req.body?.source);
     const action = sanitizeDoorAction(req.body?.action);
+    if (!canUseDoorAction(member, action)) {
+      return res.status(403).json({ success: false, error: "This door action is not available for this account." });
+    }
+
     let requestStatus = "sent";
     let doorError = "";
 
@@ -86,6 +86,17 @@ function canUseDoorAccess(member, now = new Date()) {
     return isOpenGymWindow(now);
   }
   return false;
+}
+
+function canUseDoorAction(member, action, now = new Date()) {
+  const accountType = String(member?.account_type || "").trim();
+  if (accountType === "Account Manager") {
+    return true;
+  }
+  if (accountType === "Special Access Account") {
+    return action !== "remain_locked";
+  }
+  return action === "unlock" && canUseDoorAccess(member, now);
 }
 
 function isOpenGymWindow(date) {
