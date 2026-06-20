@@ -1163,178 +1163,176 @@
 
   <!-- ===== JS ===== -->
   <script>
-    /*
-      NOTE: Long-term event automation idea
+    let rorcLastLiveActivity = {};
 
-      The best long-term approach is to have the homepage read from a Google Calendar feed
-      and compute “now” + “next event” from that.
-
-      Two workable paths:
-
-      1) Google Calendar JSON feed (public) + client JS
-         - Make a calendar public.
-         - Use the public JSON feed to pull upcoming events.
-         - Compute “current event” + “next event” in JS.
-         - Pros: simple, no server; Cons: public calendar, rate limits.
-
-      2) Google Apps Script proxy
-         - Calendar can stay private.
-         - Apps Script returns just the events you need (today + next).
-         - Your page calls the script (similar to your stats script).
-         - Pros: private; Cons: requires script setup.
-    */
-    function rorcFormatTimeLabel(hour, minute) {
-      const h = hour % 12 || 12;
-      const mm = minute.toString().padStart(2, "0");
-      return `${h}:${mm}`;
-    }
-
-    function rorcTimeInMinutes(hour, minute) {
-      return (hour * 60) + minute;
-    }
-
-    function rorcGetPacificNow() {
+    function rorcCalendarNow() {
       const now = new Date();
-      const parts12 = new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/Los_Angeles",
-        weekday: "short",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true
-      }).formatToParts(now);
-
-      const parts24 = new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/Los_Angeles",
-        weekday: "short",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false
-      }).formatToParts(now);
-
-      const lookup12 = Object.fromEntries(parts12.map(p => [p.type, p.value]));
-      const lookup24 = Object.fromEntries(parts24.map(p => [p.type, p.value]));
-
-      const weekday = lookup12.weekday || lookup24.weekday;
-      const year = Number(lookup12.year || lookup24.year);
-      const month = Number(lookup12.month || lookup24.month);
-      const day = Number(lookup12.day || lookup24.day);
-      const minute = Number(lookup12.minute || lookup24.minute);
-
-      const hour24 = Number(lookup24.hour);
-      const rawHour = Number(lookup12.hour);
-      const period = (lookup12.dayPeriod || "").toLowerCase();
-      const hour12 = (period === "pm" && rawHour < 12)
-        ? rawHour + 12
-        : (period === "am" && rawHour === 12 ? 0 : rawHour);
-      const hour = Number.isFinite(hour24) ? hour24 : hour12;
-
-      return { weekday, year, month, day, hour, minute };
+      const time = homeCalTimeInputValue(now.toISOString());
+      return {
+        date: now,
+        dateKey: homeCalFacilityDateKey(now.toISOString()),
+        minutes: homeCalMinutesFromTime(time) ?? 0
+      };
     }
 
-    function rorcGetNextEventLabel() {
-      const { weekday, year, month, day, hour, minute } = rorcGetPacificNow();
-      const weekdays = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
-      const dayIndex = weekdays.indexOf(weekday.toLowerCase());
-      const nowMinutes = rorcTimeInMinutes(hour, minute);
-      const todayOrdinal = Math.floor(Date.UTC(year, month - 1, day) / 86400000);
+    function rorcLiveTimeRange(startAt, endAt, allDay) {
+      return homeCalFacilityTimeRange(startAt, endAt, allDay)
+        .replace(/\bam\b/g, "AM")
+        .replace(/\bpm\b/g, "PM")
+        .replace(" - ", "–");
+    }
 
-      const events = [
-        { day: 2, start: rorcTimeInMinutes(15, 0), label: "Afterschool program hosted by Klamath Basin Youth Development", range: "3:00–5:30 PM" },
-        { day: 2, start: rorcTimeInMinutes(18, 0), label: "Open gym", range: "6:00–8:00 PM" },
-        { day: 4, start: rorcTimeInMinutes(15, 0), label: "Afterschool program hosted by Klamath Basin Youth Development", range: "3:00–5:30 PM" },
-        { day: 4, start: rorcTimeInMinutes(18, 0), label: "Open gym", range: "6:00–8:00 PM" }
-      ];
+    function rorcLiveEventTitle(event) {
+      return String(event?.title || "").trim() || "Scheduled event";
+    }
 
-      const specialEvent = {
-        dateOrdinal: Math.floor(Date.UTC(2026, 2, 14) / 86400000),
-        label: "Facility closed for Madison Melsness baby shower",
-        range: "All day"
-      };
+    function rorcLiveEventInterval(event, dateKey) {
+      if (homeCalFacilityDateKey(event?.startAt, event?.allDay) !== dateKey) return null;
+      if (event?.allDay) return { start: 0, end: 1440 };
+      const start = homeCalMinutesFromTime(homeCalTimeInputValue(event?.startAt));
+      const end = homeCalMinutesFromTime(homeCalTimeInputValue(event?.endAt));
+      if (start === null || end === null || end <= start) return null;
+      return { start, end };
+    }
 
-      let best = null;
-      events.forEach((event) => {
-        let deltaDays = (event.day - dayIndex + 7) % 7;
-        let minutesUntil = (deltaDays * 1440) + (event.start - nowMinutes);
-        if (deltaDays === 0 && event.start <= nowMinutes) {
-          minutesUntil = (7 * 1440) + (event.start - nowMinutes);
-          deltaDays = 7;
+    function rorcLiveBlockInterval(block, dateKey) {
+      const directDate = String(block?.date || "").slice(0, 10);
+      const directStart = homeCalMinutesFromTime(block?.start);
+      const directEnd = homeCalMinutesFromTime(block?.end);
+      if (directDate === dateKey && directStart !== null && directEnd !== null && directEnd > directStart) {
+        return { start: directStart, end: directEnd };
+      }
+      return homeCalBlockIntervalForDate(block, dateKey);
+    }
+
+    function rorcLiveBlockLabel(block) {
+      const directDate = String(block?.date || "").slice(0, 10);
+      if (directDate && block?.start && block?.end) {
+        return `${homeCalFormatHourLabel(block.start)}–${homeCalFormatHourLabel(block.end)}`;
+      }
+      return rorcLiveTimeRange(block?.startAt, block?.endAt, block?.allDay);
+    }
+
+    function rorcLiveCurrentEvents(now) {
+      return homeCalEvents
+        .filter((event) => !event.detailOnly)
+        .map((event) => ({ event, interval: rorcLiveEventInterval(event, now.dateKey) }))
+        .filter(({ interval }) => interval && now.minutes >= interval.start && now.minutes < interval.end)
+        .sort((a, b) => {
+          const typeA = homeCalNormalizeType(a.event.eventType);
+          const typeB = homeCalNormalizeType(b.event.eventType);
+          const priorityA = typeA === "rental" ? 0 : typeA === "maintenance" ? 1 : 2;
+          const priorityB = typeB === "rental" ? 0 : typeB === "maintenance" ? 1 : 2;
+          return (priorityA - priorityB) || (a.interval.start - b.interval.start);
+        });
+    }
+
+    function rorcLiveCurrentBlock(now) {
+      return homeCalFacilityBlocks
+        .map((block) => ({ block, interval: rorcLiveBlockInterval(block, now.dateKey) }))
+        .filter(({ interval }) => interval && now.minutes >= interval.start && now.minutes < interval.end)
+        .sort((a, b) => a.interval.start - b.interval.start)[0] || null;
+    }
+
+    function rorcLiveUpcomingEvent(now) {
+      const todayEvents = [];
+      const futureEvents = [];
+      homeCalEvents.forEach((event) => {
+        if (event.detailOnly) return;
+        const dateKey = homeCalFacilityDateKey(event.startAt, event.allDay);
+        const interval = rorcLiveEventInterval(event, dateKey);
+        if (!dateKey || !interval) return;
+        if (dateKey === now.dateKey && interval.start > now.minutes) {
+          todayEvents.push({ event, interval, dateKey });
+          return;
         }
-        if (minutesUntil < 0) {
-          minutesUntil += 7 * 1440;
-        }
-        if (!best || minutesUntil < best.minutesUntil) {
-          best = {
-            minutesUntil,
-            day: event.day,
-            label: event.label,
-            range: event.range
-          };
+        if (dateKey > now.dateKey) {
+          futureEvents.push({ event, interval, dateKey });
         }
       });
 
-      const specialMinutesUntil = (specialEvent.dateOrdinal - todayOrdinal) * 1440;
-      if (specialMinutesUntil >= 0 && (!best || specialMinutesUntil < best.minutesUntil)) {
-        const dayName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][new Date(Date.UTC(2026, 2, 14)).getUTCDay()];
-        return `Next event: ${specialEvent.label} on ${dayName}, March 14, 2026 (${specialEvent.range}).`;
-      }
-
-      if (!best) return "Next event: schedule coming soon.";
-      const dayName = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][best.day];
-      return `Next event: ${best.label} ${dayName} ${best.range}.`;
+      const byDateTime = (a, b) => a.dateKey.localeCompare(b.dateKey) || (a.interval.start - b.interval.start);
+      return todayEvents.sort(byDateTime)[0] || futureEvents.sort(byDateTime)[0] || null;
     }
 
-    function rorcGetStatusMessage() {
-      const { weekday, year, month, day, hour, minute } = rorcGetPacificNow();
-      const dayName = weekday.toLowerCase();
-      const nowMinutes = rorcTimeInMinutes(hour, minute);
+    function rorcLiveUpcomingLabel(item, now) {
+      if (!item) return "";
+      const day = item.dateKey === now.dateKey
+        ? "today"
+        : new Date(`${item.dateKey}T12:00:00`).toLocaleDateString("en-US", {
+          timeZone: HOME_CAL_TZ,
+          weekday: "long"
+        });
+      return `Next event: ${rorcLiveEventTitle(item.event)} ${day} ${rorcLiveTimeRange(item.event.startAt, item.event.endAt, item.event.allDay)}.`;
+    }
 
-      const isTueThu = dayName === "tue" || dayName === "thu";
+    function rorcLiveBadgeFor(status, currentEvent) {
+      if (status.isOpen) return { src: "Images/RORC Homepage/OPEN.png", alt: "Open" };
+      const title = rorcLiveEventTitle(currentEvent).toLowerCase();
+      if (title.includes("klamath basin youth") || title.includes("kbyd") || title.includes("afterschool")) {
+        return { src: "Images/RORC Homepage/KBYDinsession.png", alt: "KBYD in session" };
+      }
+      if (currentEvent || status.currentBlock) {
+        return { src: "Images/RORC Homepage/closedforprivateevent.png", alt: "Closed for event" };
+      }
+      return { src: "Images/RORC Homepage/CLOSED.png", alt: "Closed" };
+    }
 
-      const generalOpenStart = rorcTimeInMinutes(7, 0);
-      const generalOpenEnd = rorcTimeInMinutes(21, 0);
-      const afterSchoolStart = rorcTimeInMinutes(15, 0);
-      const afterSchoolEnd = rorcTimeInMinutes(17, 30);
-      const openGymStart = rorcTimeInMinutes(18, 0);
-      const openGymEnd = rorcTimeInMinutes(20, 0);
+    function rorcGetCalendarStatus() {
+      const now = rorcCalendarNow();
+      const windows = homeCalFacilityOpenWindows(now.dateKey);
+      const isOpen = windows.some((window) => now.minutes >= window.start && now.minutes < window.end);
+      const currentEventItem = rorcLiveCurrentEvents(now)[0] || null;
+      const currentEvent = currentEventItem?.event || null;
+      const currentBlock = rorcLiveCurrentBlock(now);
+      const upcoming = rorcLiveUpcomingEvent(now);
+      const nextEvent = rorcLiveUpcomingLabel(upcoming, now);
 
-      const inAfterSchool = isTueThu && nowMinutes >= afterSchoolStart && nowMinutes < afterSchoolEnd;
-      const inOpenGym = isTueThu && nowMinutes >= openGymStart && nowMinutes < openGymEnd;
-      const inGeneralOpen = nowMinutes >= generalOpenStart && nowMinutes < generalOpenEnd;
-      const nextEvent = rorcGetNextEventLabel();
-      const isClosureDate = (year === 2026 && month === 3 && day === 14);
-
-      if (isClosureDate) {
-        return { text: "Facility closed today for Madison Melsness baby shower (all day).", nextEvent: "", showCount: false };
+      if (currentEvent) {
+        const title = rorcLiveEventTitle(currentEvent);
+        const range = rorcLiveTimeRange(currentEvent.startAt, currentEvent.endAt, currentEvent.allDay);
+        const type = homeCalNormalizeType(currentEvent.eventType);
+        if (!isOpen || type === "rental" || type === "maintenance") {
+          return {
+            text: `Facility is closed for ${title} (${range}).`,
+            nextEvent,
+            showCount: false,
+            isOpen: false,
+            currentEvent,
+            currentBlock
+          };
+        }
+        return {
+          text: `${title} is happening now (${range}). Membership use is open.`,
+          nextEvent,
+          showCount: true,
+          isOpen: true,
+          currentEvent,
+          currentBlock
+        };
       }
 
-      if (inAfterSchool) {
-        return { text: `Afterschool program in progress (3:00–5:30 PM), hosted by Klamath Basin Youth Development. Membership use is closed during this time.`, nextEvent, showCount: false };
-      }
-      if (inOpenGym) {
-        return { text: "Open gym night in progress (6:00–8:00 PM).", nextEvent, showCount: true };
-      }
-
-      if (!inGeneralOpen) {
-        return { text: "Facility is currently closed. Membership hours are 7:00 AM–9:00 PM.", nextEvent, showCount: true };
-      }
-
-      if (isTueThu && nowMinutes < afterSchoolStart) {
-        return { text: "Membership use is open 7:00 AM–9:00 PM.", nextEvent, showCount: true };
-      }
-      if (isTueThu && nowMinutes >= afterSchoolEnd && nowMinutes < openGymStart) {
-        return { text: "Membership use is open 7:00 AM–9:00 PM.", nextEvent, showCount: true };
-      }
-      if (isTueThu && nowMinutes >= openGymEnd) {
-        return { text: "Membership use is open 7:00 AM–9:00 PM.", nextEvent, showCount: true };
+      if (!isOpen) {
+        const blockText = currentBlock ? ` for a scheduled event (${rorcLiveBlockLabel(currentBlock.block)})` : "";
+        return {
+          text: `Facility is currently closed${blockText}.`,
+          nextEvent,
+          showCount: false,
+          isOpen: false,
+          currentEvent: null,
+          currentBlock
+        };
       }
 
-      return { text: "Membership use is open 7:00 AM–9:00 PM.", nextEvent, showCount: true };
+      const hours = homeCalFacilityHoursDisplay(now.dateKey).replace(/ - /g, "–");
+      return {
+        text: `Membership use is open ${hours}.`,
+        nextEvent,
+        showCount: true,
+        isOpen: true,
+        currentEvent: null,
+        currentBlock: null
+      };
     }
 
     function rorcRenderLiveStatus(data) {
@@ -1344,34 +1342,12 @@
       const roomTemp = document.getElementById("rorc-room-temp");
       const openBadge = document.getElementById("rorc-open-badge");
       if (!liveText) return;
-      const status = rorcGetStatusMessage();
+      const status = rorcGetCalendarStatus();
       if (openBadge) {
-        const showOpenBadge = (
-          status.text === "Membership use is open 7:00 AM–9:00 PM."
-          || status.text === "Open gym night in progress (6:00–8:00 PM)."
-        );
-        const showClosedBadge = (status.text === "Facility is currently closed. Membership hours are 7:00 AM–9:00 PM.");
-        const showPrivateEventBadge = (status.text === "Facility closed today for Madison Melsness baby shower (all day).");
-        const showKbydBadge = (status.text === "Afterschool program in progress (3:00–5:30 PM), hosted by Klamath Basin Youth Development. Membership use is closed during this time.");
-        if (showOpenBadge) {
-          openBadge.src = "Images/RORC Homepage/OPEN.png";
-          openBadge.alt = "Open";
-          openBadge.style.display = "block";
-        } else if (showKbydBadge) {
-          openBadge.src = "Images/RORC Homepage/KBYDinsession.png";
-          openBadge.alt = "KBYD in session";
-          openBadge.style.display = "block";
-        } else if (showPrivateEventBadge) {
-          openBadge.src = "Images/RORC Homepage/closedforprivateevent.png";
-          openBadge.alt = "Closed for private event";
-          openBadge.style.display = "block";
-        } else if (showClosedBadge) {
-          openBadge.src = "Images/RORC Homepage/CLOSED.png";
-          openBadge.alt = "Closed";
-          openBadge.style.display = "block";
-        } else {
-          openBadge.style.display = "none";
-        }
+        const badge = rorcLiveBadgeFor(status, status.currentEvent);
+        openBadge.src = badge.src;
+        openBadge.alt = badge.alt;
+        openBadge.style.display = "block";
       }
       const noun = (occupancy === "1") ? "member" : "members";
       let countLine = `Currently <span class=\"rorc-live-count\">${occupancy}</span> ${noun} signed in.`;
@@ -1835,6 +1811,7 @@
         homeCalFacilityBlocks = [];
       }
       homeCalRender();
+      rorcRenderLiveStatus(rorcLastLiveActivity);
     }
 
     function homeCalBindNav() {
@@ -1859,6 +1836,7 @@
     }
 
     function rorcLiveLoaded(data) {
+      rorcLastLiveActivity = data || {};
       rorcRenderLiveStatus(data);
     }
 
