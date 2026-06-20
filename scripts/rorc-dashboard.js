@@ -6,6 +6,7 @@
     "Kiosk Account",
     "Special Access Account",
     "Active Membership",
+    "Work Exchange Membership Program",
     "Weight Room Only",
     "Open Gym Only",
     "RESTRICTED ACCOUNT"

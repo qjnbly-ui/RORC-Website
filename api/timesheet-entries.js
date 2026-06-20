@@ -205,6 +205,7 @@ function defaultAccountTypePolicies() {
     "Kiosk Account": { canSignIn: true, bypassTimeWindows: true, allowedDays: [], allowedStartTime: null, allowedEndTime: null },
     "Special Access Account": { canSignIn: true, bypassTimeWindows: true, allowedDays: [], allowedStartTime: null, allowedEndTime: null },
     "Active Membership": { canSignIn: true, bypassTimeWindows: false, allowedDays: [0, 1, 2, 3, 4, 5, 6], allowedStartTime: "06:50", allowedEndTime: "21:10" },
+    "Work Exchange Membership Program": { canSignIn: true, bypassTimeWindows: false, allowedDays: [0, 1, 2, 3, 4, 5, 6], allowedStartTime: "06:50", allowedEndTime: "21:10" },
     "Weight Room Only": { canSignIn: true, bypassTimeWindows: false, allowedDays: [0, 1, 2, 3, 4, 5, 6], allowedStartTime: "06:50", allowedEndTime: "21:10" },
     "Open Gym Only": { canSignIn: true, bypassTimeWindows: false, allowedDays: [2, 4], allowedStartTime: "17:50", allowedEndTime: "20:10" },
     "RESTRICTED ACCOUNT": { canSignIn: false, bypassTimeWindows: false, allowedDays: [], allowedStartTime: null, allowedEndTime: null }
@@ -300,6 +301,7 @@ function canonicalAccountType(accountType) {
   if (normalized === "kiosk account") return "Kiosk Account";
   if (normalized === "special access account") return "Special Access Account";
   if (normalized === "active membership") return "Active Membership";
+  if (normalized === "work exchange membership program") return "Work Exchange Membership Program";
   if (normalized === "weight room only") return "Weight Room Only";
   if (normalized === "open gym only") return "Open Gym Only";
   if (normalized === "restricted account") return "RESTRICTED ACCOUNT";

@@ -110,6 +110,7 @@ const statusOrder = [
   "Kiosk Account",
   "Special Access Account",
   "Active Membership",
+  "Work Exchange Membership Program",
   "Weight Room Only",
   "Open Gym Only",
   "Rental Account",
@@ -121,6 +122,7 @@ const accountTypeOptions = [
   "Kiosk Account",
   "Special Access Account",
   "Active Membership",
+  "Work Exchange Membership Program",
   "Weight Room Only",
   "Open Gym Only",
   "RESTRICTED ACCOUNT"
@@ -154,6 +156,14 @@ function defaultAccountTypePolicies() {
     },
     "Active Membership": {
       accountType: "Active Membership",
+      canSignIn: true,
+      bypassTimeWindows: false,
+      allowedDays: [0, 1, 2, 3, 4, 5, 6],
+      allowedStartTime: "06:50:00",
+      allowedEndTime: "21:10:00"
+    },
+    "Work Exchange Membership Program": {
+      accountType: "Work Exchange Membership Program",
       canSignIn: true,
       bypassTimeWindows: false,
       allowedDays: [0, 1, 2, 3, 4, 5, 6],
@@ -225,6 +235,7 @@ function canonicalAccountType(accountType) {
   if (normalized === "account manager") return "Account Manager";
   if (normalized === "kiosk account") return "Kiosk Account";
   if (normalized === "active membership") return "Active Membership";
+  if (normalized === "work exchange membership program") return "Work Exchange Membership Program";
   if (normalized === "weight room only") return "Weight Room Only";
   if (normalized === "open gym only") return "Open Gym Only";
   if (normalized === "special access account") return "Special Access Account";
@@ -1501,7 +1512,7 @@ async function renderAutomationSettingsPage() {
 }
 
 function renderAccountTypePolicyFields() {
-  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Weight Room Only", "Open Gym Only", "Rental Account", "RESTRICTED ACCOUNT"];
+  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Work Exchange Membership Program", "Weight Room Only", "Open Gym Only", "Rental Account", "RESTRICTED ACCOUNT"];
   const dayLabels = ["S", "M", "T", "W", "T", "F", "S"];
   return `
     <section class="account-type-policy-grid">
@@ -4364,7 +4375,7 @@ function formatPolicyTimeForInput(value) {
 
 function applyAccountTypePoliciesToForm(policies) {
   const defaults = defaultAccountTypePolicies();
-  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Weight Room Only", "Open Gym Only", "Rental Account", "RESTRICTED ACCOUNT"];
+  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Work Exchange Membership Program", "Weight Room Only", "Open Gym Only", "Rental Account", "RESTRICTED ACCOUNT"];
 
   orderedTypes.forEach((type) => {
     const policy = policies[type] || defaults[type];
@@ -4429,7 +4440,7 @@ function collectAutomationSettingsFromForm() {
 }
 
 function collectAccountTypePoliciesFromForm() {
-  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Weight Room Only", "Open Gym Only", "Rental Account", "RESTRICTED ACCOUNT"];
+  const orderedTypes = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Work Exchange Membership Program", "Weight Room Only", "Open Gym Only", "Rental Account", "RESTRICTED ACCOUNT"];
   const policies = {};
 
   orderedTypes.forEach((type) => {
@@ -11359,6 +11370,7 @@ function accountTypeTone(accountType) {
   if (normalizedType === "Account Manager") return "gray";
   if (normalizedType === "Kiosk Account") return "gray";
   if (normalizedType === "Open Gym Only") return "blue";
+  if (normalizedType === "Work Exchange Membership Program") return "green";
   if (normalizedType === "Weight Room Only") return "green";
   if (normalizedType === "RESTRICTED ACCOUNT") return "red";
   if (normalizedType === "Special Access Account") return "purple";
@@ -11826,7 +11838,7 @@ function configuredTimerMinutes(entry) {
 }
 
 function sortMembers(a, b) {
-  const pickerOrder = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Weight Room Only", "Open Gym Only", "Rental Account", "RESTRICTED ACCOUNT"];
+  const pickerOrder = ["Account Manager", "Kiosk Account", "Special Access Account", "Active Membership", "Work Exchange Membership Program", "Weight Room Only", "Open Gym Only", "Rental Account", "RESTRICTED ACCOUNT"];
   const resolveTypeIndex = (accountType) => {
     const pickerIndex = pickerOrder.indexOf(accountType);
     if (pickerIndex >= 0) return pickerIndex;
@@ -11891,6 +11903,7 @@ function billingStatusLabel(item) {
 function accessCopy(accountType) {
   const normalizedType = canonicalAccountType(accountType);
   if (normalizedType === "Open Gym Only") return "Open Gym access Tuesday and Thursday nights from 6pm - 8pm.";
+  if (normalizedType === "Work Exchange Membership Program") return "Basic Membership Access From 7am - 9pm. Follow calendar events for times closed.";
   if (normalizedType === "Weight Room Only") return "Weight room access during member hours.";
   if (normalizedType === "Account Manager") return "Account Manager access with full administrative permissions.";
   if (normalizedType === "Kiosk Account") return "Kiosk account access for member sign-in, guest sign-in, currently signed in, heater records, feedback, and calendar.";

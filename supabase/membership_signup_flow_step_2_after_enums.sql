@@ -29,7 +29,8 @@ insert into public.account_type_permissions (
   allowed_end_time,
   notes
 ) values
-  ('Weight Room Only', true, false, false, array[0,1,2,3,4,5,6]::smallint[], time '06:50', time '21:10', 'Weight room membership access during member hours.')
+  ('Weight Room Only', true, false, false, array[0,1,2,3,4,5,6]::smallint[], time '06:50', time '21:10', 'Weight room membership access during member hours.'),
+  ('Work Exchange Membership Program', true, false, false, array[0,1,2,3,4,5,6]::smallint[], time '06:50', time '21:10', 'Member access safety window for nominal 7am-9pm hours.')
 on conflict (account_type) do update set
   can_sign_in = excluded.can_sign_in,
   can_manage_members = excluded.can_manage_members,

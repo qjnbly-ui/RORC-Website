@@ -142,6 +142,7 @@ function canonicalAccountType(accountType) {
   if (normalized === "account manager") return "Account Manager";
   if (normalized === "kiosk account") return "Kiosk Account";
   if (normalized === "active membership") return "Active Membership";
+  if (normalized === "work exchange membership program") return "Work Exchange Membership Program";
   if (normalized === "weight room only") return "Weight Room Only";
   if (normalized === "open gym only") return "Open Gym Only";
   if (normalized === "special access account") return "Special Access Account";
@@ -157,6 +158,7 @@ function normalizePermissionRows(rows) {
     "Kiosk Account": { accountType: "Kiosk Account", canSignIn: true, bypassTimeWindows: true, allowedDays: [0, 1, 2, 3, 4, 5, 6], allowedStartTime: null, allowedEndTime: null },
     "Special Access Account": { accountType: "Special Access Account", canSignIn: true, bypassTimeWindows: true, allowedDays: [0, 1, 2, 3, 4, 5, 6], allowedStartTime: null, allowedEndTime: null },
     "Active Membership": { accountType: "Active Membership", canSignIn: true, bypassTimeWindows: false, allowedDays: [0, 1, 2, 3, 4, 5, 6], allowedStartTime: "06:50:00", allowedEndTime: "21:10:00" },
+    "Work Exchange Membership Program": { accountType: "Work Exchange Membership Program", canSignIn: true, bypassTimeWindows: false, allowedDays: [0, 1, 2, 3, 4, 5, 6], allowedStartTime: "06:50:00", allowedEndTime: "21:10:00" },
     "Weight Room Only": { accountType: "Weight Room Only", canSignIn: true, bypassTimeWindows: false, allowedDays: [0, 1, 2, 3, 4, 5, 6], allowedStartTime: "06:50:00", allowedEndTime: "21:10:00" },
     "Open Gym Only": { accountType: "Open Gym Only", canSignIn: true, bypassTimeWindows: false, allowedDays: [2, 4], allowedStartTime: "17:50:00", allowedEndTime: "20:10:00" },
     "RESTRICTED ACCOUNT": { accountType: "RESTRICTED ACCOUNT", canSignIn: false, bypassTimeWindows: false, allowedDays: [], allowedStartTime: null, allowedEndTime: null }

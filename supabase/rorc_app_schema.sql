@@ -28,6 +28,7 @@ begin
     create type public.membership_account_type as enum (
       'Active Membership',
       'Weight Room Only',
+      'Work Exchange Membership Program',
       'Open Gym Only',
       'Billed Monthly',
       'Account Manager',
@@ -224,6 +225,7 @@ insert into public.account_type_permissions (
   notes
 ) values
   ('Active Membership', true, false, false, array[0,1,2,3,4,5,6]::smallint[], time '06:50', time '21:10', 'Member access safety window for nominal 7am-9pm hours.'),
+  ('Work Exchange Membership Program', true, false, false, array[0,1,2,3,4,5,6]::smallint[], time '06:50', time '21:10', 'Member access safety window for nominal 7am-9pm hours.'),
   ('Weight Room Only', true, false, false, array[0,1,2,3,4,5,6]::smallint[], time '06:50', time '21:10', 'Weight room membership access during member hours.'),
   ('Open Gym Only', true, false, false, array[2,4]::smallint[], time '17:50', time '20:10', 'Open Gym Only access on Tuesdays and Thursdays from 6pm-8pm, with a 10-minute safety window.'),
   ('Billed Monthly', true, false, false, array[0,1,2,3,4,5,6]::smallint[], time '06:50', time '21:10', 'Billed monthly access safety window for nominal 7am-9pm hours.'),
@@ -1710,7 +1712,7 @@ alter table public.account_members
 update public.account_members
 set allow_heater_use = true
 where allow_heater_use = false
-  and account_type in ('Account Manager', 'Kiosk Account', 'Special Access Account', 'Active Membership', 'Weight Room Only');
+  and account_type in ('Account Manager', 'Kiosk Account', 'Special Access Account', 'Active Membership', 'Weight Room Only', 'Work Exchange Membership Program');
 
 update public.account_members
 set allow_guest_entry = true

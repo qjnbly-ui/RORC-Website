@@ -149,7 +149,7 @@ function parseOptionalNumber(value) {
 }
 
 function summarizeMembership(rows) {
-  const activeRows = rows.filter((row) => ["Active Membership", "Weight Room Only"].includes(canonicalAccountType(row.account_type)));
+  const activeRows = rows.filter((row) => ["Active Membership", "Work Exchange Membership Program", "Weight Room Only"].includes(canonicalAccountType(row.account_type)));
   const openGymRows = rows.filter((row) => canonicalAccountType(row.account_type) === "Open Gym Only");
   const activeAccounts = new Set(activeRows.map((row) => row.account_id).filter(Boolean));
 
@@ -263,6 +263,7 @@ function formatFacilityTimestamp(date) {
 function canonicalAccountType(accountType) {
   const normalized = String(accountType || "").trim().toLowerCase();
   if (normalized === "active membership") return "Active Membership";
+  if (normalized === "work exchange membership program") return "Work Exchange Membership Program";
   if (normalized === "weight room only") return "Weight Room Only";
   if (normalized === "open gym only") return "Open Gym Only";
   return String(accountType || "").trim();

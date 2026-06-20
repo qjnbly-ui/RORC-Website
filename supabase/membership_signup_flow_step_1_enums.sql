@@ -5,4 +5,7 @@ alter type public.membership_account_type
   add value if not exists 'Weight Room Only';
 
 alter type public.membership_account_type
+  add value if not exists 'Work Exchange Membership Program';
+
+alter type public.membership_account_type
   add value if not exists 'RESTRICTED ACCOUNT';
