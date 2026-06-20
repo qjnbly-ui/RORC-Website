@@ -16,8 +16,15 @@ create table if not exists public.sponsor_banner_submissions (
   constraint sponsor_banner_submissions_type_valid check (sponsorship_type in ('new', 'renewal')),
   constraint sponsor_banner_submissions_amount_valid check (amount_cents in (12500, 10000)),
   constraint sponsor_banner_submissions_payment_method_valid check (payment_method in ('mail_check', 'stripe_invoice')),
-  constraint sponsor_banner_submissions_status_valid check (status in ('submitted', 'invoiced', 'paid', 'complete', 'canceled'))
+  constraint sponsor_banner_submissions_status_valid check (status in ('submitted', 'in_review', 'invoiced', 'paid', 'complete', 'canceled'))
 );
+
+alter table public.sponsor_banner_submissions
+  drop constraint if exists sponsor_banner_submissions_status_valid;
+
+alter table public.sponsor_banner_submissions
+  add constraint sponsor_banner_submissions_status_valid
+  check (status in ('submitted', 'in_review', 'invoiced', 'paid', 'complete', 'canceled'));
 
 create index if not exists idx_sponsor_banner_submissions_created_at
   on public.sponsor_banner_submissions (created_at desc);

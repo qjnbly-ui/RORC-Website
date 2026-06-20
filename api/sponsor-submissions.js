@@ -1,7 +1,7 @@
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const BUCKET_NAME = "sponsor-submissions";
-const VALID_STATUSES = new Set(["submitted", "invoiced", "paid", "complete", "canceled"]);
+const VALID_STATUSES = new Set(["submitted", "in_review", "invoiced", "paid", "complete", "canceled"]);
 
 module.exports = async (req, res) => {
   if (!SERVICE_ROLE_KEY) {

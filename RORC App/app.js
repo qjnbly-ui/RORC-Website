@@ -1835,7 +1835,7 @@ function renderSponsorSubmissionList() {
       </div>
       <div class="detail-card">
         <div class="master-logs-filter-row" role="tablist" aria-label="Sponsor submission status">
-          ${["active", "submitted", "invoiced", "paid", "complete", "canceled", "all"].map((filter) => `
+          ${["active", "submitted", "in_review", "invoiced", "paid", "complete", "canceled", "all"].map((filter) => `
             <button
               class="master-logs-filter-chip ${statusFilter === filter ? "is-active" : ""}"
               data-sponsor-submission-filter="${escapeAttribute(filter)}"
@@ -1916,7 +1916,7 @@ function renderSponsorSubmissionCard(submission) {
         <label>
           <span>Status</span>
           <select data-sponsor-status="${escapeAttribute(submission.id)}">
-            ${["submitted", "invoiced", "paid", "complete", "canceled"].map((status) => `
+            ${["submitted", "in_review", "invoiced", "paid", "complete", "canceled"].map((status) => `
               <option value="${escapeAttribute(status)}" ${submission.status === status ? "selected" : ""}>${escapeHtml(sponsorStatusLabel(status))}</option>
             `).join("")}
           </select>
@@ -2041,6 +2041,7 @@ function sponsorStatusLabel(status) {
     active: "Active",
     all: "All",
     submitted: "Submitted",
+    in_review: "In Review",
     invoiced: "Invoiced",
     paid: "Paid",
     complete: "Complete",
@@ -2053,6 +2054,7 @@ function sponsorStatusClass(status) {
   const normalized = String(status || "").toLowerCase();
   if (normalized === "complete" || normalized === "paid") return "paid";
   if (normalized === "canceled") return "overdue";
+  if (normalized === "in_review") return "pending";
   return "currently-on";
 }
 
