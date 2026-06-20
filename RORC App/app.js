@@ -67,6 +67,7 @@ let doorAccessEntries = [];
 let notificationDispatchRecords = [];
 let memberNotifications = [];
 let adminNotes = [];
+let sponsorSubmissions = [];
 let notificationRealtimeChannel = null;
 let notificationRealtimeRetryTimer = null;
 let timesheetRealtimeChannel = null;
@@ -96,6 +97,7 @@ let notifiedIds = new Set();
 let notificationUnreadCount = 0;
 let contractReviewPendingCount = 0;
 let rentalReviewsPendingCount = 0;
+let sponsorSubmissionsPendingCount = 0;
 let accountTypePolicies = defaultAccountTypePolicies();
 let thermostatSystemAccess = defaultThermostatSystemAccess();
 let gymLightsMode = "full";
@@ -243,6 +245,7 @@ const appState = {
   masterLogsBillingView: "accounts",
   masterLogsBillingMonth: "",
   notificationsHistoryFilter: "all",
+  sponsorSubmissionsFilter: "active",
   dataStatus: "loading",
   dataError: "",
   authMemberId: "",
@@ -356,8 +359,9 @@ const routes = {
     template: "placeholderTemplate"
   },
   advertisementBanners: {
-    title: "Advertisement Banners",
-    template: "placeholderTemplate"
+    title: "Sponsor Banners",
+    template: "feedbackTemplate",
+    afterRender: renderSponsorSubmissionsPage
   },
   message: {
     title: "Bot Settings",
@@ -1760,6 +1764,296 @@ async function submitContractReview(contractId, action, notes = "") {
   } catch (error) {
     if (result) result.textContent = error.message || "Could not update account review.";
   }
+}
+
+async function renderSponsorSubmissionsPage() {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+
+  deferContentUntilReady(root);
+
+  try {
+    sponsorSubmissions = await fetchSponsorSubmissions();
+    sponsorSubmissionsPendingCount = sponsorSubmissions.filter((submission) => submission.status === "submitted").length;
+    updateSponsorSubmissionsBadge();
+    renderSponsorSubmissionList();
+  } catch (error) {
+    revealReadyContent(root);
+    root.innerHTML = `
+      <section class="empty-state">
+        <p>${escapeHtml(error.message || "Could not load sponsor submissions.")}</p>
+      </section>
+    `;
+  }
+}
+
+async function fetchSponsorSubmissions() {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) throw new Error("Log in again before loading sponsor submissions.");
+
+  const response = await fetch("/api/sponsor-submissions", {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not load sponsor submissions.");
+  }
+  return Array.isArray(body.submissions) ? body.submissions : [];
+}
+
+function renderSponsorSubmissionList() {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+  revealReadyContent(root);
+
+  const statusFilter = String(appState.sponsorSubmissionsFilter || "active");
+  const filtered = sponsorSubmissions.filter((submission) => {
+    if (statusFilter === "all") return true;
+    if (statusFilter === "active") return !["complete", "canceled"].includes(submission.status);
+    return submission.status === statusFilter;
+  });
+  const openCount = sponsorSubmissions.filter((submission) => !["complete", "canceled"].includes(submission.status)).length;
+  const submittedCount = sponsorSubmissions.filter((submission) => submission.status === "submitted").length;
+  const totalCents = filtered.reduce((sum, submission) => sum + Number(submission.amountCents || 0), 0);
+
+  root.innerHTML = `
+    <section class="live-record-page sponsor-review-page">
+      <header class="account-page-heading">
+        <div>
+          <p class="eyebrow">Admin Review</p>
+          <h2>Sponsor Banners</h2>
+          <p>Review banner sponsor submissions, files, payment preference, and processing status.</p>
+        </div>
+      </header>
+      <p id="sponsorSubmissionResult" class="auth-message" aria-live="polite"></p>
+      <div class="detail-card sponsor-review-summary">
+        <span><strong>${submittedCount}</strong> submitted</span>
+        <span><strong>${openCount}</strong> active</span>
+        <span><strong>${formatCurrency(totalCents)}</strong> shown</span>
+      </div>
+      <div class="detail-card">
+        <div class="master-logs-filter-row" role="tablist" aria-label="Sponsor submission status">
+          ${["active", "submitted", "invoiced", "paid", "complete", "canceled", "all"].map((filter) => `
+            <button
+              class="master-logs-filter-chip ${statusFilter === filter ? "is-active" : ""}"
+              data-sponsor-submission-filter="${escapeAttribute(filter)}"
+              type="button"
+            >${escapeHtml(sponsorStatusLabel(filter))}</button>
+          `).join("")}
+        </div>
+      </div>
+      ${filtered.length ? `
+        <div class="detail-card">
+          <ol class="record-list heater-record-list sponsor-submission-list">
+            ${filtered.map(renderSponsorSubmissionCard).join("")}
+          </ol>
+        </div>
+      ` : `
+        <section class="empty-state">
+          <p>No sponsor submissions for this filter.</p>
+        </section>
+      `}
+    </section>
+  `;
+
+  bindSponsorSubmissionActions();
+}
+
+function renderSponsorSubmissionCard(submission) {
+  const files = Array.isArray(submission.logoFiles) ? submission.logoFiles : [];
+  const typeLabel = submission.sponsorshipType === "renewal" ? "Renewal" : "New Sponsorship";
+  const paymentLabel = submission.paymentMethod === "stripe_invoice" ? "Stripe invoice" : "Mail a check";
+  const statusClass = sponsorStatusClass(submission.status);
+
+  return `
+    <li data-sponsor-submission-id="${escapeAttribute(submission.id)}">
+      <strong class="heater-record-event">${escapeHtml(submission.businessName || "Unnamed sponsor")}</strong>
+      <span class="heater-record-meta">
+        ${escapeHtml(typeLabel)} · ${escapeHtml(formatCurrency(submission.amountCents || 0))} · ${escapeHtml(formatShortDateTime(submission.createdAt))}
+      </span>
+      <button class="heater-state-action is-${escapeAttribute(statusClass)}" type="button" disabled>${escapeHtml(sponsorStatusLabel(submission.status))}</button>
+      <div class="heater-record-message sponsor-submission-detail">
+        <div>
+          <b>Contact</b>
+          <span>${escapeHtml(submission.contactName || "No contact")} · ${escapeHtml(submission.emailAddress || "No email")} · ${escapeHtml(submission.phoneNumber || "No phone")}</span>
+        </div>
+        <div>
+          <b>Payment</b>
+          <span>${escapeHtml(paymentLabel)} · ${submission.priceAcknowledged ? "Pricing acknowledged" : "Pricing not acknowledged"}</span>
+        </div>
+        ${submission.bannerText ? `
+          <div>
+            <b>Banner Text</b>
+            <span>${escapeHtml(submission.bannerText)}</span>
+          </div>
+        ` : ""}
+        ${submission.designRequests ? `
+          <div>
+            <b>Design Requests</b>
+            <span>${escapeHtml(submission.designRequests)}</span>
+          </div>
+        ` : ""}
+        <div>
+          <b>Files</b>
+          ${files.length ? `
+            <div class="sponsor-file-list">
+              ${files.map((file) => `
+                ${file.signedUrl ? `
+                  <a href="${escapeAttribute(file.signedUrl)}" target="_blank" rel="noopener">
+                    ${escapeHtml(file.name || "Uploaded file")}
+                  </a>
+                ` : `
+                  <span>${escapeHtml(file.name || "Uploaded file")} (link unavailable)</span>
+                `}
+              `).join("")}
+            </div>
+          ` : "<span>No files uploaded.</span>"}
+        </div>
+      </div>
+      <div class="sponsor-submission-actions">
+        <label>
+          <span>Status</span>
+          <select data-sponsor-status="${escapeAttribute(submission.id)}">
+            ${["submitted", "invoiced", "paid", "complete", "canceled"].map((status) => `
+              <option value="${escapeAttribute(status)}" ${submission.status === status ? "selected" : ""}>${escapeHtml(sponsorStatusLabel(status))}</option>
+            `).join("")}
+          </select>
+        </label>
+        <a class="rental-btn rental-btn-ghost" href="${escapeAttribute(emailHref(submission.emailAddress, "RORC Banner Sponsorship"))}">Email</a>
+        ${submission.phoneNumber ? `<a class="rental-btn rental-btn-ghost" href="${escapeAttribute(phoneHref(submission.phoneNumber, "tel"))}">Call</a>` : ""}
+        <button class="rental-btn rental-btn-ghost" data-sponsor-copy="${escapeAttribute(submission.id)}" type="button">Copy Contact</button>
+        <button class="rental-btn rental-btn-decline" data-sponsor-delete="${escapeAttribute(submission.id)}" type="button">Delete</button>
+      </div>
+    </li>
+  `;
+}
+
+function bindSponsorSubmissionActions() {
+  document.querySelectorAll("[data-sponsor-submission-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      appState.sponsorSubmissionsFilter = button.dataset.sponsorSubmissionFilter || "active";
+      renderSponsorSubmissionList();
+    });
+  });
+
+  document.querySelectorAll("[data-sponsor-status]").forEach((select) => {
+    select.addEventListener("change", () => {
+      updateSponsorSubmissionStatus(select.dataset.sponsorStatus || "", select.value, select);
+    });
+  });
+
+  document.querySelectorAll("[data-sponsor-copy]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const result = document.getElementById("sponsorSubmissionResult");
+      try {
+        const submission = sponsorSubmissions.find((item) => item.id === button.dataset.sponsorCopy);
+        const text = [
+          submission?.businessName,
+          submission?.contactName,
+          submission?.emailAddress,
+          submission?.phoneNumber
+        ].filter(Boolean).join("\n");
+        if (!text) throw new Error("No contact info to copy.");
+        if (!navigator.clipboard?.writeText) throw new Error("Clipboard is not available.");
+        await navigator.clipboard.writeText(text);
+        if (result) result.textContent = "Sponsor contact copied.";
+      } catch (error) {
+        if (result) result.textContent = error.message || "Could not copy contact.";
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-sponsor-delete]").forEach((button) => {
+    button.addEventListener("click", () => {
+      deleteSponsorSubmission(button.dataset.sponsorDelete || "", button);
+    });
+  });
+}
+
+async function updateSponsorSubmissionStatus(id, status, control) {
+  const result = document.getElementById("sponsorSubmissionResult");
+  if (!id || !status) return;
+  if (result) result.textContent = "Updating sponsor status...";
+  control.disabled = true;
+
+  try {
+    await postSponsorSubmissionAction({ id, action: "status", status });
+    sponsorSubmissions = sponsorSubmissions.map((submission) => (
+      submission.id === id ? { ...submission, status } : submission
+    ));
+    sponsorSubmissionsPendingCount = sponsorSubmissions.filter((submission) => submission.status === "submitted").length;
+    updateSponsorSubmissionsBadge();
+    if (result) result.textContent = "Sponsor status updated.";
+    renderSponsorSubmissionList();
+  } catch (error) {
+    if (result) result.textContent = error.message || "Could not update sponsor status.";
+    control.disabled = false;
+  }
+}
+
+async function deleteSponsorSubmission(id, button) {
+  const result = document.getElementById("sponsorSubmissionResult");
+  if (!id) return;
+
+  const submission = sponsorSubmissions.find((item) => item.id === id);
+  const label = submission?.businessName || "this sponsor submission";
+  if (!window.confirm(`Delete ${label}? This will also remove uploaded sponsor files.`)) return;
+
+  if (result) result.textContent = "Deleting sponsor submission...";
+  button.disabled = true;
+
+  try {
+    await postSponsorSubmissionAction({ id, action: "delete" });
+    sponsorSubmissions = sponsorSubmissions.filter((item) => item.id !== id);
+    sponsorSubmissionsPendingCount = sponsorSubmissions.filter((item) => item.status === "submitted").length;
+    updateSponsorSubmissionsBadge();
+    if (result) result.textContent = "Sponsor submission deleted.";
+    renderSponsorSubmissionList();
+  } catch (error) {
+    if (result) result.textContent = error.message || "Could not delete sponsor submission.";
+    button.disabled = false;
+  }
+}
+
+async function postSponsorSubmissionAction(payload) {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) throw new Error("Log in again before updating sponsor submissions.");
+
+  const response = await fetch("/api/sponsor-submissions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not update sponsor submission.");
+  }
+  return body;
+}
+
+function sponsorStatusLabel(status) {
+  const labels = {
+    active: "Active",
+    all: "All",
+    submitted: "Submitted",
+    invoiced: "Invoiced",
+    paid: "Paid",
+    complete: "Complete",
+    canceled: "Canceled"
+  };
+  return labels[String(status || "").toLowerCase()] || "Submitted";
+}
+
+function sponsorStatusClass(status) {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized === "complete" || normalized === "paid") return "paid";
+  if (normalized === "canceled") return "overdue";
+  return "currently-on";
 }
 
 function renderNotificationsPage() {
@@ -4609,6 +4903,7 @@ function updateDrawerIdentity() {
   updateNavigationVisibility();
   updateNotificationBadge();
   updateContractReviewBadge();
+  updateSponsorSubmissionsBadge();
 }
 
 function updateNotificationBadge() {
@@ -4627,6 +4922,15 @@ function updateContractReviewBadge() {
   const hasPending = isAccountManager(appUserSession) && contractReviewPendingCount > 0;
   badge.hidden = !hasPending;
   badge.textContent = hasPending ? `Review ${contractReviewPendingCount}` : "Review";
+}
+
+function updateSponsorSubmissionsBadge() {
+  const badge = document.getElementById("drawerSponsorSubmissionsBadge");
+  if (!badge) return;
+
+  const hasPending = isAccountManager(appUserSession) && sponsorSubmissionsPendingCount > 0;
+  badge.hidden = !hasPending;
+  badge.textContent = hasPending ? String(sponsorSubmissionsPendingCount) : "";
 }
 
 async function refreshContractReviewBadge() {
@@ -4653,6 +4957,30 @@ async function refreshContractReviewBadge() {
     .filter((review) => review.adminReviewStatus === "pending")
     .length;
   updateContractReviewBadge();
+}
+
+async function refreshSponsorSubmissionsBadge() {
+  if (!isAccountManager(appUserSession)) {
+    sponsorSubmissionsPendingCount = 0;
+    updateSponsorSubmissionsBadge();
+    return;
+  }
+
+  const token = currentAuthSession?.access_token || "";
+  if (!token) return;
+
+  const response = await fetch("/api/sponsor-submissions?summary=1", {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw new Error(body.error || "Could not load sponsor submission count.");
+  }
+
+  sponsorSubmissionsPendingCount = Number(body.pendingCount || 0);
+  updateSponsorSubmissionsBadge();
 }
 
 function updateRentalReviewsBadge() {
@@ -10216,6 +10544,11 @@ async function hydrateFromSupabase() {
       } catch (rentalBadgeError) {
         console.warn("Could not load rental review count.", rentalBadgeError);
       }
+      try {
+        await refreshSponsorSubmissionsBadge();
+      } catch (sponsorBadgeError) {
+        console.warn("Could not load sponsor submission count.", sponsorBadgeError);
+      }
     }
     if (canUsePrivilegedTimesheetApi()) {
       try {
@@ -10512,6 +10845,9 @@ function openDrawer() {
     });
     refreshRentalReviewsBadge().catch((error) => {
       console.warn("Could not refresh rental review badge.", error);
+    });
+    refreshSponsorSubmissionsBadge().catch((error) => {
+      console.warn("Could not refresh sponsor submission badge.", error);
     });
   }
 }

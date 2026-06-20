@@ -3211,6 +3211,100 @@ h1 {
   margin-top: 24px;
 }
 
+.sponsor-review-summary {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.sponsor-review-summary span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.sponsor-review-summary strong {
+  color: var(--text);
+}
+
+.sponsor-submission-list li {
+  align-items: start;
+}
+
+.sponsor-submission-detail {
+  display: grid;
+  gap: 12px;
+}
+
+.sponsor-submission-detail > div {
+  display: grid;
+  gap: 4px;
+}
+
+.sponsor-submission-detail b {
+  color: var(--muted);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sponsor-submission-detail span {
+  color: var(--text);
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.sponsor-file-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sponsor-file-list a,
+.sponsor-file-list span {
+  background: #242424;
+  border: 1px solid #3d3d3d;
+  border-radius: 4px;
+  color: var(--text);
+  font-weight: 800;
+  line-height: 1.2;
+  padding: 8px 10px;
+  text-decoration: none;
+}
+
+.sponsor-file-list a:hover {
+  border-color: var(--accent);
+}
+
+.sponsor-submission-actions {
+  align-items: end;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+}
+
+.sponsor-submission-actions label {
+  color: var(--muted);
+  display: grid;
+  font-size: 0.8rem;
+  font-weight: 800;
+  gap: 4px;
+  min-width: 150px;
+}
+
+.sponsor-submission-actions select {
+  background: #1a1a1a;
+  border: 1px solid #3d3d3d;
+  border-radius: 4px;
+  color: var(--text);
+  font: inherit;
+  min-height: 40px;
+  padding: 0 10px;
+}
+
 .detail-empty {
   align-items: center;
   display: flex;
