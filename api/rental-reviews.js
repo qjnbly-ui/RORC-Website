@@ -1281,6 +1281,9 @@ function rentalThermostatAddonSystemTypes(rental) {
 function isThermostatCandidateForRental(heater, rental, groupMemberIds = []) {
   if (!heater?.id || !rental?.id) return false;
   if (String(heater.used_on || "") !== String(rental.event_date || "")) return false;
+  const systemType = normalizeThermostatSystemType(heater.system_type);
+  const addonSystemTypes = rentalThermostatAddonSystemTypes(rental);
+  if (addonSystemTypes.includes(systemType)) return true;
   const claimedMemberId = String(rental.claimed_member_id || "");
   if (!claimedMemberId) return false;
   return String(heater.responsible_member_id || "") === claimedMemberId

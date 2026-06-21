@@ -5060,6 +5060,16 @@ const RENTAL_STATUS_COLOR = {
   canceled:       "#737373"
 };
 
+const RENTAL_DISPLAY_STATUS = {
+  complete_paid: { label: "Complete · Paid", color: "#8fd19e" },
+  complete_unpaid: { label: "Complete · Unpaid", color: "#ffca6a" },
+  complete_unbilled: { label: "Complete · Unbilled", color: "#f59e0b" },
+  paid_upcoming: { label: "Paid", color: "#8fd19e" },
+  unpaid_upcoming: { label: "Confirmed · Unpaid", color: "#ffca6a" },
+  unbilled_upcoming: { label: "Confirmed · Unbilled", color: "#22c55e" },
+  waived: { label: "Waived", color: "#8a97a8" }
+};
+
 const RENTAL_PRICE_CENTS = {
   allDay: 10000,
   hourlyRate: 1000,
@@ -5223,6 +5233,27 @@ function isRentalDeclined(rental) {
 function isRentalPast(rental) {
   const eventDate = String(rental?.eventDate || "").slice(0, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(eventDate) && eventDate < rentalDateKey();
+}
+
+function rentalDisplayStatus(rental) {
+  const status = rental?.rentalStatus || "submitted";
+  const paymentStatus = normalizeRentalPaymentStatus(rental?.paymentStatus);
+  const past = isRentalPast(rental);
+
+  if (status === "confirmed") {
+    if (paymentStatus === "waived") return RENTAL_DISPLAY_STATUS.waived;
+    if (past && paymentStatus === "paid") return RENTAL_DISPLAY_STATUS.complete_paid;
+    if (past && paymentStatus === "unpaid") return RENTAL_DISPLAY_STATUS.complete_unpaid;
+    if (past) return RENTAL_DISPLAY_STATUS.complete_unbilled;
+    if (paymentStatus === "paid") return RENTAL_DISPLAY_STATUS.paid_upcoming;
+    if (paymentStatus === "unpaid") return RENTAL_DISPLAY_STATUS.unpaid_upcoming;
+    return RENTAL_DISPLAY_STATUS.unbilled_upcoming;
+  }
+
+  return {
+    label: RENTAL_STATUS_LABEL[status] || status,
+    color: RENTAL_STATUS_COLOR[status] || "#8a97a8"
+  };
 }
 
 function isRentalSpecialAccess(rental) {
@@ -5810,8 +5841,9 @@ function renderRentalPipeline(root) {
 
 function buildRentalCard(r) {
   const status      = r.rentalStatus || "submitted";
-  const statusLabel = RENTAL_STATUS_LABEL[status] || status;
-  const statusColor = RENTAL_STATUS_COLOR[status] || "#8a97a8";
+  const displayStatus = rentalDisplayStatus(r);
+  const statusLabel = displayStatus.label;
+  const statusColor = displayStatus.color;
   const paymentStatus = normalizeRentalPaymentStatus(r.paymentStatus);
   const paymentLabel = rentalPaymentStatusLabel(paymentStatus);
   const paymentTone = paymentStatus === "paid" ? "#8fd19e"
@@ -5855,6 +5887,7 @@ function buildRentalCard(r) {
   const isActionable = status === "submitted" || status === "pending_review";
   const isConfirmed  = status === "confirmed";
   const isRejected = status === "rejected";
+  const isCompletePaid = isConfirmed && isRentalPast(r) && paymentStatus === "paid";
   const pendingRenterRequests = (r.changeRequests || []).filter((request) => request.status === "pending");
   const editButton = `<button class="rental-btn rental-btn-ghost" data-rental-edit="${escapeAttribute(r.id)}" type="button">Edit Booking</button>`;
   const notifyButton = `<button class="rental-btn rental-btn-ghost" data-rental-notify="${escapeAttribute(r.id)}" type="button">Notify Members</button>`;
@@ -5875,6 +5908,13 @@ function buildRentalCard(r) {
         <button class="rental-btn rental-btn-decline" data-rental-action="decline" data-rental-id="${escapeAttribute(r.id)}">Decline</button>
         <button class="rental-btn rental-btn-confirm" data-rental-action="confirm" data-rental-id="${escapeAttribute(r.id)}">Confirm Booking</button>
         <button class="rental-btn rental-btn-decline" data-rental-action="delete" data-rental-id="${escapeAttribute(r.id)}">Delete Request</button>
+      </div>
+    </div>
+  ` : isCompletePaid ? `
+    <div class="rental-card-actions" id="rental-actions-${escapeAttribute(r.id)}">
+      <div class="rental-card-btn-row">
+        ${billingButtons}
+        <button class="rental-btn rental-btn-view-cal" data-rental-view-calendar="${escapeAttribute(r.eventDate || "")}">View on Calendar</button>
       </div>
     </div>
   ` : isConfirmed ? `
@@ -5972,9 +6012,9 @@ function buildRentalCard(r) {
 
       ${pendingRenterRequests.length ? renderRentalChangeRequestPanel(r, pendingRenterRequests) : ""}
 
-      ${isConfirmed ? renderRentalThermostatReviewPanel(r) : ""}
+      ${isConfirmed && !isCompletePaid ? renderRentalThermostatReviewPanel(r) : ""}
 
-      ${r.adminNotes ? `
+      ${r.adminNotes && !isCompletePaid ? `
       <div class="rental-card-notes">
         <span class="rental-card-notes-label">Admin Notes</span>
         <p class="rental-card-notes-text">${escapeHtml(r.adminNotes)}</p>
