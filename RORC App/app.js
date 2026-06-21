@@ -2749,7 +2749,52 @@ function billingItemMetaLabel(item, member) {
   const runtimeMinutes = billingItemRuntimeMinutes(item);
   if (runtimeMinutes > 0) parts.push(`Runtime ${formatBillingRuntime(runtimeMinutes)}`);
   parts.push(formatShortDateTime(item.createdAt), billingStatusLabel(item));
+  if (item?.paymentMethod) parts.push(paymentMethodLabel(item.paymentMethod));
   return parts.join(" · ");
+}
+
+function normalizeBillingPaymentMethod(value) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return ["cash", "check", "stripe_invoice", "other"].includes(normalized) ? normalized : "";
+}
+
+function paymentMethodLabel(value) {
+  const labels = {
+    cash: "Cash",
+    check: "Check",
+    stripe_invoice: "Stripe invoice",
+    other: "Other"
+  };
+  return labels[normalizeBillingPaymentMethod(value)] || "Not selected";
+}
+
+function paymentMethodOptions(selectedValue = "", includeBlank = true) {
+  const selected = normalizeBillingPaymentMethod(selectedValue);
+  const options = [
+    includeBlank ? ["", "Select payment type"] : null,
+    ["cash", "Cash"],
+    ["check", "Check"],
+    ["stripe_invoice", "Stripe invoice"],
+    ["other", "Other"]
+  ].filter(Boolean);
+  return options.map(([value, label]) => (
+    `<option value="${escapeAttribute(value)}" ${selected === value ? "selected" : ""}>${escapeHtml(label)}</option>`
+  )).join("");
+}
+
+function promptBillingPaymentDetails(defaultMethod = "cash") {
+  const methodInput = window.prompt(
+    "Payment method: cash, check, stripe_invoice, or other",
+    normalizeBillingPaymentMethod(defaultMethod) || "cash"
+  );
+  if (methodInput === null) return null;
+  const paymentMethod = normalizeBillingPaymentMethod(methodInput);
+  if (!paymentMethod) {
+    window.alert("Use one of: cash, check, stripe_invoice, other.");
+    return null;
+  }
+  const paymentNote = window.prompt("Payment note or receipt reference (optional):", "") || "";
+  return { paymentMethod, paymentNote: paymentNote.trim() };
 }
 
 function monthlyBillingAccountSummaries(monthKey, filter = "all") {
@@ -2874,10 +2919,17 @@ function renderMonthlyBillingAccountCard(summary, monthKey) {
   `;
 }
 
-async function markBillingItemsPaid(itemIds, triggerButton, successMessage = "Billing item(s) marked paid.") {
+async function markBillingItemsPaid(
+  itemIds,
+  triggerButton,
+  successMessage = "Billing item(s) marked paid.",
+  paymentDetails = null
+) {
   const ids = [...new Set((itemIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
   if (!ids.length) return;
   const affectedItems = billingLineItems.filter((item) => ids.includes(item.id));
+  const details = paymentDetails || promptBillingPaymentDetails(affectedItems[0]?.paymentMethod || "cash");
+  if (!details) return false;
 
   const client = await createSupabaseClient();
   if (!client) {
@@ -2889,15 +2941,32 @@ async function markBillingItemsPaid(itemIds, triggerButton, successMessage = "Bi
 
   try {
     const paidAt = new Date().toISOString();
+    const paymentMethod = normalizeBillingPaymentMethod(details.paymentMethod) || "cash";
+    const paymentNote = String(details.paymentNote || "").trim() || null;
     const { error } = await client
       .from("billing_line_items")
-      .update({ posted_to_stripe_at: paidAt })
+      .update({
+        posted_to_stripe_at: paidAt,
+        payment_method: paymentMethod,
+        payment_recorded_at: paidAt,
+        payment_recorded_by_member_id: appUserSession.memberId || null,
+        payment_note: paymentNote
+      })
       .in("id", ids);
 
     if (error) throw error;
 
     billingLineItems = billingLineItems.map((item) => (
-      ids.includes(item.id) ? { ...item, postedToStripeAt: paidAt } : item
+      ids.includes(item.id)
+        ? {
+            ...item,
+            postedToStripeAt: paidAt,
+            paymentMethod,
+            paymentRecordedAt: paidAt,
+            paymentRecordedByMemberId: appUserSession.memberId || "",
+            paymentNote: paymentNote || ""
+          }
+        : item
     ));
     await syncHeaterPaidStateForBillingItems(client, affectedItems, billingLineItems);
     await syncRentalPaymentStateForBillingItems(client, affectedItems, billingLineItems);
@@ -3482,16 +3551,34 @@ function openBillingLogEditor(recordId, options = {}) {
           <input type="text" value="${escapeAttribute(billingStatusLabel(item))}" disabled />
         </label>
         <label>
+          <span>Payment Type</span>
+          <select id="billingLogPaymentMethod" ${readonlyAttribute}>
+            ${paymentMethodOptions(item.paymentMethod, true)}
+          </select>
+        </label>
+        <label>
           <span>Created At</span>
           <input type="text" value="${escapeAttribute(formatShortDateTime(item.createdAt))}" disabled />
         </label>
         <label>
-          <span>Posted To Stripe At</span>
+          <span>Paid At</span>
           <input id="billingLogPostedAt" type="datetime-local" value="${escapeAttribute(toDatetimeLocalValue(item.postedToStripeAt))}" ${readonlyAttribute} />
+        </label>
+        <label>
+          <span>Stripe Invoice ID</span>
+          <input id="billingLogStripeInvoiceId" type="text" value="${escapeAttribute(item.stripeInvoiceId || "")}" placeholder="in_..." ${readonlyAttribute} />
+        </label>
+        <label>
+          <span>Stripe Invoice URL</span>
+          <input id="billingLogStripeInvoiceUrl" type="url" value="${escapeAttribute(item.stripeInvoiceUrl || "")}" placeholder="https://invoice.stripe.com/..." ${readonlyAttribute} />
         </label>
         <label>
           <span>Source</span>
           <input type="text" value="${escapeAttribute(sourceLabel)}" disabled />
+        </label>
+        <label>
+          <span>Payment Note</span>
+          <textarea id="billingLogPaymentNote" rows="3" ${readonlyAttribute}>${escapeHtml(item.paymentNote || "")}</textarea>
         </label>
       </div>
       <p id="billingLogEditorResult" class="member-edit-result"></p>
@@ -3531,6 +3618,10 @@ function openBillingLogEditor(recordId, options = {}) {
     const amount = Number(String(overlay.querySelector("#billingLogAmount")?.value || "").replace(/[$,]/g, ""));
     const postedInput = String(overlay.querySelector("#billingLogPostedAt")?.value || "").trim();
     const postedAt = fromDatetimeLocalValue(postedInput);
+    const paymentMethod = normalizeBillingPaymentMethod(overlay.querySelector("#billingLogPaymentMethod")?.value);
+    const paymentNote = String(overlay.querySelector("#billingLogPaymentNote")?.value || "").trim();
+    const stripeInvoiceId = String(overlay.querySelector("#billingLogStripeInvoiceId")?.value || "").trim();
+    const stripeInvoiceUrl = String(overlay.querySelector("#billingLogStripeInvoiceUrl")?.value || "").trim();
 
     if (!reason) {
       setResult("Reason is required.", "error");
@@ -3563,7 +3654,13 @@ function openBillingLogEditor(recordId, options = {}) {
         .update({
           reason,
           amount_cents: Math.round(amount * 100),
-          posted_to_stripe_at: postedAt
+          posted_to_stripe_at: postedAt,
+          payment_method: paymentMethod || null,
+          payment_recorded_at: postedAt || null,
+          payment_recorded_by_member_id: postedAt ? (appUserSession.memberId || null) : null,
+          payment_note: paymentNote || null,
+          stripe_invoice_id: stripeInvoiceId || null,
+          stripe_invoice_url: stripeInvoiceUrl || null
         })
         .eq("id", recordId);
 
@@ -3576,7 +3673,13 @@ function openBillingLogEditor(recordId, options = {}) {
               ...billingItem,
               reason,
               amountCents: Math.round(amount * 100),
-              postedToStripeAt: postedAt
+              postedToStripeAt: postedAt,
+              paymentMethod,
+              paymentRecordedAt: postedAt || null,
+              paymentRecordedByMemberId: postedAt ? (appUserSession.memberId || "") : "",
+              paymentNote,
+              stripeInvoiceId,
+              stripeInvoiceUrl
             }
           : billingItem
       ));
@@ -3627,13 +3730,26 @@ function openBillingLogEditor(recordId, options = {}) {
     try {
       const { error } = await client
         .from("billing_line_items")
-        .update({ posted_to_stripe_at: null })
+        .update({
+          posted_to_stripe_at: null,
+          payment_recorded_at: null,
+          payment_recorded_by_member_id: null,
+          payment_note: null
+        })
         .eq("id", recordId);
 
       if (error) throw error;
 
       billingLineItems = billingLineItems.map((billingItem) => (
-        billingItem.id === recordId ? { ...billingItem, postedToStripeAt: null } : billingItem
+        billingItem.id === recordId
+          ? {
+              ...billingItem,
+              postedToStripeAt: null,
+              paymentRecordedAt: null,
+              paymentRecordedByMemberId: "",
+              paymentNote: ""
+            }
+          : billingItem
       ));
       await syncHeaterPaidStateForBillingItems(client, affectedItems, billingLineItems);
       await syncRentalPaymentStateForBillingItems(client, affectedItems, billingLineItems);
@@ -6045,6 +6161,34 @@ function rentalPaymentStatusLabel(status) {
   return labels[normalizeRentalPaymentStatus(status)] || "Unbilled";
 }
 
+function rentalAttachedThermostatBillingTotal(rental) {
+  const attached = Array.isArray(rental?.thermostatReview?.attached)
+    ? rental.thermostatReview.attached
+    : [];
+  return attached.reduce((sum, record) => sum + Number(record.billingTotalCents || 0), 0);
+}
+
+function rentalAttachedThermostatRuntimeTotal(rental) {
+  const attached = Array.isArray(rental?.thermostatReview?.attached)
+    ? rental.thermostatReview.attached
+    : [];
+  return attached.reduce((sum, record) => sum + (durationMinutes(record.startAt, record.endAt) || 0), 0);
+}
+
+function rentalBillingLineItems(rental) {
+  if (!rental?.id) return [];
+  const review = rental.thermostatReview || {};
+  const attachedHeaterIds = new Set(
+    (Array.isArray(review.attached) ? review.attached : [])
+      .map((record) => record.id)
+      .filter(Boolean)
+  );
+  return billingLineItems.filter((item) => (
+    item.rentalRequestId === rental.id
+    || (item.heaterUseEntryId && attachedHeaterIds.has(item.heaterUseEntryId))
+  ));
+}
+
 function rentalBillingReason(rental) {
   const booking = rental?.bookingNumber || rental?.id || "";
   const name = rental?.eventName || rental?.eventType || "Rental";
@@ -6060,7 +6204,11 @@ function showRentalBillForm(rentalId, root) {
   const linkedItem = billingLineItems.find((item) => item.rentalRequestId === rentalId);
   const amountValue = ((linkedItem?.amountCents ?? rental.estimatedTotalCents ?? 0) / 100).toFixed(2);
   const reasonValue = linkedItem?.reason || rentalBillingReason(rental);
+  const thermostatTotalCents = rentalAttachedThermostatBillingTotal(rental);
+  const thermostatRuntimeMinutes = rentalAttachedThermostatRuntimeTotal(rental);
+  const combinedTotalCents = Math.round(Number(amountValue || 0) * 100) + thermostatTotalCents;
   const canFinalize = Boolean(rental.claimedMemberId);
+  const paymentMethod = normalizeBillingPaymentMethod(linkedItem?.paymentMethod) || "cash";
 
   actions.innerHTML = `
     <div class="rental-card-notes rental-bill-review">
@@ -6076,19 +6224,41 @@ function showRentalBillForm(rentalId, root) {
           <input id="rentalBillAmount-${escapeAttribute(rentalId)}" type="number" min="0" step="0.01" value="${escapeAttribute(amountValue)}" ${canFinalize ? "" : "disabled"} />
         </label>
         <label>
+          <span>Attached Thermostat</span>
+          <input type="text" value="${escapeAttribute(`${formatCurrency(thermostatTotalCents)}${thermostatRuntimeMinutes ? ` · ${formatBillingRuntime(thermostatRuntimeMinutes)}` : ""}`)}" disabled />
+        </label>
+        <label>
+          <span>Invoice Total</span>
+          <input id="rentalBillInvoiceTotal-${escapeAttribute(rentalId)}" type="text" value="${escapeAttribute(formatCurrency(combinedTotalCents))}" disabled />
+        </label>
+        <label>
           <span>Status</span>
           <input type="text" value="${escapeAttribute(rentalPaymentStatusLabel(rental.paymentStatus))}" disabled />
         </label>
+        <label>
+          <span>Payment Type</span>
+          <select id="rentalBillPaymentMethod-${escapeAttribute(rentalId)}" ${canFinalize ? "" : "disabled"}>
+            ${paymentMethodOptions(paymentMethod, false)}
+          </select>
+        </label>
       </div>
+      ${thermostatTotalCents ? `<p class="data-source-note">Attached thermostat charges are invoiced with this rental and are marked paid/unpaid with the rental.</p>` : ""}
+      <p class="data-source-note">Stripe invoice creation is not automated yet. The payment type is stored now so cash/check/manual payments are documented.</p>
       <p id="rentalBillResult-${escapeAttribute(rentalId)}" class="member-edit-result"></p>
       <div class="rental-card-btn-row">
         <button class="rental-btn rental-btn-ghost" data-rental-bill-close type="button">Back</button>
+        <button class="rental-btn rental-btn-ghost" type="button" disabled>Create Stripe Invoice</button>
         <button class="rental-btn rental-btn-confirm" data-rental-bill-submit="${escapeAttribute(rentalId)}" type="button" ${canFinalize ? "" : "disabled"}>Finalize Bill</button>
       </div>
     </div>
   `;
 
   actions.querySelector("[data-rental-bill-close]")?.addEventListener("click", () => renderRentalPipeline(root));
+  actions.querySelector(`#rentalBillAmount-${CSS.escape(rentalId)}`)?.addEventListener("input", (event) => {
+    const nextAmountCents = Math.max(0, Math.round(Number(event.currentTarget?.value || 0) * 100));
+    const totalField = actions.querySelector(`#rentalBillInvoiceTotal-${CSS.escape(rentalId)}`);
+    if (totalField) totalField.value = formatCurrency(nextAmountCents + thermostatTotalCents);
+  });
   actions.querySelector("[data-rental-bill-submit]")?.addEventListener("click", (event) => {
     submitRentalBill(rentalId, event.currentTarget, root);
   });
@@ -6099,6 +6269,7 @@ async function submitRentalBill(rentalId, button, root) {
   if (!rental) return;
   const amountInput = document.getElementById(`rentalBillAmount-${rentalId}`);
   const reasonInput = document.getElementById(`rentalBillReason-${rentalId}`);
+  const paymentMethodInput = document.getElementById(`rentalBillPaymentMethod-${rentalId}`);
   const result = document.getElementById(`rentalBillResult-${rentalId}`);
   const amountCents = Math.round(Number(amountInput?.value || 0) * 100);
   if (!Number.isFinite(amountCents) || amountCents <= 0) {
@@ -6114,7 +6285,8 @@ async function submitRentalBill(rentalId, button, root) {
       billingAction: "finalize",
       accountMemberId: rental.claimedMemberId,
       amountCents,
-      reason: reasonInput?.value || rentalBillingReason(rental)
+      reason: reasonInput?.value || rentalBillingReason(rental),
+      paymentMethod: normalizeBillingPaymentMethod(paymentMethodInput?.value) || "cash"
     });
     await afterRentalBillingAction(body, root);
   } catch (error) {
@@ -6128,9 +6300,17 @@ async function submitRentalBillingStatus(action, rentalId, button, root) {
   if (!rental || !["mark_paid", "mark_unpaid"].includes(action)) return;
   const label = action === "mark_paid" ? "paid" : "unpaid";
   if (!window.confirm(`Mark this rental bill ${label}?`)) return;
+  const paymentDetails = action === "mark_paid"
+    ? promptBillingPaymentDetails(rentalBillingLineItems(rental).find((item) => item.paymentMethod)?.paymentMethod || "cash")
+    : null;
+  if (action === "mark_paid" && !paymentDetails) return;
   if (button) button.disabled = true;
   try {
-    const body = await sendRentalBillingAction({ id: rentalId, billingAction: action });
+    const body = await sendRentalBillingAction({
+      id: rentalId,
+      billingAction: action,
+      ...(paymentDetails || {})
+    });
     await afterRentalBillingAction(body, root);
   } catch (error) {
     showAppNotice(error.message || "Could not update rental bill.");
@@ -6194,19 +6374,20 @@ function renderRentalThermostatReviewPanel(rental) {
 }
 
 function renderRentalThermostatRecordRow(rentalId, record, mode) {
-  const member = findMember(record.responsibleMemberId);
   const runtimeMinutes = durationMinutes(record.startAt, record.endAt);
   const runtimeLabel = runtimeMinutes !== null
     ? formatBillingRuntime(runtimeMinutes)
     : "Active or incomplete";
+  const billText = Number(record.billingTotalCents || 0) > 0
+    ? formatCurrency(record.billingTotalCents)
+    : "No bill yet";
   const statusLabel = record.paid ? "Paid" : "Open";
-  const targetLabel = record.targetTemperatureF ? ` · Set ${thermostatTempLabel(record.targetTemperatureF)}` : "";
-  const matchLabel = record.matchesAddon ? " · Matches rental add-on" : "";
+  const matchLabel = record.matchesAddon && mode === "suggestion" ? " · Matches rental add-on" : "";
   return `
     <div class="rental-change-request-card rental-thermostat-row">
       <div>
-        <strong>${escapeHtml(record.systemLabel || thermostatSystemLabel(record.systemType))}${escapeHtml(targetLabel)}</strong>
-        <small>${escapeHtml(formatShortDateTime(record.startAt || record.usedOn))} · ${escapeHtml(member?.memberName || "No responsible member")} · ${escapeHtml(runtimeLabel)} · ${escapeHtml(statusLabel)}${escapeHtml(matchLabel)}</small>
+        <strong>${escapeHtml(record.systemLabel || thermostatSystemLabel(record.systemType))} · ${escapeHtml(runtimeLabel)} · ${escapeHtml(billText)}</strong>
+        <small>${escapeHtml(statusLabel)}${escapeHtml(matchLabel)}</small>
       </div>
       ${mode === "suggestion" ? `
         <div class="rental-card-btn-row">
@@ -11179,7 +11360,13 @@ function mapBillingLineItemRow(row) {
     createdAt: row.created_at,
     amountCents: row.amount_cents || 0,
     reason: row.reason || "Billing item",
-    postedToStripeAt: row.posted_to_stripe_at
+    postedToStripeAt: row.posted_to_stripe_at,
+    paymentMethod: normalizeBillingPaymentMethod(row.payment_method),
+    paymentRecordedAt: row.payment_recorded_at || null,
+    paymentRecordedByMemberId: row.payment_recorded_by_member_id || "",
+    paymentNote: row.payment_note || "",
+    stripeInvoiceId: row.stripe_invoice_id || "",
+    stripeInvoiceUrl: row.stripe_invoice_url || ""
   };
 }
 
@@ -12321,7 +12508,9 @@ function currentMonthRecords(records, dateField) {
 }
 
 function billingStatusLabel(item) {
-  return item?.postedToStripeAt ? "Posted" : "Pending Billing";
+  if (!item?.postedToStripeAt) return "Pending Billing";
+  const method = normalizeBillingPaymentMethod(item.paymentMethod);
+  return method ? `Paid by ${paymentMethodLabel(method)}` : "Paid";
 }
 
 function accessCopy(accountType) {

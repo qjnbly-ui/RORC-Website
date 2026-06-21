@@ -8,6 +8,7 @@ const { sendResendEmail } = require("./_resend");
 
 const VALID_STATUSES = ["submitted", "pending_review", "confirmed", "rejected", "canceled"];
 const VALID_CHANGE_REVIEW_ACTIONS = new Set(["approve", "reject"]);
+const VALID_PAYMENT_METHODS = new Set(["cash", "check", "stripe_invoice", "other"]);
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
 const PUBLIC_SITE_URL = (process.env.PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || "https://ruthobenchainrc.com").replace(/\/+$/, "");
 const CLAIM_LINK_DAYS = 30;
@@ -62,7 +63,7 @@ module.exports = async (req, res) => {
   if (req.method === "GET") {
     try {
       const rows = await supabaseRest(
-        "rental_requests?select=*&order=event_date.asc&order=created_at.asc&limit=200"
+        "rental_requests?select=*&order=event_date.desc&order=created_at.desc&limit=200"
       );
       const rentalIds = rows.map((row) => row.id);
       const [linkedEvents, changeRequests, thermostatReviews] = await Promise.all([
@@ -756,10 +757,10 @@ async function handleRentalBillingAction({ id, billingAction, body, manager }) {
     return finalizeRentalBill({ rental, body, manager });
   }
   if (action === "mark_paid") {
-    return markRentalBillStatus({ rental, manager, paid: true });
+    return markRentalBillStatus({ rental, body, manager, paid: true });
   }
   if (action === "mark_unpaid") {
-    return markRentalBillStatus({ rental, manager, paid: false });
+    return markRentalBillStatus({ rental, body, manager, paid: false });
   }
   throw httpError(400, "Invalid rental billing action");
 }
@@ -778,8 +779,9 @@ async function finalizeRentalBill({ rental, body, manager }) {
 
   const reason = str(body.reason)
     || rentalBillReason(rental);
+  const paymentMethod = normalizePaymentMethod(body.payment_method || body.paymentMethod);
   const existingRows = await supabaseRest(
-    `billing_line_items?select=id&rental_request_id=eq.${encodeURIComponent(rental.id)}&limit=1`
+    `billing_line_items?select=id,account_member_id&rental_request_id=eq.${encodeURIComponent(rental.id)}&limit=1`
   ).catch(() => []);
   const existingId = existingRows?.[0]?.id || "";
 
@@ -791,6 +793,7 @@ async function finalizeRentalBill({ rental, body, manager }) {
         account_member_id: accountMemberId,
         amount_cents: amountCents,
         reason,
+        payment_method: paymentMethod || null,
         posted_to_stripe_at: null
       }
     );
@@ -803,10 +806,18 @@ async function finalizeRentalBill({ rental, body, manager }) {
         rental_request_id: rental.id,
         amount_cents: amountCents,
         reason,
+        payment_method: paymentMethod || null,
         posted_to_stripe_at: null
       }
     );
   }
+
+  await syncAttachedThermostatBillingToRental({
+    rentalId: rental.id,
+    accountMemberId,
+    postedToStripeAt: null,
+    paymentMethod
+  });
 
   const rows = await supabaseWrite(
     `rental_requests?id=eq.${encodeURIComponent(rental.id)}`,
@@ -822,19 +833,41 @@ async function finalizeRentalBill({ rental, body, manager }) {
   return buildRentalBillingResponse(rows[0] || { ...rental, payment_status: "unpaid", estimated_total_cents: amountCents });
 }
 
-async function markRentalBillStatus({ rental, manager, paid }) {
+async function markRentalBillStatus({ rental, body, manager, paid }) {
   const existingRows = await supabaseRest(
-    `billing_line_items?select=id&rental_request_id=eq.${encodeURIComponent(rental.id)}&limit=1`
+    `billing_line_items?select=id,account_member_id&rental_request_id=eq.${encodeURIComponent(rental.id)}&limit=1`
   );
   if (!existingRows.length) {
     throw httpError(409, "Create the rental bill before marking it paid");
   }
 
+  const paymentMethod = paid
+    ? normalizePaymentMethod(body.payment_method || body.paymentMethod) || "cash"
+    : "";
+  const paymentNote = paid
+    ? str(body.payment_note || body.paymentNote)
+    : "";
+  const paidAt = paid ? new Date().toISOString() : null;
+  const paymentPatch = billingPaymentPatch({
+    paidAt,
+    paymentMethod,
+    paymentNote,
+    managerId: manager?.id || null
+  });
+
   await supabaseWrite(
     `billing_line_items?rental_request_id=eq.${encodeURIComponent(rental.id)}`,
     "PATCH",
-    { posted_to_stripe_at: paid ? new Date().toISOString() : null }
+    paymentPatch
   );
+  await syncAttachedThermostatBillingToRental({
+    rentalId: rental.id,
+    accountMemberId: rental.claimed_member_id || existingRows[0]?.account_member_id || "",
+    postedToStripeAt: paidAt,
+    paymentMethod,
+    paymentNote,
+    managerId: manager?.id || null
+  });
 
   const rows = await supabaseWrite(
     `rental_requests?id=eq.${encodeURIComponent(rental.id)}`,
@@ -846,6 +879,39 @@ async function markRentalBillStatus({ rental, manager, paid }) {
     }
   );
   return buildRentalBillingResponse(rows[0] || { ...rental, payment_status: paid ? "paid" : "unpaid" });
+}
+
+async function syncAttachedThermostatBillingToRental({
+  rentalId,
+  accountMemberId,
+  postedToStripeAt,
+  paymentMethod = "",
+  paymentNote = "",
+  managerId = null
+}) {
+  if (!isUuid(rentalId)) return [];
+  const linkRows = await supabaseRest(
+    `rental_thermostat_links?select=heater_use_entry_id&rental_request_id=eq.${encodeURIComponent(rentalId)}&ignored_at=is.null`
+  ).catch(() => []);
+  const heaterIds = [...new Set((linkRows || []).map((row) => row.heater_use_entry_id).filter(Boolean))];
+  if (!heaterIds.length) return [];
+
+  const patch = billingPaymentPatch({
+    paidAt: postedToStripeAt,
+    paymentMethod,
+    paymentNote,
+    managerId
+  });
+  if (isUuid(accountMemberId)) patch.account_member_id = accountMemberId;
+
+  return supabaseWrite(
+    `billing_line_items?heater_use_entry_id=in.(${heaterIds.map(encodeURIComponent).join(",")})`,
+    "PATCH",
+    patch
+  ).catch((error) => {
+    console.warn("Could not sync attached thermostat billing:", error?.message || error);
+    return [];
+  });
 }
 
 async function buildRentalBillingResponse(rental) {
@@ -909,6 +975,15 @@ async function handleRentalThermostatAction({ id, thermostatAction, heaterUseEnt
       ignored_at: action === "ignore" ? new Date().toISOString() : null
     }
   );
+
+  if (action === "attach" && rental.claimed_member_id) {
+    await syncAttachedThermostatBillingToRental({
+      rentalId: rental.id,
+      accountMemberId: rental.claimed_member_id,
+      postedToStripeAt: rental.payment_status === "paid" ? new Date().toISOString() : null,
+      paymentMethod: rental.payment_status === "paid" ? "other" : ""
+    });
+  }
 
   return buildRentalThermostatResponse(rental);
 }
@@ -993,6 +1068,22 @@ function bodyFieldValue(body, snakeKey, camelKey) {
 function normalizePaymentStatus(value) {
   const normalized = String(value || "").trim().toLowerCase();
   return ["unbilled", "unpaid", "paid", "waived"].includes(normalized) ? normalized : "unbilled";
+}
+
+function normalizePaymentMethod(value) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return VALID_PAYMENT_METHODS.has(normalized) ? normalized : "";
+}
+
+function billingPaymentPatch({ paidAt, paymentMethod = "", paymentNote = "", managerId = null }) {
+  const paid = Boolean(paidAt);
+  return {
+    posted_to_stripe_at: paidAt || null,
+    payment_method: paid ? normalizePaymentMethod(paymentMethod) || "cash" : (normalizePaymentMethod(paymentMethod) || null),
+    payment_recorded_at: paid ? paidAt : null,
+    payment_recorded_by_member_id: paid && isUuid(managerId) ? managerId : null,
+    payment_note: paid ? (str(paymentNote) || null) : null
+  };
 }
 
 function normalizeThermostatSystemType(value) {
@@ -1225,6 +1316,18 @@ async function loadRentalThermostatReviewMap(rentals = []) {
     return map;
   }, new Map());
 
+  const billingRows = heaterIds.length
+    ? await supabaseRest(
+      `billing_line_items?select=*&heater_use_entry_id=in.(${heaterIds.map(encodeURIComponent).join(",")})`
+    ).catch(() => [])
+    : [];
+  const billingByHeaterId = billingRows.reduce((map, row) => {
+    const current = map.get(row.heater_use_entry_id) || [];
+    current.push(row);
+    map.set(row.heater_use_entry_id, current);
+    return map;
+  }, new Map());
+
   const linkedHeaterIds = linkRows.map((row) => row.heater_use_entry_id).filter(Boolean);
   if (linkedHeaterIds.length) {
     const missingLinkedIds = linkedHeaterIds.filter((id) => !heaterRows.some((row) => row.id === id));
@@ -1254,12 +1357,22 @@ async function loadRentalThermostatReviewMap(rentals = []) {
     review.attached = [...attachedIds]
       .map((heaterId) => heaterById.get(heaterId))
       .filter(Boolean)
-      .map((heater) => mapThermostatReviewRecord(heater, groupMemberMap.get(heater.id) || [], rental));
+      .map((heater) => mapThermostatReviewRecord(
+        heater,
+        groupMemberMap.get(heater.id) || [],
+        rental,
+        billingByHeaterId.get(heater.id) || []
+      ));
 
     review.suggestions = heaterRows
       .filter((heater) => isThermostatCandidateForRental(heater, rental, groupMemberMap.get(heater.id) || []))
       .filter((heater) => !ignoredIds.has(heater.id) && !attachedIds.has(heater.id))
-      .map((heater) => mapThermostatReviewRecord(heater, groupMemberMap.get(heater.id) || [], rental))
+      .map((heater) => mapThermostatReviewRecord(
+        heater,
+        groupMemberMap.get(heater.id) || [],
+        rental,
+        billingByHeaterId.get(heater.id) || []
+      ))
       .sort((a, b) => (
         Number(b.matchesAddon) - Number(a.matchesAddon)
         || new Date(a.startAt || a.usedOn) - new Date(b.startAt || b.usedOn)
@@ -1290,9 +1403,13 @@ function isThermostatCandidateForRental(heater, rental, groupMemberIds = []) {
     || groupMemberIds.map(String).includes(claimedMemberId);
 }
 
-function mapThermostatReviewRecord(heater, groupMemberIds = [], rental = {}) {
+function mapThermostatReviewRecord(heater, groupMemberIds = [], rental = {}, billingRows = []) {
   const systemType = normalizeThermostatSystemType(heater.system_type);
   const addonSystemTypes = rentalThermostatAddonSystemTypes(rental);
+  const billingTotalCents = (billingRows || []).reduce((sum, row) => sum + Number(row.amount_cents || 0), 0);
+  const paid = billingRows.length
+    ? billingRows.every((row) => Boolean(row.posted_to_stripe_at))
+    : Boolean(heater.paid);
   return {
     id: heater.id,
     usedOn: heater.used_on,
@@ -1304,7 +1421,9 @@ function mapThermostatReviewRecord(heater, groupMemberIds = [], rental = {}) {
     startAt: heater.start_at || null,
     endAt: heater.end_at || null,
     targetTemperatureF: Number(heater.target_temperature_f || 0) || null,
-    paid: Boolean(heater.paid),
+    paid,
+    billingTotalCents,
+    billingItemCount: billingRows.length,
     note: heater.note || "",
     matchesAddon: addonSystemTypes.includes(systemType)
   };
