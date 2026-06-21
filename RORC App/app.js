@@ -98,6 +98,7 @@ let notificationUnreadCount = 0;
 let contractReviewPendingCount = 0;
 let rentalReviewsPendingCount = 0;
 let sponsorSubmissionsPendingCount = 0;
+let rentalAccountLoginMap = new Map();
 let accountTypePolicies = defaultAccountTypePolicies();
 let thermostatSystemAccess = defaultThermostatSystemAccess();
 let gymLightsMode = "full";
@@ -274,7 +275,8 @@ const accountManagerOnlyRoutes = new Set([
   "messageCompose",
   "contracts",
   "adminNotes",
-  "rentalReviews"
+  "rentalReviews",
+  "rentalAccounts"
 ]);
 
 const kioskAllowedRoutes = new Set([
@@ -415,6 +417,11 @@ const routes = {
     title: "Rentals",
     template: "feedbackTemplate",
     afterRender: renderRentalReviewsPage
+  },
+  rentalAccounts: {
+    title: "Rental Accounts",
+    template: "feedbackTemplate",
+    afterRender: renderRentalAccountsPage
   },
   calendar: {
     title: "Calendar",
@@ -5285,6 +5292,383 @@ async function renderRentalReviewsPage() {
     revealReadyContent(root);
     root.innerHTML = `<p class="feedback-empty">${escapeHtml(err.message)}</p>`;
   }
+}
+
+async function fetchRentalRequestsForAdmin() {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) throw new Error("Sign in to view rental requests.");
+
+  const res = await fetch("/api/rental-reviews", { headers: { Authorization: `Bearer ${token}` } });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body.success === false) throw new Error(body.error || "Could not load rental requests.");
+
+  rentalAllRequests = body.requests || [];
+  rentalReviewsPendingCount = rentalAllRequests.filter(
+    (r) => r.rentalStatus === "submitted" || r.rentalStatus === "pending_review"
+  ).length;
+  updateRentalReviewsBadge();
+  return rentalAllRequests;
+}
+
+function rentalAccountMembers() {
+  return accountMembers
+    .filter((member) => canonicalAccountType(member.accountType) === "Rental Account")
+    .sort(sortMembers);
+}
+
+function rentalAccountLabel(member) {
+  const account = accountForMember(member);
+  const number = displayAccountNumberForMember(member) || account?.accountNumber || "Rental Account";
+  return `${number} - ${member.memberName || "Rental Contact"}`;
+}
+
+function rentalRequestDisplayName(rental) {
+  const booking = rental?.bookingNumber || rental?.id || "";
+  const name = rental?.eventName || rental?.eventType || "Rental";
+  const date = rental?.eventDate ? ` (${rental.eventDate})` : "";
+  return `${booking ? `${booking} - ` : ""}${name}${date}`;
+}
+
+function rentalAccountOpenBalance(memberId) {
+  return billingLineItems
+    .filter((item) => item.accountMemberId === memberId && !item.postedToStripeAt)
+    .reduce((sum, item) => sum + Number(item.amountCents || 0), 0);
+}
+
+function linkedRentalsForRentalAccount(memberId) {
+  return rentalAllRequests
+    .filter((rental) => rental.claimedMemberId === memberId)
+    .sort((a, b) => String(b.eventDate || "").localeCompare(String(a.eventDate || "")));
+}
+
+function unattachedBillableRentals() {
+  return rentalAllRequests
+    .filter((rental) => rental.rentalStatus === "confirmed" && !rental.claimedMemberId)
+    .sort((a, b) => String(a.eventDate || "").localeCompare(String(b.eventDate || "")));
+}
+
+async function refreshRentalAccountLoginMap() {
+  rentalAccountLoginMap = new Map();
+  const client = await createSupabaseClient();
+  if (!client || !isAccountManager(appUserSession)) return;
+
+  const { data, error } = await client
+    .from("account_members")
+    .select("id,auth_user_id")
+    .eq("account_type", "Rental Account");
+  if (error) {
+    console.warn("Could not load rental account login state.", error.message || error);
+    return;
+  }
+  (data || []).forEach((row) => {
+    rentalAccountLoginMap.set(row.id, Boolean(row.auth_user_id));
+  });
+}
+
+async function renderRentalAccountsPage() {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+  root.classList.add("rental-admin-page");
+  deferContentUntilReady(root);
+
+  try {
+    await Promise.all([
+      fetchRentalRequestsForAdmin(),
+      refreshRentalAccountLoginMap()
+    ]);
+    renderRentalAccountsDashboard(root);
+  } catch (error) {
+    revealReadyContent(root);
+    root.innerHTML = `<p class="feedback-empty">${escapeHtml(error.message || "Could not load rental accounts.")}</p>`;
+  }
+}
+
+function renderRentalAccountsDashboard(root, message = "") {
+  revealReadyContent(root);
+  const rentalMembers = rentalAccountMembers();
+  const unattachedRentals = unattachedBillableRentals();
+  const linkedRentalCount = rentalAllRequests.filter((rental) => rental.claimedMemberId).length;
+  const totalOpen = rentalMembers.reduce((sum, member) => sum + rentalAccountOpenBalance(member.id), 0);
+  const accountOptions = rentalMembers.map((member) => `
+    <option value="${escapeAttribute(member.id)}">${escapeHtml(rentalAccountLabel(member))}</option>
+  `).join("");
+
+  root.innerHTML = `
+    <section class="live-record-page rental-admin-shell">
+      ${message ? `<p class="data-source-note rental-automation-notice">${escapeHtml(message)}</p>` : ""}
+      <div class="detail-card">
+        <div class="master-log-summary">
+          <span>Rental Accounts <strong>${rentalMembers.length}</strong></span>
+          <span>Attached Rentals <strong>${linkedRentalCount}</strong></span>
+          <span>Needs Account <strong>${unattachedRentals.length}</strong></span>
+          <span>Open Rental Balance <strong>${formatCurrency(totalOpen)}</strong></span>
+        </div>
+      </div>
+
+      <section class="detail-card">
+        <h3>Rentals Needing Account</h3>
+        ${unattachedRentals.length ? `
+          <ul class="master-log-list">
+            ${unattachedRentals.map((rental) => `
+              <li>
+                <div>
+                  <strong>${escapeHtml(rentalRequestDisplayName(rental))}</strong>
+                  <span>${escapeHtml(rental.contactName || "No contact")} · ${escapeHtml(rental.contactEmail || "No email")} · ${formatCurrency(rental.estimatedTotalCents || 0)}</span>
+                </div>
+                <div class="rental-card-btn-row">
+                  <select class="rental-edit-input" data-rental-account-select="${escapeAttribute(rental.id)}" ${rentalMembers.length ? "" : "disabled"}>
+                    <option value="">Select rental account</option>
+                    ${accountOptions}
+                  </select>
+                  <button class="rental-btn rental-btn-ghost" data-rental-account-attach="${escapeAttribute(rental.id)}" type="button" ${rentalMembers.length ? "" : "disabled"}>Attach</button>
+                  <button class="rental-btn rental-btn-confirm" data-rental-account-create="${escapeAttribute(rental.id)}" type="button">Create Rental Account</button>
+                </div>
+              </li>
+            `).join("")}
+          </ul>
+        ` : `<p class="feedback-empty">All confirmed rentals are attached or not ready for billing.</p>`}
+      </section>
+
+      <section class="detail-card">
+        <h3>Rental Accounts</h3>
+        ${rentalMembers.length ? `
+          <div class="rental-cards">
+            ${rentalMembers.map((member) => renderRentalAccountCard(member)).join("")}
+          </div>
+        ` : `<p class="feedback-empty">No Rental Accounts yet.</p>`}
+      </section>
+    </section>
+  `;
+
+  root.querySelectorAll("[data-rental-account-create]").forEach((button) => {
+    button.addEventListener("click", () => createRentalAccountFromRequest(button.dataset.rentalAccountCreate, root, button));
+  });
+
+  root.querySelectorAll("[data-rental-account-attach]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const rentalId = button.dataset.rentalAccountAttach || "";
+      const memberId = root.querySelector(`[data-rental-account-select="${CSS.escape(rentalId)}"]`)?.value || "";
+      attachRentalToAccountMember(rentalId, memberId, root, button);
+    });
+  });
+
+  root.querySelectorAll("[data-rental-account-unattach]").forEach((button) => {
+    button.addEventListener("click", () => unattachRentalFromAccount(button.dataset.rentalAccountUnattach, root, button));
+  });
+
+  root.querySelectorAll("[data-rental-account-bill]").forEach((button) => {
+    button.addEventListener("click", () => {
+      rentalActiveFilter = "confirmed";
+      highlightRentalId = button.dataset.rentalAccountBill || "";
+      render("rentalReviews");
+    });
+  });
+}
+
+function renderRentalAccountCard(member) {
+  const account = accountForMember(member);
+  const rentals = linkedRentalsForRentalAccount(member.id);
+  const openBalance = rentalAccountOpenBalance(member.id);
+  const loginLinked = rentalAccountLoginMap.get(member.id) === true;
+  return `
+    <article class="rental-card" data-rental-account-member-id="${escapeAttribute(member.id)}">
+      <div class="rental-card-header">
+        <div>
+          <span class="rental-card-type">Rental Account</span>
+          <h3>${escapeHtml(member.memberName || "Rental Contact")}</h3>
+          <p>${escapeHtml(displayAccountNumberForMember(member) || "No account number")}</p>
+        </div>
+        <span class="rental-card-pill" style="--status-color:${loginLinked ? "#22c55e" : "#f97316"}">${loginLinked ? "Login linked" : "No login yet"}</span>
+      </div>
+      <dl class="rental-card-contact">
+        <div class="rental-card-contact-row">
+          <dt>Email</dt><dd>${member.emailAddress ? `<a href="mailto:${escapeAttribute(member.emailAddress)}">${escapeHtml(member.emailAddress)}</a>` : "—"}</dd>
+        </div>
+        <div class="rental-card-contact-row">
+          <dt>Phone</dt><dd>${member.phoneNumber ? `<a href="tel:${escapeAttribute(member.phoneNumber)}">${escapeHtml(member.phoneNumber)}</a>` : "—"}</dd>
+        </div>
+        <div class="rental-card-contact-row">
+          <dt>Open Balance</dt><dd>${formatCurrency(openBalance)}</dd>
+        </div>
+      </dl>
+      ${account?.notesOnAccount ? `<p class="rental-card-notes-text">${escapeHtml(account.notesOnAccount)}</p>` : ""}
+      <div class="rental-card-divider"></div>
+      ${rentals.length ? `
+        <ul class="master-log-list">
+          ${rentals.map((rental) => `
+            <li>
+              <div>
+                <strong>${escapeHtml(rentalRequestDisplayName(rental))}</strong>
+                <span>${escapeHtml(rentalPaymentStatusLabel(rental.paymentStatus))} · ${formatCurrency(rental.estimatedTotalCents || 0)}</span>
+              </div>
+              <div class="rental-card-btn-row">
+                <button class="rental-btn rental-btn-ghost" data-rental-account-bill="${escapeAttribute(rental.id)}" type="button">Open Rental</button>
+                <button class="rental-btn rental-btn-decline" data-rental-account-unattach="${escapeAttribute(rental.id)}" type="button">Unattach</button>
+              </div>
+            </li>
+          `).join("")}
+        </ul>
+      ` : `<p class="feedback-empty">No rentals attached.</p>`}
+    </article>
+  `;
+}
+
+async function createRentalAccountFromRequest(rentalId, root, button) {
+  const rental = rentalAllRequests.find((item) => item.id === rentalId);
+  if (!rental) return;
+  const confirmed = window.confirm(`Create a Rental Account and attach ${rentalRequestDisplayName(rental)}?`);
+  if (!confirmed) return;
+
+  const client = await createSupabaseClient();
+  if (!client) {
+    showAppNotice("App data is not available.");
+    return;
+  }
+
+  if (button) button.disabled = true;
+  try {
+    const accountNumber = rentalAccountNumberForRental(rental);
+    const { data: accountRows, error: accountError } = await client
+      .from("accounts")
+      .insert({
+        account_number: accountNumber,
+        membership_details: "Rental Account",
+        notes_on_account: [
+          `Rental account created for ${rental.bookingNumber || rental.id}.`,
+          rental.contactAddress ? `Mailing address: ${rental.contactAddress}` : ""
+        ].filter(Boolean).join("\n")
+      })
+      .select("*")
+      .limit(1);
+    if (accountError) throw accountError;
+    const account = accountRows?.[0];
+    if (!account?.id) throw new Error("Rental account was not created.");
+
+    const { data: memberRows, error: memberError } = await client
+      .from("account_members")
+      .insert({
+        account_id: account.id,
+        member_name: rental.contactName || "Rental Contact",
+        account_type: "Rental Account",
+        phone_number: rental.contactPhone || null,
+        email_address: rental.contactEmail || null,
+        allow_guest_entry: false,
+        allow_heater_use: false,
+        can_access_independently: false,
+        is_billing_owner: true
+      })
+      .select("*")
+      .limit(1);
+    if (memberError) throw memberError;
+    const member = memberRows?.[0];
+    if (!member?.id) throw new Error("Rental account contact was not created.");
+
+    accounts.push({
+      id: account.id,
+      accountNumber: account.account_number || accountNumber,
+      membershipDetails: account.membership_details || "Rental Account",
+      notesOnAccount: account.notes_on_account || "",
+      expirationDate: account.expiration_date || null,
+      billingIdHeater: account.billing_id_heater || "",
+      marksAgainstAccount: account.marks_against_account || "",
+      heaterPin: account.heater_pin || "",
+      billingStatus: "none",
+      stripeCustomerId: "",
+      stripeStatus: "None",
+      currentPeriodEnd: null,
+      lastSync: null
+    });
+    accountMembers.push({
+      id: member.id,
+      accountId: member.account_id,
+      accountNumber: account.account_number || accountNumber,
+      memberName: member.member_name || "Rental Contact",
+      accountType: "Rental Account",
+      legacyAccountType: "",
+      phoneNumber: member.phone_number || "",
+      emailAddress: member.email_address || "",
+      mailingAddress: "",
+      imagePath: "",
+      allowGuestEntry: false,
+      allowHeaterUse: false,
+      isBillingOwner: true,
+      dateOfBirth: "",
+      guardianMemberId: "",
+      canAccessIndependently: false
+    });
+    rentalAccountLoginMap.set(member.id, false);
+    await attachRentalToAccountMember(rentalId, member.id, root, button, "Rental Account created and attached.");
+  } catch (error) {
+    showAppNotice(error.message || "Could not create rental account.");
+    if (button) button.disabled = false;
+  }
+}
+
+function rentalAccountNumberForRental(rental) {
+  const base = String(rental?.bookingNumber || rental?.id || Date.now())
+    .replace(/[^a-z0-9-]+/gi, "-")
+    .replace(/^-+|-+$/g, "");
+  return `RA-${base}`;
+}
+
+async function attachRentalToAccountMember(rentalId, memberId, root, button, successMessage = "Rental attached to account.") {
+  const member = findMember(memberId);
+  if (!member || canonicalAccountType(member.accountType) !== "Rental Account") {
+    showAppNotice("Select a Rental Account first.");
+    return;
+  }
+  if (button) button.disabled = true;
+  try {
+    const body = await sendRentalAccountClaimPatch({
+      id: rentalId,
+      claimedMemberId: member.id,
+      claimedAccountId: member.accountId
+    });
+    updateRentalFromResponse(body);
+    renderRentalAccountsDashboard(root, successMessage);
+  } catch (error) {
+    showAppNotice(error.message || "Could not attach rental account.");
+    if (button) button.disabled = false;
+  }
+}
+
+async function unattachRentalFromAccount(rentalId, root, button) {
+  const rental = rentalAllRequests.find((item) => item.id === rentalId);
+  if (!rental) return;
+  const confirmed = window.confirm(`Unattach ${rentalRequestDisplayName(rental)} from this Rental Account?`);
+  if (!confirmed) return;
+  if (button) button.disabled = true;
+  try {
+    const body = await sendRentalAccountClaimPatch({
+      id: rentalId,
+      claimedMemberId: "",
+      claimedAccountId: ""
+    });
+    updateRentalFromResponse(body);
+    renderRentalAccountsDashboard(root, "Rental unattached.");
+  } catch (error) {
+    showAppNotice(error.message || "Could not unattach rental.");
+    if (button) button.disabled = false;
+  }
+}
+
+async function sendRentalAccountClaimPatch(payload) {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) throw new Error("Please sign in again before updating rental accounts.");
+  const res = await fetch("/api/rental-reviews", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload)
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body.success === false) throw new Error(body.error || "Could not update rental account.");
+  return body;
+}
+
+function updateRentalFromResponse(body) {
+  if (!body?.request?.id) return;
+  const index = rentalAllRequests.findIndex((item) => item.id === body.request.id);
+  if (index >= 0) rentalAllRequests[index] = body.request;
 }
 
 function renderRentalPipeline(root) {
