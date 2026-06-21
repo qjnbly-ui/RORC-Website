@@ -73,7 +73,7 @@ async function dispatchScheduledMessage(job) {
       } else {
         for (const phone of uniquePhones) {
           try {
-            await sendTwilioText(phone, `${job.title}\n${job.message}`);
+            await sendTwilioText(phone, buildTextMessageBody(job.title, job.message));
             sentTextCount += 1;
           } catch (error) {
             errors.push(`SMS to ${phone} failed: ${error.message}`);
@@ -260,6 +260,11 @@ async function sendTwilioText(to, body) {
   if (!response.ok) {
     throw new Error(result?.message || "Twilio request failed.");
   }
+}
+
+function buildTextMessageBody(title, message) {
+  const body = String(message || "").trim();
+  return body || String(title || "").trim();
 }
 
 function buildScheduledMessageEmails(recipients, subject, message) {

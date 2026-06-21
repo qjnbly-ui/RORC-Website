@@ -155,7 +155,7 @@ module.exports = async (req, res) => {
       } else {
         for (const phone of uniquePhones) {
           try {
-            await sendTwilioText(phone, `${title}\n${message}`);
+            await sendTwilioText(phone, buildTextMessageBody(title, message));
             sentTextCount += 1;
           } catch (error) {
             errors.push(`SMS to ${phone} failed: ${error.message}`);
@@ -437,6 +437,11 @@ async function sendTwilioText(to, body) {
   if (!response.ok) {
     throw new Error(result?.message || "Twilio request failed.");
   }
+}
+
+function buildTextMessageBody(title, message) {
+  const body = String(message || "").trim();
+  return body || String(title || "").trim();
 }
 
 function buildMemberMessageEmails(recipients, subject, message) {
