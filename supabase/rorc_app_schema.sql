@@ -1002,8 +1002,9 @@ as $$
 begin
   if old.end_at is not null
      and new.end_at is not null
-     and old.end_at <> new.end_at then
-    raise exception 'Cannot overwrite an existing heater end time on heater use row %.', old.id;
+     and old.end_at <> new.end_at
+     and not public.is_admin() then
+    raise exception 'Cannot overwrite an existing thermostat end time on thermostat use row %.', old.id;
   end if;
 
   return new;
