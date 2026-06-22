@@ -5434,6 +5434,59 @@ textarea:focus-visible,
   line-height: 1.6;
 }
 
+.rental-bill-breakdown {
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 10px;
+  margin: 10px 0 14px;
+  overflow: hidden;
+}
+
+.rental-bill-breakdown-head,
+.rental-bill-breakdown-total,
+.rental-bill-breakdown li {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+}
+
+.rental-bill-breakdown-head,
+.rental-bill-breakdown-total {
+  background: rgba(255,255,255,0.04);
+  padding: 10px 12px;
+}
+
+.rental-bill-breakdown-head span,
+.rental-bill-breakdown-total span,
+.rental-bill-breakdown small {
+  color: var(--muted);
+}
+
+.rental-bill-breakdown ol {
+  list-style: none;
+  margin: 0;
+  padding: 0 12px;
+}
+
+.rental-bill-breakdown li {
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding: 10px 0;
+}
+
+.rental-bill-breakdown li:first-child {
+  border-top: 0;
+}
+
+.rental-bill-breakdown li span {
+  display: grid;
+  gap: 3px;
+}
+
+.rental-bill-breakdown b,
+.rental-bill-breakdown-total strong {
+  white-space: nowrap;
+}
+
 .rental-change-request-panel {
   border-color: rgba(245, 158, 11, 0.36);
   background: rgba(245, 158, 11, 0.08);

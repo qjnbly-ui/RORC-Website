@@ -6189,6 +6189,119 @@ function rentalBillingLineItems(rental) {
   ));
 }
 
+function rentalPricingValuesFromRequest(rental) {
+  return {
+    rentalType: rental?.rentalType,
+    rentalHours: rental?.rentalHours,
+    rentalAccessStart: rental?.eventStartTime,
+    rentalAccessEnd: rental?.eventEndTime,
+    isPrivateEvent: rental?.isPrivateEvent,
+    specialAccessDiscount: rental?.specialAccessDiscount,
+    addonCleaningMaintenance: inferRentalCleaningMaintenance(rental),
+    addonTables: rental?.addonTables,
+    addonChairs: rental?.addonChairs,
+    addonTarp: rental?.addonTarp,
+    addonHeater: rental?.addonHeater,
+    addonAc: rental?.addonAc,
+    addonEarlySetup: rental?.addonEarlySetup,
+    addonEarlyDayRental: rental?.addonEarlyDayRental,
+    addonLateCleanup: rental?.addonLateCleanup,
+    addonLateDayRental: rental?.addonLateDayRental
+  };
+}
+
+function rentalBillBreakdownRows(rental, rentalAmountCents, thermostatTotalCents, thermostatRuntimeMinutes) {
+  const values = rentalPricingValuesFromRequest(rental);
+  const rows = [];
+  const isPrivateEvent = values.isPrivateEvent !== false;
+  const accessHours = rentalHoursBetween(values.rentalAccessStart, values.rentalAccessEnd, values.rentalHours || 1);
+  const baseCents = rentalBaseCents(values);
+  const baseLabel = !isPrivateEvent
+    ? `Non-private rental (${rentalBillableHoursLabel(accessHours)} @ $5/hr)`
+    : values.rentalType === "hourly"
+      ? `Hourly rental (${rentalHoursLabel(accessHours)} @ $10/hr)`
+      : "All day rental";
+  rows.push({ label: baseLabel, note: "Base rental charge", cents: baseCents });
+
+  const addOnRows = [
+    [values.addonCleaningMaintenance, "Standard maintenance fee", RENTAL_PRICE_CENTS.cleaningMaintenance],
+    [values.addonTables, "Tables", RENTAL_PRICE_CENTS.tables],
+    [values.addonChairs, "Chairs", RENTAL_PRICE_CENTS.chairs],
+    [values.addonTarp, "Tarp", RENTAL_PRICE_CENTS.tarp],
+    [values.addonHeater, "Heater add-on", RENTAL_PRICE_CENTS.heater, "Thermostat use is billed from attached runtime"],
+    [values.addonAc, "AC add-on", RENTAL_PRICE_CENTS.ac, "AC use is billed from attached runtime"],
+    [values.addonEarlySetup, "Early setup", RENTAL_PRICE_CENTS.earlySetup],
+    [values.addonEarlyDayRental, "Extra day early", RENTAL_PRICE_CENTS.earlyDayRental],
+    [values.addonLateCleanup, "Late cleanup", RENTAL_PRICE_CENTS.lateCleanup],
+    [values.addonLateDayRental, "Extra day late", RENTAL_PRICE_CENTS.lateDayRental]
+  ];
+
+  addOnRows.forEach(([enabled, label, cents, note]) => {
+    if (!enabled) return;
+    rows.push({ label, note: note || "Selected option", cents });
+  });
+
+  const subtotalBeforeDiscount = rows.reduce((sum, row) => sum + Number(row.cents || 0), 0);
+  let calculatedRentalCents = subtotalBeforeDiscount;
+  if (values.specialAccessDiscount) {
+    calculatedRentalCents = Math.round(subtotalBeforeDiscount * (1 - SPECIAL_ACCESS_RENTAL_DISCOUNT_RATE));
+    rows.push({
+      label: "Special Access discount",
+      note: "20% off rental options",
+      cents: calculatedRentalCents - subtotalBeforeDiscount
+    });
+  }
+
+  const currentRentalAmount = Math.max(0, Number(rentalAmountCents || 0));
+  const adjustmentCents = currentRentalAmount - calculatedRentalCents;
+  if (adjustmentCents !== 0) {
+    rows.push({
+      label: "Current bill adjustment",
+      note: "Difference between selected options and saved bill amount",
+      cents: adjustmentCents
+    });
+  }
+
+  if (Number(thermostatTotalCents || 0) > 0 || Number(thermostatRuntimeMinutes || 0) > 0) {
+    rows.push({
+      label: "Attached thermostat runtime",
+      note: thermostatRuntimeMinutes ? formatBillingRuntime(thermostatRuntimeMinutes) : "Attached thermostat billing",
+      cents: Number(thermostatTotalCents || 0)
+    });
+  }
+
+  return rows;
+}
+
+function renderRentalBillBreakdown(rental, rentalAmountCents, thermostatTotalCents, thermostatRuntimeMinutes) {
+  const rows = rentalBillBreakdownRows(rental, rentalAmountCents, thermostatTotalCents, thermostatRuntimeMinutes);
+  const rentalTotal = Math.max(0, Number(rentalAmountCents || 0));
+  const invoiceTotal = rentalTotal + Number(thermostatTotalCents || 0);
+  return `
+    <div class="rental-bill-breakdown" data-rental-bill-breakdown>
+      <div class="rental-bill-breakdown-head">
+        <strong>Bill Breakdown</strong>
+        <span>Invoice total ${formatCurrency(invoiceTotal)}</span>
+      </div>
+      <ol>
+        ${rows.map((row) => `
+          <li>
+            <span>
+              <strong>${escapeHtml(row.label)}</strong>
+              ${row.note ? `<small>${escapeHtml(row.note)}</small>` : ""}
+            </span>
+            <b>${formatCurrency(row.cents || 0)}</b>
+          </li>
+        `).join("")}
+      </ol>
+      <div class="rental-bill-breakdown-total">
+        <span>Rental subtotal ${formatCurrency(rentalTotal)}</span>
+        <strong>Total due ${formatCurrency(invoiceTotal)}</strong>
+      </div>
+    </div>
+  `;
+}
+
 function rentalBillingReason(rental) {
   const booking = rental?.bookingNumber || rental?.id || "";
   const name = rental?.eventName || rental?.eventType || "Rental";
@@ -6203,10 +6316,11 @@ function showRentalBillForm(rentalId, root) {
 
   const linkedItem = billingLineItems.find((item) => item.rentalRequestId === rentalId);
   const amountValue = ((linkedItem?.amountCents ?? rental.estimatedTotalCents ?? 0) / 100).toFixed(2);
+  const rentalAmountCents = Math.max(0, Math.round(Number(amountValue || 0) * 100));
   const reasonValue = linkedItem?.reason || rentalBillingReason(rental);
   const thermostatTotalCents = rentalAttachedThermostatBillingTotal(rental);
   const thermostatRuntimeMinutes = rentalAttachedThermostatRuntimeTotal(rental);
-  const combinedTotalCents = Math.round(Number(amountValue || 0) * 100) + thermostatTotalCents;
+  const combinedTotalCents = rentalAmountCents + thermostatTotalCents;
   const canFinalize = Boolean(rental.claimedMemberId);
   const paymentMethod = normalizeBillingPaymentMethod(linkedItem?.paymentMethod) || "cash";
 
@@ -6214,6 +6328,7 @@ function showRentalBillForm(rentalId, root) {
     <div class="rental-card-notes rental-bill-review">
       <span class="rental-card-notes-label">${escapeHtml(canFinalize ? "Review Bill" : "Account Required")}</span>
       ${canFinalize ? "" : `<p class="rental-card-notes-text">Attach or claim this rental to an account before creating a bill.</p>`}
+      ${renderRentalBillBreakdown(rental, rentalAmountCents, thermostatTotalCents, thermostatRuntimeMinutes)}
       <div class="master-log-form">
         <label>
           <span>Reason</span>
@@ -6258,6 +6373,10 @@ function showRentalBillForm(rentalId, root) {
     const nextAmountCents = Math.max(0, Math.round(Number(event.currentTarget?.value || 0) * 100));
     const totalField = actions.querySelector(`#rentalBillInvoiceTotal-${CSS.escape(rentalId)}`);
     if (totalField) totalField.value = formatCurrency(nextAmountCents + thermostatTotalCents);
+    const breakdown = actions.querySelector("[data-rental-bill-breakdown]");
+    if (breakdown) {
+      breakdown.outerHTML = renderRentalBillBreakdown(rental, nextAmountCents, thermostatTotalCents, thermostatRuntimeMinutes);
+    }
   });
   actions.querySelector("[data-rental-bill-submit]")?.addEventListener("click", (event) => {
     submitRentalBill(rentalId, event.currentTarget, root);
