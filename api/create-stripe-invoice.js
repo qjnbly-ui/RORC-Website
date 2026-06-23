@@ -92,19 +92,6 @@ async function createStripeInvoice({ accountId, customerId, billingItems, mode }
     throw httpError(400, "Stripe invoices require at least one charge greater than $0.");
   }
 
-  for (const item of chargeItems) {
-    await stripe.invoiceItems.create({
-      customer: customerId,
-      amount: Number(item.amount_cents || 0),
-      currency: "usd",
-      description: invoiceItemDescription(item),
-      metadata: {
-        rorc_billing_line_item_id: item.id,
-        rorc_account_id: accountId
-      }
-    });
-  }
-
   const draft = await stripe.invoices.create({
     customer: customerId,
     collection_method: "send_invoice",
@@ -117,7 +104,32 @@ async function createStripeInvoice({ accountId, customerId, billingItems, mode }
     footer: "Thank you for supporting Ruth Obenchain Recreation Center."
   });
 
+  for (const item of chargeItems) {
+    await stripe.invoiceItems.create({
+      customer: customerId,
+      invoice: draft.id,
+      amount: Number(item.amount_cents || 0),
+      currency: "usd",
+      description: invoiceItemDescription(item),
+      metadata: {
+        rorc_billing_line_item_id: item.id,
+        rorc_account_id: accountId
+      }
+    });
+  }
+
+  const draftWithItems = await stripe.invoices.retrieve(draft.id);
+  if (Number(draftWithItems.total || 0) <= 0) {
+    await stripe.invoices.voidInvoice(draft.id).catch(() => null);
+    throw httpError(400, "Stripe invoice total was $0.00, so it was not sent.");
+  }
+
   const finalized = await stripe.invoices.finalizeInvoice(draft.id);
+  if (Number(finalized.total || 0) <= 0) {
+    await stripe.invoices.voidInvoice(finalized.id).catch(() => null);
+    throw httpError(400, "Stripe invoice total was $0.00, so it was not sent.");
+  }
+
   if (mode === "paid") {
     return stripe.invoices.pay(finalized.id, { paid_out_of_band: true });
   }

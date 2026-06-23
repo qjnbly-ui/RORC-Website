@@ -120,6 +120,19 @@ async function handleInvoicePaid(invoice) {
   ).catch(() => []);
   if (!rows.length) return;
 
+  if (Number(invoice.total || invoice.amount_paid || 0) <= 0) {
+    await updateSupabaseRows(
+      `billing_line_items?stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}`,
+      {
+        posted_to_stripe_at: null,
+        payment_recorded_at: null,
+        payment_note: "Ignored Stripe paid event because invoice total was $0.00.",
+        stripe_invoice_url: invoice.hosted_invoice_url || null
+      }
+    );
+    return;
+  }
+
   const paidAt = invoice.status_transitions?.paid_at
     ? new Date(invoice.status_transitions.paid_at * 1000).toISOString()
     : new Date().toISOString();
