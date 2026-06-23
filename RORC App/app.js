@@ -2683,6 +2683,14 @@ function bindMasterLogsActions() {
       );
     });
   });
+
+  document.querySelectorAll("[data-billing-send-stripe-invoice]").forEach((button) => {
+    button.addEventListener("click", () => createMonthlyStripeInvoice(button, "send"));
+  });
+
+  document.querySelectorAll("[data-billing-create-paid-stripe-invoice]").forEach((button) => {
+    button.addEventListener("click", () => createMonthlyStripeInvoice(button, "paid"));
+  });
 }
 
 function normalizedBillingMonth(value) {
@@ -2780,6 +2788,71 @@ function paymentMethodOptions(selectedValue = "", includeBlank = true) {
   return options.map(([value, label]) => (
     `<option value="${escapeAttribute(value)}" ${selected === value ? "selected" : ""}>${escapeHtml(label)}</option>`
   )).join("");
+}
+
+function stripeInvoiceStatusText(item) {
+  if (item?.stripeInvoiceUrl) return "Stripe invoice linked";
+  if (item?.stripeInvoiceId) return `Stripe invoice ${item.stripeInvoiceId}`;
+  return "";
+}
+
+async function createStripeInvoiceForBillingItems({
+  itemIds,
+  mode = "send",
+  triggerButton = null,
+  setMessage = null,
+  successMessage = "Stripe invoice created."
+} = {}) {
+  const ids = [...new Set((itemIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
+  if (!ids.length) {
+    if (setMessage) setMessage("No open billing items selected.", "error");
+    return false;
+  }
+
+  const actionLabel = mode === "paid" ? "create a paid Stripe invoice record" : "create and send a Stripe invoice";
+  if (!window.confirm(`Are you sure you want to ${actionLabel} for ${ids.length} billing item(s)?`)) return false;
+
+  const token = currentAuthSession?.access_token || "";
+  if (!token) {
+    if (setMessage) setMessage("Please sign in again before creating an invoice.", "error");
+    return false;
+  }
+
+  if (triggerButton) triggerButton.disabled = true;
+  if (setMessage) setMessage(mode === "paid" ? "Creating paid Stripe invoice..." : "Creating and sending Stripe invoice...");
+
+  try {
+    const response = await fetch("/api/create-stripe-invoice", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        billingLineItemIds: ids,
+        mode
+      })
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.success === false) {
+      throw new Error(body.error || "Could not create Stripe invoice.");
+    }
+
+    await hydrateFromSupabase();
+    refreshAfterRecordMutation();
+    const url = body.invoice?.url || "";
+    if (setMessage) {
+      setMessage(url ? `${successMessage} ${url}` : successMessage, "success");
+    } else {
+      showAppNotice(successMessage);
+    }
+    return true;
+  } catch (error) {
+    if (setMessage) setMessage(error.message || "Could not create Stripe invoice.", "error");
+    else showAppNotice(error.message || "Could not create Stripe invoice.");
+    if (triggerButton) triggerButton.disabled = false;
+    return false;
+  }
 }
 
 function promptBillingPaymentDetails(defaultMethod = "cash") {
@@ -2905,6 +2978,22 @@ function renderMonthlyBillingAccountCard(summary, monthKey) {
           }).join("")}
         </ol>
         <footer class="monthly-billing-actions">
+          <button
+            class="app-admin-btn"
+            data-billing-send-stripe-invoice
+            data-billing-account-id="${escapeAttribute(summary.accountId)}"
+            data-billing-month="${escapeAttribute(monthKey)}"
+            type="button"
+            ${summary.openItems.length ? "" : "disabled"}
+          >Send Stripe Invoice</button>
+          <button
+            class="app-admin-btn"
+            data-billing-create-paid-stripe-invoice
+            data-billing-account-id="${escapeAttribute(summary.accountId)}"
+            data-billing-month="${escapeAttribute(monthKey)}"
+            type="button"
+            ${summary.openItems.length ? "" : "disabled"}
+          >Create Paid Stripe Record</button>
           <button
             class="app-admin-btn app-admin-btn-primary"
             data-billing-mark-account-paid
@@ -3077,6 +3166,20 @@ async function markMonthlyBillingAccountPaid(accountId, monthKey, triggerButton)
   if (!confirmed) return;
 
   await markBillingItemsPaid(openIds, triggerButton, "Account billing marked paid for the selected month.");
+}
+
+async function createMonthlyStripeInvoice(triggerButton, mode = "send") {
+  const accountId = triggerButton?.dataset.billingAccountId || "";
+  const monthKey = triggerButton?.dataset.billingMonth || "";
+  const summary = monthlyBillingAccountSummaries(normalizedBillingMonth(monthKey), appState.masterLogsBillingFilter)
+    .find((item) => item.accountId === accountId);
+  const openIds = (summary?.openItems || []).map((item) => item.id);
+  await createStripeInvoiceForBillingItems({
+    itemIds: openIds,
+    mode,
+    triggerButton,
+    successMessage: mode === "paid" ? "Paid Stripe invoice record created." : "Stripe invoice sent."
+  });
 }
 
 function toDatetimeLocalValue(isoString) {
@@ -3585,6 +3688,9 @@ function openBillingLogEditor(recordId, options = {}) {
       <footer>
         ${adminControls ? '<button class="master-log-delete" type="button">Delete</button>' : ""}
         <button class="master-log-cancel" type="button">${adminControls ? "Cancel" : "Close"}</button>
+        ${adminControls && !item.postedToStripeAt ? '<button class="master-log-send-stripe-invoice" type="button">Send Stripe Invoice</button>' : ""}
+        ${adminControls && !item.postedToStripeAt ? '<button class="master-log-paid-stripe-invoice" type="button">Paid Stripe Record</button>' : ""}
+        ${item.stripeInvoiceUrl ? `<a class="master-log-cancel" href="${escapeAttribute(item.stripeInvoiceUrl)}" target="_blank" rel="noopener">Open Stripe Invoice</a>` : ""}
         ${adminControls && !item.postedToStripeAt ? '<button class="master-log-mark-paid" type="button">Mark Item Paid</button>' : ""}
         ${adminControls && item.postedToStripeAt ? '<button class="master-log-reopen" type="button">Reopen Item</button>' : ""}
         ${adminControls ? '<button class="master-log-save" type="button">Save</button>' : ""}
@@ -3612,6 +3718,8 @@ function openBillingLogEditor(recordId, options = {}) {
   const deleteButton = overlay.querySelector(".master-log-delete");
   const markPaidButton = overlay.querySelector(".master-log-mark-paid");
   const reopenButton = overlay.querySelector(".master-log-reopen");
+  const sendStripeInvoiceButton = overlay.querySelector(".master-log-send-stripe-invoice");
+  const paidStripeInvoiceButton = overlay.querySelector(".master-log-paid-stripe-invoice");
 
   saveButton?.addEventListener("click", async () => {
     const reason = String(overlay.querySelector("#billingLogReason")?.value || "").trim();
@@ -3709,6 +3817,40 @@ function openBillingLogEditor(recordId, options = {}) {
     saveButton.disabled = false;
     deleteButton.disabled = false;
     setResult("Could not mark billing item paid.", "error");
+  });
+
+  sendStripeInvoiceButton?.addEventListener("click", async () => {
+    saveButton.disabled = true;
+    deleteButton.disabled = true;
+    const success = await createStripeInvoiceForBillingItems({
+      itemIds: [recordId],
+      mode: "send",
+      triggerButton: sendStripeInvoiceButton,
+      successMessage: "Stripe invoice sent.",
+      setMessage: setResult
+    });
+    if (success) close();
+    else {
+      saveButton.disabled = false;
+      deleteButton.disabled = false;
+    }
+  });
+
+  paidStripeInvoiceButton?.addEventListener("click", async () => {
+    saveButton.disabled = true;
+    deleteButton.disabled = true;
+    const success = await createStripeInvoiceForBillingItems({
+      itemIds: [recordId],
+      mode: "paid",
+      triggerButton: paidStripeInvoiceButton,
+      successMessage: "Paid Stripe invoice record created.",
+      setMessage: setResult
+    });
+    if (success) close();
+    else {
+      saveButton.disabled = false;
+      deleteButton.disabled = false;
+    }
   });
 
   reopenButton?.addEventListener("click", async () => {
@@ -6323,6 +6465,8 @@ function showRentalBillForm(rentalId, root) {
   const combinedTotalCents = rentalAmountCents + thermostatTotalCents;
   const canFinalize = Boolean(rental.claimedMemberId);
   const paymentMethod = normalizeBillingPaymentMethod(linkedItem?.paymentMethod) || "cash";
+  const openRentalBillingItems = rentalBillingLineItems(rental).filter((item) => !item.postedToStripeAt);
+  const canCreateStripeInvoice = canFinalize && openRentalBillingItems.length > 0;
 
   actions.innerHTML = `
     <div class="rental-card-notes rental-bill-review">
@@ -6358,11 +6502,12 @@ function showRentalBillForm(rentalId, root) {
         </label>
       </div>
       ${thermostatTotalCents ? `<p class="data-source-note">Attached thermostat charges are invoiced with this rental and are marked paid/unpaid with the rental.</p>` : ""}
-      <p class="data-source-note">Stripe invoice creation is not automated yet. The payment type is stored now so cash/check/manual payments are documented.</p>
+      <p class="data-source-note">Stripe invoices are created from finalized open billing items. Use Finalize Bill first if no invoice items exist yet.</p>
       <p id="rentalBillResult-${escapeAttribute(rentalId)}" class="member-edit-result"></p>
       <div class="rental-card-btn-row">
         <button class="rental-btn rental-btn-ghost" data-rental-bill-close type="button">Back</button>
-        <button class="rental-btn rental-btn-ghost" type="button" disabled>Create Stripe Invoice</button>
+        <button class="rental-btn rental-btn-ghost" data-rental-stripe-invoice="send" type="button" ${canCreateStripeInvoice ? "" : "disabled"}>Send Stripe Invoice</button>
+        <button class="rental-btn rental-btn-ghost" data-rental-stripe-invoice="paid" type="button" ${canCreateStripeInvoice ? "" : "disabled"}>Create Paid Stripe Record</button>
         <button class="rental-btn rental-btn-confirm" data-rental-bill-submit="${escapeAttribute(rentalId)}" type="button" ${canFinalize ? "" : "disabled"}>Finalize Bill</button>
       </div>
     </div>
@@ -6380,6 +6525,29 @@ function showRentalBillForm(rentalId, root) {
   });
   actions.querySelector("[data-rental-bill-submit]")?.addEventListener("click", (event) => {
     submitRentalBill(rentalId, event.currentTarget, root);
+  });
+  actions.querySelectorAll("[data-rental-stripe-invoice]").forEach((button) => {
+    button.addEventListener("click", () => createRentalStripeInvoice(rentalId, button.dataset.rentalStripeInvoice, button, root));
+  });
+}
+
+async function createRentalStripeInvoice(rentalId, mode, triggerButton, root) {
+  const rental = rentalAllRequests.find((item) => item.id === rentalId);
+  const result = document.getElementById(`rentalBillResult-${rentalId}`);
+  if (!rental) return;
+  const openIds = rentalBillingLineItems(rental)
+    .filter((item) => !item.postedToStripeAt)
+    .map((item) => item.id);
+  await createStripeInvoiceForBillingItems({
+    itemIds: openIds,
+    mode,
+    triggerButton,
+    successMessage: mode === "paid" ? "Paid Stripe invoice record created." : "Stripe invoice sent.",
+    setMessage: (message, tone = "default") => {
+      if (!result) return;
+      result.textContent = message;
+      result.dataset.tone = tone;
+    }
   });
 }
 

@@ -27,6 +27,12 @@ module.exports = async (req, res) => {
       await handleSubscriptionChanged(event.data.object, { syncPlan: true });
     } else if (event.type === "customer.subscription.deleted") {
       await handleSubscriptionChanged(event.data.object, { syncPlan: false });
+    } else if (event.type === "invoice.paid") {
+      await handleInvoicePaid(event.data.object);
+    } else if (event.type === "invoice.voided") {
+      await handleInvoiceVoided(event.data.object);
+    } else if (event.type === "invoice.payment_failed") {
+      await handleInvoicePaymentFailed(event.data.object);
     }
 
     return res.status(200).json({ received: true });
@@ -105,6 +111,84 @@ async function handleSubscriptionChanged(subscription, { syncPlan }) {
       updateSupabaseRows
     });
   }
+}
+
+async function handleInvoicePaid(invoice) {
+  if (!invoice?.id) return;
+  const rows = await supabaseRest(
+    `billing_line_items?select=*&stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}`
+  ).catch(() => []);
+  if (!rows.length) return;
+
+  const paidAt = invoice.status_transitions?.paid_at
+    ? new Date(invoice.status_transitions.paid_at * 1000).toISOString()
+    : new Date().toISOString();
+  await updateSupabaseRows(
+    `billing_line_items?stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}`,
+    {
+      posted_to_stripe_at: paidAt,
+      payment_recorded_at: paidAt,
+      payment_method: "stripe_invoice",
+      payment_note: invoice.paid_out_of_band ? "Stripe invoice marked paid out of band." : null,
+      stripe_invoice_url: invoice.hosted_invoice_url || null
+    }
+  );
+  await syncRelatedBillingState(rows, true);
+}
+
+async function handleInvoiceVoided(invoice) {
+  if (!invoice?.id) return;
+  const rows = await supabaseRest(
+    `billing_line_items?select=*&stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}`
+  ).catch(() => []);
+  if (!rows.length) return;
+  await updateSupabaseRows(
+    `billing_line_items?stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}`,
+    {
+      posted_to_stripe_at: null,
+      payment_recorded_at: null,
+      payment_recorded_by_member_id: null,
+      payment_note: "Stripe invoice voided.",
+      stripe_invoice_url: invoice.hosted_invoice_url || null
+    }
+  );
+  await syncRelatedBillingState(rows, false);
+}
+
+async function handleInvoicePaymentFailed(invoice) {
+  if (!invoice?.id) return;
+  await updateSupabaseRows(
+    `billing_line_items?stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}`,
+    {
+      payment_note: "Stripe invoice payment failed.",
+      stripe_invoice_url: invoice.hosted_invoice_url || null
+    }
+  ).catch(() => {});
+}
+
+async function syncRelatedBillingState(rows, paid) {
+  const rentalIds = uniqueIds((rows || []).map((row) => row.rental_request_id).filter(Boolean));
+  const heaterIds = uniqueIds((rows || []).map((row) => row.heater_use_entry_id).filter(Boolean));
+
+  if (rentalIds.length) {
+    const ids = rentalIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
+    await updateSupabaseRows(
+      `rental_requests?id=in.(${encodeURIComponent(ids)})`,
+      { payment_status: paid ? "paid" : "unpaid" }
+    );
+  }
+
+  if (heaterIds.length) {
+    const ids = heaterIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
+    await updateSupabaseRows(
+      `heater_use_entries?id=in.(${encodeURIComponent(ids)})`,
+      { paid }
+    );
+  }
+}
+
+function uniqueIds(values) {
+  return [...new Set((values || []).map((value) => String(value || "").trim()).filter(Boolean))];
 }
 
 async function resolveAccountIdForSubscription(subscription) {
