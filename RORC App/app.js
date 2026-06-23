@@ -2757,7 +2757,10 @@ function billingItemMetaLabel(item, member) {
   const runtimeMinutes = billingItemRuntimeMinutes(item);
   if (runtimeMinutes > 0) parts.push(`Runtime ${formatBillingRuntime(runtimeMinutes)}`);
   parts.push(formatShortDateTime(item.createdAt), billingStatusLabel(item));
-  if (item?.paymentMethod) parts.push(paymentMethodLabel(item.paymentMethod));
+  const paymentMethod = normalizeBillingPaymentMethod(item?.paymentMethod);
+  if (paymentMethod && !(paymentMethod === "stripe_invoice" && item?.stripeInvoiceId)) {
+    parts.push(paymentMethodLabel(paymentMethod));
+  }
   return parts.join(" · ");
 }
 
@@ -2832,6 +2835,23 @@ function billingItemInvoiceLinkHtml(item) {
   return item.stripeInvoiceUrl
     ? `<a href="${escapeAttribute(item.stripeInvoiceUrl)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`
     : escapeHtml(label);
+}
+
+function uniqueStripeInvoiceItems(items = []) {
+  const seen = new Set();
+  return (items || []).filter((item) => {
+    const id = item?.stripeInvoiceId || "";
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+function stripeInvoiceLinksHtml(items = []) {
+  return uniqueStripeInvoiceItems(items)
+    .map((item) => billingItemInvoiceLinkHtml(item))
+    .filter(Boolean)
+    .join(" · ");
 }
 
 async function createStripeInvoiceForBillingItems({
@@ -3084,7 +3104,9 @@ function renderMonthlyBillingAccountCard(summary, monthKey) {
   const status = summary.openTotalCents > 0 ? "Open" : "Paid";
   const memberNames = summary.members.map((member) => member.memberName).filter(Boolean).join(", ");
   const invoiceableCount = summary.invoiceableItems?.length || 0;
-  const activeInvoiceCount = summary.activeInvoiceItems?.length || 0;
+  const activeInvoiceItems = uniqueStripeInvoiceItems(summary.activeInvoiceItems || []);
+  const activeInvoiceCount = activeInvoiceItems.length;
+  const activeInvoiceLinks = stripeInvoiceLinksHtml(activeInvoiceItems);
 
   return `
     <details class="monthly-billing-card" ${summary.openTotalCents > 0 ? "open" : ""}>
@@ -3096,7 +3118,7 @@ function renderMonthlyBillingAccountCard(summary, monthKey) {
         <span class="monthly-billing-amounts">
           <b>${formatCurrency(summary.openTotalCents)}</b>
           <small>${escapeHtml(status)} · ${summary.items.length} item${summary.items.length === 1 ? "" : "s"}</small>
-          ${activeInvoiceCount ? `<small>${activeInvoiceCount} active Stripe invoice item${activeInvoiceCount === 1 ? "" : "s"}</small>` : ""}
+          ${activeInvoiceCount ? `<small>${activeInvoiceCount} active Stripe invoice${activeInvoiceCount === 1 ? "" : "s"}</small>` : ""}
         </span>
       </summary>
       <div class="monthly-billing-breakdown">
@@ -3105,6 +3127,7 @@ function renderMonthlyBillingAccountCard(summary, monthKey) {
           <span>Paid ${formatCurrency(summary.paidTotalCents)}</span>
           <span>Open ${formatCurrency(summary.openTotalCents)}</span>
           ${summary.thermostatRuntimeMinutes > 0 ? `<span>Runtime ${formatBillingRuntime(summary.thermostatRuntimeMinutes)}</span>` : ""}
+          ${activeInvoiceLinks ? `<span>Stripe invoice ${activeInvoiceLinks}</span>` : ""}
         </div>
         <ol class="record-list monthly-billing-items">
           ${summary.items.map((item) => {
@@ -3114,7 +3137,6 @@ function renderMonthlyBillingAccountCard(summary, monthKey) {
                 <div>
                   <strong>${escapeHtml(item.reason || "Billing item")}</strong>
                   <span>${escapeHtml(billingItemMetaLabel(item, member))}</span>
-                  ${item.stripeInvoiceId ? `<span>${billingItemInvoiceLinkHtml(item)}</span>` : ""}
                 </div>
                 <b>${formatCurrency(item.amountCents || 0)}</b>
               </li>
@@ -6619,6 +6641,7 @@ function showRentalBillForm(rentalId, root) {
   const openRentalBillingItems = rentalBillingLineItems(rental).filter((item) => !item.postedToStripeAt);
   const invoiceableRentalBillingItems = invoiceableBillingItems(openRentalBillingItems);
   const activeRentalInvoiceItems = openRentalBillingItems.filter(hasActiveStripeInvoice);
+  const activeRentalInvoiceLinks = stripeInvoiceLinksHtml(activeRentalInvoiceItems);
   const canCreateStripeInvoice = canFinalize && invoiceableRentalBillingItems.length > 0;
 
   actions.innerHTML = `
@@ -6655,9 +6678,9 @@ function showRentalBillForm(rentalId, root) {
         </label>
       </div>
       ${thermostatTotalCents ? `<p class="data-source-note">Attached thermostat charges are invoiced with this rental and are marked paid/unpaid with the rental.</p>` : ""}
-      ${activeRentalInvoiceItems.length ? `
+      ${activeRentalInvoiceLinks ? `
         <p class="data-source-note">
-          Existing Stripe invoice: ${activeRentalInvoiceItems.map((item) => billingItemInvoiceLinkHtml(item)).filter(Boolean).join(" · ")}
+          Existing Stripe invoice: ${activeRentalInvoiceLinks}
         </p>
       ` : ""}
       <p class="data-source-note">Stripe invoices are created from finalized open billing items. Use Finalize Bill first if no invoice items exist yet.</p>
