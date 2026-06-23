@@ -4,7 +4,8 @@ alter table public.billing_line_items
   add column if not exists payment_recorded_by_member_id uuid references public.account_members(id) on delete set null,
   add column if not exists payment_note text,
   add column if not exists stripe_invoice_id text,
-  add column if not exists stripe_invoice_url text;
+  add column if not exists stripe_invoice_url text,
+  add column if not exists stripe_invoice_status text;
 
 alter table public.billing_line_items
   drop constraint if exists billing_line_items_payment_method_valid,
@@ -22,3 +23,7 @@ create index if not exists idx_billing_line_items_payment_method
 create index if not exists idx_billing_line_items_stripe_invoice_id
   on public.billing_line_items (stripe_invoice_id)
   where stripe_invoice_id is not null;
+
+create index if not exists idx_billing_line_items_stripe_invoice_status
+  on public.billing_line_items (stripe_invoice_status)
+  where stripe_invoice_status is not null;

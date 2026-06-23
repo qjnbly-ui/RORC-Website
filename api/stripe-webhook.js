@@ -127,7 +127,8 @@ async function handleInvoicePaid(invoice) {
         posted_to_stripe_at: null,
         payment_recorded_at: null,
         payment_note: "Ignored Stripe paid event because invoice total was $0.00.",
-        stripe_invoice_url: invoice.hosted_invoice_url || null
+        stripe_invoice_url: invoice.hosted_invoice_url || null,
+        stripe_invoice_status: invoice.status || null
       }
     );
     return;
@@ -143,7 +144,8 @@ async function handleInvoicePaid(invoice) {
       payment_recorded_at: paidAt,
       payment_method: "stripe_invoice",
       payment_note: invoice.paid_out_of_band ? "Stripe invoice marked paid out of band." : null,
-      stripe_invoice_url: invoice.hosted_invoice_url || null
+      stripe_invoice_url: invoice.hosted_invoice_url || null,
+      stripe_invoice_status: invoice.status || null
     }
   );
   await syncRelatedBillingState(rows, true);
@@ -162,7 +164,8 @@ async function handleInvoiceVoided(invoice) {
       payment_recorded_at: null,
       payment_recorded_by_member_id: null,
       payment_note: "Stripe invoice voided.",
-      stripe_invoice_url: invoice.hosted_invoice_url || null
+      stripe_invoice_url: invoice.hosted_invoice_url || null,
+      stripe_invoice_status: invoice.status || "void"
     }
   );
   await syncRelatedBillingState(rows, false);
@@ -174,7 +177,8 @@ async function handleInvoicePaymentFailed(invoice) {
     `billing_line_items?stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}`,
     {
       payment_note: "Stripe invoice payment failed.",
-      stripe_invoice_url: invoice.hosted_invoice_url || null
+      stripe_invoice_url: invoice.hosted_invoice_url || null,
+      stripe_invoice_status: invoice.status || null
     }
   ).catch(() => {});
 }
@@ -334,6 +338,10 @@ async function updateSupabaseRows(path, payload) {
 
   if (!response.ok) {
     const text = await response.text();
+    if (Object.prototype.hasOwnProperty.call(payload || {}, "stripe_invoice_status") && text.includes("stripe_invoice_status")) {
+      const { stripe_invoice_status: _stripeInvoiceStatus, ...fallbackPayload } = payload;
+      return updateSupabaseRows(path, fallbackPayload);
+    }
     throw new Error(`Could not update Supabase row: ${response.status} ${text}`);
   }
 }

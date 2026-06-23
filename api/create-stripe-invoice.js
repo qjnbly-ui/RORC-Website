@@ -55,6 +55,17 @@ module.exports = async (req, res) => {
       return res.status(409).json({ success: false, error: "Selected billing items are already paid." });
     }
 
+    const alreadyInvoicedItems = openItems.filter(hasActiveStripeInvoice);
+    if (alreadyInvoicedItems.length) {
+      const invoiceIds = uniqueIds(alreadyInvoicedItems.map((item) => item.stripe_invoice_id).filter(Boolean));
+      return res.status(409).json({
+        success: false,
+        error: invoiceIds.length
+          ? `Selected billing items already have an active Stripe invoice: ${invoiceIds.join(", ")}. Open the existing invoice instead of creating a duplicate.`
+          : "Selected billing items already have an active Stripe invoice. Open the existing invoice instead of creating a duplicate."
+      });
+    }
+
     const accountId = await accountIdForBillingItems(openItems);
     const { customerId, billingOwner } = await ensureStripeCustomerForAccount(accountId);
     const invoiceComponents = await buildInvoiceComponents(openItems);
@@ -151,6 +162,12 @@ async function createStripeInvoice({ accountId, customerId, billingItems, invoic
     return stripe.invoices.pay(finalized.id, { paid_out_of_band: true });
   }
   return stripe.invoices.sendInvoice(finalized.id);
+}
+
+function hasActiveStripeInvoice(item) {
+  if (!item?.stripe_invoice_id) return false;
+  const status = String(item.stripe_invoice_status || "").trim().toLowerCase();
+  return !["void", "voided"].includes(status);
 }
 
 function invoiceItemDescription(item) {
@@ -396,6 +413,7 @@ async function updateBillingItemsForInvoice({ itemIds, invoice, invoiceUrl, mode
     payment_method: "stripe_invoice",
     stripe_invoice_id: invoice.id,
     stripe_invoice_url: invoiceUrl || null,
+    stripe_invoice_status: invoice.status || null,
     payment_note: mode === "paid" ? "Stripe invoice marked paid out of band." : null,
     posted_to_stripe_at: paidAt,
     payment_recorded_at: paidAt,
@@ -479,6 +497,10 @@ async function updateSupabaseRows(path, payload) {
   });
   if (!response.ok) {
     const text = await response.text();
+    if (Object.prototype.hasOwnProperty.call(payload || {}, "stripe_invoice_status") && text.includes("stripe_invoice_status")) {
+      const { stripe_invoice_status: _stripeInvoiceStatus, ...fallbackPayload } = payload;
+      return updateSupabaseRows(path, fallbackPayload);
+    }
     throw new Error(`Could not update Supabase row: ${response.status} ${text}`);
   }
 }

@@ -534,6 +534,7 @@ create table if not exists public.billing_line_items (
   payment_note text,
   stripe_invoice_id text,
   stripe_invoice_url text,
+  stripe_invoice_status text,
   constraint billing_line_items_payment_method_valid
     check (payment_method is null or payment_method in ('cash', 'check', 'stripe_invoice', 'other'))
 );
@@ -544,7 +545,8 @@ alter table public.billing_line_items
   add column if not exists payment_recorded_by_member_id uuid references public.account_members(id) on delete set null,
   add column if not exists payment_note text,
   add column if not exists stripe_invoice_id text,
-  add column if not exists stripe_invoice_url text;
+  add column if not exists stripe_invoice_url text,
+  add column if not exists stripe_invoice_status text;
 
 alter table public.billing_line_items
   drop constraint if exists billing_line_items_payment_method_valid,
@@ -581,6 +583,10 @@ create index if not exists idx_billing_line_items_payment_method
 create index if not exists idx_billing_line_items_stripe_invoice_id
   on public.billing_line_items (stripe_invoice_id)
   where stripe_invoice_id is not null;
+
+create index if not exists idx_billing_line_items_stripe_invoice_status
+  on public.billing_line_items (stripe_invoice_status)
+  where stripe_invoice_status is not null;
 
 create unique index if not exists idx_billing_line_items_guest_fee_unique
   on public.billing_line_items (timesheet_entry_id, account_member_id)
