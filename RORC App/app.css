@@ -2334,6 +2334,10 @@ h1 {
   width: 100%;
 }
 
+.member-delete-confirm-dialog-wide {
+  max-width: 620px;
+}
+
 .member-delete-confirm-dialog h3 {
   font-size: 1.35rem;
   line-height: 1.2;
@@ -2343,6 +2347,97 @@ h1 {
 .member-delete-confirm-dialog p {
   color: var(--muted);
   margin: 0;
+}
+
+.member-delete-confirm-detail {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.stripe-invoice-preview {
+  display: grid;
+}
+
+.stripe-invoice-preview-head,
+.stripe-invoice-preview-total {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.stripe-invoice-preview-head span,
+.stripe-invoice-preview-total span,
+.stripe-invoice-confirm-lines small {
+  color: var(--muted);
+}
+
+.stripe-invoice-preview-head strong,
+.stripe-invoice-preview-total strong,
+.stripe-invoice-confirm-lines b {
+  white-space: nowrap;
+}
+
+.stripe-invoice-preview-meta {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  padding: 14px;
+}
+
+.stripe-invoice-preview-meta span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.stripe-invoice-preview-meta small,
+.stripe-invoice-preview-meta em {
+  color: var(--muted);
+  font-style: normal;
+}
+
+.stripe-invoice-preview-meta strong,
+.stripe-invoice-preview-meta em {
+  overflow-wrap: anywhere;
+}
+
+.stripe-invoice-confirm-lines {
+  display: grid;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.stripe-invoice-confirm-lines li {
+  align-items: flex-start;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.stripe-invoice-confirm-lines span {
+  display: grid;
+  gap: 3px;
+}
+
+.stripe-invoice-confirm-lines small {
+  font-size: 0.88rem;
+}
+
+.stripe-invoice-preview-empty {
+  color: var(--muted);
+  padding: 14px;
+}
+
+.stripe-invoice-preview-total {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .member-delete-confirm-dialog footer {

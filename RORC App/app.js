@@ -2809,8 +2809,17 @@ async function createStripeInvoiceForBillingItems({
     return false;
   }
 
-  const actionLabel = mode === "paid" ? "create a paid Stripe invoice record" : "create and send a Stripe invoice";
-  if (!window.confirm(`Are you sure you want to ${actionLabel} for ${ids.length} billing item(s)?`)) return false;
+  const detailHtml = buildStripeInvoiceConfirmationDetailHtml(ids);
+  const confirmed = await openLinkedDeleteDialog({
+    title: mode === "paid" ? "Create Paid Stripe Record?" : "Send Stripe Invoice?",
+    message: mode === "paid"
+      ? "Review the invoice lines below before creating the paid Stripe record. This will mark these app billing items paid."
+      : "Review the invoice lines below before sending the Stripe invoice. The app will keep these billing items open until Stripe reports payment.",
+    detailHtml,
+    confirmLabel: mode === "paid" ? "Create Paid Record" : "Send Invoice",
+    cancelLabel: "Cancel"
+  });
+  if (!confirmed) return false;
 
   const token = currentAuthSession?.access_token || "";
   if (!token) {
@@ -2853,6 +2862,86 @@ async function createStripeInvoiceForBillingItems({
     if (triggerButton) triggerButton.disabled = false;
     return false;
   }
+}
+
+function buildStripeInvoiceConfirmationDetailHtml(ids) {
+  const selectedItems = billingLineItems.filter((item) => ids.includes(item.id));
+  const owner = selectedItems.length ? findMember(selectedItems[0].accountMemberId) : null;
+  const invoiceDate = formatShortDate(new Date());
+  const dueDate = formatShortDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
+  const rows = selectedItems.flatMap((item) => {
+    if (item.rentalRequestId) {
+      const rental = rentalAllRequests.find((request) => request.id === item.rentalRequestId);
+      if (rental) {
+        return rentalBillBreakdownRows(rental, Number(item.amountCents || 0), 0, 0).map((row) => ({
+          label: row.label,
+          note: row.note,
+          cents: Number(row.cents || 0)
+        }));
+      }
+    }
+
+    if (item.heaterUseEntryId) {
+      const heaterRecord = heaterUseEntries.find((entry) => entry.id === item.heaterUseEntryId);
+      const runtimeMinutes = billingItemRuntimeMinutes(item);
+      const system = heaterRecord?.systemType === "ac" ? "AC" : "Heat";
+      return [{
+        label: `${system} runtime`,
+        note: runtimeMinutes ? formatBillingRuntime(runtimeMinutes) : item.reason,
+        cents: Number(item.amountCents || 0)
+      }];
+    }
+
+    return [{
+      label: item.reason || billingItemSourceLabel(item),
+      note: billingItemSourceLabel(item),
+      cents: Number(item.amountCents || 0)
+    }];
+  });
+
+  const totalCents = rows.reduce((sum, row) => sum + Number(row.cents || 0), 0);
+  return `
+    <div class="stripe-invoice-preview">
+      <div class="stripe-invoice-preview-head">
+        <span>Stripe Invoice Preview</span>
+        <strong>${formatCurrency(totalCents)}</strong>
+      </div>
+      <div class="stripe-invoice-preview-meta">
+        <span>
+          <small>Billed to</small>
+          <strong>${escapeHtml(owner?.memberName || "Billing account")}</strong>
+          ${owner?.emailAddress ? `<em>${escapeHtml(owner.emailAddress)}</em>` : ""}
+        </span>
+        <span>
+          <small>Invoice date</small>
+          <strong>${escapeHtml(invoiceDate)}</strong>
+        </span>
+        <span>
+          <small>Due date</small>
+          <strong>${escapeHtml(dueDate)}</strong>
+        </span>
+      </div>
+      ${rows.length ? `
+        <ol class="stripe-invoice-confirm-lines">
+          ${rows.map((row) => `
+            <li>
+              <span>
+                <strong>${escapeHtml(row.label)}</strong>
+                ${row.note ? `<small>${escapeHtml(row.note)}</small>` : ""}
+              </span>
+              <b>${formatCurrency(row.cents || 0)}</b>
+            </li>
+          `).join("")}
+        </ol>
+      ` : `
+        <div class="stripe-invoice-preview-empty">No invoice lines found.</div>
+      `}
+      <div class="stripe-invoice-preview-total">
+        <span>Total due</span>
+        <strong>${formatCurrency(totalCents)}</strong>
+      </div>
+    </div>
+  `;
 }
 
 function promptBillingPaymentDetails(defaultMethod = "cash") {
@@ -5403,6 +5492,7 @@ function rentalBaseCents(values) {
 function openLinkedDeleteDialog({
   title = "Delete item?",
   message = "This action cannot be undone.",
+  detailHtml = "",
   confirmLabel = "Delete",
   cancelLabel = "Cancel"
 } = {}) {
@@ -5411,10 +5501,12 @@ function openLinkedDeleteDialog({
     overlay.className = "member-delete-confirm-overlay";
     overlay.style.position = "fixed";
     overlay.style.zIndex = "1200";
+    const hasDetail = String(detailHtml || "").trim();
     overlay.innerHTML = `
-      <section class="member-delete-confirm-dialog" role="dialog" aria-modal="true" aria-label="Delete confirmation">
+      <section class="member-delete-confirm-dialog${hasDetail ? " member-delete-confirm-dialog-wide" : ""}" role="dialog" aria-modal="true" aria-label="Confirmation">
         <h3>${escapeHtml(title)}</h3>
         <p>${escapeHtml(message)}</p>
+        ${hasDetail ? `<div class="member-delete-confirm-detail">${detailHtml}</div>` : ""}
         <footer>
           <button class="member-delete-confirm-cancel" type="button">${escapeHtml(cancelLabel)}</button>
           <button class="member-delete-confirm-accept" type="button">${escapeHtml(confirmLabel)}</button>
