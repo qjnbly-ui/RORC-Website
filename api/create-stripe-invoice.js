@@ -5,6 +5,20 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const stripe = process.env.STRIPE_SECRET_KEY
   ? Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2026-02-25.clover" })
   : null;
+const RENTAL_PRICE_CENTS = {
+  allDay: 10000,
+  privateHourly: 1000,
+  nonPrivateHourly: 500,
+  cleaningMaintenance: 2000,
+  tables: 2000,
+  chairs: 2000,
+  tarp: 2000,
+  earlySetup: 5000,
+  earlyDayRental: 10000,
+  lateCleanup: 5000,
+  lateDayRental: 10000
+};
+const SPECIAL_ACCESS_RENTAL_DISCOUNT_RATE = 0.2;
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -43,10 +57,12 @@ module.exports = async (req, res) => {
 
     const accountId = await accountIdForBillingItems(openItems);
     const { customerId, billingOwner } = await ensureStripeCustomerForAccount(accountId);
+    const invoiceComponents = await buildInvoiceComponents(openItems);
     const invoice = await createStripeInvoice({
       accountId,
       customerId,
       billingItems: openItems,
+      invoiceComponents,
       mode
     });
 
@@ -86,8 +102,8 @@ module.exports = async (req, res) => {
   }
 };
 
-async function createStripeInvoice({ accountId, customerId, billingItems, mode }) {
-  const chargeItems = billingItems.filter((item) => Number(item.amount_cents || 0) > 0);
+async function createStripeInvoice({ accountId, customerId, billingItems, invoiceComponents, mode }) {
+  const chargeItems = invoiceComponents.filter((item) => Number(item.amount_cents || 0) !== 0);
   if (!chargeItems.length) {
     throw httpError(400, "Stripe invoices require at least one charge greater than $0.");
   }
@@ -110,9 +126,10 @@ async function createStripeInvoice({ accountId, customerId, billingItems, mode }
       invoice: draft.id,
       amount: Number(item.amount_cents || 0),
       currency: "usd",
-      description: invoiceItemDescription(item),
+      description: item.description,
       metadata: {
-        rorc_billing_line_item_id: item.id,
+        rorc_billing_line_item_id: item.billing_line_item_id,
+        rorc_invoice_component: item.component_key,
         rorc_account_id: accountId
       }
     });
@@ -142,6 +159,163 @@ function invoiceItemDescription(item) {
   if (item.heater_use_entry_id) return `Thermostat: ${reason}`;
   if (item.timesheet_entry_id) return `Guest entry: ${reason}`;
   return reason;
+}
+
+async function buildInvoiceComponents(billingItems) {
+  const rentalIds = uniqueIds(billingItems.map((item) => item.rental_request_id).filter(Boolean));
+  const rentalById = new Map();
+  if (rentalIds.length) {
+    const ids = rentalIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
+    const rentals = await supabaseRest(`rental_requests?select=*&id=in.(${encodeURIComponent(ids)})`);
+    rentals.forEach((rental) => rentalById.set(rental.id, rental));
+  }
+
+  return billingItems.flatMap((item) => {
+    if (item.rental_request_id && rentalById.has(item.rental_request_id)) {
+      return rentalInvoiceComponents(item, rentalById.get(item.rental_request_id));
+    }
+    return [{
+      billing_line_item_id: item.id,
+      component_key: billingComponentKey(item),
+      description: invoiceItemDescription(item),
+      amount_cents: Number(item.amount_cents || 0)
+    }];
+  });
+}
+
+function rentalInvoiceComponents(item, rental) {
+  const rows = rentalBillBreakdownRows(rental, Number(item.amount_cents || 0));
+  return rows
+    .filter((row) => Number(row.cents || 0) !== 0)
+    .map((row) => ({
+      billing_line_item_id: item.id,
+      component_key: row.key,
+      description: row.note ? `${row.label} - ${row.note}` : row.label,
+      amount_cents: Number(row.cents || 0)
+    }));
+}
+
+function rentalBillBreakdownRows(rental, rentalAmountCents) {
+  const rows = [];
+  const isPrivateEvent = rental?.is_private_event !== false;
+  const accessHours = rentalHoursBetween(rental?.event_start_time, rental?.event_end_time, rental?.rental_hours || 1);
+  const baseCents = rentalBaseCents(rental);
+  rows.push({
+    key: "rental_base",
+    label: !isPrivateEvent
+      ? `Non-private rental (${rentalBillableHoursLabel(accessHours)} @ $5/hr)`
+      : rental?.rental_type === "hourly"
+        ? `Hourly rental (${rentalHoursLabel(accessHours)} @ $10/hr)`
+        : "All day rental",
+    note: "Base rental charge",
+    cents: baseCents
+  });
+
+  [
+    [rental?.addon_cleaning_maintenance, "maintenance", "Standard maintenance fee", RENTAL_PRICE_CENTS.cleaningMaintenance],
+    [rental?.addon_tables, "tables", "Tables", RENTAL_PRICE_CENTS.tables],
+    [rental?.addon_chairs, "chairs", "Chairs", RENTAL_PRICE_CENTS.chairs],
+    [rental?.addon_tarp, "tarp", "Tarp", RENTAL_PRICE_CENTS.tarp],
+    [rental?.addon_heater, "heater_addon", "Heater add-on", 0, "Thermostat use is billed from attached runtime"],
+    [rental?.addon_ac, "ac_addon", "AC add-on", 0, "AC use is billed from attached runtime"],
+    [rental?.addon_early_setup, "early_setup", "Early setup", RENTAL_PRICE_CENTS.earlySetup],
+    [rental?.addon_early_day_rental, "early_day", "Extra day early", RENTAL_PRICE_CENTS.earlyDayRental],
+    [rental?.addon_late_cleanup, "late_cleanup", "Late cleanup", RENTAL_PRICE_CENTS.lateCleanup],
+    [rental?.addon_late_day_rental, "late_day", "Extra day late", RENTAL_PRICE_CENTS.lateDayRental]
+  ].forEach(([enabled, key, label, cents, note]) => {
+    if (!enabled) return;
+    rows.push({ key, label, note: note || "Selected option", cents });
+  });
+
+  const subtotalBeforeDiscount = rows.reduce((sum, row) => sum + Number(row.cents || 0), 0);
+  let calculatedRentalCents = subtotalBeforeDiscount;
+  if (rental?.special_access_discount) {
+    calculatedRentalCents = Math.round(subtotalBeforeDiscount * (1 - SPECIAL_ACCESS_RENTAL_DISCOUNT_RATE));
+    rows.push({
+      key: "special_access_discount",
+      label: "Special Access discount",
+      note: "20% off rental options",
+      cents: calculatedRentalCents - subtotalBeforeDiscount
+    });
+  }
+
+  const adjustmentCents = Number(rentalAmountCents || 0) - calculatedRentalCents;
+  if (adjustmentCents !== 0) {
+    rows.push({
+      key: "rental_adjustment",
+      label: "Current bill adjustment",
+      note: "Difference between selected options and saved bill amount",
+      cents: adjustmentCents
+    });
+  }
+
+  return rows;
+}
+
+function billingComponentKey(item) {
+  if (item.rental_request_id) return "rental";
+  if (item.heater_use_entry_id) return "thermostat";
+  if (item.timesheet_entry_id) return "guest_entry";
+  return "manual";
+}
+
+function rentalBaseCents(record) {
+  const isPrivateEvent = record?.is_private_event !== false;
+  if (!isPrivateEvent) {
+    return Math.round(
+      rentalHoursBetween(record?.event_start_time, record?.event_end_time, record?.rental_hours || 1)
+      * RENTAL_PRICE_CENTS.nonPrivateHourly
+    );
+  }
+  if (record?.rental_type === "hourly") {
+    return Math.round(
+      normalizeRentalHours(rentalHoursBetween(record?.event_start_time, record?.event_end_time, record?.rental_hours || 1))
+      * RENTAL_PRICE_CENTS.privateHourly
+    );
+  }
+  return RENTAL_PRICE_CENTS.allDay;
+}
+
+function rentalHoursBetween(startValue, endValue, fallback = 1) {
+  const start = parseTimeMinutes(startValue);
+  const end = parseTimeMinutes(endValue);
+  if (start === null || end === null || end <= start) return fallback;
+  return normalizeRentalBillableHours((end - start) / 60, fallback);
+}
+
+function parseTimeMinutes(value) {
+  const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return null;
+  }
+  return hour * 60 + minute;
+}
+
+function normalizeRentalHours(value, fallback = 1) {
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0) return fallback;
+  return Math.min(9, Math.max(0.01, Math.round(hours * 100) / 100));
+}
+
+function normalizeRentalBillableHours(value, fallback = 1) {
+  const hours = Number(value);
+  if (!Number.isFinite(hours) || hours <= 0) return fallback;
+  return Math.min(24, Math.max(0.01, Math.round(hours * 100) / 100));
+}
+
+function rentalHoursLabel(hours) {
+  const normalized = normalizeRentalHours(hours);
+  const label = String(Number(normalized.toFixed(2)));
+  return `${label} hr${normalized === 1 ? "" : "s"}`;
+}
+
+function rentalBillableHoursLabel(hours) {
+  const normalized = normalizeRentalBillableHours(hours);
+  const label = String(Number(normalized.toFixed(2)));
+  return `${label} hr${normalized === 1 ? "" : "s"}`;
 }
 
 async function loadBillingItems(itemIds) {
