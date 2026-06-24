@@ -19,6 +19,76 @@ const RENTAL_PRICE_CENTS = {
   lateDayRental: 10000
 };
 const SPECIAL_ACCESS_RENTAL_DISCOUNT_RATE = 0.2;
+const STRIPE_PRODUCT_CATALOG = {
+  rental_base: {
+    name: "Gym Rental Flat Rate",
+    description: "Base facility rental charge"
+  },
+  maintenance: {
+    name: "Standard Maintenance Fee",
+    description: "Standard maintenance and cleaning fee for rentals"
+  },
+  tables: {
+    name: "Tables Rental",
+    description: "Rental table setup option"
+  },
+  chairs: {
+    name: "Chairs Rental",
+    description: "Rental chair setup option"
+  },
+  tarp: {
+    name: "Tarp Fee",
+    description: "Rental tarp setup option"
+  },
+  heater_addon: {
+    name: "Heater Use",
+    description: "Rental heater add-on selection"
+  },
+  ac_addon: {
+    name: "Air Conditioning Operating Cost",
+    description: "Rental AC add-on selection"
+  },
+  early_setup: {
+    name: "Early Setup Fee",
+    description: "Early setup rental access"
+  },
+  early_day: {
+    name: "Gym Rental Flat Rate",
+    description: "Additional full day before rental"
+  },
+  late_cleanup: {
+    name: "Late Cleanup Fee",
+    description: "Late cleanup rental access"
+  },
+  late_day: {
+    name: "Gym Rental Flat Rate",
+    description: "Additional full day after rental"
+  },
+  rental_adjustment: {
+    name: "Gym Rental Flat Rate",
+    description: "Manual rental bill adjustment"
+  },
+  thermostat: {
+    name: "Air Conditioning Operating Cost",
+    description: "Thermostat runtime charge"
+  },
+  ac_runtime: {
+    name: "Air Conditioning Operating Cost",
+    description: "Air conditioning runtime charge"
+  },
+  heater_use: {
+    name: "Heater Use",
+    description: "Heater runtime charge"
+  },
+  guest_entry: {
+    name: "Private Group Entry (Per Hour)",
+    description: "Guest entry charge"
+  },
+  manual: {
+    name: "RORC Manual Billing Item",
+    description: "Manual billing charge"
+  }
+};
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -132,17 +202,11 @@ async function createStripeInvoice({ accountId, customerId, billingItems, invoic
   });
 
   for (const item of chargeItems) {
-    await stripe.invoiceItems.create({
+    await createProductBackedInvoiceItem({
       customer: customerId,
       invoice: draft.id,
-      amount: Number(item.amount_cents || 0),
-      currency: "usd",
-      description: item.description,
-      metadata: {
-        rorc_billing_line_item_id: item.billing_line_item_id,
-        rorc_invoice_component: item.component_key,
-        rorc_account_id: accountId
-      }
+      item,
+      accountId
     });
   }
 
@@ -164,6 +228,139 @@ async function createStripeInvoice({ accountId, customerId, billingItems, invoic
   return stripe.invoices.sendInvoice(finalized.id);
 }
 
+async function createProductBackedInvoiceItem({ customer, invoice, item, accountId }) {
+  const amountCents = Number(item.amount_cents || 0);
+  const metadata = {
+    rorc_billing_line_item_id: item.billing_line_item_id,
+    rorc_invoice_component: item.component_key,
+    rorc_account_id: accountId
+  };
+  const payload = {
+    customer,
+    invoice,
+    description: item.description,
+    metadata
+  };
+
+  if (amountCents > 0) {
+    const price = await ensureStripePriceForComponent(item.component_key, amountCents);
+    payload.pricing = { price: price.id };
+    payload.quantity = 1;
+  } else {
+    payload.amount = amountCents;
+    payload.currency = "usd";
+    payload.discountable = false;
+  }
+
+  return stripe.invoiceItems.create(payload);
+}
+
+async function ensureStripePriceForComponent(componentKey, amountCents) {
+  const product = await ensureStripeProductForComponent(componentKey);
+  const key = normalizedStripeComponentKey(componentKey);
+  const lookupKey = `rorc_${key}_${stripeIdSafeProductToken(product.id)}_${Number(amountCents || 0)}_usd`.slice(0, 200);
+  const existing = await stripe.prices.list({
+    lookup_keys: [lookupKey],
+    active: true,
+    limit: 1
+  });
+  if (existing.data?.[0]) return existing.data[0];
+
+  const matchingProductPrices = await stripe.prices.list({
+    product: product.id,
+    active: true,
+    currency: "usd",
+    limit: 100
+  });
+  const matchingPrice = (matchingProductPrices.data || []).find((price) => Number(price.unit_amount || 0) === Number(amountCents || 0));
+  if (matchingPrice) return matchingPrice;
+
+  return stripe.prices.create({
+    currency: "usd",
+    unit_amount: Number(amountCents || 0),
+    product: product.id,
+    lookup_key: lookupKey,
+    nickname: `${product.name} ${formatCentsForStripeNickname(amountCents)}`,
+    metadata: {
+      rorc_invoice_component: key,
+      rorc_managed: "true"
+    }
+  });
+}
+
+async function ensureStripeProductForComponent(componentKey) {
+  const key = normalizedStripeComponentKey(componentKey);
+  const productInfo = stripeProductInfo(componentKey);
+  const existingByName = await findStripeProductByName(productInfo.name);
+  if (existingByName) return existingByName;
+
+  const productId = `rorc_${key}`.slice(0, 120);
+  try {
+    const existing = await stripe.products.retrieve(productId);
+    if (existing && !existing.deleted) return existing;
+  } catch (error) {
+    if (error?.statusCode !== 404) throw error;
+  }
+
+  try {
+    return await stripe.products.create({
+      id: productId,
+      name: productInfo.name,
+      description: productInfo.description,
+      type: "service",
+      metadata: {
+        rorc_invoice_component: key,
+        rorc_managed: "true"
+      }
+    });
+  } catch (error) {
+    if (error?.statusCode === 400 && /already exists/i.test(String(error.message || ""))) {
+      return stripe.products.retrieve(productId);
+    }
+    throw error;
+  }
+}
+
+async function findStripeProductByName(name) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return null;
+  const escapedName = trimmed.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  const searched = await stripe.products.search({
+    query: `active:'true' AND name:'${escapedName}'`,
+    limit: 1
+  }).catch(() => null);
+  if (searched?.data?.[0]) return searched.data[0];
+
+  const listed = await stripe.products.list({ active: true, limit: 100 });
+  return (listed.data || []).find((product) => product.name === trimmed) || null;
+}
+
+function stripeProductInfo(componentKey) {
+  return STRIPE_PRODUCT_CATALOG[normalizedStripeComponentKey(componentKey)] || STRIPE_PRODUCT_CATALOG.manual;
+}
+
+function normalizedStripeComponentKey(componentKey) {
+  const key = String(componentKey || "manual")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return key || "manual";
+}
+
+function formatCentsForStripeNickname(cents) {
+  return `$${(Number(cents || 0) / 100).toFixed(2)}`;
+}
+
+function stripeIdSafeProductToken(value) {
+  return String(value || "product")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 60) || "product";
+}
+
 function hasActiveStripeInvoice(item) {
   if (!item?.stripe_invoice_id) return false;
   const status = String(item.stripe_invoice_status || "").trim().toLowerCase();
@@ -178,13 +375,30 @@ function invoiceItemDescription(item) {
   return reason;
 }
 
+function thermostatInvoiceDescription(item, heaterRecord = null) {
+  const reason = String(item.reason || "Thermostat use").trim();
+  const runtimeMinutes = durationMinutes(heaterRecord?.start_at, heaterRecord?.end_at);
+  const details = [];
+  if (runtimeMinutes > 0) details.push(formatBillingRuntime(runtimeMinutes));
+  const timeRange = formatDateTimeRange(heaterRecord?.start_at, heaterRecord?.end_at);
+  if (timeRange) details.push(timeRange);
+  return details.length ? `${reason} - ${details.join(" · ")}` : `Thermostat: ${reason}`;
+}
+
 async function buildInvoiceComponents(billingItems) {
   const rentalIds = uniqueIds(billingItems.map((item) => item.rental_request_id).filter(Boolean));
+  const heaterIds = uniqueIds(billingItems.map((item) => item.heater_use_entry_id).filter(Boolean));
   const rentalById = new Map();
+  const heaterById = new Map();
   if (rentalIds.length) {
     const ids = rentalIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
     const rentals = await supabaseRest(`rental_requests?select=*&id=in.(${encodeURIComponent(ids)})`);
     rentals.forEach((rental) => rentalById.set(rental.id, rental));
+  }
+  if (heaterIds.length) {
+    const ids = heaterIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
+    const heaters = await supabaseRest(`heater_use_entries?select=id,system_type,start_at,end_at&id=in.(${encodeURIComponent(ids)})`);
+    heaters.forEach((heater) => heaterById.set(heater.id, heater));
   }
 
   return billingItems.flatMap((item) => {
@@ -193,8 +407,10 @@ async function buildInvoiceComponents(billingItems) {
     }
     return [{
       billing_line_item_id: item.id,
-      component_key: billingComponentKey(item),
-      description: invoiceItemDescription(item),
+      component_key: billingComponentKey(item, heaterById.get(item.heater_use_entry_id)),
+      description: item.heater_use_entry_id
+        ? thermostatInvoiceDescription(item, heaterById.get(item.heater_use_entry_id))
+        : invoiceItemDescription(item),
       amount_cents: Number(item.amount_cents || 0)
     }];
   });
@@ -216,6 +432,7 @@ function rentalBillBreakdownRows(rental, rentalAmountCents) {
   const rows = [];
   const isPrivateEvent = rental?.is_private_event !== false;
   const accessHours = rentalHoursBetween(rental?.event_start_time, rental?.event_end_time, rental?.rental_hours || 1);
+  const accessTimeRange = rentalAccessTimeRange(rental);
   const baseCents = rentalBaseCents(rental);
   rows.push({
     key: "rental_base",
@@ -224,7 +441,7 @@ function rentalBillBreakdownRows(rental, rentalAmountCents) {
       : rental?.rental_type === "hourly"
         ? `Hourly rental (${rentalHoursLabel(accessHours)} @ $10/hr)`
         : "All day rental",
-    note: "Base rental charge",
+    note: accessTimeRange ? `Base rental charge · ${accessTimeRange}` : "Base rental charge",
     cents: baseCents
   });
 
@@ -269,9 +486,13 @@ function rentalBillBreakdownRows(rental, rentalAmountCents) {
   return rows;
 }
 
-function billingComponentKey(item) {
+function billingComponentKey(item, heaterRecord = null) {
   if (item.rental_request_id) return "rental";
-  if (item.heater_use_entry_id) return "thermostat";
+  if (item.heater_use_entry_id) {
+    return String(heaterRecord?.system_type || "").trim().toLowerCase() === "ac"
+      ? "ac_runtime"
+      : "heater_use";
+  }
   if (item.timesheet_entry_id) return "guest_entry";
   return "manual";
 }
@@ -300,6 +521,12 @@ function rentalHoursBetween(startValue, endValue, fallback = 1) {
   return normalizeRentalBillableHours((end - start) / 60, fallback);
 }
 
+function rentalAccessTimeRange(record) {
+  const start = formatTimeLabel(record?.event_start_time);
+  const end = formatTimeLabel(record?.event_end_time);
+  return start && end ? `${start}-${end}` : "";
+}
+
 function parseTimeMinutes(value) {
   const match = String(value || "").trim().match(/^(\d{1,2}):(\d{2})/);
   if (!match) return null;
@@ -309,6 +536,53 @@ function parseTimeMinutes(value) {
     return null;
   }
   return hour * 60 + minute;
+}
+
+function formatTimeLabel(value) {
+  const minutes = parseTimeMinutes(value);
+  if (minutes === null) return "";
+  const hour24 = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  const suffix = hour24 >= 12 ? "PM" : "AM";
+  const hour12 = hour24 % 12 || 12;
+  return `${hour12}:${String(minute).padStart(2, "0")} ${suffix}`;
+}
+
+function durationMinutes(startValue, endValue) {
+  const start = new Date(startValue || "");
+  const end = new Date(endValue || "");
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return 0;
+  return Math.round((end.getTime() - start.getTime()) / 60000);
+}
+
+function formatBillingRuntime(minutes) {
+  const totalMinutes = Math.max(0, Number(minutes || 0));
+  const hours = Math.floor(totalMinutes / 60);
+  const remainingMinutes = totalMinutes % 60;
+  const decimalHours = (totalMinutes / 60).toFixed(2);
+  const clockText = hours > 0
+    ? `${hours}h${remainingMinutes ? ` ${remainingMinutes}m` : ""}`
+    : `${remainingMinutes}m`;
+  return `${clockText} (${decimalHours} hrs)`;
+}
+
+function formatDateTimeRange(startValue, endValue) {
+  const start = formatInvoiceDateTime(startValue);
+  const end = formatInvoiceDateTime(endValue);
+  if (start && end) return `${start}-${end}`;
+  return start || end || "";
+}
+
+function formatInvoiceDateTime(value) {
+  const date = new Date(value || "");
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Los_Angeles",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(date);
 }
 
 function normalizeRentalHours(value, fallback = 1) {
