@@ -272,6 +272,7 @@ const accountManagerOnlyRoutes = new Set([
   "message",
   "notificationsEmail",
   "masterLogs",
+  "billingPrices",
   "messageCompose",
   "contracts",
   "adminNotes",
@@ -395,6 +396,11 @@ const routes = {
     title: "Master Logs",
     template: "feedbackTemplate",
     afterRender: renderMasterLogsPage
+  },
+  billingPrices: {
+    title: "Billing Prices",
+    template: "feedbackTemplate",
+    afterRender: renderBillingPricesPage
   },
   messageCompose: {
     title: "Message Data Form",
@@ -3174,6 +3180,56 @@ function renderMonthlyBillingAccountCard(summary, monthKey) {
   `;
 }
 
+function renderBillingPricesPage() {
+  const root = document.getElementById("feedbackContent");
+  if (!root) return;
+  const groups = [...new Set(BILLING_PRICE_CATALOG.map((item) => item.group))];
+  root.className = "billing-prices-page";
+  root.innerHTML = `
+    <section class="billing-prices-shell">
+      <header class="billing-prices-header">
+        <span class="eyebrow">Admin Billing</span>
+        <h2>Billing Prices</h2>
+        <p>Current app charges and the Stripe products used when invoices are created.</p>
+      </header>
+      <p class="data-source-note">
+        This page is read-only for now. Rental prices are app/API constants; heat and AC rates are also enforced by the Supabase heater billing trigger.
+      </p>
+      ${groups.map((group) => `
+        <section class="billing-price-group">
+          <h3>${escapeHtml(group)}</h3>
+          <div class="billing-price-table" role="table" aria-label="${escapeAttribute(group)} billing prices">
+            <div class="billing-price-row billing-price-row-head" role="row">
+              <span role="columnheader">Charge</span>
+              <span role="columnheader">Amount</span>
+              <span role="columnheader">Stripe Product</span>
+              <span role="columnheader">Used For</span>
+            </div>
+            ${BILLING_PRICE_CATALOG.filter((item) => item.group === group).map((item) => `
+              <div class="billing-price-row" role="row">
+                <span role="cell">
+                  <strong>${escapeHtml(item.name)}</strong>
+                  <small>${escapeHtml(item.appKey)}</small>
+                </span>
+                <span role="cell">${escapeHtml(billingCatalogAmountLabel(item))}</span>
+                <span role="cell">${escapeHtml(item.stripeProduct)}</span>
+                <span role="cell">${escapeHtml(item.usedFor)}</span>
+              </div>
+            `).join("")}
+          </div>
+        </section>
+      `).join("")}
+    </section>
+  `;
+}
+
+function billingCatalogAmountLabel(item) {
+  if (item.unit === "percent") return `${Math.round(Number(item.percent || 0) * 100)}%`;
+  const amount = formatCurrency(Number(item.amountCents || 0));
+  if (item.unit === "per hour") return `${amount}/hr`;
+  return amount;
+}
+
 async function markBillingItemsPaid(
   itemIds,
   triggerButton,
@@ -5515,6 +5571,121 @@ const RENTAL_PRICE_CENTS = {
 };
 
 const SPECIAL_ACCESS_RENTAL_DISCOUNT_RATE = 0.2;
+const THERMOSTAT_PRICE_CENTS_PER_HOUR = {
+  heat: 1300,
+  ac: 200
+};
+const BILLING_PRICE_CATALOG = [
+  {
+    group: "Rentals",
+    name: "Gym Rental Flat Rate",
+    appKey: "allDay",
+    amountCents: RENTAL_PRICE_CENTS.allDay,
+    unit: "flat",
+    stripeProduct: "Gym Rental Flat Rate",
+    usedFor: "All-day private rentals, extra day early/late, rental adjustments"
+  },
+  {
+    group: "Rentals",
+    name: "Private hourly rental",
+    appKey: "hourlyRate",
+    amountCents: RENTAL_PRICE_CENTS.hourlyRate,
+    unit: "per hour",
+    stripeProduct: "Gym Rental Flat Rate",
+    usedFor: "Private rentals under all-day length"
+  },
+  {
+    group: "Rentals",
+    name: "Non-private hourly rental",
+    appKey: "nonPrivateHourlyRate",
+    amountCents: RENTAL_PRICE_CENTS.nonPrivateHourlyRate,
+    unit: "per hour",
+    stripeProduct: "Gym Rental Flat Rate",
+    usedFor: "Public/non-private calendar rentals"
+  },
+  {
+    group: "Rental Options",
+    name: "Standard maintenance fee",
+    appKey: "cleaningMaintenance",
+    amountCents: RENTAL_PRICE_CENTS.cleaningMaintenance,
+    unit: "flat",
+    stripeProduct: "Standard Maintenance Fee",
+    usedFor: "Standard rental maintenance option"
+  },
+  {
+    group: "Rental Options",
+    name: "Tables",
+    appKey: "tables",
+    amountCents: RENTAL_PRICE_CENTS.tables,
+    unit: "flat",
+    stripeProduct: "Tables Rental",
+    usedFor: "Rental table option"
+  },
+  {
+    group: "Rental Options",
+    name: "Chairs",
+    appKey: "chairs",
+    amountCents: RENTAL_PRICE_CENTS.chairs,
+    unit: "flat",
+    stripeProduct: "Chairs Rental",
+    usedFor: "Rental chair option"
+  },
+  {
+    group: "Rental Options",
+    name: "Tarp",
+    appKey: "tarp",
+    amountCents: RENTAL_PRICE_CENTS.tarp,
+    unit: "flat",
+    stripeProduct: "Tarp Fee",
+    usedFor: "Rental tarp option"
+  },
+  {
+    group: "Rental Options",
+    name: "Early setup",
+    appKey: "earlySetup",
+    amountCents: RENTAL_PRICE_CENTS.earlySetup,
+    unit: "flat",
+    stripeProduct: "Early Setup Fee",
+    usedFor: "Early access setup option"
+  },
+  {
+    group: "Rental Options",
+    name: "Late cleanup",
+    appKey: "lateCleanup",
+    amountCents: RENTAL_PRICE_CENTS.lateCleanup,
+    unit: "flat",
+    stripeProduct: "Late Cleanup Fee",
+    usedFor: "Late access cleanup option"
+  },
+  {
+    group: "Thermostat",
+    name: "Heater runtime",
+    appKey: "heat",
+    amountCents: THERMOSTAT_PRICE_CENTS_PER_HOUR.heat,
+    unit: "per hour",
+    stripeProduct: "Heater Use",
+    usedFor: "Heat records billed from runtime"
+  },
+  {
+    group: "Thermostat",
+    name: "AC runtime",
+    appKey: "ac",
+    amountCents: THERMOSTAT_PRICE_CENTS_PER_HOUR.ac,
+    unit: "per hour",
+    stripeProduct: "Air Conditioning Operating Cost",
+    usedFor: "AC records billed from runtime"
+  },
+  {
+    group: "Discounts",
+    name: "Special Access discount",
+    appKey: "specialAccessDiscount",
+    amountCents: null,
+    percent: SPECIAL_ACCESS_RENTAL_DISCOUNT_RATE,
+    unit: "percent",
+    stripeProduct: "Invoice adjustment",
+    usedFor: "Optional 20% rental discount"
+  }
+];
 
 function normalizeRentalHours(value, fallback = 1) {
   const hours = Number(value);

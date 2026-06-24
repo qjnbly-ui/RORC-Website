@@ -3129,6 +3129,86 @@ h1 {
   justify-content: flex-end;
 }
 
+.billing-prices-page {
+  padding: 16px;
+}
+
+.billing-prices-shell {
+  display: grid;
+  gap: 16px;
+  margin: 0 auto;
+  max-width: 1180px;
+}
+
+.billing-prices-header {
+  display: grid;
+  gap: 8px;
+  text-align: center;
+}
+
+.billing-prices-header h2,
+.billing-prices-header p {
+  margin: 0;
+}
+
+.billing-prices-header p {
+  color: var(--muted);
+}
+
+.billing-price-group {
+  background:
+    radial-gradient(circle at top right, rgba(239, 59, 54, 0.12), transparent 34%),
+    #181818;
+  border: 1px solid #3d3d3d;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.billing-price-group h3 {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  margin: 0;
+  padding: 14px 18px;
+}
+
+.billing-price-table {
+  display: grid;
+}
+
+.billing-price-row {
+  align-items: start;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(180px, 1.1fr) minmax(110px, 0.55fr) minmax(190px, 1fr) minmax(220px, 1.2fr);
+  padding: 13px 18px;
+}
+
+.billing-price-row:first-child {
+  border-top: 0;
+}
+
+.billing-price-row-head {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.billing-price-row span {
+  min-width: 0;
+}
+
+.billing-price-row strong,
+.billing-price-row small {
+  display: block;
+}
+
+.billing-price-row small {
+  color: var(--muted);
+  margin-top: 3px;
+}
+
 .master-logs-filter-chip {
   appearance: none;
   background: #1a1a1a;
@@ -4270,6 +4350,14 @@ textarea:focus-visible,
   .monthly-billing-amounts {
     justify-items: start;
     text-align: left;
+  }
+
+  .billing-price-row {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-price-row-head {
+    display: none;
   }
 
   .account-info-page,
