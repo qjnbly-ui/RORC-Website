@@ -1387,8 +1387,11 @@ set search_path = public
 as $$
 declare
   heat_rate_cents_per_hour integer := 1300;
-  ac_rate_cents_per_hour integer := 200;
+  ac_standard_rate_cents_per_hour integer := 200;
+  ac_bulk_rate_cents_per_hour integer := 150;
+  ac_bulk_threshold_hours numeric := 8;
   applied_rate_cents_per_hour integer;
+  runtime_hours numeric;
   total_cents integer;
   participant_count integer;
   base_cents integer;
@@ -1400,19 +1403,40 @@ begin
     return new;
   end if;
 
+  if exists (
+    select 1
+    from public.billing_line_items
+    where heater_use_entry_id = new.id
+      and (
+        payment_recorded_at is not null
+        or posted_to_stripe_at is not null
+        or stripe_invoice_id is not null
+      )
+  ) then
+    return new;
+  end if;
+
+  runtime_hours := extract(epoch from (new.end_at - new.start_at)) / 3600.0;
   reason_text := case
     when coalesce(new.system_type, 'heat') = 'ac' then 'AC use'
     else 'Heater use'
   end;
   applied_rate_cents_per_hour := case
-    when coalesce(new.system_type, 'heat') = 'ac' then ac_rate_cents_per_hour
+    when coalesce(new.system_type, 'heat') = 'ac' and runtime_hours > ac_bulk_threshold_hours then ac_bulk_rate_cents_per_hour
+    when coalesce(new.system_type, 'heat') = 'ac' then ac_standard_rate_cents_per_hour
     else heat_rate_cents_per_hour
   end;
 
   total_cents := greatest(
     0,
-    ceiling((extract(epoch from (new.end_at - new.start_at)) / 3600.0) * applied_rate_cents_per_hour)::integer
+    ceiling(runtime_hours * applied_rate_cents_per_hour)::integer
   );
+
+  delete from public.billing_line_items
+  where heater_use_entry_id = new.id
+    and payment_recorded_at is null
+    and posted_to_stripe_at is null
+    and stripe_invoice_id is null;
 
   if total_cents = 0 then
     return new;
@@ -1478,9 +1502,9 @@ $$;
 
 drop trigger if exists trg_bill_heater_use_entry on public.heater_use_entries;
 create trigger trg_bill_heater_use_entry
-after update of end_at on public.heater_use_entries
+after insert or update of start_at, end_at, system_type, group_pay, responsible_member_id on public.heater_use_entries
 for each row
-when (old.end_at is null and new.end_at is not null)
+when (new.end_at is not null)
 execute function public.bill_heater_use_entry();
 
 alter table public.accounts enable row level security;

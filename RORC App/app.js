@@ -3684,7 +3684,34 @@ function openMasterLogEditor(recordType, recordId, options = {}) {
       const nextNote = existingNote ? `${existingNote}\n${verifyNote}` : verifyNote;
       const noteField = overlay.querySelector("#masterLogHeaterNote");
       if (noteField) noteField.value = nextNote;
-      setResult(`Runtime verified: ${runtime.verifiedRuntimeMinutes} min. End time updated for billing review.`, "success");
+
+      const client = await createSupabaseClient();
+      if (!client) throw new Error("App data is not available.");
+
+      const billingLocked = linkedBillingItems.some((item) => (
+        item.paymentRecordedAt
+        || item.postedToStripeAt
+        || item.stripeInvoiceId
+      ));
+      const payload = {
+        system_type: systemType,
+        turn_heater_on: String(overlay.querySelector("#masterLogHeaterState")?.value || "On"),
+        target_temperature_f: Number(overlay.querySelector("#masterLogTargetTemp")?.value || 0) || null,
+        start_at: startAt,
+        end_at: runtime.projectedEndAt,
+        note: nextNote
+      };
+      const { error } = await client.from("heater_use_entries").update(payload).eq("id", recordId);
+      if (error) throw error;
+
+      await hydrateFromSupabase();
+      refreshAfterRecordMutation();
+      setResult(
+        billingLocked
+          ? `Runtime verified and saved: ${runtime.verifiedRuntimeMinutes} min. Billing was not recalculated because it is already paid or invoiced.`
+          : `Runtime verified and saved: ${runtime.verifiedRuntimeMinutes} min. Open billing recalculated from the verified runtime.`,
+        "success"
+      );
     } catch (error) {
       setResult(error.message || "Could not verify runtime.", "error");
     } finally {
@@ -5573,8 +5600,10 @@ const RENTAL_PRICE_CENTS = {
 const SPECIAL_ACCESS_RENTAL_DISCOUNT_RATE = 0.2;
 const THERMOSTAT_PRICE_CENTS_PER_HOUR = {
   heat: 1300,
-  ac: 200
+  ac: 200,
+  acBulk: 150
 };
+const AC_BULK_RATE_THRESHOLD_HOURS = 8;
 const BILLING_PRICE_CATALOG = [
   {
     group: "Rentals",
@@ -5668,12 +5697,21 @@ const BILLING_PRICE_CATALOG = [
   },
   {
     group: "Thermostat",
-    name: "AC runtime",
+    name: "AC runtime standard",
     appKey: "ac",
     amountCents: THERMOSTAT_PRICE_CENTS_PER_HOUR.ac,
     unit: "per hour",
     stripeProduct: "Air Conditioning Operating Cost",
-    usedFor: "AC records billed from runtime"
+    usedFor: `AC records up to ${AC_BULK_RATE_THRESHOLD_HOURS} runtime hours`
+  },
+  {
+    group: "Thermostat",
+    name: "AC runtime bulk",
+    appKey: "acBulk",
+    amountCents: THERMOSTAT_PRICE_CENTS_PER_HOUR.acBulk,
+    unit: "per hour",
+    stripeProduct: "Air Conditioning Operating Cost",
+    usedFor: `AC records over ${AC_BULK_RATE_THRESHOLD_HOURS} runtime hours`
   },
   {
     group: "Discounts",
@@ -11738,11 +11776,7 @@ async function hydrateFromSupabase() {
       client
         .from("heater_use_group_members")
         .select("*"),
-      client
-        .from("billing_line_items")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(1000),
+      fetchBillingRows(client),
       client
         .from("door_access_entries")
         .select("*")
@@ -12013,17 +12047,56 @@ function mapBillingLineItemRow(row) {
 async function refreshBillingLineItems() {
   const client = await createSupabaseClient();
   if (!client) return false;
-  const { data, error } = await client
-    .from("billing_line_items")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(1000);
+  const { data, error } = await fetchBillingRows(client);
   if (error) {
     console.warn("Billing refresh failed:", error.message || error);
     return false;
   }
   billingLineItems = (data || []).map(mapBillingLineItemRow);
   return true;
+}
+
+async function fetchBillingRows(client) {
+  const openResult = await fetchOpenBillingRows(client);
+  if (openResult.error) return openResult;
+
+  const recentResult = await client
+    .from("billing_line_items")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(1000);
+  if (recentResult.error) return recentResult;
+
+  const rowsById = new Map();
+  [...(openResult.data || []), ...(recentResult.data || [])].forEach((row) => {
+    if (row?.id) rowsById.set(row.id, row);
+  });
+
+  return {
+    data: [...rowsById.values()]
+      .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)),
+    error: null
+  };
+}
+
+async function fetchOpenBillingRows(client) {
+  const pageSize = 1000;
+  const rows = [];
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await client
+      .from("billing_line_items")
+      .select("*")
+      .is("posted_to_stripe_at", null)
+      .order("created_at", { ascending: false })
+      .range(from, from + pageSize - 1);
+
+    if (error) return { data: rows, error };
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) break;
+  }
+
+  return { data: rows, error: null };
 }
 
 function normalizeAccountTypePolicies(rows = []) {

@@ -1,17 +1,3 @@
--- Adds heat/AC distinction to thermostat records.
--- Run in Supabase before deploying AC thermostat usage.
-
-alter table public.heater_use_entries
-  add column if not exists system_type text not null default 'heat',
-  add column if not exists target_temperature_f integer;
-
-alter table public.heater_use_entries
-  drop constraint if exists heater_use_entries_system_type_check,
-  add constraint heater_use_entries_system_type_check check (system_type in ('heat', 'ac'));
-
-create index if not exists idx_heater_use_entries_system_type
-  on public.heater_use_entries (system_type, start_at desc);
-
 create or replace function public.bill_heater_use_entry()
 returns trigger
 language plpgsql
@@ -132,3 +118,10 @@ begin
   return new;
 end;
 $$;
+
+drop trigger if exists trg_bill_heater_use_entry on public.heater_use_entries;
+create trigger trg_bill_heater_use_entry
+after insert or update of start_at, end_at, system_type, group_pay, responsible_member_id on public.heater_use_entries
+for each row
+when (new.end_at is not null)
+execute function public.bill_heater_use_entry();
