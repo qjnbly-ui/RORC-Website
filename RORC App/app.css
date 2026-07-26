@@ -3422,6 +3422,22 @@ h1 {
   display: none;
 }
 
+.contract-review-inline-result {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: 10px;
+  color: #fcd34d;
+  font-weight: 750;
+  margin: 4px 0 0;
+  padding: 12px 14px;
+}
+
+.contract-review-inline-result.is-error {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #fca5a5;
+}
+
 .contract-review-history-heading {
   margin-top: 24px;
 }

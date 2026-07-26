@@ -1687,9 +1687,23 @@ function renderContractReviewCard(review) {
 function bindContractReviewActions() {
   document.querySelectorAll("[data-contract-review-action]").forEach((button) => {
     button.addEventListener("click", () => {
+      if (button.dataset.contractReviewAction === "approve") {
+        approveContractReviewFromCard(button);
+        return;
+      }
       showContractReviewActionForm(button);
     });
   });
+}
+
+function approveContractReviewFromCard(button) {
+  const contractId = String(button.dataset.contractReviewId || "").trim();
+  const row = button.closest("[data-contract-review-id]");
+  const applicantName = row?.querySelector(".heater-record-event")?.textContent?.trim() || "this applicant";
+  if (!contractId || !row) return;
+
+  if (!window.confirm(`Approve ${applicantName}'s account?`)) return;
+  submitContractReview(contractId, "approve", "", row);
 }
 
 function showContractReviewActionForm(button) {
@@ -1737,37 +1751,35 @@ function showContractReviewActionForm(button) {
       }
       return;
     }
-    submitContractReview(contractId, action, notes);
+    submitContractReview(contractId, action, notes, row);
   });
 
   panel.scrollIntoView({ behavior: "smooth", block: "center" });
   window.setTimeout(() => textarea?.focus(), 250);
 }
 
-async function submitContractReview(contractId, action, notes = "") {
+async function submitContractReview(contractId, action, notes = "", reviewRow = null) {
   const result = document.getElementById("contractReviewResult");
+  const row = reviewRow || document.querySelector(`[data-contract-review-id="${CSS.escape(contractId)}"]`);
+  const panel = row?.querySelector(`[data-contract-review-panel="${CSS.escape(contractId)}"]`);
+  const actionButtons = [...(row?.querySelectorAll("[data-contract-review-action]") || [])];
+  const setReviewMessage = (message, isError = false) => {
+    if (panel) {
+      panel.hidden = false;
+      panel.innerHTML = `<p class="contract-review-inline-result${isError ? " is-error" : ""}" role="${isError ? "alert" : "status"}">${escapeHtml(message)}</p>`;
+    }
+    if (result) result.textContent = message;
+  };
 
   if (action === "reject" && !notes) {
-    if (result) result.textContent = "Rejection notes are required.";
+    setReviewMessage("Rejection notes are required.", true);
     return;
   }
 
-  const automationConfirmed = await confirmAutomatedEmailBeforeSave({
-    type: "signup_review",
-    contractId,
-    action,
-    notes
-  }, {
-    title: action === "approve" ? "Approve Account?" : "Reject Account?",
-    message: "This admin action has an automated email scheduled for the applicant.",
-    confirmLabel: action === "approve" ? "Approve & Send Email" : "Reject & Send Email"
+  actionButtons.forEach((button) => {
+    button.disabled = true;
   });
-  if (!automationConfirmed) {
-    if (result) result.textContent = "No changes saved.";
-    return;
-  }
-
-  if (result) result.textContent = `${action === "approve" ? "Approving" : "Rejecting"} account review...`;
+  setReviewMessage(`${action === "approve" ? "Approving" : "Rejecting"} this account...`);
 
   try {
     const token = currentAuthSession?.access_token || "";
@@ -1790,11 +1802,14 @@ async function submitContractReview(contractId, action, notes = "") {
       throw new Error(body.error || "Could not update account review.");
     }
 
-    if (result) result.textContent = action === "approve" ? "Account approved." : "Account rejected.";
+    setReviewMessage(action === "approve" ? "Account approved." : "Account rejected.");
     await refreshContractReviewBadge();
     window.setTimeout(() => renderContractReviewsPage(), 250);
   } catch (error) {
-    if (result) result.textContent = error.message || "Could not update account review.";
+    actionButtons.forEach((button) => {
+      button.disabled = false;
+    });
+    setReviewMessage(error.message || "Could not update account review.", true);
   }
 }
 
