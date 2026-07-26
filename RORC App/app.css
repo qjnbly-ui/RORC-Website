@@ -3378,8 +3378,48 @@ h1 {
 }
 
 .contract-review-actions {
-  justify-content: flex-end;
-  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 4px;
+}
+
+.contract-review-button {
+  appearance: none;
+  background: transparent;
+  border: 1px solid #4b5563;
+  border-radius: 12px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 850;
+  min-height: 48px;
+  padding: 10px 16px;
+}
+
+.contract-review-button.is-reject {
+  border-color: #7f1d1d;
+  color: #fca5a5;
+}
+
+.contract-review-button.is-approve {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.contract-review-button:hover,
+.contract-review-button:focus-visible {
+  filter: brightness(1.12);
+}
+
+.contract-review-action-panel {
+  grid-column: 1 / -1;
+}
+
+.contract-review-action-panel:empty {
+  display: none;
 }
 
 .contract-review-history-heading {

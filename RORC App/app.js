@@ -1649,8 +1649,9 @@ function renderContractReviewList(reviews) {
 
 function renderContractReviewCard(review) {
   const pending = review.adminReviewStatus === "pending";
+  const applicantName = review.applicantName || "this applicant";
   const statusLabel = pending ? "Pending" : review.adminReviewStatus === "approved" ? "Approved" : "Rejected";
-  const statusClass = pending ? "currently-on" : review.adminReviewStatus === "approved" ? "paid" : "overdue";
+  const statusClass = pending ? "pending" : review.adminReviewStatus === "approved" ? "paid" : "overdue";
   const meta = [
     review.source,
     review.accountNumber ? `Acct ${review.accountNumber}` : "",
@@ -1669,9 +1670,13 @@ function renderContractReviewCard(review) {
         ${review.adminReviewNotes ? `<br />Notes: ${escapeHtml(review.adminReviewNotes)}` : ""}
       </p>
       ${pending ? `
-        <div class="form-actions contract-review-actions">
-          <button class="text-action" data-contract-review-action="reject" data-contract-review-id="${escapeAttribute(review.id)}" type="button">Reject</button>
-          <button class="save-action" data-contract-review-action="approve" data-contract-review-id="${escapeAttribute(review.id)}" type="button">Approve</button>
+        <div class="contract-review-actions" aria-label="Review ${escapeAttribute(applicantName)}">
+          <button class="contract-review-button is-reject" data-contract-review-action="reject" data-contract-review-id="${escapeAttribute(review.id)}" type="button">
+            Reject ${escapeHtml(applicantName)}
+          </button>
+          <button class="contract-review-button is-approve" data-contract-review-action="approve" data-contract-review-id="${escapeAttribute(review.id)}" type="button">
+            Approve ${escapeHtml(applicantName)}
+          </button>
         </div>
         <div class="contract-review-action-panel" data-contract-review-panel="${escapeAttribute(review.id)}"></div>
       ` : ""}
