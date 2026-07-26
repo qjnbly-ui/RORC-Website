@@ -3438,6 +3438,67 @@ h1 {
   color: #fca5a5;
 }
 
+.contract-review-preview {
+  background: #111;
+  border: 1px solid #444;
+  border-radius: 14px;
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+}
+
+.contract-review-preview header,
+.contract-review-preview header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.contract-review-preview-kicker,
+.contract-review-preview dt {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.contract-review-preview dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.contract-review-preview dl > div {
+  display: grid;
+  gap: 2px;
+  grid-template-columns: 72px minmax(0, 1fr);
+}
+
+.contract-review-preview dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.contract-review-preview pre {
+  background: #181818;
+  border: 1px solid #333;
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.5;
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  padding: 14px;
+  white-space: pre-wrap;
+}
+
+.contract-review-preview-actions {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .contract-review-history-heading {
   margin-top: 24px;
 }

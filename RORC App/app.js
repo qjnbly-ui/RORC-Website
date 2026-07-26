@@ -1696,14 +1696,11 @@ function bindContractReviewActions() {
   });
 }
 
-function approveContractReviewFromCard(button) {
+async function approveContractReviewFromCard(button) {
   const contractId = String(button.dataset.contractReviewId || "").trim();
   const row = button.closest("[data-contract-review-id]");
-  const applicantName = row?.querySelector(".heater-record-event")?.textContent?.trim() || "this applicant";
   if (!contractId || !row) return;
-
-  if (!window.confirm(`Approve ${applicantName}'s account?`)) return;
-  submitContractReview(contractId, "approve", "", row);
+  await showContractReviewPreview(row, contractId, "approve", "");
 }
 
 function showContractReviewActionForm(button) {
@@ -1751,11 +1748,72 @@ function showContractReviewActionForm(button) {
       }
       return;
     }
-    submitContractReview(contractId, action, notes, row);
+    showContractReviewPreview(row, contractId, action, notes);
   });
 
   panel.scrollIntoView({ behavior: "smooth", block: "center" });
   window.setTimeout(() => textarea?.focus(), 250);
+}
+
+async function showContractReviewPreview(row, contractId, action, notes = "") {
+  const panel = row?.querySelector(`[data-contract-review-panel="${CSS.escape(contractId)}"]`);
+  const actionButtons = [...(row?.querySelectorAll("[data-contract-review-action]") || [])];
+  if (!panel) return;
+
+  actionButtons.forEach((button) => {
+    button.disabled = true;
+  });
+  panel.hidden = false;
+  panel.innerHTML = '<p class="contract-review-inline-result" role="status">Loading email preview...</p>';
+
+  try {
+    const preview = await fetchAutomatedMessagePreview({
+      type: "signup_review",
+      contractId,
+      action,
+      notes
+    });
+    const applicantName = row.querySelector(".heater-record-event")?.textContent?.trim() || "this applicant";
+    const finalLabel = action === "approve" ? "Approve & Send" : "Reject & Send";
+
+    panel.innerHTML = `
+      <section class="contract-review-preview" aria-label="Email preview for ${escapeAttribute(applicantName)}">
+        <header>
+          <div>
+            <span class="contract-review-preview-kicker">Email preview</span>
+            <strong>${escapeHtml(preview.deliveryLabel || (preview.willSend ? "Email will be sent" : "No email will be sent"))}</strong>
+          </div>
+        </header>
+        <dl>
+          <div><dt>To</dt><dd>${escapeHtml(preview.to || "No email address")}</dd></div>
+          <div><dt>Subject</dt><dd>${escapeHtml(preview.subject || "No subject")}</dd></div>
+        </dl>
+        <pre>${escapeHtml(preview.text || "No message content.")}</pre>
+        <div class="contract-review-preview-actions">
+          <button class="contract-review-button" data-contract-preview-cancel type="button">Cancel</button>
+          <button class="contract-review-button is-approve" data-contract-preview-confirm type="button">
+            ${preview.willSend ? finalLabel : (action === "approve" ? "Approve Account" : "Reject Account")}
+          </button>
+        </div>
+      </section>
+    `;
+
+    panel.querySelector("[data-contract-preview-cancel]")?.addEventListener("click", () => {
+      panel.innerHTML = "";
+      actionButtons.forEach((button) => {
+        button.disabled = false;
+      });
+    });
+    panel.querySelector("[data-contract-preview-confirm]")?.addEventListener("click", () => {
+      submitContractReview(contractId, action, notes, row);
+    });
+    panel.scrollIntoView({ behavior: "smooth", block: "center" });
+  } catch (error) {
+    actionButtons.forEach((button) => {
+      button.disabled = false;
+    });
+    panel.innerHTML = `<p class="contract-review-inline-result is-error" role="alert">${escapeHtml(error.message || "Could not load the email preview. No changes were saved.")}</p>`;
+  }
 }
 
 async function submitContractReview(contractId, action, notes = "", reviewRow = null) {
