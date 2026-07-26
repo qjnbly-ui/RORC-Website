@@ -1659,7 +1659,11 @@ function renderContractReviewCard(review) {
   ].filter(Boolean).join(" · ");
 
   return `
-    <li data-contract-review-id="${escapeAttribute(review.id)}" data-contract-review-email="${escapeAttribute(review.applicantEmail || "")}">
+    <li
+      data-contract-review-id="${escapeAttribute(review.id)}"
+      data-contract-review-email="${escapeAttribute(review.applicantEmail || "")}"
+      data-contract-review-email-enabled="${review.reviewEmailWillSend ? "true" : "false"}"
+    >
       <strong class="heater-record-event">${escapeHtml(review.applicantName || "Unknown applicant")}</strong>
       <span class="heater-record-meta">${escapeHtml(meta)}</span>
       <button class="heater-state-action is-${escapeAttribute(statusClass)}" type="button" disabled>${escapeHtml(statusLabel)}</button>
@@ -1764,15 +1768,17 @@ async function showContractReviewPreview(row, contractId, action, notes = "") {
     button.disabled = true;
   });
   panel.hidden = false;
-  panel.innerHTML = '<p class="contract-review-inline-result" role="status">Loading email preview...</p>';
+  panel.innerHTML = '<p class="contract-review-inline-result" role="status">Preparing email preview...</p>';
 
   try {
-    const preview = await fetchAutomatedMessagePreview({
-      type: "signup_review",
-      contractId,
-      action,
-      notes
-    });
+    const preview = action === "approve"
+      ? buildLocalSignupApprovalPreview(row)
+      : await fetchAutomatedMessagePreview({
+        type: "signup_review",
+        contractId,
+        action,
+        notes
+      });
     const applicantName = row.querySelector(".heater-record-event")?.textContent?.trim() || "this applicant";
     const finalLabel = action === "approve" ? "Approve & Send" : "Reject & Send";
 
@@ -1814,6 +1820,26 @@ async function showContractReviewPreview(row, contractId, action, notes = "") {
     });
     panel.innerHTML = `<p class="contract-review-inline-result is-error" role="alert">${escapeHtml(error.message || "Could not load the email preview. No changes were saved.")}</p>`;
   }
+}
+
+function buildLocalSignupApprovalPreview(row) {
+  const to = String(row?.dataset.contractReviewEmail || "").trim();
+  const willSend = row?.dataset.contractReviewEmailEnabled === "true" && Boolean(to);
+  return {
+    to,
+    subject: "Your RORC account was approved",
+    text: [
+      "Your RORC account has been approved. You can now use your RORC login for approved account access.",
+      "",
+      "Open the member login: https://ruthobenchainrc.com/membership-login/"
+    ].join("\n"),
+    willSend,
+    deliveryLabel: willSend
+      ? "Email will be sent after approval"
+      : to
+        ? "Email delivery is not configured; approval will not send an email"
+        : "No email address is on file; approval will not send an email"
+  };
 }
 
 async function submitContractReview(contractId, action, notes = "", reviewRow = null) {

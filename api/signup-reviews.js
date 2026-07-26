@@ -82,6 +82,7 @@ async function loadSignupReviews() {
       accountNumber: account.account_number || row.requested_account_number || "",
       applicantName: row.applicant_name || member.member_name || "",
       applicantEmail: row.applicant_email || member.email_address || "",
+      reviewEmailWillSend: Boolean(RESEND_API_KEY && (row.applicant_email || member.email_address)),
       applicantPhone: row.applicant_phone || member.phone_number || "",
       requestedAccountType: row.requested_account_type || "",
       currentAccountType: member.account_type || "",
