@@ -1734,6 +1734,9 @@ function showContractReviewActionForm(button) {
     }
     submitContractReview(contractId, action, notes);
   });
+
+  panel.scrollIntoView({ behavior: "smooth", block: "center" });
+  window.setTimeout(() => textarea?.focus(), 250);
 }
 
 async function submitContractReview(contractId, action, notes = "") {
@@ -14396,8 +14399,13 @@ async function confirmAutomatedEmailBeforeSave(payload, options = {}) {
     if (!preview?.willSend) return true;
     return showAutomationConfirmDialog(preview, options);
   } catch (error) {
-    showAppNotice(error.message || "Could not verify the automated email. No changes were saved.");
-    return false;
+    console.warn("Could not load the automated email preview.", error);
+    return window.confirm(
+      `${options.title || "Confirm this action"}\n\n`
+      + "The email preview could not be loaded. The account action can still be saved, "
+      + "but the notification email may not be sent.\n\n"
+      + "Do you want to continue?"
+    );
   }
 }
 

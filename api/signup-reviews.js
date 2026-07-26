@@ -114,31 +114,6 @@ async function reviewSignupContract({ contractId, action, notes, manager }) {
   const now = new Date().toISOString();
   const approved = action === "approve";
   const payload = contract.contract_payload || {};
-
-  if (approved) {
-    const memberIds = contractMemberIds(contract);
-    if (!memberIds.length) {
-      throw httpError(400, "No member records are linked to this contract.");
-    }
-
-    await updateSupabaseRows(
-      `account_members?id=in.(${memberIds.join(",")})`,
-      { account_type: contract.requested_account_type || "Active Membership" }
-    );
-
-    if (payload.upgradeFromRental && payload.planLabel) {
-      await updateSupabaseRows(
-        `accounts?id=eq.${encodeURIComponent(contract.account_id)}`,
-        { membership_details: payload.planLabel }
-      ).catch((error) => console.warn("Could not update upgraded account details.", error));
-    }
-  } else if (payload.upgradeFromRental) {
-    await updateSupabaseRows(
-      `accounts?id=eq.${encodeURIComponent(contract.account_id)}`,
-      { membership_details: "Rental Account" }
-    ).catch((error) => console.warn("Could not restore rental account details.", error));
-  }
-
   const reviewPatch = {
     admin_review_status: approved ? "approved" : "rejected",
     admin_reviewed_at: now,
@@ -147,7 +122,47 @@ async function reviewSignupContract({ contractId, action, notes, manager }) {
     signup_status: approved ? "active" : "rejected"
   };
 
+  const memberIds = approved ? contractMemberIds(contract) : [];
+  if (approved && !memberIds.length) {
+    throw httpError(400, "No member records are linked to this contract.");
+  }
+
+  // Finalize the review record first so an interrupted request cannot grant
+  // membership access while leaving the account in the pending queue.
   await updateSupabaseRows(`signup_contracts?id=eq.${encodeURIComponent(contract.id)}`, reviewPatch);
+
+  try {
+    if (approved) {
+      await updateSupabaseRows(
+        `account_members?id=in.(${memberIds.join(",")})`,
+        { account_type: contract.requested_account_type || "Active Membership" }
+      );
+
+      if (payload.upgradeFromRental && payload.planLabel) {
+        await updateSupabaseRows(
+          `accounts?id=eq.${encodeURIComponent(contract.account_id)}`,
+          { membership_details: payload.planLabel }
+        ).catch((error) => console.warn("Could not update upgraded account details.", error));
+      }
+    } else if (payload.upgradeFromRental) {
+      await updateSupabaseRows(
+        `accounts?id=eq.${encodeURIComponent(contract.account_id)}`,
+        { membership_details: "Rental Account" }
+      ).catch((error) => console.warn("Could not restore rental account details.", error));
+    }
+  } catch (error) {
+    await updateSupabaseRows(
+      `signup_contracts?id=eq.${encodeURIComponent(contract.id)}`,
+      {
+        admin_review_status: "pending",
+        admin_reviewed_at: null,
+        admin_reviewed_by_member_id: null,
+        admin_review_notes: null,
+        signup_status: contract.signup_status || "submitted"
+      }
+    ).catch((rollbackError) => console.error("Could not roll back failed signup review.", rollbackError));
+    throw error;
+  }
 
   await sendApplicantReviewEmail({ contract, approved, notes }).catch((emailError) => {
     console.warn("Applicant review email failed.", emailError);
