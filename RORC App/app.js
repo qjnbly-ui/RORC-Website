@@ -598,80 +598,44 @@ function emailHref(emailAddress, subject = "RORC") {
   return email ? `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}` : "";
 }
 
-function escapeVCardValue(value) {
-  return String(value || "")
-    .replaceAll("\\", "\\\\")
-    .replace(/\r\n|\r|\n/g, "\\n")
-    .replaceAll(";", "\\;")
-    .replaceAll(",", "\\,");
-}
-
-function buildMemberVCard(member) {
-  const memberName = String(member?.memberName || "RORC Member").trim() || "RORC Member";
-  const nameParts = memberName.split(/\s+/).filter(Boolean);
-  const familyName = nameParts.length > 1 ? nameParts.pop() : "";
-  const givenName = nameParts.join(" ") || memberName;
-  const accountNumber = displayAccountNumberForMember(member);
-  const note = [
-    accountNumber ? `RORC Account ${accountNumber}` : "RORC Account",
-    member?.accountType || ""
-  ].filter(Boolean).join(" · ");
-  const lines = [
-    "BEGIN:VCARD",
-    "VERSION:3.0",
-    `N:${escapeVCardValue(familyName)};${escapeVCardValue(givenName)};;;`,
-    `FN:${escapeVCardValue(memberName)}`,
-    "ORG:Ruth Obenchain Recreation Center"
-  ];
-
-  if (member?.phoneNumber) lines.push(`TEL;TYPE=CELL:${escapeVCardValue(member.phoneNumber)}`);
-  if (member?.emailAddress) lines.push(`EMAIL;TYPE=INTERNET:${escapeVCardValue(member.emailAddress)}`);
-  if (member?.mailingAddress) lines.push(`ADR;TYPE=HOME:;;${escapeVCardValue(member.mailingAddress)};;;;`);
-  if (note) lines.push(`NOTE:${escapeVCardValue(note)}`);
-
-  lines.push("END:VCARD");
-  return `${lines.join("\r\n")}\r\n`;
-}
-
-async function downloadMemberContact(member) {
+async function downloadMemberContact(member, button = null) {
   if (!isAccountManager(appUserSession)) {
     showDetailActionMessage("Only account managers can save member contacts.");
     return;
   }
 
-  const card = buildMemberVCard(member);
-  const safeName = String(member?.memberName || "RORC Member")
-    .trim()
-    .replace(/[^a-z0-9]+/gi, "-")
-    .replace(/^-+|-+$/g, "") || "RORC-Member";
-  const fileName = `${safeName}.vcf`;
-  const file = new File(["\ufeff", card], fileName, {
-    type: "text/vcard;charset=utf-8"
-  });
-
-  try {
-    if (typeof navigator.share === "function"
-      && typeof navigator.canShare === "function"
-      && navigator.canShare({ files: [file] })) {
-      await navigator.share({
-        files: [file],
-        title: `Save ${member?.memberName || "RORC Member"} to Contacts`
-      });
-      return;
-    }
-  } catch (error) {
-    if (error?.name === "AbortError") return;
-    console.warn("Could not share member contact.", error);
+  const token = currentAuthSession?.access_token || "";
+  if (!token) {
+    showDetailActionMessage("Log in again before saving a contact.");
+    return;
   }
 
-  const url = URL.createObjectURL(file);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const originalLabel = button?.textContent || "Save Contact";
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Opening Contact...";
+  }
+  try {
+    const response = await fetch("/api/member-contact", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ memberId: member?.id || "" })
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.success === false || !body.downloadUrl) {
+      throw new Error(body.error || "Could not prepare this contact.");
+    }
+
+    window.location.assign(body.downloadUrl);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalLabel;
+    }
+  }
 }
 
 function appUrl() {
@@ -15440,7 +15404,7 @@ function handleDetailQuickAction(button) {
   }
 
   if (button.dataset.detailAction === "saveContact") {
-    downloadMemberContact(member).catch((error) => {
+    downloadMemberContact(member, button).catch((error) => {
       console.error("Could not save member contact.", error);
       showDetailActionMessage("Could not open this contact. Please try again.");
     });
