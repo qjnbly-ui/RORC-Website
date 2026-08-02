@@ -633,23 +633,41 @@ function buildMemberVCard(member) {
   return `${lines.join("\r\n")}\r\n`;
 }
 
-function downloadMemberContact(member) {
+async function downloadMemberContact(member) {
   if (!isAccountManager(appUserSession)) {
     showDetailActionMessage("Only account managers can save member contacts.");
     return;
   }
 
   const card = buildMemberVCard(member);
-  const blob = new Blob(["\ufeff", card], { type: "text/vcard;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
   const safeName = String(member?.memberName || "RORC Member")
     .trim()
     .replace(/[^a-z0-9]+/gi, "-")
     .replace(/^-+|-+$/g, "") || "RORC-Member";
+  const fileName = `${safeName}.vcf`;
+  const file = new File(["\ufeff", card], fileName, {
+    type: "text/vcard;charset=utf-8"
+  });
 
+  try {
+    if (typeof navigator.share === "function"
+      && typeof navigator.canShare === "function"
+      && navigator.canShare({ files: [file] })) {
+      await navigator.share({
+        files: [file],
+        title: `Save ${member?.memberName || "RORC Member"} to Contacts`
+      });
+      return;
+    }
+  } catch (error) {
+    if (error?.name === "AbortError") return;
+    console.warn("Could not share member contact.", error);
+  }
+
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
   link.href = url;
-  link.download = `${safeName}.vcf`;
+  link.download = fileName;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -15422,7 +15440,10 @@ function handleDetailQuickAction(button) {
   }
 
   if (button.dataset.detailAction === "saveContact") {
-    downloadMemberContact(member);
+    downloadMemberContact(member).catch((error) => {
+      console.error("Could not save member contact.", error);
+      showDetailActionMessage("Could not open this contact. Please try again.");
+    });
     return;
   }
 
