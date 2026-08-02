@@ -1702,7 +1702,7 @@ function bindContractReviewActions() {
 
 async function approveContractReviewFromCard(button) {
   const contractId = String(button.dataset.contractReviewId || "").trim();
-  const row = button.closest("[data-contract-review-id]");
+  const row = button.closest("li[data-contract-review-id]");
   if (!contractId || !row) return;
   await showContractReviewPreview(row, contractId, "approve", "");
 }
@@ -1710,7 +1710,7 @@ async function approveContractReviewFromCard(button) {
 function showContractReviewActionForm(button) {
   const contractId = button.dataset.contractReviewId;
   const action = button.dataset.contractReviewAction;
-  const row = button.closest("[data-contract-review-id]");
+  const row = button.closest("li[data-contract-review-id]");
   const panel = row?.querySelector(`[data-contract-review-panel="${CSS.escape(contractId)}"]`);
   if (!contractId || !action || !panel) return;
 
