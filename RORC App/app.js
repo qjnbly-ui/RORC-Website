@@ -598,6 +598,64 @@ function emailHref(emailAddress, subject = "RORC") {
   return email ? `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}` : "";
 }
 
+function escapeVCardValue(value) {
+  return String(value || "")
+    .replaceAll("\\", "\\\\")
+    .replace(/\r\n|\r|\n/g, "\\n")
+    .replaceAll(";", "\\;")
+    .replaceAll(",", "\\,");
+}
+
+function buildMemberVCard(member) {
+  const memberName = String(member?.memberName || "RORC Member").trim() || "RORC Member";
+  const nameParts = memberName.split(/\s+/).filter(Boolean);
+  const familyName = nameParts.length > 1 ? nameParts.pop() : "";
+  const givenName = nameParts.join(" ") || memberName;
+  const accountNumber = displayAccountNumberForMember(member);
+  const note = [
+    accountNumber ? `RORC Account ${accountNumber}` : "RORC Account",
+    member?.accountType || ""
+  ].filter(Boolean).join(" · ");
+  const lines = [
+    "BEGIN:VCARD",
+    "VERSION:3.0",
+    `N:${escapeVCardValue(familyName)};${escapeVCardValue(givenName)};;;`,
+    `FN:${escapeVCardValue(memberName)}`,
+    "ORG:Ruth Obenchain Recreation Center"
+  ];
+
+  if (member?.phoneNumber) lines.push(`TEL;TYPE=CELL:${escapeVCardValue(member.phoneNumber)}`);
+  if (member?.emailAddress) lines.push(`EMAIL;TYPE=INTERNET:${escapeVCardValue(member.emailAddress)}`);
+  if (member?.mailingAddress) lines.push(`ADR;TYPE=HOME:;;${escapeVCardValue(member.mailingAddress)};;;;`);
+  if (note) lines.push(`NOTE:${escapeVCardValue(note)}`);
+
+  lines.push("END:VCARD");
+  return `${lines.join("\r\n")}\r\n`;
+}
+
+function downloadMemberContact(member) {
+  if (!isAccountManager(appUserSession)) {
+    showDetailActionMessage("Only account managers can save member contacts.");
+    return;
+  }
+
+  const card = buildMemberVCard(member);
+  const blob = new Blob(["\ufeff", card], { type: "text/vcard;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const safeName = String(member?.memberName || "RORC Member")
+    .trim()
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-+|-+$/g, "") || "RORC-Member";
+
+  link.href = url;
+  link.download = `${safeName}.vcf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function appUrl() {
   const url = new URL("/RORC%20App/", window.location.origin);
   url.search = "";
@@ -14190,6 +14248,7 @@ function renderAccountDetail(memberId) {
           <button data-detail-action="phone" data-member-id="${escapeAttribute(member.id)}" type="button">Phone Call</button>
           <button data-detail-action="text" data-member-id="${escapeAttribute(member.id)}" type="button">Text Message</button>
           <button data-detail-action="email" data-member-id="${escapeAttribute(member.id)}" type="button">Email</button>
+          ${isAccountManager(appUserSession) ? `<button data-detail-action="saveContact" data-member-id="${escapeAttribute(member.id)}" type="button">Save Contact</button>` : ""}
           ${canManageBilling ? `<button data-detail-action="billing" data-member-id="${escapeAttribute(member.id)}" type="button">Manage Billing</button>` : ""}
           ${canEditDetails ? `<button class="edit-chip" data-detail-action="edit" data-member-id="${escapeAttribute(member.id)}" type="button">Edit</button>` : ""}
         </div>
@@ -15359,6 +15418,11 @@ function handleDetailQuickAction(button) {
     }
 
     window.location.href = href;
+    return;
+  }
+
+  if (button.dataset.detailAction === "saveContact") {
+    downloadMemberContact(member);
     return;
   }
 
