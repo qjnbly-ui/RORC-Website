@@ -3493,6 +3493,42 @@ h1 {
   white-space: pre-wrap;
 }
 
+.contract-review-preview-field {
+  display: grid;
+  gap: 7px;
+}
+
+.contract-review-preview-field > span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.contract-review-preview-field input,
+.contract-review-preview-field textarea {
+  background: #181818;
+  border: 1px solid #444;
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.5;
+  padding: 12px 14px;
+  width: 100%;
+}
+
+.contract-review-preview-field textarea {
+  min-height: 150px;
+  resize: vertical;
+}
+
+.contract-review-preview-field input:focus,
+.contract-review-preview-field textarea:focus {
+  border-color: var(--accent);
+  outline: 2px solid rgba(242, 58, 54, 0.22);
+}
+
 .contract-review-preview-actions {
   display: grid;
   gap: 10px;

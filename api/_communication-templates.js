@@ -63,16 +63,16 @@ function buildEmailTemplate({ title, bodyHtml, bodyAlign = "center" }) {
   `;
 }
 
-function buildSignupReviewEmail({ contract, approved, notes }) {
-  const trimmedNotes = String(notes || "").trim();
-  const subject = approved ? "Your RORC account was approved" : "RORC account review update";
+function buildSignupReviewEmail({ contract, approved, subjectOverride, messageOverride }) {
+  const defaultSubject = approved ? "Your RORC account was approved" : "RORC account review update";
   const title = approved ? "RORC Account Approved" : "RORC Account Review";
-  const bodyText = approved
+  const defaultBodyText = approved
     ? "Your RORC account has been approved. You can now use your RORC login for approved account access."
     : "Your RORC account was not approved at this time.";
+  const subject = String(subjectOverride || "").trim() || defaultSubject;
+  const bodyText = String(messageOverride || "").trim() || defaultBodyText;
   const text = [
     bodyText,
-    trimmedNotes ? `Notes: ${trimmedNotes}` : "",
     "",
     "Open the member login: https://ruthobenchainrc.com/membership-login/"
   ].filter(Boolean).join("\n");
@@ -80,8 +80,7 @@ function buildSignupReviewEmail({ contract, approved, notes }) {
   const html = buildEmailTemplate({
     title: escapeHtml(title),
     bodyHtml: `
-      <p style="margin:0 0 16px;color:#d1d5db;line-height:1.65;font-size:16px;text-align:center;">${escapeHtml(bodyText)}</p>
-      ${trimmedNotes ? `<p style="margin:0 0 16px;color:#d1d5db;line-height:1.65;font-size:15px;text-align:center;"><strong>Notes:</strong> ${escapeHtml(trimmedNotes)}</p>` : ""}
+      <p style="margin:0 0 16px;color:#d1d5db;line-height:1.65;font-size:16px;text-align:center;">${escapeHtml(bodyText).replaceAll("\n", "<br />")}</p>
       <p style="margin:0;text-align:center;">
         <a href="https://ruthobenchainrc.com/membership-login/" style="display:inline-block;background:#f23a36;color:#fff;text-decoration:none;border-radius:999px;padding:13px 22px;font-weight:700;">
           Open Member Login
@@ -94,6 +93,7 @@ function buildSignupReviewEmail({ contract, approved, notes }) {
     channel: "email",
     to: contract?.applicant_email || "",
     subject,
+    message: bodyText,
     text,
     html
   };

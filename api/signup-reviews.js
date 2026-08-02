@@ -31,6 +31,8 @@ module.exports = async (req, res) => {
       const contractId = stringValue(req.body?.contractId);
       const action = stringValue(req.body?.action).toLowerCase();
       const notes = stringValue(req.body?.notes);
+      const emailSubject = stringValue(req.body?.emailSubject);
+      const emailMessage = stringValue(req.body?.emailMessage);
 
       if (!contractId) {
         return res.status(400).json({ success: false, error: "Missing contract ID." });
@@ -40,7 +42,15 @@ module.exports = async (req, res) => {
         return res.status(400).json({ success: false, error: "Action must be approve or reject." });
       }
 
-      const review = await reviewSignupContract({ contractId, action, notes, manager });
+      if (emailSubject.length > 200) {
+        return res.status(400).json({ success: false, error: "Email subject must be 200 characters or fewer." });
+      }
+
+      if (emailMessage.length > 5000) {
+        return res.status(400).json({ success: false, error: "Email message must be 5,000 characters or fewer." });
+      }
+
+      const review = await reviewSignupContract({ contractId, action, notes, emailSubject, emailMessage, manager });
       return res.status(200).json({ success: true, review });
     }
 
@@ -101,7 +111,7 @@ async function loadSignupReviews() {
   });
 }
 
-async function reviewSignupContract({ contractId, action, notes, manager }) {
+async function reviewSignupContract({ contractId, action, notes, emailSubject, emailMessage, manager }) {
   const rows = await supabaseRest(`signup_contracts?select=*&id=eq.${encodeURIComponent(contractId)}&limit=1`);
   const contract = rows[0];
   if (!contract) {
@@ -165,7 +175,7 @@ async function reviewSignupContract({ contractId, action, notes, manager }) {
     throw error;
   }
 
-  await sendApplicantReviewEmail({ contract, approved, notes }).catch((emailError) => {
+  await sendApplicantReviewEmail({ contract, approved, emailSubject, emailMessage }).catch((emailError) => {
     console.warn("Applicant review email failed.", emailError);
   });
 
@@ -184,10 +194,15 @@ function contractMemberIds(contract) {
   ].filter(Boolean));
 }
 
-async function sendApplicantReviewEmail({ contract, approved, notes }) {
+async function sendApplicantReviewEmail({ contract, approved, emailSubject, emailMessage }) {
   if (!RESEND_API_KEY || !contract.applicant_email) return;
 
-  const email = buildSignupReviewEmail({ contract, approved, notes });
+  const email = buildSignupReviewEmail({
+    contract,
+    approved,
+    subjectOverride: emailSubject,
+    messageOverride: emailMessage
+  });
 
   await sendResendEmail({
     apiKey: RESEND_API_KEY,

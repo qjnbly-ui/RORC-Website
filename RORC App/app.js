@@ -1771,14 +1771,12 @@ async function showContractReviewPreview(row, contractId, action, notes = "") {
   panel.innerHTML = '<p class="contract-review-inline-result" role="status">Preparing email preview...</p>';
 
   try {
-    const preview = action === "approve"
-      ? buildLocalSignupApprovalPreview(row)
-      : await fetchAutomatedMessagePreview({
-        type: "signup_review",
-        contractId,
-        action,
-        notes
-      });
+    const preview = await fetchAutomatedMessagePreview({
+      type: "signup_review",
+      contractId,
+      action,
+      notes
+    });
     const applicantName = row.querySelector(".heater-record-event")?.textContent?.trim() || "this applicant";
     const finalLabel = action === "approve" ? "Approve & Send" : "Reject & Send";
 
@@ -1792,9 +1790,16 @@ async function showContractReviewPreview(row, contractId, action, notes = "") {
         </header>
         <dl>
           <div><dt>To</dt><dd>${escapeHtml(preview.to || "No email address")}</dd></div>
-          <div><dt>Subject</dt><dd>${escapeHtml(preview.subject || "No subject")}</dd></div>
         </dl>
-        <pre>${escapeHtml(preview.text || "No message content.")}</pre>
+        <label class="contract-review-preview-field">
+          <span>Subject</span>
+          <input data-contract-preview-subject type="text" maxlength="200" value="${escapeAttribute(preview.subject || "")}" />
+        </label>
+        <label class="contract-review-preview-field">
+          <span>Message</span>
+          <textarea data-contract-preview-message rows="7" maxlength="5000">${escapeHtml(preview.message || preview.text || "")}</textarea>
+        </label>
+        <p class="rental-action-error" data-contract-preview-error hidden></p>
         <div class="contract-review-preview-actions">
           <button class="contract-review-button" data-contract-preview-cancel type="button">Cancel</button>
           <button class="contract-review-button is-approve" data-contract-preview-confirm type="button">
@@ -1811,7 +1816,17 @@ async function showContractReviewPreview(row, contractId, action, notes = "") {
       });
     });
     panel.querySelector("[data-contract-preview-confirm]")?.addEventListener("click", () => {
-      submitContractReview(contractId, action, notes, row);
+      const emailSubject = panel.querySelector("[data-contract-preview-subject]")?.value.trim() || "";
+      const emailMessage = panel.querySelector("[data-contract-preview-message]")?.value.trim() || "";
+      const previewError = panel.querySelector("[data-contract-preview-error]");
+      if (preview.willSend && (!emailSubject || !emailMessage)) {
+        if (previewError) {
+          previewError.textContent = "Add both an email subject and message before sending.";
+          previewError.hidden = false;
+        }
+        return;
+      }
+      submitContractReview(contractId, action, notes, row, { emailSubject, emailMessage });
     });
     panel.scrollIntoView({ behavior: "smooth", block: "center" });
   } catch (error) {
@@ -1822,27 +1837,7 @@ async function showContractReviewPreview(row, contractId, action, notes = "") {
   }
 }
 
-function buildLocalSignupApprovalPreview(row) {
-  const to = String(row?.dataset.contractReviewEmail || "").trim();
-  const willSend = row?.dataset.contractReviewEmailEnabled === "true" && Boolean(to);
-  return {
-    to,
-    subject: "Your RORC account was approved",
-    text: [
-      "Your RORC account has been approved. You can now use your RORC login for approved account access.",
-      "",
-      "Open the member login: https://ruthobenchainrc.com/membership-login/"
-    ].join("\n"),
-    willSend,
-    deliveryLabel: willSend
-      ? "Email will be sent after approval"
-      : to
-        ? "Email delivery is not configured; approval will not send an email"
-        : "No email address is on file; approval will not send an email"
-  };
-}
-
-async function submitContractReview(contractId, action, notes = "", reviewRow = null) {
+async function submitContractReview(contractId, action, notes = "", reviewRow = null, email = {}) {
   const result = document.getElementById("contractReviewResult");
   const row = reviewRow || document.querySelector(`[data-contract-review-id="${CSS.escape(contractId)}"]`);
   const panel = row?.querySelector(`[data-contract-review-panel="${CSS.escape(contractId)}"]`);
@@ -1878,7 +1873,9 @@ async function submitContractReview(contractId, action, notes = "", reviewRow = 
       body: JSON.stringify({
         contractId,
         action,
-        notes
+        notes,
+        emailSubject: String(email.emailSubject || "").trim(),
+        emailMessage: String(email.emailMessage || "").trim()
       })
     });
     const body = await response.json().catch(() => ({}));

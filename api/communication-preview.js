@@ -66,7 +66,9 @@ async function signupReviewPreview(body) {
   return previewPayload(buildSignupReviewEmail({
     contract,
     approved: action === "approve",
-    notes
+    notes,
+    subjectOverride: stringValue(body.emailSubject),
+    messageOverride: stringValue(body.emailMessage)
   }));
 }
 
@@ -119,6 +121,7 @@ function previewPayload(email) {
     channel: "email",
     to,
     subject: email.subject,
+    message: email.message || email.text,
     text: email.text,
     html: email.html,
     willSend,
