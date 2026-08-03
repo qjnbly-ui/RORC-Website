@@ -2636,8 +2636,9 @@ function renderMasterLogsPage() {
     <section class="master-logs-shell">
       <header class="account-page-heading">
         <div>
-          <p class="eyebrow">Admin Logs</p>
-          <h2>Master Logs</h2>
+          <p class="eyebrow">${isBillingTab ? "Admin Billing" : "Admin Logs"}</p>
+          <h2>${isBillingTab ? "Billing Center" : "Master Logs"}</h2>
+          ${isBillingTab ? "<p>Finalize charges in their source area, then send invoices and record payments here.</p>" : ""}
           ${dataSourceNotice()}
         </div>
       </header>
@@ -2668,6 +2669,9 @@ function renderMasterLogsPage() {
             <strong>Total ${formatCurrency(billingMonthTotal)}</strong>
           </div>
         </div>
+        <p class="data-source-note billing-workflow-note">
+          Stripe is the payment authority whenever an invoice exists. “Record Offline Payment” closes an existing Stripe invoice or creates a paid Stripe record when needed.
+        </p>
         <div class="master-logs-filter-row" role="tablist" aria-label="Billing view">
           <button class="master-logs-filter-chip ${billingView === "accounts" ? "is-active" : ""}" data-master-billing-view="accounts" type="button">Accounts</button>
           <button class="master-logs-filter-chip ${billingView === "items" ? "is-active" : ""}" data-master-billing-view="items" type="button">Line Items</button>
@@ -2761,7 +2765,7 @@ function renderMasterLogsPage() {
                 <li data-master-log-type="billing" data-master-log-id="${escapeAttribute(item.id)}">
                   <div>
                     <strong>${escapeHtml(item.reason || "Billing item")} · ${escapeHtml(member?.memberName || "Unknown Member")}</strong>
-                    <span>${formatShortDateTime(item.createdAt)}${item.postedToStripeAt ? ` · Posted ${formatShortDateTime(item.postedToStripeAt)}` : ""}</span>
+                    <span>${formatShortDateTime(item.createdAt)}${isBillingItemPaid(item) && item.postedToStripeAt ? ` · Paid ${formatShortDateTime(item.postedToStripeAt)}` : ""}</span>
                   </div>
                   <b>${escapeHtml(billingStatusLabel(item))} · ${formatCurrency(item.amountCents || 0)}</b>
                 </li>
@@ -2824,22 +2828,16 @@ function bindMasterLogsActions() {
     renderMasterLogsPage();
   });
 
-  document.querySelectorAll("[data-billing-mark-account-paid]").forEach((button) => {
-    button.addEventListener("click", () => {
-      markMonthlyBillingAccountPaid(
-        button.dataset.billingAccountId || "",
-        button.dataset.billingMonth || "",
-        button
-      );
-    });
-  });
-
   document.querySelectorAll("[data-billing-send-stripe-invoice]").forEach((button) => {
     button.addEventListener("click", () => createMonthlyStripeInvoice(button, "send"));
   });
 
   document.querySelectorAll("[data-billing-create-paid-stripe-invoice]").forEach((button) => {
     button.addEventListener("click", () => createMonthlyStripeInvoice(button, "paid"));
+  });
+
+  document.querySelectorAll("[data-billing-sync-stripe]").forEach((button) => {
+    button.addEventListener("click", () => syncMonthlyStripeInvoices(button));
   });
 }
 
@@ -2957,18 +2955,45 @@ function normalizeStripeInvoiceStatus(value) {
 function stripeInvoiceStatusLabel(item) {
   if (!item?.stripeInvoiceId) return "No Stripe invoice";
   const status = normalizeStripeInvoiceStatus(item.stripeInvoiceStatus);
-  if (item.postedToStripeAt || status === "paid") return "Stripe invoice paid";
+  if (status === "paid") return "Stripe invoice paid";
   if (status === "void" || status === "voided") return "Stripe invoice voided";
   if (status === "draft") return "Stripe invoice draft";
   if (status === "uncollectible") return "Stripe invoice uncollectible";
-  if (status === "open") return "Stripe invoice sent";
-  return "Stripe invoice active";
+  if (status === "open") return item.postedToStripeAt
+    ? "Action needed · Stripe invoice still open"
+    : "Stripe invoice open";
+  return item.postedToStripeAt
+    ? "Action needed · Stripe status unknown"
+    : "Stripe invoice status unknown";
 }
 
 function hasActiveStripeInvoice(item) {
   if (!item?.stripeInvoiceId) return false;
   const status = normalizeStripeInvoiceStatus(item.stripeInvoiceStatus);
   return !["void", "voided"].includes(status);
+}
+
+function hasOutstandingStripeInvoice(item) {
+  if (!item?.stripeInvoiceId) return false;
+  const status = normalizeStripeInvoiceStatus(item.stripeInvoiceStatus);
+  return !["paid", "void", "voided"].includes(status);
+}
+
+function isBillingItemPaid(item) {
+  if (!item) return false;
+  if (item.stripeInvoiceId) {
+    return normalizeStripeInvoiceStatus(item.stripeInvoiceStatus) === "paid";
+  }
+  return Boolean(item.postedToStripeAt);
+}
+
+function isBillingItemOfflinePayable(item) {
+  if (!item) return false;
+  if (hasOutstandingStripeInvoice(item)) return true;
+  if (item.stripeInvoiceId && ["void", "voided"].includes(normalizeStripeInvoiceStatus(item.stripeInvoiceStatus))) {
+    return true;
+  }
+  return !item.stripeInvoiceId && !isBillingItemPaid(item);
 }
 
 function isBillingItemInvoiceable(item) {
@@ -3017,8 +3042,8 @@ async function createStripeInvoiceForBillingItems({
     return false;
   }
   const selectedItems = billingLineItems.filter((item) => ids.includes(item.id));
-  const alreadyInvoiced = selectedItems.filter((item) => !item.postedToStripeAt && hasActiveStripeInvoice(item));
-  if (alreadyInvoiced.length) {
+  const alreadyInvoiced = selectedItems.filter((item) => hasOutstandingStripeInvoice(item));
+  if (mode === "send" && alreadyInvoiced.length) {
     const invoiceIds = [...new Set(alreadyInvoiced.map((item) => item.stripeInvoiceId).filter(Boolean))];
     const message = invoiceIds.length
       ? `These billing items already have an active Stripe invoice: ${invoiceIds.join(", ")}. Open the existing invoice instead.`
@@ -3028,14 +3053,19 @@ async function createStripeInvoiceForBillingItems({
     return false;
   }
 
+  const paymentDetails = mode === "paid"
+    ? promptOfflinePaymentDetails(selectedItems.find((item) => item.paymentMethod)?.paymentMethod || "check")
+    : null;
+  if (mode === "paid" && !paymentDetails) return false;
+
   const detailHtml = buildStripeInvoiceConfirmationDetailHtml(ids);
   const confirmed = await openLinkedDeleteDialog({
-    title: mode === "paid" ? "Create Paid Stripe Record?" : "Send Stripe Invoice?",
+    title: mode === "paid" ? "Record Offline Payment?" : "Send Stripe Invoice?",
     message: mode === "paid"
-      ? "Review the invoice lines below before creating the paid Stripe record. This will mark these app billing items paid."
+      ? "Existing Stripe invoices will be marked paid outside Stripe. Items without an invoice will receive a paid Stripe record. Rental and thermostat status will update with the result."
       : "Review the invoice lines below before sending the Stripe invoice. The app will keep these billing items open until Stripe reports payment.",
     detailHtml,
-    confirmLabel: mode === "paid" ? "Create Paid Record" : "Send Invoice",
+    confirmLabel: mode === "paid" ? "Record Payment" : "Send Invoice",
     cancelLabel: "Cancel"
   });
   if (!confirmed) return false;
@@ -3058,7 +3088,8 @@ async function createStripeInvoiceForBillingItems({
       },
       body: JSON.stringify({
         billingLineItemIds: ids,
-        mode
+        mode,
+        ...(paymentDetails || {})
       })
     });
     const body = await response.json().catch(() => ({}));
@@ -3068,7 +3099,7 @@ async function createStripeInvoiceForBillingItems({
 
     await hydrateFromSupabase();
     refreshAfterRecordMutation();
-    const url = body.invoice?.url || "";
+    const url = body.invoice?.url || body.invoices?.[0]?.url || "";
     if (setMessage) {
       setMessage(url ? `${successMessage} ${url}` : successMessage, "success");
     } else {
@@ -3078,6 +3109,49 @@ async function createStripeInvoiceForBillingItems({
   } catch (error) {
     if (setMessage) setMessage(error.message || "Could not create Stripe invoice.", "error");
     else showAppNotice(error.message || "Could not create Stripe invoice.");
+    if (triggerButton) triggerButton.disabled = false;
+    return false;
+  }
+}
+
+async function syncStripeInvoiceStatusesForBillingItems({
+  itemIds,
+  triggerButton = null,
+  setMessage = null
+} = {}) {
+  const ids = [...new Set((itemIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
+  if (!ids.length) return false;
+  const token = currentAuthSession?.access_token || "";
+  if (!token) {
+    if (setMessage) setMessage("Please sign in again before refreshing Stripe status.", "error");
+    else showAppNotice("Please sign in again before refreshing Stripe status.");
+    return false;
+  }
+
+  if (triggerButton) triggerButton.disabled = true;
+  if (setMessage) setMessage("Refreshing Stripe status...");
+
+  try {
+    const response = await fetch("/api/create-stripe-invoice", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ billingLineItemIds: ids, mode: "sync" })
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.success === false) {
+      throw new Error(body.error || "Could not refresh Stripe status.");
+    }
+    await hydrateFromSupabase();
+    refreshAfterRecordMutation();
+    if (setMessage) setMessage("Stripe invoice status refreshed.", "success");
+    else showAppNotice("Stripe invoice status refreshed.");
+    return true;
+  } catch (error) {
+    if (setMessage) setMessage(error.message || "Could not refresh Stripe status.", "error");
+    else showAppNotice(error.message || "Could not refresh Stripe status.");
     if (triggerButton) triggerButton.disabled = false;
     return false;
   }
@@ -3163,18 +3237,19 @@ function buildStripeInvoiceConfirmationDetailHtml(ids) {
   `;
 }
 
-function promptBillingPaymentDetails(defaultMethod = "cash") {
+function promptOfflinePaymentDetails(defaultMethod = "check") {
+  const normalizedDefault = normalizeBillingPaymentMethod(defaultMethod);
   const methodInput = window.prompt(
-    "Payment method: cash, check, stripe_invoice, or other",
-    normalizeBillingPaymentMethod(defaultMethod) || "cash"
+    "Offline payment method: cash, check, or other",
+    ["cash", "check", "other"].includes(normalizedDefault) ? normalizedDefault : "check"
   );
   if (methodInput === null) return null;
   const paymentMethod = normalizeBillingPaymentMethod(methodInput);
-  if (!paymentMethod) {
-    window.alert("Use one of: cash, check, stripe_invoice, other.");
+  if (!["cash", "check", "other"].includes(paymentMethod)) {
+    window.alert("Use one of: cash, check, or other.");
     return null;
   }
-  const paymentNote = window.prompt("Payment note or receipt reference (optional):", "") || "";
+  const paymentNote = window.prompt("Payment note or check/receipt reference (optional):", "") || "";
   return { paymentMethod, paymentNote: paymentNote.trim() };
 }
 
@@ -3213,7 +3288,7 @@ function monthlyBillingAccountSummaries(monthKey, filter = "all") {
       summary.items.push(item);
       summary.totalCents += Number(item.amountCents || 0);
       summary.thermostatRuntimeMinutes += runtimeMinutes;
-      if (item.postedToStripeAt) summary.paidTotalCents += Number(item.amountCents || 0);
+      if (isBillingItemPaid(item)) summary.paidTotalCents += Number(item.amountCents || 0);
       else summary.openTotalCents += Number(item.amountCents || 0);
     });
 
@@ -3221,9 +3296,12 @@ function monthlyBillingAccountSummaries(monthKey, filter = "all") {
     .map((summary) => ({
       ...summary,
       items: summary.items.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
-      openItems: summary.items.filter((item) => !item.postedToStripeAt),
+      openItems: summary.items.filter((item) => !isBillingItemPaid(item)),
       invoiceableItems: invoiceableBillingItems(summary.items),
-      activeInvoiceItems: summary.items.filter((item) => !item.postedToStripeAt && hasActiveStripeInvoice(item))
+      activeInvoiceItems: summary.items.filter(hasOutstandingStripeInvoice),
+      offlinePayableItems: summary.items.filter(isBillingItemOfflinePayable),
+      stripeInvoiceItems: summary.items.filter((item) => Boolean(item.stripeInvoiceId)),
+      localOnlyPaidItems: summary.items.filter((item) => item.postedToStripeAt && !item.stripeInvoiceId)
     }))
     .sort((a, b) => (
       b.openTotalCents - a.openTotalCents
@@ -3254,9 +3332,13 @@ function renderMonthlyBillingAccountCard(summary, monthKey) {
   const status = summary.openTotalCents > 0 ? "Open" : "Paid";
   const memberNames = summary.members.map((member) => member.memberName).filter(Boolean).join(", ");
   const invoiceableCount = summary.invoiceableItems?.length || 0;
+  const offlinePayableCount = summary.offlinePayableItems?.length || 0;
+  const stripeInvoiceCount = uniqueStripeInvoiceItems(summary.stripeInvoiceItems || []).length;
   const activeInvoiceItems = uniqueStripeInvoiceItems(summary.activeInvoiceItems || []);
   const activeInvoiceCount = activeInvoiceItems.length;
   const activeInvoiceLinks = stripeInvoiceLinksHtml(activeInvoiceItems);
+  const needsReconciliation = (summary.activeInvoiceItems || []).some((item) => Boolean(item.postedToStripeAt));
+  const localOnlyPaidCount = summary.localOnlyPaidItems?.length || 0;
 
   return `
     <details class="monthly-billing-card" ${summary.openTotalCents > 0 ? "open" : ""}>
@@ -3267,8 +3349,8 @@ function renderMonthlyBillingAccountCard(summary, monthKey) {
         </span>
         <span class="monthly-billing-amounts">
           <b>${formatCurrency(summary.openTotalCents)}</b>
-          <small>${escapeHtml(status)} · ${summary.items.length} item${summary.items.length === 1 ? "" : "s"}</small>
-          ${activeInvoiceCount ? `<small>${activeInvoiceCount} active Stripe invoice${activeInvoiceCount === 1 ? "" : "s"}</small>` : ""}
+          <small>${needsReconciliation ? "Action needed" : escapeHtml(status)} · ${summary.items.length} item${summary.items.length === 1 ? "" : "s"}</small>
+          ${activeInvoiceCount ? `<small>${activeInvoiceCount} outstanding Stripe invoice${activeInvoiceCount === 1 ? "" : "s"}</small>` : ""}
         </span>
       </summary>
       <div class="monthly-billing-breakdown">
@@ -3278,7 +3360,13 @@ function renderMonthlyBillingAccountCard(summary, monthKey) {
           <span>Open ${formatCurrency(summary.openTotalCents)}</span>
           ${summary.thermostatRuntimeMinutes > 0 ? `<span>Runtime ${formatBillingRuntime(summary.thermostatRuntimeMinutes)}</span>` : ""}
           ${activeInvoiceLinks ? `<span>Stripe invoice ${activeInvoiceLinks}</span>` : ""}
+          ${localOnlyPaidCount ? `<span>${localOnlyPaidCount} older payment${localOnlyPaidCount === 1 ? "" : "s"} recorded in RORC only</span>` : ""}
         </div>
+        ${needsReconciliation ? `
+          <p class="billing-reconciliation-alert">
+            RORC was marked paid while Stripe is still outstanding. Record the offline payment below to close the existing Stripe invoice.
+          </p>
+        ` : ""}
         <ol class="record-list monthly-billing-items">
           ${summary.items.map((item) => {
             const member = findMember(item.accountMemberId);
@@ -3296,6 +3384,14 @@ function renderMonthlyBillingAccountCard(summary, monthKey) {
         <footer class="monthly-billing-actions">
           <button
             class="app-admin-btn"
+            data-billing-sync-stripe
+            data-billing-account-id="${escapeAttribute(summary.accountId)}"
+            data-billing-month="${escapeAttribute(monthKey)}"
+            type="button"
+            ${stripeInvoiceCount ? "" : "disabled"}
+          >Refresh Stripe Status</button>
+          <button
+            class="app-admin-btn"
             data-billing-send-stripe-invoice
             data-billing-account-id="${escapeAttribute(summary.accountId)}"
             data-billing-month="${escapeAttribute(monthKey)}"
@@ -3303,21 +3399,13 @@ function renderMonthlyBillingAccountCard(summary, monthKey) {
             ${invoiceableCount ? "" : "disabled"}
           >Send Stripe Invoice</button>
           <button
-            class="app-admin-btn"
+            class="app-admin-btn app-admin-btn-primary"
             data-billing-create-paid-stripe-invoice
             data-billing-account-id="${escapeAttribute(summary.accountId)}"
             data-billing-month="${escapeAttribute(monthKey)}"
             type="button"
-            ${invoiceableCount ? "" : "disabled"}
-          >Create Paid Stripe Record</button>
-          <button
-            class="app-admin-btn app-admin-btn-primary"
-            data-billing-mark-account-paid
-            data-billing-account-id="${escapeAttribute(summary.accountId)}"
-            data-billing-month="${escapeAttribute(monthKey)}"
-            type="button"
-            ${summary.openItems.length ? "" : "disabled"}
-          >Mark Account Paid</button>
+            ${offlinePayableCount ? "" : "disabled"}
+          >Record Offline Payment</button>
         </footer>
       </div>
     </details>
@@ -3374,67 +3462,6 @@ function billingCatalogAmountLabel(item) {
   return amount;
 }
 
-async function markBillingItemsPaid(
-  itemIds,
-  triggerButton,
-  successMessage = "Billing item(s) marked paid.",
-  paymentDetails = null
-) {
-  const ids = [...new Set((itemIds || []).map((id) => String(id || "").trim()).filter(Boolean))];
-  if (!ids.length) return;
-  const affectedItems = billingLineItems.filter((item) => ids.includes(item.id));
-  const details = paymentDetails || promptBillingPaymentDetails(affectedItems[0]?.paymentMethod || "cash");
-  if (!details) return false;
-
-  const client = await createSupabaseClient();
-  if (!client) {
-    showDetailActionMessage("App data is not available.");
-    return false;
-  }
-
-  if (triggerButton) triggerButton.disabled = true;
-
-  try {
-    const paidAt = new Date().toISOString();
-    const paymentMethod = normalizeBillingPaymentMethod(details.paymentMethod) || "cash";
-    const paymentNote = String(details.paymentNote || "").trim() || null;
-    const { error } = await client
-      .from("billing_line_items")
-      .update({
-        posted_to_stripe_at: paidAt,
-        payment_method: paymentMethod,
-        payment_recorded_at: paidAt,
-        payment_recorded_by_member_id: appUserSession.memberId || null,
-        payment_note: paymentNote
-      })
-      .in("id", ids);
-
-    if (error) throw error;
-
-    billingLineItems = billingLineItems.map((item) => (
-      ids.includes(item.id)
-        ? {
-            ...item,
-            postedToStripeAt: paidAt,
-            paymentMethod,
-            paymentRecordedAt: paidAt,
-            paymentRecordedByMemberId: appUserSession.memberId || "",
-            paymentNote: paymentNote || ""
-          }
-        : item
-    ));
-    await syncHeaterPaidStateForBillingItems(client, affectedItems, billingLineItems);
-    await syncRentalPaymentStateForBillingItems(client, affectedItems, billingLineItems);
-    refreshAfterRecordMutation();
-    showDetailActionMessage(successMessage);
-    return true;
-  } catch (error) {
-    showDetailActionMessage(error.message || "Could not mark billing paid.");
-    if (triggerButton) triggerButton.disabled = false;
-    return false;
-  }
-}
-
 async function syncHeaterPaidStateForBillingItems(client, affectedItems = [], billingRows = billingLineItems) {
   const heaterIds = [...new Set(
     affectedItems
@@ -3448,7 +3475,7 @@ async function syncHeaterPaidStateForBillingItems(client, affectedItems = [], bi
 
   heaterIds.forEach((heaterId) => {
     const linkedRows = billingRows.filter((item) => item.heaterUseEntryId === heaterId);
-    const isPaid = linkedRows.length > 0 && linkedRows.every((item) => Boolean(item.postedToStripeAt));
+    const isPaid = linkedRows.length > 0 && linkedRows.every(isBillingItemPaid);
     if (isPaid) paidIds.push(heaterId);
     else unpaidIds.push(heaterId);
   });
@@ -3490,7 +3517,7 @@ async function syncRentalPaymentStateForBillingItems(client, affectedItems = [],
       unbilledIds.push(rentalId);
       return;
     }
-    const isPaid = linkedRows.every((item) => Boolean(item.postedToStripeAt));
+    const isPaid = linkedRows.every(isBillingItemPaid);
     if (isPaid) paidIds.push(rentalId);
     else unpaidIds.push(rentalId);
   });
@@ -3521,31 +3548,31 @@ async function syncRentalPaymentStateForBillingItems(client, affectedItems = [],
   ));
 }
 
-async function markMonthlyBillingAccountPaid(accountId, monthKey, triggerButton) {
-  const summary = monthlyBillingAccountSummaries(normalizedBillingMonth(monthKey), appState.masterLogsBillingFilter)
-    .find((item) => item.accountId === accountId);
-  const openIds = (summary?.openItems || []).map((item) => item.id);
-  if (!openIds.length) return;
-
-  const label = summary?.account?.accountNumber || summary?.billingOwner?.memberName || "this account";
-  const confirmed = window.confirm(`Mark ${openIds.length} open billing item(s) paid for ${label}?`);
-  if (!confirmed) return;
-
-  await markBillingItemsPaid(openIds, triggerButton, "Account billing marked paid for the selected month.");
-}
-
 async function createMonthlyStripeInvoice(triggerButton, mode = "send") {
   const accountId = triggerButton?.dataset.billingAccountId || "";
   const monthKey = triggerButton?.dataset.billingMonth || "";
   const summary = monthlyBillingAccountSummaries(normalizedBillingMonth(monthKey), appState.masterLogsBillingFilter)
     .find((item) => item.accountId === accountId);
-  const openIds = (summary?.invoiceableItems || []).map((item) => item.id);
+  const selectedItems = mode === "paid"
+    ? (summary?.offlinePayableItems || [])
+    : (summary?.invoiceableItems || []);
+  const openIds = selectedItems.map((item) => item.id);
   await createStripeInvoiceForBillingItems({
     itemIds: openIds,
     mode,
     triggerButton,
-    successMessage: mode === "paid" ? "Paid Stripe invoice record created." : "Stripe invoice sent."
+    successMessage: mode === "paid" ? "Offline payment recorded in RORC and Stripe." : "Stripe invoice sent."
   });
+}
+
+async function syncMonthlyStripeInvoices(triggerButton) {
+  const accountId = triggerButton?.dataset.billingAccountId || "";
+  const monthKey = triggerButton?.dataset.billingMonth || "";
+  const summary = monthlyBillingAccountSummaries(normalizedBillingMonth(monthKey), appState.masterLogsBillingFilter)
+    .find((item) => item.accountId === accountId);
+  const itemIds = (summary?.stripeInvoiceItems || []).map((item) => item.id);
+  if (!itemIds.length) return;
+  await syncStripeInvoiceStatusesForBillingItems({ itemIds, triggerButton });
 }
 
 function toDatetimeLocalValue(isoString) {
@@ -4027,6 +4054,13 @@ function openBillingLogEditor(recordId, options = {}) {
           ? "Rental"
           : "Manual billing item";
   const amountValue = ((item.amountCents || 0) / 100).toFixed(2);
+  const paymentControls = adminControls
+    && appState.currentRoute === "masterLogs"
+    && appState.masterLogsTab === "billing";
+  const financialFieldsLocked = !paymentControls || Boolean(item.stripeInvoiceId) || isBillingItemPaid(item);
+  const financialReadonlyAttribute = financialFieldsLocked ? "disabled" : "";
+  const canDeleteItem = paymentControls && !item.stripeInvoiceId && !item.postedToStripeAt;
+  const canReopenLocalItem = paymentControls && item.postedToStripeAt && !item.stripeInvoiceId;
   const overlay = document.createElement("div");
   overlay.className = "master-log-modal-overlay";
   overlay.innerHTML = `
@@ -4036,11 +4070,11 @@ function openBillingLogEditor(recordId, options = {}) {
       <div class="master-log-form">
         <label>
           <span>Reason</span>
-          <input id="billingLogReason" type="text" value="${escapeAttribute(item.reason || "Billing item")}" ${readonlyAttribute} />
+          <input id="billingLogReason" type="text" value="${escapeAttribute(item.reason || "Billing item")}" ${financialReadonlyAttribute} />
         </label>
         <label>
           <span>Amount</span>
-          <input id="billingLogAmount" type="number" min="0" step="0.01" value="${escapeAttribute(amountValue)}" ${readonlyAttribute} />
+          <input id="billingLogAmount" type="number" min="0" step="0.01" value="${escapeAttribute(amountValue)}" ${financialReadonlyAttribute} />
         </label>
         <label>
           <span>Status</span>
@@ -4048,7 +4082,7 @@ function openBillingLogEditor(recordId, options = {}) {
         </label>
         <label>
           <span>Payment Type</span>
-          <select id="billingLogPaymentMethod" ${readonlyAttribute}>
+          <select id="billingLogPaymentMethod" disabled>
             ${paymentMethodOptions(item.paymentMethod, true)}
           </select>
         </label>
@@ -4058,15 +4092,15 @@ function openBillingLogEditor(recordId, options = {}) {
         </label>
         <label>
           <span>Paid At</span>
-          <input id="billingLogPostedAt" type="datetime-local" value="${escapeAttribute(toDatetimeLocalValue(item.postedToStripeAt))}" ${readonlyAttribute} />
+          <input id="billingLogPostedAt" type="datetime-local" value="${escapeAttribute(toDatetimeLocalValue(item.postedToStripeAt))}" disabled />
         </label>
         <label>
           <span>Stripe Invoice ID</span>
-          <input id="billingLogStripeInvoiceId" type="text" value="${escapeAttribute(item.stripeInvoiceId || "")}" placeholder="in_..." ${readonlyAttribute} />
+          <input id="billingLogStripeInvoiceId" type="text" value="${escapeAttribute(item.stripeInvoiceId || "")}" placeholder="in_..." disabled />
         </label>
         <label>
           <span>Stripe Invoice URL</span>
-          <input id="billingLogStripeInvoiceUrl" type="url" value="${escapeAttribute(item.stripeInvoiceUrl || "")}" placeholder="https://invoice.stripe.com/..." ${readonlyAttribute} />
+          <input id="billingLogStripeInvoiceUrl" type="url" value="${escapeAttribute(item.stripeInvoiceUrl || "")}" placeholder="https://invoice.stripe.com/..." disabled />
         </label>
         <label>
           <span>Stripe Invoice Status</span>
@@ -4081,15 +4115,17 @@ function openBillingLogEditor(recordId, options = {}) {
           <textarea id="billingLogPaymentNote" rows="3" ${readonlyAttribute}>${escapeHtml(item.paymentNote || "")}</textarea>
         </label>
       </div>
+      ${item.stripeInvoiceId ? '<p class="data-source-note">Stripe controls payment status for this item. Payment reconciliation is handled in the Billing Center.</p>' : ""}
       <p id="billingLogEditorResult" class="member-edit-result"></p>
       <footer>
-        ${adminControls ? '<button class="master-log-delete" type="button">Delete</button>' : ""}
+        ${canDeleteItem ? '<button class="master-log-delete" type="button">Delete</button>' : ""}
         <button class="master-log-cancel" type="button">${adminControls ? "Cancel" : "Close"}</button>
-        ${adminControls && isBillingItemInvoiceable(item) ? '<button class="master-log-send-stripe-invoice" type="button">Send Stripe Invoice</button>' : ""}
-        ${adminControls && isBillingItemInvoiceable(item) ? '<button class="master-log-paid-stripe-invoice" type="button">Paid Stripe Record</button>' : ""}
+        ${paymentControls && isBillingItemInvoiceable(item) ? '<button class="master-log-send-stripe-invoice" type="button">Send Stripe Invoice</button>' : ""}
+        ${paymentControls && item.stripeInvoiceId ? '<button class="master-log-sync-stripe-invoice" type="button">Refresh Stripe Status</button>' : ""}
+        ${paymentControls && isBillingItemOfflinePayable(item) ? '<button class="master-log-paid-stripe-invoice" type="button">Record Offline Payment</button>' : ""}
         ${item.stripeInvoiceUrl ? `<a class="master-log-cancel" href="${escapeAttribute(item.stripeInvoiceUrl)}" target="_blank" rel="noopener">Open Stripe Invoice</a>` : ""}
-        ${adminControls && !item.postedToStripeAt ? '<button class="master-log-mark-paid" type="button">Mark Item Paid</button>' : ""}
-        ${adminControls && item.postedToStripeAt ? '<button class="master-log-reopen" type="button">Reopen Item</button>' : ""}
+        ${canReopenLocalItem ? '<button class="master-log-reopen" type="button">Reopen Local Record</button>' : ""}
+        ${adminControls && !paymentControls ? '<button class="master-log-open-billing-center" type="button">Open Billing Center</button>' : ""}
         ${adminControls ? '<button class="master-log-save" type="button">Save</button>' : ""}
       </footer>
     </section>
@@ -4113,20 +4149,31 @@ function openBillingLogEditor(recordId, options = {}) {
 
   const saveButton = overlay.querySelector(".master-log-save");
   const deleteButton = overlay.querySelector(".master-log-delete");
-  const markPaidButton = overlay.querySelector(".master-log-mark-paid");
   const reopenButton = overlay.querySelector(".master-log-reopen");
   const sendStripeInvoiceButton = overlay.querySelector(".master-log-send-stripe-invoice");
   const paidStripeInvoiceButton = overlay.querySelector(".master-log-paid-stripe-invoice");
+  const syncStripeInvoiceButton = overlay.querySelector(".master-log-sync-stripe-invoice");
+  const openBillingCenterButton = overlay.querySelector(".master-log-open-billing-center");
+
+  openBillingCenterButton?.addEventListener("click", () => {
+    appState.masterLogsTab = "billing";
+    appState.masterLogsBillingView = "accounts";
+    appState.masterLogsBillingFilter = billingItemSourceLabel(item).toLowerCase().includes("rental")
+      ? "rental"
+      : item.heaterUseEntryId
+        ? "thermostat"
+        : item.timesheetEntryId
+          ? "guest"
+          : "manual";
+    appState.masterLogsBillingMonth = billingItemFacilityMonth(item) || currentFacilityMonthKey();
+    close();
+    navigateTo("masterLogs");
+  });
 
   saveButton?.addEventListener("click", async () => {
     const reason = String(overlay.querySelector("#billingLogReason")?.value || "").trim();
     const amount = Number(String(overlay.querySelector("#billingLogAmount")?.value || "").replace(/[$,]/g, ""));
-    const postedInput = String(overlay.querySelector("#billingLogPostedAt")?.value || "").trim();
-    const postedAt = fromDatetimeLocalValue(postedInput);
-    const paymentMethod = normalizeBillingPaymentMethod(overlay.querySelector("#billingLogPaymentMethod")?.value);
     const paymentNote = String(overlay.querySelector("#billingLogPaymentNote")?.value || "").trim();
-    const stripeInvoiceId = String(overlay.querySelector("#billingLogStripeInvoiceId")?.value || "").trim();
-    const stripeInvoiceUrl = String(overlay.querySelector("#billingLogStripeInvoiceUrl")?.value || "").trim();
 
     if (!reason) {
       setResult("Reason is required.", "error");
@@ -4138,11 +4185,6 @@ function openBillingLogEditor(recordId, options = {}) {
       return;
     }
 
-    if (postedInput && !postedAt) {
-      setResult("Posted date is invalid.", "error");
-      return;
-    }
-
     const client = await createSupabaseClient();
     if (!client) {
       setResult("App data is not available.", "error");
@@ -4150,7 +4192,7 @@ function openBillingLogEditor(recordId, options = {}) {
     }
 
     saveButton.disabled = true;
-    deleteButton.disabled = true;
+    if (deleteButton) deleteButton.disabled = true;
     setResult("Saving...");
 
     try {
@@ -4159,66 +4201,35 @@ function openBillingLogEditor(recordId, options = {}) {
         .update({
           reason,
           amount_cents: Math.round(amount * 100),
-          posted_to_stripe_at: postedAt,
-          payment_method: paymentMethod || null,
-          payment_recorded_at: postedAt || null,
-          payment_recorded_by_member_id: postedAt ? (appUserSession.memberId || null) : null,
-          payment_note: paymentNote || null,
-          stripe_invoice_id: stripeInvoiceId || null,
-          stripe_invoice_url: stripeInvoiceUrl || null
+          payment_note: paymentNote || null
         })
         .eq("id", recordId);
 
       if (error) throw error;
 
-      const affectedItems = billingLineItems.filter((billingItem) => billingItem.id === recordId);
       billingLineItems = billingLineItems.map((billingItem) => (
         billingItem.id === recordId
           ? {
               ...billingItem,
               reason,
               amountCents: Math.round(amount * 100),
-              postedToStripeAt: postedAt,
-              paymentMethod,
-              paymentRecordedAt: postedAt || null,
-              paymentRecordedByMemberId: postedAt ? (appUserSession.memberId || "") : "",
-              paymentNote,
-              stripeInvoiceId,
-              stripeInvoiceUrl
+              paymentNote
             }
           : billingItem
       ));
-      await syncHeaterPaidStateForBillingItems(client, affectedItems, billingLineItems);
-      await syncRentalPaymentStateForBillingItems(client, affectedItems, billingLineItems);
       await hydrateFromSupabase();
       refreshAfterRecordMutation();
       close();
     } catch (error) {
       setResult(error.message || "Could not save billing item.", "error");
       saveButton.disabled = false;
-      deleteButton.disabled = false;
+      if (deleteButton) deleteButton.disabled = false;
     }
-  });
-
-  markPaidButton?.addEventListener("click", async () => {
-    markPaidButton.disabled = true;
-    saveButton.disabled = true;
-    deleteButton.disabled = true;
-    setResult("Marking paid...");
-    const success = await markBillingItemsPaid([recordId], markPaidButton, "Billing item marked paid.");
-    if (success) {
-      close();
-      return;
-    }
-    markPaidButton.disabled = false;
-    saveButton.disabled = false;
-    deleteButton.disabled = false;
-    setResult("Could not mark billing item paid.", "error");
   });
 
   sendStripeInvoiceButton?.addEventListener("click", async () => {
     saveButton.disabled = true;
-    deleteButton.disabled = true;
+    if (deleteButton) deleteButton.disabled = true;
     const success = await createStripeInvoiceForBillingItems({
       itemIds: [recordId],
       mode: "send",
@@ -4229,24 +4240,39 @@ function openBillingLogEditor(recordId, options = {}) {
     if (success) close();
     else {
       saveButton.disabled = false;
-      deleteButton.disabled = false;
+      if (deleteButton) deleteButton.disabled = false;
     }
   });
 
   paidStripeInvoiceButton?.addEventListener("click", async () => {
     saveButton.disabled = true;
-    deleteButton.disabled = true;
+    if (deleteButton) deleteButton.disabled = true;
     const success = await createStripeInvoiceForBillingItems({
       itemIds: [recordId],
       mode: "paid",
       triggerButton: paidStripeInvoiceButton,
-      successMessage: "Paid Stripe invoice record created.",
+      successMessage: "Offline payment recorded in RORC and Stripe.",
       setMessage: setResult
     });
     if (success) close();
     else {
       saveButton.disabled = false;
-      deleteButton.disabled = false;
+      if (deleteButton) deleteButton.disabled = false;
+    }
+  });
+
+  syncStripeInvoiceButton?.addEventListener("click", async () => {
+    saveButton.disabled = true;
+    if (deleteButton) deleteButton.disabled = true;
+    const success = await syncStripeInvoiceStatusesForBillingItems({
+      itemIds: [recordId],
+      triggerButton: syncStripeInvoiceButton,
+      setMessage: setResult
+    });
+    if (success) close();
+    else {
+      saveButton.disabled = false;
+      if (deleteButton) deleteButton.disabled = false;
     }
   });
 
@@ -4263,7 +4289,7 @@ function openBillingLogEditor(recordId, options = {}) {
 
     reopenButton.disabled = true;
     saveButton.disabled = true;
-    deleteButton.disabled = true;
+    if (deleteButton) deleteButton.disabled = true;
     setResult("Reopening...");
 
     try {
@@ -4298,7 +4324,7 @@ function openBillingLogEditor(recordId, options = {}) {
       setResult(error.message || "Could not reopen billing item.", "error");
       reopenButton.disabled = false;
       saveButton.disabled = false;
-      deleteButton.disabled = false;
+      if (deleteButton) deleteButton.disabled = false;
     }
   });
 
@@ -6021,7 +6047,7 @@ function isRentalPast(rental) {
 
 function rentalDisplayStatus(rental) {
   const status = rental?.rentalStatus || "submitted";
-  const paymentStatus = normalizeRentalPaymentStatus(rental?.paymentStatus);
+  const paymentStatus = effectiveRentalPaymentStatus(rental);
   const past = isRentalPast(rental);
 
   if (status === "confirmed") {
@@ -6146,7 +6172,7 @@ function rentalRequestDisplayName(rental) {
 
 function rentalAccountOpenBalance(memberId) {
   return billingLineItems
-    .filter((item) => item.accountMemberId === memberId && !item.postedToStripeAt)
+    .filter((item) => item.accountMemberId === memberId && !isBillingItemPaid(item))
     .reduce((sum, item) => sum + Number(item.amountCents || 0), 0);
 }
 
@@ -6314,7 +6340,7 @@ function renderRentalAccountCard(member) {
             <li>
               <div>
                 <strong>${escapeHtml(rentalRequestDisplayName(rental))}</strong>
-                <span>${escapeHtml(rentalPaymentStatusLabel(rental.paymentStatus))} · ${formatCurrency(rental.estimatedTotalCents || 0)}</span>
+                <span>${escapeHtml(rentalPaymentStatusLabel(effectiveRentalPaymentStatus(rental)))} · ${formatCurrency(rental.estimatedTotalCents || 0)}</span>
               </div>
               <div class="rental-card-btn-row">
                 <button class="rental-btn rental-btn-ghost" data-rental-account-bill="${escapeAttribute(rental.id)}" type="button">Open Rental</button>
@@ -6570,8 +6596,8 @@ function renderRentalPipeline(root) {
     btn.addEventListener("click", () => showRentalBillForm(btn.dataset.rentalBillOpen, root));
   });
 
-  root.querySelectorAll("[data-rental-bill-status]").forEach((btn) => {
-    btn.addEventListener("click", () => submitRentalBillingStatus(btn.dataset.rentalBillStatus, btn.dataset.rentalId, btn, root));
+  root.querySelectorAll("[data-rental-open-billing-center]").forEach((btn) => {
+    btn.addEventListener("click", () => openBillingCenterForRental(btn.dataset.rentalOpenBillingCenter));
   });
 
   root.querySelectorAll("[data-rental-bill-close]").forEach((btn) => {
@@ -6628,7 +6654,7 @@ function buildRentalCard(r) {
   const displayStatus = rentalDisplayStatus(r);
   const statusLabel = displayStatus.label;
   const statusColor = displayStatus.color;
-  const paymentStatus = normalizeRentalPaymentStatus(r.paymentStatus);
+  const paymentStatus = effectiveRentalPaymentStatus(r);
   const paymentLabel = rentalPaymentStatusLabel(paymentStatus);
   const paymentTone = paymentStatus === "paid" ? "#8fd19e"
     : paymentStatus === "unpaid" ? "#ffca6a"
@@ -6678,8 +6704,7 @@ function buildRentalCard(r) {
   const billButtonLabel = paymentStatus === "unbilled" ? "Create Bill" : "Review Bill";
   const billingButtons = `
     <button class="rental-btn rental-btn-ghost" data-rental-bill-open="${escapeAttribute(r.id)}" type="button">${escapeHtml(billButtonLabel)}</button>
-    ${paymentStatus === "unpaid" ? `<button class="rental-btn rental-btn-confirm" data-rental-bill-status="mark_paid" data-rental-id="${escapeAttribute(r.id)}" type="button">Mark Paid</button>` : ""}
-    ${paymentStatus === "paid" ? `<button class="rental-btn rental-btn-ghost" data-rental-bill-status="mark_unpaid" data-rental-id="${escapeAttribute(r.id)}" type="button">Mark Unpaid</button>` : ""}
+    ${paymentStatus !== "unbilled" ? `<button class="rental-btn rental-btn-confirm" data-rental-open-billing-center="${escapeAttribute(r.id)}" type="button">Open Billing Center</button>` : ""}
   `;
 
   const actionsHtml = isActionable ? `
@@ -6827,6 +6852,14 @@ function rentalPaymentStatusLabel(status) {
     waived: "Waived"
   };
   return labels[normalizeRentalPaymentStatus(status)] || "Unbilled";
+}
+
+function effectiveRentalPaymentStatus(rental) {
+  const storedStatus = normalizeRentalPaymentStatus(rental?.paymentStatus);
+  if (storedStatus === "waived") return "waived";
+  const items = rentalBillingLineItems(rental);
+  if (!items.length) return storedStatus;
+  return items.every(isBillingItemPaid) ? "paid" : "unpaid";
 }
 
 function rentalAttachedThermostatBillingTotal(rental) {
@@ -6977,6 +7010,17 @@ function rentalBillingReason(rental) {
   return `Rental booking ${booking} - ${name}${date ? ` (${date})` : ""}`;
 }
 
+function openBillingCenterForRental(rentalId) {
+  const linkedItem = billingLineItems.find((item) => item.rentalRequestId === rentalId);
+  appState.masterLogsTab = "billing";
+  appState.masterLogsBillingFilter = "all";
+  appState.masterLogsBillingView = "accounts";
+  appState.masterLogsBillingMonth = linkedItem
+    ? (billingItemFacilityMonth(linkedItem) || currentFacilityMonthKey())
+    : currentFacilityMonthKey();
+  navigateTo("masterLogs");
+}
+
 function showRentalBillForm(rentalId, root) {
   const rental = rentalAllRequests.find((item) => item.id === rentalId);
   const actions = document.getElementById(`rental-actions-${rentalId}`);
@@ -6989,18 +7033,16 @@ function showRentalBillForm(rentalId, root) {
   const thermostatTotalCents = rentalAttachedThermostatBillingTotal(rental);
   const thermostatRuntimeMinutes = rentalAttachedThermostatRuntimeTotal(rental);
   const combinedTotalCents = rentalAmountCents + thermostatTotalCents;
-  const canFinalize = Boolean(rental.claimedMemberId);
-  const paymentMethod = normalizeBillingPaymentMethod(linkedItem?.paymentMethod) || "cash";
-  const openRentalBillingItems = rentalBillingLineItems(rental).filter((item) => !item.postedToStripeAt);
-  const invoiceableRentalBillingItems = invoiceableBillingItems(openRentalBillingItems);
-  const activeRentalInvoiceItems = openRentalBillingItems.filter(hasActiveStripeInvoice);
-  const activeRentalInvoiceLinks = stripeInvoiceLinksHtml(activeRentalInvoiceItems);
-  const canCreateStripeInvoice = canFinalize && invoiceableRentalBillingItems.length > 0;
+  const rentalItems = rentalBillingLineItems(rental);
+  const billingLocked = rentalItems.some((item) => item.stripeInvoiceId || isBillingItemPaid(item));
+  const canFinalize = Boolean(rental.claimedMemberId) && !billingLocked;
+  const rentalInvoiceLinks = stripeInvoiceLinksHtml(rentalItems.filter((item) => item.stripeInvoiceId));
 
   actions.innerHTML = `
     <div class="rental-card-notes rental-bill-review">
-      <span class="rental-card-notes-label">${escapeHtml(canFinalize ? "Review Bill" : "Account Required")}</span>
-      ${canFinalize ? "" : `<p class="rental-card-notes-text">Attach or claim this rental to an account before creating a bill.</p>`}
+      <span class="rental-card-notes-label">${escapeHtml(billingLocked ? "Finalized Rental Charges" : canFinalize ? "Prepare Rental Bill" : "Account Required")}</span>
+      ${!rental.claimedMemberId ? `<p class="rental-card-notes-text">Attach or claim this rental to an account before creating a bill.</p>` : ""}
+      ${billingLocked ? '<p class="rental-card-notes-text">These charges are locked because invoicing or payment has started. Continue in the Billing Center.</p>' : ""}
       ${renderRentalBillBreakdown(rental, rentalAmountCents, thermostatTotalCents, thermostatRuntimeMinutes)}
       <div class="master-log-form">
         <label>
@@ -7021,28 +7063,21 @@ function showRentalBillForm(rentalId, root) {
         </label>
         <label>
           <span>Status</span>
-          <input type="text" value="${escapeAttribute(rentalPaymentStatusLabel(rental.paymentStatus))}" disabled />
-        </label>
-        <label>
-          <span>Payment Type</span>
-          <select id="rentalBillPaymentMethod-${escapeAttribute(rentalId)}" ${canFinalize ? "" : "disabled"}>
-            ${paymentMethodOptions(paymentMethod, false)}
-          </select>
+          <input type="text" value="${escapeAttribute(rentalPaymentStatusLabel(effectiveRentalPaymentStatus(rental)))}" disabled />
         </label>
       </div>
-      ${thermostatTotalCents ? `<p class="data-source-note">Attached thermostat charges are invoiced with this rental and are marked paid/unpaid with the rental.</p>` : ""}
-      ${activeRentalInvoiceLinks ? `
+      ${thermostatTotalCents ? `<p class="data-source-note">Attached thermostat runtime is included in the same account billing workflow.</p>` : ""}
+      ${rentalInvoiceLinks ? `
         <p class="data-source-note">
-          Existing Stripe invoice: ${activeRentalInvoiceLinks}
+          Stripe invoice: ${rentalInvoiceLinks}
         </p>
       ` : ""}
-      <p class="data-source-note">Stripe invoices are created from finalized open billing items. Use Finalize Bill first if no invoice items exist yet.</p>
+      <p class="data-source-note">This screen only prepares rental charges. Finalize them here, then send the invoice or record payment in the Billing Center.</p>
       <p id="rentalBillResult-${escapeAttribute(rentalId)}" class="member-edit-result"></p>
       <div class="rental-card-btn-row">
         <button class="rental-btn rental-btn-ghost" data-rental-bill-close type="button">Back</button>
-        <button class="rental-btn rental-btn-ghost" data-rental-stripe-invoice="send" type="button" ${canCreateStripeInvoice ? "" : "disabled"}>Send Stripe Invoice</button>
-        <button class="rental-btn rental-btn-ghost" data-rental-stripe-invoice="paid" type="button" ${canCreateStripeInvoice ? "" : "disabled"}>Create Paid Stripe Record</button>
-        <button class="rental-btn rental-btn-confirm" data-rental-bill-submit="${escapeAttribute(rentalId)}" type="button" ${canFinalize ? "" : "disabled"}>Finalize Bill</button>
+        ${linkedItem ? `<button class="rental-btn rental-btn-confirm" data-rental-open-billing-center="${escapeAttribute(rentalId)}" type="button">Open Billing Center</button>` : ""}
+        <button class="rental-btn rental-btn-confirm" data-rental-bill-submit="${escapeAttribute(rentalId)}" type="button" ${canFinalize ? "" : "disabled"}>${linkedItem ? "Save Final Bill" : "Finalize Bill"}</button>
       </div>
     </div>
   `;
@@ -7060,28 +7095,8 @@ function showRentalBillForm(rentalId, root) {
   actions.querySelector("[data-rental-bill-submit]")?.addEventListener("click", (event) => {
     submitRentalBill(rentalId, event.currentTarget, root);
   });
-  actions.querySelectorAll("[data-rental-stripe-invoice]").forEach((button) => {
-    button.addEventListener("click", () => createRentalStripeInvoice(rentalId, button.dataset.rentalStripeInvoice, button, root));
-  });
-}
-
-async function createRentalStripeInvoice(rentalId, mode, triggerButton, root) {
-  const rental = rentalAllRequests.find((item) => item.id === rentalId);
-  const result = document.getElementById(`rentalBillResult-${rentalId}`);
-  if (!rental) return;
-  const openIds = rentalBillingLineItems(rental)
-    .filter(isBillingItemInvoiceable)
-    .map((item) => item.id);
-  await createStripeInvoiceForBillingItems({
-    itemIds: openIds,
-    mode,
-    triggerButton,
-    successMessage: mode === "paid" ? "Paid Stripe invoice record created." : "Stripe invoice sent.",
-    setMessage: (message, tone = "default") => {
-      if (!result) return;
-      result.textContent = message;
-      result.dataset.tone = tone;
-    }
+  actions.querySelector("[data-rental-open-billing-center]")?.addEventListener("click", () => {
+    openBillingCenterForRental(rentalId);
   });
 }
 
@@ -7090,7 +7105,6 @@ async function submitRentalBill(rentalId, button, root) {
   if (!rental) return;
   const amountInput = document.getElementById(`rentalBillAmount-${rentalId}`);
   const reasonInput = document.getElementById(`rentalBillReason-${rentalId}`);
-  const paymentMethodInput = document.getElementById(`rentalBillPaymentMethod-${rentalId}`);
   const result = document.getElementById(`rentalBillResult-${rentalId}`);
   const amountCents = Math.round(Number(amountInput?.value || 0) * 100);
   if (!Number.isFinite(amountCents) || amountCents <= 0) {
@@ -7106,35 +7120,11 @@ async function submitRentalBill(rentalId, button, root) {
       billingAction: "finalize",
       accountMemberId: rental.claimedMemberId,
       amountCents,
-      reason: reasonInput?.value || rentalBillingReason(rental),
-      paymentMethod: normalizeBillingPaymentMethod(paymentMethodInput?.value) || "cash"
+      reason: reasonInput?.value || rentalBillingReason(rental)
     });
     await afterRentalBillingAction(body, root);
   } catch (error) {
     if (result) result.textContent = error.message || "Could not finalize bill.";
-    if (button) button.disabled = false;
-  }
-}
-
-async function submitRentalBillingStatus(action, rentalId, button, root) {
-  const rental = rentalAllRequests.find((item) => item.id === rentalId);
-  if (!rental || !["mark_paid", "mark_unpaid"].includes(action)) return;
-  const label = action === "mark_paid" ? "paid" : "unpaid";
-  if (!window.confirm(`Mark this rental bill ${label}?`)) return;
-  const paymentDetails = action === "mark_paid"
-    ? promptBillingPaymentDetails(rentalBillingLineItems(rental).find((item) => item.paymentMethod)?.paymentMethod || "cash")
-    : null;
-  if (action === "mark_paid" && !paymentDetails) return;
-  if (button) button.disabled = true;
-  try {
-    const body = await sendRentalBillingAction({
-      id: rentalId,
-      billingAction: action,
-      ...(paymentDetails || {})
-    });
-    await afterRentalBillingAction(body, root);
-  } catch (error) {
-    showAppNotice(error.message || "Could not update rental bill.");
     if (button) button.disabled = false;
   }
 }
@@ -13349,7 +13339,7 @@ function recordsForMember(memberId) {
 function openBillingSourceIds(items, sourceKey) {
   return new Set(
     (items || [])
-      .filter((item) => !item.postedToStripeAt)
+      .filter((item) => !isBillingItemPaid(item))
       .map((item) => item?.[sourceKey])
       .filter(Boolean)
   );
@@ -13365,12 +13355,12 @@ function currentMonthRecords(records, dateField) {
 }
 
 function billingStatusLabel(item) {
-  if (!item?.postedToStripeAt) {
-    if (item?.stripeInvoiceId) return stripeInvoiceStatusLabel(item);
-    return "Pending Billing";
+  if (item?.stripeInvoiceId) {
+    return stripeInvoiceStatusLabel(item);
   }
+  if (!item?.postedToStripeAt) return "Ready to bill";
   const method = normalizeBillingPaymentMethod(item.paymentMethod);
-  return method ? `Paid by ${paymentMethodLabel(method)}` : "Paid";
+  return method ? `Paid by ${paymentMethodLabel(method)} · RORC record` : "Paid · RORC record";
 }
 
 function accessCopy(accountType) {
@@ -14102,7 +14092,7 @@ function renderMemberListCard(member) {
   const records = recordsForMember(member.id);
   const monthlySignIns = currentMonthRecords(records.timesheet, "signedInAt").length;
   const openBilling = records.billing
-    .filter((item) => !item.postedToStripeAt)
+    .filter((item) => !isBillingItemPaid(item))
     .reduce((total, item) => total + item.amountCents, 0);
   const searchValue = [
     member.memberName,
@@ -14200,7 +14190,7 @@ function renderAccountDetail(memberId) {
   const records = recordsForMember(member.id);
   const monthlySignIns = currentMonthRecords(records.timesheet, "signedInAt").length;
   const openBilling = records.billing
-    .filter((item) => !item.postedToStripeAt)
+    .filter((item) => !isBillingItemPaid(item))
     .reduce((total, item) => total + item.amountCents, 0);
   const openBillableGuestIds = openBillingSourceIds(records.billing, "timesheetEntryId");
   const openBillableHeaterIds = openBillingSourceIds(records.billing, "heaterUseEntryId");

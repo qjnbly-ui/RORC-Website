@@ -137,18 +137,29 @@ async function handleInvoicePaid(invoice) {
   const paidAt = invoice.status_transitions?.paid_at
     ? new Date(invoice.status_transitions.paid_at * 1000).toISOString()
     : new Date().toISOString();
+  const metadataMethod = normalizeOfflinePaymentMethod(invoice.metadata?.rorc_offline_payment_method);
+  const existingMethod = rows
+    .map((row) => normalizeOfflinePaymentMethod(row.payment_method))
+    .find(Boolean) || "";
+  const isOffline = Boolean(invoice.paid_out_of_band || metadataMethod);
+  const offlineMethod = metadataMethod || (invoice.paid_out_of_band ? existingMethod : "");
+  const existingRecordedBy = rows.map((row) => row.payment_recorded_by_member_id).find(Boolean) || null;
+  const metadataNote = String(invoice.metadata?.rorc_offline_payment_note || "").trim();
   await updateSupabaseRows(
     `billing_line_items?stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}`,
     {
       posted_to_stripe_at: paidAt,
       payment_recorded_at: paidAt,
-      payment_method: "stripe_invoice",
-      payment_note: invoice.paid_out_of_band ? "Stripe invoice marked paid out of band." : null,
+      payment_recorded_by_member_id: isOffline ? existingRecordedBy : null,
+      payment_method: isOffline ? (offlineMethod || "other") : "stripe_invoice",
+      payment_note: isOffline
+        ? (metadataNote || "Payment received outside Stripe; invoice marked paid.")
+        : null,
       stripe_invoice_url: invoice.hosted_invoice_url || null,
       stripe_invoice_status: invoice.status || null
     }
   );
-  await syncRelatedBillingState(rows, true);
+  await syncRelatedBillingState(rows);
 }
 
 async function handleInvoiceVoided(invoice) {
@@ -168,7 +179,7 @@ async function handleInvoiceVoided(invoice) {
       stripe_invoice_status: invoice.status || "void"
     }
   );
-  await syncRelatedBillingState(rows, false);
+  await syncRelatedBillingState(rows);
 }
 
 async function handleInvoicePaymentFailed(invoice) {
@@ -183,24 +194,51 @@ async function handleInvoicePaymentFailed(invoice) {
   ).catch(() => {});
 }
 
-async function syncRelatedBillingState(rows, paid) {
+async function syncRelatedBillingState(rows) {
   const rentalIds = uniqueIds((rows || []).map((row) => row.rental_request_id).filter(Boolean));
   const heaterIds = uniqueIds((rows || []).map((row) => row.heater_use_entry_id).filter(Boolean));
 
   if (rentalIds.length) {
-    const ids = rentalIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
-    await updateSupabaseRows(
-      `rental_requests?id=in.(${encodeURIComponent(ids)})`,
-      { payment_status: paid ? "paid" : "unpaid" }
-    );
+    const states = await sourcePaidStates("rental_request_id", rentalIds);
+    await updateRelatedRowsByPaidState("rental_requests", "payment_status", states, "paid", "unpaid");
   }
 
   if (heaterIds.length) {
-    const ids = heaterIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
-    await updateSupabaseRows(
-      `heater_use_entries?id=in.(${encodeURIComponent(ids)})`,
-      { paid }
-    );
+    const states = await sourcePaidStates("heater_use_entry_id", heaterIds);
+    await updateRelatedRowsByPaidState("heater_use_entries", "paid", states, true, false);
+  }
+}
+
+async function sourcePaidStates(sourceColumn, sourceIds) {
+  const encodedIds = sourceIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
+  const linkedRows = await supabaseRest(
+    `billing_line_items?select=id,${sourceColumn},posted_to_stripe_at,stripe_invoice_id,stripe_invoice_status&${sourceColumn}=in.(${encodeURIComponent(encodedIds)})`
+  );
+  return new Map(sourceIds.map((sourceId) => {
+    const linked = linkedRows.filter((row) => row[sourceColumn] === sourceId);
+    return [sourceId, linked.length > 0 && linked.every(billingRowIsPaid)];
+  }));
+}
+
+function billingRowIsPaid(row) {
+  if (row?.stripe_invoice_id) {
+    return String(row.stripe_invoice_status || "").trim().toLowerCase() === "paid";
+  }
+  return Boolean(row?.posted_to_stripe_at);
+}
+
+async function updateRelatedRowsByPaidState(table, column, states, paidValue, unpaidValue) {
+  const paidIds = [];
+  const unpaidIds = [];
+  states.forEach((isPaid, id) => (isPaid ? paidIds : unpaidIds).push(id));
+
+  if (paidIds.length) {
+    const ids = paidIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
+    await updateSupabaseRows(`${table}?id=in.(${encodeURIComponent(ids)})`, { [column]: paidValue });
+  }
+  if (unpaidIds.length) {
+    const ids = unpaidIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
+    await updateSupabaseRows(`${table}?id=in.(${encodeURIComponent(ids)})`, { [column]: unpaidValue });
   }
 }
 
@@ -363,4 +401,9 @@ function normalizeBillingStatus(status) {
 
   if (normalized === "incomplete_expired") return "canceled";
   return "incomplete";
+}
+
+function normalizeOfflinePaymentMethod(value) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return ["cash", "check", "other"].includes(normalized) ? normalized : "";
 }

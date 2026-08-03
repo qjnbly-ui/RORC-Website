@@ -3126,7 +3126,25 @@ h1 {
 
 .monthly-billing-actions {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   justify-content: flex-end;
+}
+
+.billing-workflow-note {
+  margin: 0 0 14px;
+}
+
+.billing-reconciliation-alert {
+  background: rgba(239, 59, 54, 0.1);
+  border: 1px solid rgba(239, 59, 54, 0.42);
+  border-radius: 10px;
+  color: #ffb4b1;
+  font-size: 0.88rem;
+  font-weight: 800;
+  line-height: 1.45;
+  margin: 0;
+  padding: 10px 12px;
 }
 
 .billing-prices-page {

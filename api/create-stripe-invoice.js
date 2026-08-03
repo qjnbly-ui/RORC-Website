@@ -115,9 +115,41 @@ module.exports = async (req, res) => {
     }
 
     const mode = normalizeInvoiceMode(req.body?.mode || req.body?.invoiceMode);
+    const paymentMethod = normalizeOfflinePaymentMethod(req.body?.paymentMethod || req.body?.payment_method);
+    const paymentNote = String(req.body?.paymentNote || req.body?.payment_note || "").trim().slice(0, 500);
     const billingItems = await loadBillingItems(itemIds);
     if (billingItems.length !== itemIds.length) {
       return res.status(404).json({ success: false, error: "One or more billing items could not be found." });
+    }
+
+    if (mode === "sync") {
+      const invoices = await syncStripeInvoiceRecords({ billingItems, managerId: manager.id });
+      return res.status(200).json({
+        success: true,
+        invoices: invoices.map(stripeInvoiceResponse),
+        itemIds: billingItems.map((item) => item.id)
+      });
+    }
+
+    if (mode === "paid") {
+      if (!paymentMethod) {
+        return res.status(400).json({
+          success: false,
+          error: "Choose cash, check, or other for an offline payment."
+        });
+      }
+      const invoices = await recordOfflinePayment({
+        billingItems,
+        managerId: manager.id,
+        paymentMethod,
+        paymentNote
+      });
+      return res.status(200).json({
+        success: true,
+        invoice: invoices.length ? stripeInvoiceResponse(invoices[0]) : null,
+        invoices: invoices.map(stripeInvoiceResponse),
+        itemIds: billingItems.map((item) => item.id)
+      });
     }
 
     const openItems = billingItems.filter((item) => !item.posted_to_stripe_at);
@@ -144,23 +176,20 @@ module.exports = async (req, res) => {
       customerId,
       billingItems: openItems,
       invoiceComponents,
-      mode
+      mode,
+      paymentMethod: "",
+      paymentNote: ""
     });
 
     const invoiceUrl = invoice.hosted_invoice_url || "";
-    const paidAt = mode === "paid" ? new Date().toISOString() : null;
     await updateBillingItemsForInvoice({
       itemIds: openItems.map((item) => item.id),
       invoice,
       invoiceUrl,
       mode,
-      paidAt,
+      paidAt: null,
       managerId: manager.id
     });
-
-    if (paidAt) {
-      await syncRelatedPaidState(openItems, true);
-    }
 
     return res.status(200).json({
       success: true,
@@ -183,7 +212,174 @@ module.exports = async (req, res) => {
   }
 };
 
-async function createStripeInvoice({ accountId, customerId, billingItems, invoiceComponents, mode }) {
+async function recordOfflinePayment({ billingItems, managerId, paymentMethod, paymentNote }) {
+  const accountId = await accountIdForBillingItems(billingItems);
+  const invoiceGroups = groupBillingItemsByStripeInvoice(billingItems);
+  const itemsNeedingInvoice = billingItems.filter((item) => !item.stripe_invoice_id);
+  const paidInvoices = [];
+
+  for (const [invoiceId, selectedItems] of invoiceGroups) {
+    const linkedItems = await loadBillingItemsForStripeInvoice(invoiceId);
+    const items = linkedItems.length ? linkedItems : selectedItems;
+    let invoice = await stripe.invoices.retrieve(invoiceId);
+
+    if (invoice.status === "void") {
+      itemsNeedingInvoice.push(...items);
+      continue;
+    }
+
+    if (invoice.status === "draft") {
+      invoice = await stripe.invoices.finalizeInvoice(invoice.id);
+    }
+
+    if (["open", "uncollectible"].includes(invoice.status)) {
+      invoice = await stripe.invoices.update(invoice.id, {
+        metadata: {
+          ...(invoice.metadata || {}),
+          rorc_offline_payment_method: paymentMethod,
+          rorc_offline_payment_note: String(paymentNote || "").slice(0, 500)
+        }
+      });
+      invoice = await stripe.invoices.pay(invoice.id, { paid_out_of_band: true });
+    }
+
+    if (invoice.status !== "paid") {
+      throw httpError(409, `Stripe invoice ${invoice.id} is ${invoice.status || "not payable"} and could not be marked paid.`);
+    }
+
+    await syncBillingItemsFromStripeInvoice({
+      items,
+      invoice,
+      managerId,
+      paymentMethodOverride: paymentMethod,
+      paymentNoteOverride: paymentNote
+    });
+    paidInvoices.push(invoice);
+  }
+
+  if (itemsNeedingInvoice.length) {
+    const { customerId } = await ensureStripeCustomerForAccount(accountId);
+    const invoiceComponents = await buildInvoiceComponents(itemsNeedingInvoice);
+    const invoice = await createStripeInvoice({
+      accountId,
+      customerId,
+      billingItems: itemsNeedingInvoice,
+      invoiceComponents,
+      mode: "paid",
+      paymentMethod,
+      paymentNote
+    });
+    await syncBillingItemsFromStripeInvoice({
+      items: itemsNeedingInvoice,
+      invoice,
+      managerId,
+      paymentMethodOverride: paymentMethod,
+      paymentNoteOverride: paymentNote
+    });
+    paidInvoices.push(invoice);
+  }
+
+  if (!paidInvoices.length) {
+    throw httpError(409, "No Stripe invoices were available to reconcile.");
+  }
+
+  return paidInvoices;
+}
+
+async function syncStripeInvoiceRecords({ billingItems, managerId }) {
+  const invoiceGroups = groupBillingItemsByStripeInvoice(billingItems);
+  if (!invoiceGroups.size) {
+    throw httpError(409, "No Stripe invoices were found for the selected billing items.");
+  }
+
+  const invoices = [];
+  for (const [invoiceId, selectedItems] of invoiceGroups) {
+    const linkedItems = await loadBillingItemsForStripeInvoice(invoiceId);
+    const items = linkedItems.length ? linkedItems : selectedItems;
+    const invoice = await stripe.invoices.retrieve(invoiceId);
+    await syncBillingItemsFromStripeInvoice({ items, invoice, managerId });
+    invoices.push(invoice);
+  }
+  return invoices;
+}
+
+function groupBillingItemsByStripeInvoice(items) {
+  const groups = new Map();
+  (items || []).forEach((item) => {
+    const invoiceId = String(item?.stripe_invoice_id || "").trim();
+    if (!invoiceId) return;
+    if (!groups.has(invoiceId)) groups.set(invoiceId, []);
+    groups.get(invoiceId).push(item);
+  });
+  return groups;
+}
+
+async function syncBillingItemsFromStripeInvoice({
+  items,
+  invoice,
+  managerId,
+  paymentMethodOverride = "",
+  paymentNoteOverride = ""
+}) {
+  const itemIds = uniqueIds((items || []).map((item) => item.id));
+  if (!itemIds.length || !invoice?.id) return;
+
+  const paid = invoice.status === "paid";
+  const paidAt = paid
+    ? (invoice.status_transitions?.paid_at
+        ? new Date(invoice.status_transitions.paid_at * 1000).toISOString()
+        : new Date().toISOString())
+    : null;
+  const metadataMethod = normalizeOfflinePaymentMethod(invoice.metadata?.rorc_offline_payment_method);
+  const existingMethod = (items || [])
+    .map((item) => normalizeOfflinePaymentMethod(item.payment_method))
+    .find(Boolean) || "";
+  const overrideMethod = normalizeOfflinePaymentMethod(paymentMethodOverride);
+  const isOffline = Boolean(overrideMethod || metadataMethod || invoice.paid_out_of_band);
+  const offlineMethod = overrideMethod
+    || metadataMethod
+    || (invoice.paid_out_of_band ? existingMethod : "");
+  const paymentMethod = paid
+    ? (isOffline ? (offlineMethod || "other") : "stripe_invoice")
+    : "stripe_invoice";
+  const metadataNote = String(invoice.metadata?.rorc_offline_payment_note || "").trim();
+  const paymentNote = paid && isOffline
+    ? (String(paymentNoteOverride || "").trim() || metadataNote || "Payment received outside Stripe; invoice marked paid.")
+    : null;
+  const ids = itemIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
+
+  await updateSupabaseRows(`billing_line_items?id=in.(${encodeURIComponent(ids)})`, {
+    stripe_invoice_id: invoice.id,
+    stripe_invoice_url: invoice.hosted_invoice_url || null,
+    stripe_invoice_status: invoice.status || null,
+    posted_to_stripe_at: paidAt,
+    payment_method: paymentMethod,
+    payment_recorded_at: paidAt,
+    payment_recorded_by_member_id: paidAt && isOffline ? managerId : null,
+    payment_note: paymentNote
+  });
+  await syncRelatedPaidState(items);
+}
+
+function stripeInvoiceResponse(invoice) {
+  return {
+    id: invoice.id,
+    number: invoice.number || "",
+    status: invoice.status || "",
+    url: invoice.hosted_invoice_url || "",
+    customerId: typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id || ""
+  };
+}
+
+async function createStripeInvoice({
+  accountId,
+  customerId,
+  billingItems,
+  invoiceComponents,
+  mode,
+  paymentMethod = "",
+  paymentNote = ""
+}) {
   const chargeItems = invoiceComponents.filter((item) => Number(item.amount_cents || 0) !== 0);
   if (!chargeItems.length) {
     throw httpError(400, "Stripe invoices require at least one charge greater than $0.");
@@ -196,7 +392,11 @@ async function createStripeInvoice({ accountId, customerId, billingItems, invoic
     auto_advance: false,
     metadata: {
       rorc_account_id: accountId,
-      rorc_billing_line_item_ids: billingItems.map((item) => item.id).join(",")
+      rorc_billing_line_item_ids: billingItems.map((item) => item.id).join(","),
+      ...(mode === "paid" ? {
+        rorc_offline_payment_method: paymentMethod,
+        rorc_offline_payment_note: String(paymentNote || "").slice(0, 500)
+      } : {})
     },
     footer: "Thank you for supporting Ruth Obenchain Recreation Center."
   });
@@ -616,6 +816,12 @@ async function loadBillingItems(itemIds) {
   );
 }
 
+async function loadBillingItemsForStripeInvoice(invoiceId) {
+  return supabaseRest(
+    `billing_line_items?select=*&stripe_invoice_id=eq.${encodeURIComponent(invoiceId)}`
+  ).catch(() => []);
+}
+
 async function accountIdForBillingItems(items) {
   const memberIds = uniqueIds(items.map((item) => item.account_member_id));
   const ids = memberIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
@@ -696,22 +902,49 @@ async function updateBillingItemsForInvoice({ itemIds, invoice, invoiceUrl, mode
   await updateSupabaseRows(`billing_line_items?id=in.(${encodeURIComponent(ids)})`, payload);
 }
 
-async function syncRelatedPaidState(items, paid) {
+async function syncRelatedPaidState(items) {
   const rentalIds = uniqueIds(items.map((item) => item.rental_request_id).filter(Boolean));
   const heaterIds = uniqueIds(items.map((item) => item.heater_use_entry_id).filter(Boolean));
   if (rentalIds.length) {
-    const ids = rentalIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
-    await updateSupabaseRows(
-      `rental_requests?id=in.(${encodeURIComponent(ids)})`,
-      { payment_status: paid ? "paid" : "unpaid" }
-    );
+    const states = await sourcePaidStates("rental_request_id", rentalIds);
+    await updateRelatedRowsByPaidState("rental_requests", "payment_status", states, "paid", "unpaid");
   }
   if (heaterIds.length) {
-    const ids = heaterIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
-    await updateSupabaseRows(
-      `heater_use_entries?id=in.(${encodeURIComponent(ids)})`,
-      { paid }
-    );
+    const states = await sourcePaidStates("heater_use_entry_id", heaterIds);
+    await updateRelatedRowsByPaidState("heater_use_entries", "paid", states, true, false);
+  }
+}
+
+async function sourcePaidStates(sourceColumn, sourceIds) {
+  const encodedIds = sourceIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
+  const rows = await supabaseRest(
+    `billing_line_items?select=id,${sourceColumn},posted_to_stripe_at,stripe_invoice_id,stripe_invoice_status&${sourceColumn}=in.(${encodeURIComponent(encodedIds)})`
+  );
+  return new Map(sourceIds.map((sourceId) => {
+    const linked = rows.filter((row) => row[sourceColumn] === sourceId);
+    return [sourceId, linked.length > 0 && linked.every(billingRowIsPaid)];
+  }));
+}
+
+function billingRowIsPaid(row) {
+  if (row?.stripe_invoice_id) {
+    return String(row.stripe_invoice_status || "").trim().toLowerCase() === "paid";
+  }
+  return Boolean(row?.posted_to_stripe_at);
+}
+
+async function updateRelatedRowsByPaidState(table, column, states, paidValue, unpaidValue) {
+  const paidIds = [];
+  const unpaidIds = [];
+  states.forEach((isPaid, id) => (isPaid ? paidIds : unpaidIds).push(id));
+
+  if (paidIds.length) {
+    const ids = paidIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
+    await updateSupabaseRows(`${table}?id=in.(${encodeURIComponent(ids)})`, { [column]: paidValue });
+  }
+  if (unpaidIds.length) {
+    const ids = unpaidIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
+    await updateSupabaseRows(`${table}?id=in.(${encodeURIComponent(ids)})`, { [column]: unpaidValue });
   }
 }
 
@@ -789,7 +1022,13 @@ function supabaseHeaders({ prefer = "" } = {}) {
 }
 
 function normalizeInvoiceMode(value) {
-  return String(value || "").trim().toLowerCase() === "paid" ? "paid" : "send";
+  const normalized = String(value || "").trim().toLowerCase();
+  return ["paid", "sync"].includes(normalized) ? normalized : "send";
+}
+
+function normalizeOfflinePaymentMethod(value) {
+  const normalized = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return ["cash", "check", "other"].includes(normalized) ? normalized : "";
 }
 
 function uniqueIds(values) {
