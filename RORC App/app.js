@@ -3053,22 +3053,24 @@ async function createStripeInvoiceForBillingItems({
     return false;
   }
 
-  const paymentDetails = mode === "paid"
-    ? promptOfflinePaymentDetails(selectedItems.find((item) => item.paymentMethod)?.paymentMethod || "check")
-    : null;
-  if (mode === "paid" && !paymentDetails) return false;
-
   const detailHtml = buildStripeInvoiceConfirmationDetailHtml(ids);
-  const confirmed = await openLinkedDeleteDialog({
-    title: mode === "paid" ? "Record Offline Payment?" : "Send Stripe Invoice?",
-    message: mode === "paid"
-      ? "Existing Stripe invoices will be marked paid outside Stripe. Items without an invoice will receive a paid Stripe record. Rental and thermostat status will update with the result."
-      : "Review the invoice lines below before sending the Stripe invoice. The app will keep these billing items open until Stripe reports payment.",
-    detailHtml,
-    confirmLabel: mode === "paid" ? "Record Payment" : "Send Invoice",
-    cancelLabel: "Cancel"
-  });
-  if (!confirmed) return false;
+  let paymentDetails = null;
+  if (mode === "paid") {
+    paymentDetails = await openOfflinePaymentDialog({
+      detailHtml,
+      defaultMethod: selectedItems.find((item) => item.paymentMethod)?.paymentMethod || "check"
+    });
+    if (!paymentDetails) return false;
+  } else {
+    const confirmed = await openLinkedDeleteDialog({
+      title: "Send Stripe Invoice?",
+      message: "Review the invoice lines below before sending the Stripe invoice. The app will keep these billing items open until Stripe reports payment.",
+      detailHtml,
+      confirmLabel: "Send Invoice",
+      cancelLabel: "Cancel"
+    });
+    if (!confirmed) return false;
+  }
 
   const token = currentAuthSession?.access_token || "";
   if (!token) {
@@ -3237,20 +3239,103 @@ function buildStripeInvoiceConfirmationDetailHtml(ids) {
   `;
 }
 
-function promptOfflinePaymentDetails(defaultMethod = "check") {
-  const normalizedDefault = normalizeBillingPaymentMethod(defaultMethod);
-  const methodInput = window.prompt(
-    "Offline payment method: cash, check, or other",
-    ["cash", "check", "other"].includes(normalizedDefault) ? normalizedDefault : "check"
-  );
-  if (methodInput === null) return null;
-  const paymentMethod = normalizeBillingPaymentMethod(methodInput);
-  if (!["cash", "check", "other"].includes(paymentMethod)) {
-    window.alert("Use one of: cash, check, or other.");
-    return null;
-  }
-  const paymentNote = window.prompt("Payment note or check/receipt reference (optional):", "") || "";
-  return { paymentMethod, paymentNote: paymentNote.trim() };
+function openOfflinePaymentDialog({ detailHtml = "", defaultMethod = "check" } = {}) {
+  return new Promise((resolve) => {
+    const methods = [
+      { value: "check", label: "Check", detail: "Paper or bank-issued check" },
+      { value: "cash", label: "Cash", detail: "Cash received in person" },
+      { value: "other", label: "Other", detail: "ACH, transfer, or another source" }
+    ];
+    const normalizedDefault = normalizeBillingPaymentMethod(defaultMethod);
+    const selectedMethod = methods.some((method) => method.value === normalizedDefault)
+      ? normalizedDefault
+      : "check";
+    const overlay = document.createElement("div");
+    overlay.className = "member-delete-confirm-overlay offline-payment-overlay";
+    overlay.style.position = "fixed";
+    overlay.style.zIndex = "1200";
+    overlay.innerHTML = `
+      <form class="member-delete-confirm-dialog member-delete-confirm-dialog-wide offline-payment-dialog" role="dialog" aria-modal="true" aria-labelledby="offlinePaymentTitle">
+        <header class="offline-payment-header">
+          <span class="offline-payment-icon" aria-hidden="true">$</span>
+          <span>
+            <small>Billing Center</small>
+            <h3 id="offlinePaymentTitle">Record Offline Payment</h3>
+          </span>
+        </header>
+        <p>Choose how payment was received. RORC will close an existing Stripe invoice or create a paid Stripe record when one does not exist.</p>
+        <fieldset class="offline-payment-methods">
+          <legend>Payment method</legend>
+          <div class="offline-payment-method-grid">
+            ${methods.map((method) => `
+              <label class="offline-payment-method">
+                <input type="radio" name="offlinePaymentMethod" value="${escapeAttribute(method.value)}" ${method.value === selectedMethod ? "checked" : ""} />
+                <span>
+                  <strong>${escapeHtml(method.label)}</strong>
+                  <small>${escapeHtml(method.detail)}</small>
+                </span>
+              </label>
+            `).join("")}
+          </div>
+        </fieldset>
+        <label class="offline-payment-note">
+          <span>Reference or note <small>Optional</small></span>
+          <input name="offlinePaymentNote" type="text" maxlength="500" autocomplete="off" />
+          <small data-offline-payment-hint></small>
+        </label>
+        <div class="member-delete-confirm-detail">${detailHtml}</div>
+        <footer>
+          <button class="member-delete-confirm-cancel" type="button">Cancel</button>
+          <button class="member-delete-confirm-accept offline-payment-confirm" type="submit">Record Payment</button>
+        </footer>
+      </form>
+    `;
+
+    const form = overlay.querySelector("form");
+    const noteInput = overlay.querySelector("[name='offlinePaymentNote']");
+    const noteHint = overlay.querySelector("[data-offline-payment-hint]");
+    const updateNoteCopy = () => {
+      const method = overlay.querySelector("[name='offlinePaymentMethod']:checked")?.value || "check";
+      const copy = {
+        check: ["Check number, payer, or memo", "Example: Check 1042"],
+        cash: ["Receipt or deposit reference", "Example: Cash receipt 0812"],
+        other: ["Payment source or transfer reference", "Example: Bank transfer 7821"]
+      }[method];
+      if (noteInput) noteInput.placeholder = copy[0];
+      if (noteHint) noteHint.textContent = copy[1];
+    };
+    const close = (result) => {
+      overlay.remove();
+      document.removeEventListener("keydown", onKeydown);
+      resolve(result);
+    };
+    const onKeydown = (event) => {
+      if (event.key === "Escape") close(null);
+    };
+
+    overlay.querySelectorAll("[name='offlinePaymentMethod']").forEach((input) => {
+      input.addEventListener("change", updateNoteCopy);
+    });
+    overlay.querySelector(".member-delete-confirm-cancel")?.addEventListener("click", () => close(null));
+    form?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const paymentMethod = normalizeBillingPaymentMethod(
+        overlay.querySelector("[name='offlinePaymentMethod']:checked")?.value
+      );
+      if (!["cash", "check", "other"].includes(paymentMethod)) return;
+      close({
+        paymentMethod,
+        paymentNote: String(noteInput?.value || "").trim()
+      });
+    });
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close(null);
+    });
+    document.addEventListener("keydown", onKeydown);
+    document.body.appendChild(overlay);
+    updateNoteCopy();
+    overlay.querySelector("[name='offlinePaymentMethod']:checked")?.focus();
+  });
 }
 
 function monthlyBillingAccountSummaries(monthKey, filter = "all") {

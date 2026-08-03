@@ -2338,10 +2338,207 @@ h1 {
   max-width: 620px;
 }
 
+.offline-payment-overlay {
+  backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, 0.78);
+}
+
+.offline-payment-dialog {
+  background:
+    radial-gradient(circle at 92% 4%, rgba(239, 59, 54, 0.22), transparent 34%),
+    linear-gradient(155deg, #191919 0%, #101010 64%);
+  border-color: rgba(255, 255, 255, 0.16);
+  gap: 18px;
+  max-height: min(90vh, 820px);
+  max-width: 680px;
+  overflow: auto;
+  padding: 24px;
+}
+
+.offline-payment-header {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+}
+
+.offline-payment-header > span:last-child {
+  display: grid;
+  gap: 4px;
+}
+
+.offline-payment-header small {
+  color: #ff827e;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.offline-payment-icon {
+  align-items: center;
+  background: linear-gradient(145deg, #ef3b36, #a91f1b);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 14px;
+  box-shadow: 0 10px 28px rgba(239, 59, 54, 0.24);
+  color: #fff;
+  display: inline-flex;
+  flex: 0 0 48px;
+  font-size: 1.45rem;
+  font-weight: 950;
+  height: 48px;
+  justify-content: center;
+}
+
+.offline-payment-methods {
+  border: 0;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.offline-payment-methods legend,
+.offline-payment-note > span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.offline-payment-method-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.offline-payment-method {
+  cursor: pointer;
+  min-width: 0;
+  position: relative;
+}
+
+.offline-payment-method input {
+  height: 1px;
+  opacity: 0;
+  position: absolute;
+  width: 1px;
+}
+
+.offline-payment-method > span {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 13px;
+  display: grid;
+  gap: 5px;
+  min-height: 78px;
+  padding: 14px;
+  transition: background 150ms ease, border-color 150ms ease, transform 150ms ease;
+}
+
+.offline-payment-method strong {
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.offline-payment-method small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.offline-payment-method:hover > span {
+  border-color: rgba(255, 255, 255, 0.28);
+  transform: translateY(-1px);
+}
+
+.offline-payment-method input:checked + span {
+  background: rgba(239, 59, 54, 0.13);
+  border-color: #ef3b36;
+  box-shadow: inset 0 0 0 1px rgba(239, 59, 54, 0.25);
+}
+
+.offline-payment-method input:focus-visible + span {
+  outline: 3px solid rgba(117, 220, 239, 0.5);
+  outline-offset: 2px;
+}
+
+.offline-payment-note {
+  display: grid;
+}
+
+.offline-payment-note > span {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.offline-payment-note > span small {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.63rem;
+  letter-spacing: 0.06em;
+  padding: 3px 7px;
+}
+
+.offline-payment-note input {
+  appearance: none;
+  background: #202020;
+  border: 1px solid #515863;
+  border-radius: 12px;
+  color: var(--text);
+  font: inherit;
+  min-height: 48px;
+  padding: 10px 13px;
+  width: 100%;
+}
+
+.offline-payment-note input:focus {
+  border-color: #75dcef;
+  box-shadow: 0 0 0 3px rgba(117, 220, 239, 0.16);
+  outline: none;
+}
+
+.offline-payment-note > small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin-top: 6px;
+}
+
+.offline-payment-dialog .member-delete-confirm-detail {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.offline-payment-confirm {
+  box-shadow: 0 8px 22px rgba(239, 59, 54, 0.2);
+}
+
 .member-delete-confirm-dialog h3 {
   font-size: 1.35rem;
   line-height: 1.2;
   margin: 0;
+}
+
+@media (max-width: 640px) {
+  .offline-payment-dialog {
+    border-radius: 14px;
+    padding: 18px;
+  }
+
+  .offline-payment-method-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .offline-payment-method > span {
+    min-height: 0;
+  }
+
+  .offline-payment-dialog footer {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
 }
 
 .member-delete-confirm-dialog p {
