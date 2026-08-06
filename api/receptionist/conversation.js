@@ -4,7 +4,7 @@ const twilio = require("twilio");
 const { WebSocketServer, WebSocket } = require("ws");
 const { toSpeechText } = require("../_receptionist");
 const { getCallerAccount, verifyAccountPin, accountOverview } = require("../_rorc-account-phone");
-const { hasConsent, sendSms } = require("../_rorc-sms");
+const { consent, hasConsent, sendSms } = require("../_rorc-sms");
 
 const RULES = [
   "You are the warm AI receptionist for the Ruth Obenchain Recreation Center, commonly called RORC, in Bly, Oregon.",
@@ -65,7 +65,9 @@ async function answer(question, history) {
 
 async function sendRequestedSms(ws, question) {
   if (!ws.fromNumber || !(await hasConsent(ws.fromNumber))) {
-    speech(ws, "I can send requested RORC information by text after you opt in. Text START to this RORC number, then ask me again. You can text STOP at any time to opt out.");
+    ws.awaitingSmsConsent = true;
+    ws.pendingSmsQuestion = question;
+    speech(ws, "I can text the requested RORC information to the number you are calling from. Message and data rates may apply, and message frequency varies. Would you like me to send it? You can say stop at any time to opt out.");
     return;
   }
   const reply = await answer(question, ws.history);
@@ -90,6 +92,8 @@ wss.on("connection", (ws) => {
   ws.pinDigits = "";
   ws.accountVerified = false;
   ws.pinAttempts = 0;
+  ws.awaitingSmsConsent = false;
+  ws.pendingSmsQuestion = "";
   ws.on("message", async (raw) => {
     let message;
     try { message = JSON.parse(raw.toString("utf8")); } catch { return; }
@@ -130,6 +134,25 @@ wss.on("connection", (ws) => {
     if (message.type !== "prompt" || message.last === false || ws.processing) return;
     const question = toSpeechText(message.voicePrompt).slice(0, 800);
     if (!question) return;
+    if (ws.awaitingSmsConsent) {
+      if (isYes(question)) {
+        ws.awaitingSmsConsent = false;
+        const pendingQuestion = ws.pendingSmsQuestion;
+        ws.pendingSmsQuestion = "";
+        try {
+          await consent(ws.fromNumber, "opt_in", "voice_call");
+          await sendRequestedSms(ws, pendingQuestion);
+        } catch (error) {
+          console.error("RORC verbal SMS consent failed", error);
+          speech(ws, "I could not send that text right now. Please try again later.");
+        }
+      } else if (/^(no|nope|not now|don't|do not)[.!? ]*$/i.test(question)) {
+        ws.awaitingSmsConsent = false;
+        ws.pendingSmsQuestion = "";
+        speech(ws, "No problem. I will not send a text.");
+      } else speech(ws, "Please say yes if you would like the requested information by text, or no if you do not.");
+      return;
+    }
     if (isAccountRequest(question)) {
       await ws.callerReady;
       if (!ws.caller || ws.caller.ambiguous) {
