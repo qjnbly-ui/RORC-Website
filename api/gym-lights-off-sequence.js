@@ -7,6 +7,7 @@ const GYM_OFF_TO_NUMBER = "+15418916772";
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const { resumeEcobeeProgram } = require("./_ecobee-client");
+const { parseSmsDestinations } = require("./_sms-destinations");
 const ECOBEE_AC_THERMOSTAT_ID = process.env.ECOBEE_AC_THERMOSTAT_ID || "";
 
 module.exports = async (req, res) => {
@@ -26,7 +27,6 @@ module.exports = async (req, res) => {
     }
     const step1Url = String(settings.step1_url || STEP_1_URL);
     const step2Url = String(settings.step2_url || STEP_2_URL);
-    const smsTo = String(settings.sms_to || GYM_OFF_TO_NUMBER).trim() || GYM_OFF_TO_NUMBER;
     const warnings = [];
 
     if (settings.step1_enabled !== false) {
@@ -50,30 +50,33 @@ module.exports = async (req, res) => {
         throw new Error("Step 3 failed: Twilio credentials are not configured.");
       }
 
+      const smsDestinations = parseSmsDestinations(settings.sms_to, GYM_OFF_TO_NUMBER);
       const smsBody = `GYM LIGHTS OFF\nMember Last To Exit: ${memberName}\nVisit Duration: ${Math.max(0, Math.round(visitDurationMinutes))} MIN`;
       const auth = Buffer
         .from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`)
         .toString("base64");
-      const params = new URLSearchParams({
-        To: smsTo,
-        From: TWILIO_FROM_NUMBER,
-        Body: smsBody
-      });
-      const step3 = await fetch(
-        `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Basic ${auth}`,
-            "Content-Type": "application/x-www-form-urlencoded"
-          },
-          body: params.toString()
+      await Promise.all(smsDestinations.map(async (smsTo) => {
+        const params = new URLSearchParams({
+          To: smsTo,
+          From: TWILIO_FROM_NUMBER,
+          Body: smsBody
+        });
+        const step3 = await fetch(
+          `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Basic ${auth}`,
+              "Content-Type": "application/x-www-form-urlencoded"
+            },
+            body: params.toString()
+          }
+        );
+        const step3Body = await step3.json().catch(() => ({}));
+        if (!step3.ok) {
+          throw new Error(`Step 3 failed for ${smsTo}: ${step3Body?.message || "Twilio SMS request failed."}`);
         }
-      );
-      const step3Body = await step3.json().catch(() => ({}));
-      if (!step3.ok) {
-        throw new Error(`Step 3 failed: ${step3Body?.message || "Twilio SMS request failed."}`);
-      }
+      }));
     }
 
     if (settings.ac_fan_enabled !== false) {

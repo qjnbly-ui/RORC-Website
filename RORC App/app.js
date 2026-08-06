@@ -1451,7 +1451,7 @@ async function renderAutomationSettingsPage() {
             </label>
             <label>
               <span>SMS destination</span>
-              <input id="gymLightsOnSmsTo" type="text" placeholder="+1..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+              <input id="gymLightsOnSmsTo" type="text" placeholder="+1541..., +1541..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
             </label>
             <label class="automation-toggle">
               <input id="gymLightsOnAcFanEnabled" type="checkbox" />
@@ -1480,7 +1480,7 @@ async function renderAutomationSettingsPage() {
             </label>
             <label>
               <span>SMS destination</span>
-              <input id="gymLightsOffSmsTo" type="text" placeholder="+1..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+              <input id="gymLightsOffSmsTo" type="text" placeholder="+1541..., +1541..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
             </label>
             <label class="automation-toggle">
               <input id="gymLightsOffAcFanEnabled" type="checkbox" />
