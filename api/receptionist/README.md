@@ -2,7 +2,13 @@
 
 Set the RORC Twilio number's incoming voice webhook to:
 
-`https://ruthobenchainrc.com/api/receptionist/incoming`
+`https://www.ruthobenchainrc.com/api/receptionist/incoming`
+
+Set the RORC Twilio number's incoming messaging webhook to:
+
+`https://www.ruthobenchainrc.com/api/receptionist/sms`
+
+Use the canonical `www` hostname directly for both webhooks. The non-`www` domain redirects, which can invalidate Twilio's URL-specific webhook signature.
 
 Required Vercel environment variables:
 
