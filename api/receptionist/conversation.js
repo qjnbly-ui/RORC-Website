@@ -4,7 +4,9 @@ const twilio = require("twilio");
 const { WebSocketServer, WebSocket } = require("ws");
 const { toSpeechText } = require("../_receptionist");
 const { getCallerAccount, verifyAccountPin, accountOverview } = require("../_rorc-account-phone");
-const { consent, hasConsent, sendSms } = require("../_rorc-sms");
+const { normalizePhone, consent, hasConsent, sendSms } = require("../_rorc-sms");
+const { createFormDraft } = require("../_rorc-form-drafts");
+const { getFormDefinition, detectFormRequest } = require("../_rorc-forms");
 const siteKnowledge = require("../rorc-site-knowledge.json");
 
 const RULES = [
@@ -19,6 +21,7 @@ const RULES = [
 
 const STOP_WORDS = new Set("a an and are as at be by can do for from had has have how i if in is it me my of on or our that the their they this to was we what when where which who why will with you your".split(" "));
 const SMS_ROUTES = [
+  { url: "https://www.ruthobenchainrc.com/sponsors/form/", pattern: /\b(sponsor|sponsorship|banner)\b.{0,50}\b(form|apply|application|submit|renew)\b/i },
   { url: "https://www.ruthobenchainrc.com/membership-signup/", pattern: /\b(sign ?up|join|enroll|registration)\b/i },
   { url: "https://www.ruthobenchainrc.com/memberships/", pattern: /\b(member|membership|weight room|open gym|full facility|day pass)\b/i },
   { url: "https://www.ruthobenchainrc.com/rentals/", pattern: /\b(rent|rental|reservation|book|booking|party|wedding)\b/i },
@@ -141,6 +144,147 @@ function isReferentialSmsRequest(question) {
     && !SMS_ROUTES.some(({ pattern }) => pattern.test(text));
 }
 
+function isGuidedFormChoice(value) {
+  return /\b(help|guide|walk me through|fill|fill it out|do it with me|ask me)\b/i.test(String(value || ""));
+}
+
+function isDirectFormChoice(value) {
+  return /\b(send|text|link|just the form|do it myself|fill it online)\b/i.test(String(value || ""));
+}
+
+function isSkip(value) {
+  return /^(skip|pass|later|i(?:'| a)m not sure|i don'?t know)[.!? ]*$/i.test(String(value || "").trim());
+}
+
+function isFinishForm(value) {
+  return /\b(send (?:me )?(?:the |my )?link|finish online|i(?:'| a)m done|that(?:'s| is) enough|stop asking)\b/i.test(String(value || ""));
+}
+
+function formChoiceValue(field, spoken) {
+  const text = String(spoken || "").toLowerCase();
+  for (const [value, aliases] of Object.entries(field.options || {})) {
+    if (aliases.some((alias) => text.includes(alias))) return value;
+  }
+  return "";
+}
+
+function spokenEmail(value) {
+  return String(value || "").toLowerCase()
+    .replace(/\s+(?:at sign|at)\s+/g, "@")
+    .replace(/\s+(?:dot|period)\s+/g, ".")
+    .replace(/\s+underscore\s+/g, "_")
+    .replace(/\s+(?:dash|hyphen)\s+/g, "-")
+    .replace(/\s+/g, "")
+    .replace(/[.,;:!?]+$/, "");
+}
+
+function isoDate(year, month, day) {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return "";
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function spokenDate(value, now = new Date()) {
+  const text = String(value || "").toLowerCase().replace(/(\d)(st|nd|rd|th)\b/g, "$1");
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  if (/\btoday\b/.test(text)) return today.toISOString().slice(0, 10);
+  if (/\btomorrow\b/.test(text)) return new Date(today.getTime() + 86400000).toISOString().slice(0, 10);
+  const numeric = text.match(/\b(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?\b/);
+  const months = { january: 1, february: 2, march: 3, april: 4, may: 5, june: 6, july: 7, august: 8, september: 9, october: 10, november: 11, december: 12 };
+  const named = text.match(new RegExp(`\\b(${Object.keys(months).join("|")})\\s+(\\d{1,2})(?:,?\\s+(\\d{2,4}))?\\b`));
+  let month;
+  let day;
+  let year;
+  if (numeric) {
+    month = Number(numeric[1]); day = Number(numeric[2]); year = numeric[3] ? Number(numeric[3]) : today.getUTCFullYear();
+  } else if (named) {
+    month = months[named[1]]; day = Number(named[2]); year = named[3] ? Number(named[3]) : today.getUTCFullYear();
+  } else return "";
+  if (year < 100) year += 2000;
+  let result = isoDate(year, month, day);
+  if (result && !numeric?.[3] && !named?.[3] && result < today.toISOString().slice(0, 10)) result = isoDate(year + 1, month, day);
+  return result;
+}
+
+function spokenTime(value) {
+  const text = String(value || "").toLowerCase().replace(/\b([ap])\s*\.?\s*m\.?\b/g, "$1m");
+  if (/\bnoon\b/.test(text)) return "12:00";
+  if (/\bmidnight\b/.test(text)) return "00:00";
+  const match = text.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
+  const period = match?.[3] || text.match(/\b(am|pm)\b/)?.[1] || "";
+  const clockWords = text.replace(/\b(am|pm)\b/g, "").trim().split(/\s+/);
+  let hour = match ? Number(match[1]) : spokenNumber(clockWords[0]);
+  const minute = match ? Number(match[2] || 0) : spokenNumber(clockWords.slice(1).join(" "));
+  if (!hour || minute > 59 || hour > (period ? 12 : 23) || hour < 0) return "";
+  if (period === "pm" && hour < 12) hour += 12;
+  if (period === "am" && hour === 12) hour = 0;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function spokenPhone(value) {
+  const direct = normalizePhone(value);
+  if (direct) return direct;
+  const digits = { zero: "0", oh: "0", one: "1", two: "2", three: "3", four: "4", five: "5", six: "6", seven: "7", eight: "8", nine: "9" };
+  const expanded = String(value || "").toLowerCase().split(/\s+/).map((word) => digits[word.replace(/[^a-z]/g, "")] || word).join("");
+  return normalizePhone(expanded);
+}
+
+function spokenNumber(value) {
+  const digit = String(value || "").match(/\b\d+\b/);
+  if (digit) return Number(digit[0]);
+  const units = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
+  const tens = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90 };
+  const words = String(value || "").toLowerCase().replace(/-/g, " ").split(/\s+/);
+  let total = 0;
+  let found = false;
+  for (const word of words) {
+    if (units[word]) { total += units[word]; found = true; }
+    else if (tens[word]) { total += tens[word]; found = true; }
+    else if (word === "hundred" && total) { total *= 100; found = true; }
+  }
+  return found ? total : 0;
+}
+
+async function normalizeFormAnswer(field, spoken, callerPhone) {
+  const text = String(spoken || "").trim();
+  if (isSkip(text)) return { skipped: true, value: "" };
+  if (field.callerPhoneAllowed && isYes(text)) {
+    const caller = normalizePhone(callerPhone);
+    return caller ? { skipped: false, value: caller } : null;
+  }
+  if (field.type === "choice") {
+    const value = formChoiceValue(field, text);
+    return value ? { skipped: false, value } : null;
+  }
+  if (field.type === "yesno" || field.type === "yesno-title") {
+    if (/\b(yes|yeah|yep|will|do|private)\b/i.test(text)) return { skipped: false, value: field.type === "yesno-title" ? "Yes" : "yes" };
+    if (/\b(no|nope|not|won'?t|do not|public)\b/i.test(text)) return { skipped: false, value: field.type === "yesno-title" ? "No" : "no" };
+    return null;
+  }
+  if (field.type === "phone") {
+    const value = spokenPhone(text);
+    return value ? { skipped: false, value } : null;
+  }
+  if (field.type === "email") {
+    const value = spokenEmail(text);
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? { skipped: false, value } : null;
+  }
+  if (field.type === "date") {
+    const value = spokenDate(text);
+    return value ? { skipped: false, value } : null;
+  }
+  if (field.type === "time") {
+    const value = spokenTime(text);
+    return value ? { skipped: false, value } : null;
+  }
+  if (field.type === "number") {
+    const value = spokenNumber(text);
+    return value > 0 ? { skipped: false, value } : null;
+  }
+  const value = toSpeechText(text).slice(0, 500);
+  return value ? { skipped: false, value } : null;
+}
+
 async function answer(question, history) {
   const key = String(process.env.GROQ_API_KEY || "").trim();
   if (!key) return "I can help with general RORC information, but the conversational service is still being configured. Please visit Ruth Obenchain R C dot com or call the RORC team directly.";
@@ -155,26 +299,99 @@ async function answer(question, history) {
   return toSpeechText(data?.choices?.[0]?.message?.content) || "I'm sorry, I couldn't answer that right now. Please try again or contact the RORC team.";
 }
 
-async function sendRequestedSms(ws, question) {
-  if (!ws.fromNumber || !(await hasConsent(ws.fromNumber))) {
-    ws.awaitingSmsConsent = true;
-    ws.pendingSmsQuestion = question;
-    speech(ws, "I can text the requested RORC information to the number you are calling from. Message and data rates may apply, and message frequency varies. Would you like me to send it? You can say stop at any time to opt out.");
+function requestSmsConsent(ws, action) {
+  ws.awaitingSmsConsent = true;
+  ws.pendingSmsAction = action;
+  speech(ws, "I can text that to the number you are calling from. Message and data rates may apply, and message frequency varies. Would you like me to send it? You can say stop at any time to opt out.");
+}
+
+async function sendRequestedSms(ws, question, consentConfirmed = false) {
+  if (!ws.fromNumber || (!consentConfirmed && !(await hasConsent(ws.fromNumber)))) {
+    requestSmsConsent(ws, { type: "site_information", question });
     return;
   }
   const link = smsDestination(question, ws.history);
   const previous = priorAnswer(ws.history);
-  const reply = isReferentialSmsRequest(question) && previous
-    ? previous
-    : await answer(question, ws.history);
-  const summary = String(reply || "Here is the RORC information you requested.")
-    .replace(/https?:\/\/\S+/gi, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 850);
-  const body = `RORC: ${summary}\n\n${link}\n\nReply STOP to opt out or HELP for help.`;
-  await sendSms(ws.fromNumber, body);
+  const reply = isReferentialSmsRequest(question) && previous ? previous : await answer(question, ws.history);
+  const summary = String(reply || "Here is the RORC information you requested.").replace(/https?:\/\/\S+/gi, "").replace(/\s+/g, " ").trim().slice(0, 850);
+  await sendSms(ws.fromNumber, `RORC: ${summary}\n\n${link}\n\nReply STOP to opt out or HELP for help.`);
   speech(ws, "Done. I texted the information and the most relevant RORC page to the number you are calling from.");
+}
+
+async function sendFormLink(ws, formId, consentConfirmed = false) {
+  const form = getFormDefinition(formId);
+  if (!form) throw new Error("Unknown RORC form.");
+  if (!ws.fromNumber || (!consentConfirmed && !(await hasConsent(ws.fromNumber)))) {
+    requestSmsConsent(ws, { type: "form_link", formId });
+    return;
+  }
+  await sendSms(ws.fromNumber, `RORC ${form.title}: ${form.url}\n\nComplete and submit the form securely online. Reply STOP to opt out or HELP for help.`);
+  speech(ws, `Done. I texted you the ${form.title} link.`);
+}
+
+async function sendFormDraft(ws, formId, answers, consentConfirmed = false) {
+  const form = getFormDefinition(formId);
+  if (!form) throw new Error("Unknown RORC form.");
+  if (!ws.fromNumber || (!consentConfirmed && !(await hasConsent(ws.fromNumber)))) {
+    requestSmsConsent(ws, { type: "form_draft", formId, answers });
+    return;
+  }
+  const draft = await createFormDraft(formId, answers, ws.fromNumber);
+  await sendSms(ws.fromNumber, `RORC ${form.title} draft: ${draft.url}\n\nReview the prefilled information, complete the remaining required sections, and submit it within 7 days. Reply STOP to opt out or HELP for help.`);
+  speech(ws, `Done. I texted your prefilled ${form.title}. Please review it and finish the required sections online within seven days.`);
+}
+
+async function performSmsAction(ws, action) {
+  if (action?.type === "form_link") return sendFormLink(ws, action.formId, true);
+  if (action?.type === "form_draft") return sendFormDraft(ws, action.formId, action.answers, true);
+  return sendRequestedSms(ws, action?.question || "RORC information", true);
+}
+
+function beginFormSession(ws, formId) {
+  const form = getFormDefinition(formId);
+  if (!form) return false;
+  ws.formOffer = "";
+  ws.formSession = { formId, fieldIndex: 0, answers: {} };
+  speech(ws, `Great. I will collect the safe basics and leave passwords, PINs, signatures, agreements, uploads, and payment completion for the secure website. You can say skip, finish online, or cancel at any time. ${form.fields[0].prompt}`);
+  return true;
+}
+
+async function finishFormSession(ws) {
+  const session = ws.formSession;
+  if (!session) return;
+  ws.formSession = null;
+  if (!Object.keys(session.answers).length) return sendFormLink(ws, session.formId);
+  return sendFormDraft(ws, session.formId, session.answers);
+}
+
+async function handleFormAnswer(ws, question) {
+  const session = ws.formSession;
+  const form = getFormDefinition(session?.formId);
+  if (!session || !form) return false;
+  if (/^(cancel|never mind|nevermind|stop)[.!? ]*$/i.test(question)) {
+    ws.formSession = null;
+    speech(ws, "No problem. I discarded this call's form answers. What else can I help with?");
+    return true;
+  }
+  if (isFinishForm(question)) {
+    await finishFormSession(ws);
+    return true;
+  }
+  const field = form.fields[session.fieldIndex];
+  const parsed = await normalizeFormAnswer(field, question, ws.fromNumber);
+  if (!parsed) {
+    const extra = field.type === "email" ? " Please say it like name at example dot com." : field.type === "phone" ? " Please say the full ten digit number, or say yes to use the number you called from." : "";
+    speech(ws, `I did not catch that clearly.${extra} ${field.prompt}`);
+    return true;
+  }
+  if (!parsed.skipped) session.answers[field.key] = parsed.value;
+  session.fieldIndex += 1;
+  if (session.fieldIndex >= form.fields.length) {
+    await finishFormSession(ws);
+    return true;
+  }
+  speech(ws, `${parsed.skipped ? "Okay, we will leave that for the website." : "Got it."} ${form.fields[session.fieldIndex].prompt}`);
+  return true;
 }
 
 const app = express();
@@ -194,7 +411,9 @@ wss.on("connection", (ws) => {
   ws.accountVerified = false;
   ws.pinAttempts = 0;
   ws.awaitingSmsConsent = false;
-  ws.pendingSmsQuestion = "";
+  ws.pendingSmsAction = null;
+  ws.formOffer = "";
+  ws.formSession = null;
   ws.awaitingTransferReason = false;
   ws.on("message", async (raw) => {
     let message;
@@ -239,20 +458,47 @@ wss.on("connection", (ws) => {
     if (ws.awaitingSmsConsent) {
       if (isYes(question)) {
         ws.awaitingSmsConsent = false;
-        const pendingQuestion = ws.pendingSmsQuestion;
-        ws.pendingSmsQuestion = "";
+        const action = ws.pendingSmsAction;
+        ws.pendingSmsAction = null;
+        ws.processing = true;
         try {
           await consent(ws.fromNumber, "opt_in", "voice_call");
-          await sendRequestedSms(ws, pendingQuestion);
+          await performSmsAction(ws, action);
         } catch (error) {
           console.error("RORC verbal SMS consent failed", error);
           speech(ws, "I could not send that text right now. Please try again later.");
-        }
+        } finally { ws.processing = false; }
       } else if (/^(no|nope|not now|don't|do not)[.!? ]*$/i.test(question)) {
+        const discardedDraft = ws.pendingSmsAction?.type === "form_draft";
         ws.awaitingSmsConsent = false;
-        ws.pendingSmsQuestion = "";
-        speech(ws, "No problem. I will not send a text.");
+        ws.pendingSmsAction = null;
+        speech(ws, discardedDraft ? "No problem. I will not send a text, and I discarded the form answers from this call." : "No problem. I will not send a text.");
       } else speech(ws, "Please say yes if you would like the requested information by text, or no if you do not.");
+      return;
+    }
+    if (ws.formOffer) {
+      const formId = ws.formOffer;
+      if (isGuidedFormChoice(question)) {
+        beginFormSession(ws, formId);
+      } else if (isDirectFormChoice(question) || isYes(question)) {
+        ws.formOffer = "";
+        ws.processing = true;
+        try { await sendFormLink(ws, formId); }
+        catch (error) { console.error("RORC form link SMS failed", error); speech(ws, "I could not send that form link right now. Please try again later."); }
+        finally { ws.processing = false; }
+      } else if (/^(cancel|never mind|nevermind|no)[.!? ]*$/i.test(question)) {
+        ws.formOffer = "";
+        speech(ws, "No problem. What else can I help you with?");
+      } else {
+        speech(ws, "Would you like me to text the form link now, or help fill out the basic information first?");
+      }
+      return;
+    }
+    if (ws.formSession) {
+      ws.processing = true;
+      try { await handleFormAnswer(ws, question); }
+      catch (error) { console.error("RORC guided form failed", error); speech(ws, "I had trouble saving that answer. Please try it once more, or say finish online."); }
+      finally { ws.processing = false; }
       return;
     }
     if (ws.awaitingTransferReason) {
@@ -290,6 +536,13 @@ wss.on("connection", (ws) => {
       try { await sendRequestedSms(ws, question); }
       catch (error) { console.error("RORC receptionist SMS failed", error); speech(ws, "I could not send that text right now. Please visit Ruth Obenchain R C dot com or try again later."); }
       finally { ws.processing = false; }
+      return;
+    }
+    const requestedForm = detectFormRequest(question);
+    if (requestedForm) {
+      const form = getFormDefinition(requestedForm);
+      ws.formOffer = requestedForm;
+      speech(ws, `I can text you the ${form.title} link now, or I can help fill out the basic information and then send you a secure link to review and finish. Which would you prefer?`);
       return;
     }
     if (ws.transferOffered) {
@@ -336,3 +589,10 @@ module.exports.replyNeedsHuman = replyNeedsHuman;
 module.exports.isSmsRequest = isSmsRequest;
 module.exports.smsDestination = smsDestination;
 module.exports.isReferentialSmsRequest = isReferentialSmsRequest;
+module.exports.normalizeFormAnswer = normalizeFormAnswer;
+module.exports.spokenEmail = spokenEmail;
+module.exports.spokenDate = spokenDate;
+module.exports.spokenTime = spokenTime;
+module.exports.spokenNumber = spokenNumber;
+module.exports.spokenPhone = spokenPhone;
+module.exports.isGuidedFormChoice = isGuidedFormChoice;

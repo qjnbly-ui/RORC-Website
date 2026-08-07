@@ -25,3 +25,9 @@ Optional variables:
 - `GROQ_RECEPTIONIST_MODEL`
 
 The receptionist validates Twilio webhooks and answers from indexed public RORC website content, with selective live lookups for events and facility status. It screens requests for Quentin, asks what the call concerns when needed, and requires clear confirmation before transferring. For account questions, it matches the caller's number to one RORC member account and verifies the existing four-digit account PIN through keypad entry. Callers can provide SMS consent verbally during the call or by texting START. STOP and HELP are supported. Account information is read-only and the receptionist does not trigger heater controls or write call transcripts to Supabase.
+
+## Guided forms
+
+The receptionist supports the public membership signup, facility rental, and banner sponsorship forms. It offers to either text the direct form link or collect safe prefill fields and text a secure completion link. Callers may skip a field, finish online early, or cancel and discard the call's answers.
+
+Guided answers are parsed locally by the RORC server and are not sent to the general-answer AI model. The workflow never collects passwords, four-digit PINs, dates of birth, signatures, contract acknowledgements, payment-card details, or file uploads by phone. Drafts use a hashed 256-bit bearer token, are available only through the server-side endpoint, and expire after seven days. The browser removes the token fragment from the address bar after loading the draft.

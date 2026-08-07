@@ -698,6 +698,8 @@
       byId("signupNext").disabled = true;
       byId("signupSubmit").disabled = true;
     }
+    window.RORC_MEMBERSHIP_SIGNUP_READY = true;
+    document.dispatchEvent(new CustomEvent("rorc:membership-ready"));
   }
 
   init();
