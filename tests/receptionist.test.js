@@ -27,3 +27,17 @@ test("human fallback is reserved for unresolved answers", () => {
   assert.equal(receptionist.replyNeedsHuman("Membership is ten dollars per month."), false);
   assert.equal(receptionist.replyNeedsHuman("I cannot confirm that from the website information."), true);
 });
+
+test("natural requests to send information are recognized as SMS requests", () => {
+  assert.equal(receptionist.isSmsRequest("Can you send me that link?"), true);
+  assert.equal(receptionist.isSmsRequest("Please share the rental page with me."), true);
+  assert.equal(receptionist.isSmsRequest("What does a membership cost?"), false);
+});
+
+test("SMS links point to the relevant RORC page", () => {
+  assert.equal(receptionist.smsDestination("Text me the rental information", []), "https://www.ruthobenchainrc.com/rentals/");
+  assert.equal(receptionist.smsDestination("Send me that link", [
+    { role: "user", content: "How do I join RORC?" },
+    { role: "assistant", content: "You can enroll on the membership signup page." },
+  ]), "https://www.ruthobenchainrc.com/membership-signup/");
+});

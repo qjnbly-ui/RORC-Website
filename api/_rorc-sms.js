@@ -2,6 +2,11 @@ const twilio = require("twilio");
 const SUPABASE_URL = String(process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
 
+async function supabaseError(response, action) {
+  const detail = await response.text().catch(() => "");
+  return new Error(`${action} (${response.status}): ${detail.slice(0, 500) || response.statusText}`);
+}
+
 function normalizePhone(value) {
   let digits = String(value || "").replace(/\D/g, "");
   if (digits.length === 10) digits = `1${digits}`;
@@ -20,7 +25,7 @@ async function consent(phone, status, source) {
     headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=representation" },
     body: JSON.stringify(payload),
   });
-  if (!response.ok) throw new Error("Unable to save SMS consent.");
+  if (!response.ok) throw await supabaseError(response, "Unable to save SMS consent");
   return (await response.json().catch(() => []))[0] || null;
 }
 
@@ -30,8 +35,9 @@ async function hasConsent(phone) {
   const response = await fetch(`${SUPABASE_URL}/rest/v1/rorc_receptionist_sms_consent?select=consent_status&phone_e164=eq.${encodeURIComponent(phoneE164)}&limit=1`, {
     headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
   });
+  if (!response.ok) throw await supabaseError(response, "Unable to check SMS consent");
   const rows = await response.json().catch(() => []);
-  return response.ok && rows[0]?.consent_status === "opt_in";
+  return rows[0]?.consent_status === "opt_in";
 }
 
 async function sendSms(to, body) {
@@ -40,7 +46,13 @@ async function sendSms(to, body) {
   const from = normalizePhone(process.env.RORC_RECEPTIONIST_NUMBER || process.env.TWILIO_FROM_NUMBER);
   const recipient = normalizePhone(to);
   if (!accountSid || !authToken || !from || !recipient) throw new Error("RORC SMS is not configured.");
-  return twilio(accountSid, authToken).messages.create({ from, to: recipient, body: String(body || "").slice(0, 1500) });
+  try {
+    return await twilio(accountSid, authToken).messages.create({ from, to: recipient, body: String(body || "").slice(0, 1500) });
+  } catch (error) {
+    const code = error?.code ? ` Twilio ${error.code}.` : "";
+    const status = error?.status ? ` HTTP ${error.status}.` : "";
+    throw new Error(`Twilio could not send the RORC text.${code}${status} ${error?.message || "Unknown messaging error."}`);
+  }
 }
 
 module.exports = { normalizePhone, consent, hasConsent, sendSms };

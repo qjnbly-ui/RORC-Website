@@ -18,6 +18,20 @@ const RULES = [
 ].join(" ");
 
 const STOP_WORDS = new Set("a an and are as at be by can do for from had has have how i if in is it me my of on or our that the their they this to was we what when where which who why will with you your".split(" "));
+const SMS_ROUTES = [
+  { url: "https://www.ruthobenchainrc.com/membership-signup/", pattern: /\b(sign ?up|join|enroll|registration)\b/i },
+  { url: "https://www.ruthobenchainrc.com/memberships/", pattern: /\b(member|membership|weight room|open gym|full facility|day pass)\b/i },
+  { url: "https://www.ruthobenchainrc.com/rentals/", pattern: /\b(rent|rental|reservation|book|booking|party|wedding)\b/i },
+  { url: "https://www.ruthobenchainrc.com/events/", pattern: /\b(event|calendar|schedule|what'?s happening)\b/i },
+  { url: "https://www.ruthobenchainrc.com/sponsors/", pattern: /\b(sponsor|sponsorship|banner)\b/i },
+  { url: "https://www.ruthobenchainrc.com/work-exchange/", pattern: /\b(work exchange|volunteer)\b/i },
+  { url: "https://www.ruthobenchainrc.com/projects/", pattern: /\b(project|renovation|improvement)\b/i },
+  { url: "https://www.ruthobenchainrc.com/windows/", pattern: /\b(window|windows|history tile)\b/i },
+  { url: "https://www.ruthobenchainrc.com/about-rorc/", pattern: /\b(about|history|story|who runs)\b/i },
+  { url: "https://www.ruthobenchainrc.com/support/", pattern: /\b(contact|support|phone|email|help desk)\b/i },
+  { url: "https://www.ruthobenchainrc.com/privacy-policy/", pattern: /\bprivacy|personal data|information collected\b/i },
+  { url: "https://www.ruthobenchainrc.com/terms-of-service/", pattern: /\bterms|refund|cancell?ation|rules|policy\b/i },
+];
 
 function searchTerms(value) {
   return [...new Set(String(value || "").toLowerCase().match(/[a-z0-9']{2,}/g) || [])].filter((word) => !STOP_WORDS.has(word));
@@ -103,7 +117,28 @@ function isAccountRequest(value) {
 }
 
 function isSmsRequest(value) {
-  return /\b(text|sms|message)\b/i.test(String(value || "")) && /\b(me|my|that|it|link|information|details|answer|summary|recap)\b/i.test(String(value || ""));
+  const text = String(value || "");
+  return /\b(text|sms|message)\b.{0,100}\b(me|my|that|it|link|page|website|information|info|details|answer|summary|recap|directions)\b/i.test(text)
+    || /\b(send|share|forward)\b.{0,100}\b(me|my phone|that|it|the link|a link|this|page|website|information|info|details|answer|summary|directions)\b/i.test(text)
+    || /\b(send|share|forward)\b.{0,100}\b(link|page|website|information|info|details|directions)\b/i.test(text);
+}
+
+function smsDestination(question, history = []) {
+  const current = String(question || "");
+  const recent = history.slice(-6).map((item) => String(item?.content || "")).join(" ");
+  return SMS_ROUTES.find(({ pattern }) => pattern.test(current))?.url
+    || SMS_ROUTES.find(({ pattern }) => pattern.test(recent))?.url
+    || "https://www.ruthobenchainrc.com/";
+}
+
+function priorAnswer(history = []) {
+  return [...history].reverse().find((item) => item?.role === "assistant" && item.content)?.content || "";
+}
+
+function isReferentialSmsRequest(question) {
+  const text = String(question || "");
+  return /\b(send|share|forward|text|message)\b.{0,80}\b(that|it|this|the link|that link|this link)\b/i.test(text)
+    && !SMS_ROUTES.some(({ pattern }) => pattern.test(text));
 }
 
 async function answer(question, history) {
@@ -127,10 +162,19 @@ async function sendRequestedSms(ws, question) {
     speech(ws, "I can text the requested RORC information to the number you are calling from. Message and data rates may apply, and message frequency varies. Would you like me to send it? You can say stop at any time to opt out.");
     return;
   }
-  const reply = await answer(question, ws.history);
-  const body = `RORC: ${reply} Visit https://ruthobenchainrc.com for more information. Reply STOP to opt out or HELP for help.`;
+  const link = smsDestination(question, ws.history);
+  const previous = priorAnswer(ws.history);
+  const reply = isReferentialSmsRequest(question) && previous
+    ? previous
+    : await answer(question, ws.history);
+  const summary = String(reply || "Here is the RORC information you requested.")
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 850);
+  const body = `RORC: ${summary}\n\n${link}\n\nReply STOP to opt out or HELP for help.`;
   await sendSms(ws.fromNumber, body);
-  speech(ws, "Done. I sent the requested RORC information to the number you are calling from.");
+  speech(ws, "Done. I texted the information and the most relevant RORC page to the number you are calling from.");
 }
 
 const app = express();
@@ -289,3 +333,6 @@ module.exports.websiteContext = websiteContext;
 module.exports.isPersonRequest = isPersonRequest;
 module.exports.hasTransferReason = hasTransferReason;
 module.exports.replyNeedsHuman = replyNeedsHuman;
+module.exports.isSmsRequest = isSmsRequest;
+module.exports.smsDestination = smsDestination;
+module.exports.isReferentialSmsRequest = isReferentialSmsRequest;
