@@ -41,3 +41,21 @@ test("SMS links point to the relevant RORC page", () => {
     { role: "assistant", content: "You can enroll on the membership signup page." },
   ]), "https://www.ruthobenchainrc.com/membership-signup/");
 });
+
+test("SMS copy is concise and purpose-written for the requested page", () => {
+  const message = receptionist.smsMessageFor("Send me the membership signup link", []);
+  assert.match(message.body, /^RORC Membership Signup/);
+  assert.match(message.body, /Weight Room: \$10\/month/);
+  assert.match(message.body, /https:\/\/www\.ruthobenchainrc\.com\/membership-signup\//);
+  assert.doesNotMatch(message.body, /Absolutely|R C dot com|you’ll|you'll be all set/i);
+  assert.ok(message.body.length < 500);
+  assert.equal(message.confirmation, "membership options and the signup link");
+});
+
+test("referential texts preserve membership signup intent from conversation history", () => {
+  const message = receptionist.smsMessageFor("Send me that link", [
+    { role: "user", content: "How do I start a membership?" },
+    { role: "assistant", content: "You can start a new RORC membership online." },
+  ]);
+  assert.match(message.body, /^RORC Membership Signup/);
+});

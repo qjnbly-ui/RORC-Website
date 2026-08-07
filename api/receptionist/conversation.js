@@ -22,7 +22,7 @@ const RULES = [
 const STOP_WORDS = new Set("a an and are as at be by can do for from had has have how i if in is it me my of on or our that the their they this to was we what when where which who why will with you your".split(" "));
 const SMS_ROUTES = [
   { url: "https://www.ruthobenchainrc.com/sponsors/form/", pattern: /\b(sponsor|sponsorship|banner)\b.{0,50}\b(form|apply|application|submit|renew)\b/i },
-  { url: "https://www.ruthobenchainrc.com/membership-signup/", pattern: /\b(sign ?up|join|enroll|registration)\b/i },
+  { url: "https://www.ruthobenchainrc.com/membership-signup/", pattern: /\b(sign ?up|signing up|join|enroll|registration|start (?:a |my |new )?membership|become a member)\b/i },
   { url: "https://www.ruthobenchainrc.com/memberships/", pattern: /\b(member|membership|weight room|open gym|full facility|day pass)\b/i },
   { url: "https://www.ruthobenchainrc.com/rentals/", pattern: /\b(rent|rental|reservation|book|booking|party|wedding)\b/i },
   { url: "https://www.ruthobenchainrc.com/events/", pattern: /\b(event|calendar|schedule|what'?s happening)\b/i },
@@ -132,6 +132,35 @@ function smsDestination(question, history = []) {
   return SMS_ROUTES.find(({ pattern }) => pattern.test(current))?.url
     || SMS_ROUTES.find(({ pattern }) => pattern.test(recent))?.url
     || "https://www.ruthobenchainrc.com/";
+}
+
+function smsMessageFor(question, history = []) {
+  const link = smsDestination(question, history);
+  const context = `${question} ${history.slice(-6).map((item) => item?.content || "").join(" ")}`;
+  if (/\b(direction|address|location|where are you|how do i get there)\b/i.test(context)) {
+    return { body: `RORC Location\n19140 Edler Street, Bly, Oregon\n\n${link}\n\nReply STOP to opt out or HELP for help.`, confirmation: "the RORC address and website link" };
+  }
+  const messages = {
+    "https://www.ruthobenchainrc.com/membership-signup/": [
+      "RORC Membership Signup\nOpen Gym: $2 one-time. Weight Room: $10/month. Full Facility: $20/month. Full Facility + Wi-Fi: $25/month. Start your signup here:",
+      "membership options and the signup link",
+    ],
+    "https://www.ruthobenchainrc.com/memberships/": ["RORC Memberships\nCompare membership options, pricing, access, and benefits here:", "membership information and pricing"],
+    "https://www.ruthobenchainrc.com/rentals/": ["RORC Facility Rentals\nReview rental options, pricing, live availability, and start a rental application here:", "facility rental information and application link"],
+    "https://www.ruthobenchainrc.com/events/": ["RORC Events\nSee upcoming events and the current RORC schedule here:", "RORC events page"],
+    "https://www.ruthobenchainrc.com/sponsors/form/": ["RORC Banner Sponsorship\nStart a new banner sponsorship or submit a renewal here:", "banner sponsorship form"],
+    "https://www.ruthobenchainrc.com/sponsors/": ["Support RORC\nView sponsorship opportunities and ways to support RORC here:", "RORC sponsorship information"],
+    "https://www.ruthobenchainrc.com/work-exchange/": ["RORC Work Exchange\nReview the work-exchange program and participation details here:", "work-exchange information"],
+    "https://www.ruthobenchainrc.com/projects/": ["RORC Projects\nSee current renovation and improvement projects here:", "RORC projects page"],
+    "https://www.ruthobenchainrc.com/windows/": ["RORC History Windows\nLearn about the community history window project here:", "history windows page"],
+    "https://www.ruthobenchainrc.com/about-rorc/": ["About RORC\nRead the recreation center's history, mission, and community story here:", "About RORC page"],
+    "https://www.ruthobenchainrc.com/support/": ["RORC Support\nCall (541) 652-6065 or find contact and support information here:", "RORC contact information"],
+    "https://www.ruthobenchainrc.com/privacy-policy/": ["RORC Privacy Policy\nRead how RORC collects, uses, and protects information here:", "RORC privacy policy"],
+    "https://www.ruthobenchainrc.com/terms-of-service/": ["RORC Terms of Service\nReview the current terms, policies, and responsibilities here:", "RORC terms of service"],
+    "https://www.ruthobenchainrc.com/": ["RORC Website\nFind memberships, rentals, events, facility information, and support here:", "RORC website link"],
+  };
+  const [copy, confirmation] = messages[link] || messages["https://www.ruthobenchainrc.com/"];
+  return { body: `${copy}\n\n${link}\n\nReply STOP to opt out or HELP for help.`, confirmation };
 }
 
 function priorAnswer(history = []) {
@@ -306,12 +335,9 @@ async function recordRequestedSmsConsent(ws) {
 
 async function sendRequestedSms(ws, question) {
   await recordRequestedSmsConsent(ws);
-  const link = smsDestination(question, ws.history);
-  const previous = priorAnswer(ws.history);
-  const reply = isReferentialSmsRequest(question) && previous ? previous : await answer(question, ws.history);
-  const summary = String(reply || "Here is the RORC information you requested.").replace(/https?:\/\/\S+/gi, "").replace(/\s+/g, " ").trim().slice(0, 850);
-  await sendSms(ws.fromNumber, `RORC: ${summary}\n\n${link}\n\nReply STOP to opt out or HELP for help.`);
-  speech(ws, "Done. I texted the information and the most relevant RORC page to the number you are calling from.");
+  const message = smsMessageFor(question, ws.history);
+  await sendSms(ws.fromNumber, message.body);
+  speech(ws, `Done. I texted ${message.confirmation} to the number you are calling from.`);
 }
 
 async function sendFormLink(ws, formId) {
@@ -549,6 +575,7 @@ module.exports.hasTransferReason = hasTransferReason;
 module.exports.replyNeedsHuman = replyNeedsHuman;
 module.exports.isSmsRequest = isSmsRequest;
 module.exports.smsDestination = smsDestination;
+module.exports.smsMessageFor = smsMessageFor;
 module.exports.isReferentialSmsRequest = isReferentialSmsRequest;
 module.exports.normalizeFormAnswer = normalizeFormAnswer;
 module.exports.spokenEmail = spokenEmail;
