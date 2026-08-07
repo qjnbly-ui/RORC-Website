@@ -19,6 +19,141 @@
   --app-viewport-height: 100dvh;
 }
 
+.receptionist-analytics-shell {
+  display: grid;
+  gap: 18px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.receptionist-analytics-header,
+.receptionist-detail-grid > article,
+.receptionist-issues-card,
+.receptionist-metric-grid article {
+  background: #171717;
+  border: 1px solid #323232;
+  border-radius: 16px;
+}
+
+.receptionist-analytics-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: end;
+  padding: 22px;
+}
+
+.receptionist-analytics-header h2,
+.receptionist-detail-grid h3,
+.receptionist-issues-card h3 {
+  margin: 0 0 8px;
+}
+
+.receptionist-analytics-header p {
+  color: var(--muted);
+  margin: 4px 0 0;
+  max-width: 720px;
+}
+
+.receptionist-analytics-header label {
+  color: var(--muted);
+  display: grid;
+  gap: 6px;
+  min-width: 130px;
+}
+
+.receptionist-analytics-header select {
+  background: #0d0d0d;
+  border: 1px solid #444;
+  border-radius: 10px;
+  color: #fff;
+  padding: 10px 12px;
+}
+
+.receptionist-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.receptionist-metric-grid article {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+}
+
+.receptionist-metric-grid span,
+.receptionist-breakdown span,
+.receptionist-issues-list time,
+.receptionist-issues-list small,
+.receptionist-empty {
+  color: var(--muted);
+}
+
+.receptionist-metric-grid strong {
+  font-size: clamp(1.55rem, 4vw, 2.25rem);
+}
+
+.receptionist-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.receptionist-detail-grid > article,
+.receptionist-issues-card {
+  padding: 20px;
+}
+
+.receptionist-breakdown {
+  display: grid;
+}
+
+.receptionist-breakdown > div {
+  align-items: center;
+  border-top: 1px solid #2d2d2d;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 11px 0;
+}
+
+.receptionist-issues-list details {
+  border-top: 1px solid #2d2d2d;
+  padding: 12px 0;
+}
+
+.receptionist-issues-list summary {
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.receptionist-issues-list p {
+  line-height: 1.5;
+  margin: 12px 0 6px;
+}
+
+@media (max-width: 760px) {
+  .receptionist-analytics-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .receptionist-metric-grid,
+  .receptionist-detail-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .receptionist-metric-grid,
+  .receptionist-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 * {
   box-sizing: border-box;
 }

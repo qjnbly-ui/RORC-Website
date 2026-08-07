@@ -7,7 +7,17 @@ const { getCallerAccount, verifyAccountPin, accountOverview } = require("../_ror
 const { normalizePhone, consent, hasConsent, sendSms } = require("../_rorc-sms");
 const { createFormDraft } = require("../_rorc-form-drafts");
 const { getFormDefinition, detectFormRequest } = require("../_rorc-forms");
+const { classifyIntent, fallbackIntent, safeIntentResult } = require("../_receptionist-router");
+const {
+  pinStatus,
+  recordEvent,
+  recordPinAttempt,
+  startCall,
+  updateCall,
+} = require("../_receptionist-analytics");
 const siteKnowledge = require("../rorc-site-knowledge.json");
+
+const KNOWLEDGE_VERSION = String(siteKnowledge.contentHash || siteKnowledge.generatedAt || "unknown").slice(0, 80);
 
 const RULES = [
   "You are the warm AI receptionist for the Ruth Obenchain Recreation Center, commonly called RORC, in Bly, Oregon.",
@@ -136,22 +146,26 @@ function isSimpleQuestion(value) {
   return /^(?:is|are|am|can|could|do|does|did|will|would|has|have|should|may)\b/i.test(String(value || "").trim());
 }
 
-function responseLimits(question) {
+function responseLimits(question, detailLevel = "") {
+  if (detailLevel === "detailed") return { maxTokens: 600, maxSentences: 10 };
+  if (detailLevel === "brief") return { maxTokens: 110, maxSentences: 3 };
   if (wantsDetailedAnswer(question)) return { maxTokens: 600, maxSentences: 10 };
   if (isSimpleQuestion(question)) return { maxTokens: 90, maxSentences: 2 };
   return { maxTokens: 220, maxSentences: 4 };
 }
 
-function responseModeInstruction(question) {
+function responseModeInstruction(question, detailLevel = "") {
+  if (detailLevel === "detailed") return "The caller requested detail. Give a focused explanation of only that topic in no more than ten spoken sentences.";
+  if (detailLevel === "brief") return "Answer directly in no more than three short spoken sentences. Do not add adjacent rules, prices, requirements, or process details unless needed for the exact answer.";
   if (wantsDetailedAnswer(question)) return "The caller explicitly requested detail. Give a focused explanation covering only that requested topic.";
   if (isSimpleQuestion(question)) return "This is a simple direct question. Answer it immediately in no more than two short sentences. Do not add prices, rules, exceptions, application steps, insurance information, or other page content unless needed to answer the exact question.";
   return "Give a focused answer in no more than four sentences. Include only information needed for the exact question and omit adjacent webpage content.";
 }
 
-function trimAnswerForQuestion(value, question) {
+function trimAnswerForQuestion(value, question, detailLevel = "") {
   const clean = toSpeechText(value);
   const sentences = clean.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [];
-  const { maxSentences } = responseLimits(question);
+  const { maxSentences } = responseLimits(question, detailLevel);
   return sentences.slice(0, maxSentences).join(" ").replace(/\s+/g, " ").trim();
 }
 
@@ -343,19 +357,34 @@ async function normalizeFormAnswer(field, spoken, callerPhone) {
   return value ? { skipped: false, value } : null;
 }
 
-async function answer(question, history) {
+async function answer(question, history, detailLevel = "normal") {
   const key = String(process.env.GROQ_API_KEY || "").trim();
   if (!key) return "I can help with general RORC information, but the conversational service is still being configured. Please visit Ruth Obenchain R C dot com or call the RORC team directly.";
   const [siteContext, liveContext] = await Promise.all([Promise.resolve(websiteContext(question)), liveWebsiteContext(question)]);
-  const limits = responseLimits(question);
+  const limits = responseLimits(question, detailLevel);
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: String(process.env.GROQ_RECEPTIONIST_MODEL || "openai/gpt-oss-120b"), temperature: 0.15, max_tokens: limits.maxTokens, messages: [{ role: "system", content: `${RULES}\n\nCURRENT PUBLIC RORC WEBSITE CONTEXT:\n${siteContext}${liveContext ? `\n\n${liveContext}` : ""}\n\nQUESTION-SPECIFIC RESPONSE MODE: ${responseModeInstruction(question)}` }, ...history.slice(-8), { role: "user", content: question }] }),
+    body: JSON.stringify({ model: String(process.env.GROQ_RECEPTIONIST_MODEL || "openai/gpt-oss-120b"), temperature: 0.15, max_tokens: limits.maxTokens, messages: [{ role: "system", content: `${RULES}\n\nCURRENT PUBLIC RORC WEBSITE CONTEXT:\n${siteContext}${liveContext ? `\n\n${liveContext}` : ""}\n\nQUESTION-SPECIFIC RESPONSE MODE: ${responseModeInstruction(question, detailLevel)}` }, ...history.slice(-8), { role: "user", content: question }] }),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data?.error?.message || "AI response failed");
-  return trimAnswerForQuestion(data?.choices?.[0]?.message?.content, question) || "I'm sorry, I couldn't answer that right now. Please try again or contact the RORC team.";
+  return trimAnswerForQuestion(data?.choices?.[0]?.message?.content, question, detailLevel) || "I'm sorry, I couldn't answer that right now. Please try again or contact the RORC team.";
+}
+
+function publicBaseUrl() {
+  return String(process.env.RORC_PUBLIC_BASE_URL || "https://www.ruthobenchainrc.com").replace(/\/+$/, "");
+}
+
+async function track(ws, event) {
+  try {
+    await ws.analyticsReady;
+    if (!ws.callerKey) return null;
+    return await recordEvent(ws.callSid, event);
+  } catch (error) {
+    console.error("RORC receptionist analytics failed", error);
+    return null;
+  }
 }
 
 async function recordRequestedSmsConsent(ws) {
@@ -366,7 +395,9 @@ async function recordRequestedSmsConsent(ws) {
 async function sendRequestedSms(ws, question) {
   await recordRequestedSmsConsent(ws);
   const message = smsMessageFor(question, ws.history);
-  await sendSms(ws.fromNumber, message.body);
+  const result = await sendSms(ws.fromNumber, message.body, { statusCallback: `${publicBaseUrl()}/api/receptionist/sms-status` });
+  await track(ws, { type: "sms_sent", messageSid: result?.sid, metadata: { kind: "information", destination: smsDestination(question, ws.history), initialStatus: result?.status || "accepted" } });
+  ws.finalOutcome = "sms_sent";
   speech(ws, `Done. I texted ${message.confirmation} to the number you are calling from.`);
 }
 
@@ -374,7 +405,9 @@ async function sendFormLink(ws, formId) {
   const form = getFormDefinition(formId);
   if (!form) throw new Error("Unknown RORC form.");
   await recordRequestedSmsConsent(ws);
-  await sendSms(ws.fromNumber, `RORC ${form.title}: ${form.url}\n\nComplete and submit the form securely online. Reply STOP to opt out or HELP for help.`);
+  const result = await sendSms(ws.fromNumber, `RORC ${form.title}: ${form.url}\n\nComplete and submit the form securely online. Reply STOP to opt out or HELP for help.`, { statusCallback: `${publicBaseUrl()}/api/receptionist/sms-status` });
+  await track(ws, { type: "form_link_sent", messageSid: result?.sid, metadata: { formId, initialStatus: result?.status || "accepted" } });
+  ws.finalOutcome = "form_link_sent";
   speech(ws, `Done. I texted you the ${form.title} link.`);
 }
 
@@ -383,7 +416,9 @@ async function sendFormDraft(ws, formId, answers) {
   if (!form) throw new Error("Unknown RORC form.");
   await recordRequestedSmsConsent(ws);
   const draft = await createFormDraft(formId, answers, ws.fromNumber);
-  await sendSms(ws.fromNumber, `RORC ${form.title} draft: ${draft.url}\n\nReview the prefilled information, complete the remaining required sections, and submit it within 7 days. Reply STOP to opt out or HELP for help.`);
+  const result = await sendSms(ws.fromNumber, `RORC ${form.title} draft: ${draft.url}\n\nReview the prefilled information, complete the remaining required sections, and submit it within 7 days. Reply STOP to opt out or HELP for help.`, { statusCallback: `${publicBaseUrl()}/api/receptionist/sms-status` });
+  await track(ws, { type: "form_draft_sent", messageSid: result?.sid, metadata: { formId, initialStatus: result?.status || "accepted" } });
+  ws.finalOutcome = "form_draft_sent";
   speech(ws, `Done. I texted your prefilled ${form.title}. Please review it and finish the required sections online within seven days.`);
 }
 
@@ -392,6 +427,8 @@ function beginFormSession(ws, formId) {
   if (!form) return false;
   ws.formOffer = "";
   ws.formSession = { formId, fieldIndex: 0, answers: {} };
+  ws.finalOutcome = "form_started";
+  track(ws, { type: "form_started", metadata: { formId, mode: "guided" } });
   speech(ws, `Great. I will collect the safe basics and leave passwords, PINs, signatures, agreements, uploads, and payment completion for the secure website. You can say skip, finish online, or cancel at any time. ${form.fields[0].prompt}`);
   return true;
 }
@@ -434,6 +471,122 @@ async function handleFormAnswer(ws, question) {
   return true;
 }
 
+function intentDetectors() {
+  return {
+    detectFormRequest,
+    isAccountRequest,
+    isSmsRequest,
+    isPersonRequest,
+    wantsDetailedAnswer,
+    isGuidedFormChoice,
+    isDirectFormChoice,
+  };
+}
+
+async function routeIntent(ws, question) {
+  const started = Date.now();
+  let result;
+  try {
+    result = safeIntentResult(await classifyIntent(question, ws.history), question, intentDetectors());
+  } catch (error) {
+    result = fallbackIntent(question, intentDetectors());
+    await track(ws, { type: "router_error", success: false, error, latencyMs: Date.now() - started });
+  }
+  await track(ws, {
+    type: "intent_routed",
+    intent: result.intent,
+    confidence: result.confidence,
+    latencyMs: Date.now() - started,
+    utterance: question,
+    metadata: {
+      source: result.source,
+      detailLevel: result.detail_level,
+      formId: result.form_id,
+      formAction: result.form_action,
+      needsClarification: Boolean(result.needsClarification),
+    },
+  });
+  return result;
+}
+
+async function answerAndRemember(ws, question, detailLevel) {
+  const started = Date.now();
+  const reply = await answer(question, ws.history, detailLevel);
+  ws.history.push({ role: "user", content: question }, { role: "assistant", content: reply });
+  ws.history = ws.history.slice(-10);
+  await track(ws, { type: "answer_generated", latencyMs: Date.now() - started, metadata: { detailLevel } });
+  ws.finalOutcome = "answered";
+  return reply;
+}
+
+async function beginAccountCheck(ws) {
+  await Promise.all([ws.callerReady, ws.analyticsReady]);
+  if (!ws.callerKey) {
+    await track(ws, { type: "account_check", success: false, errorCode: "security_not_configured" });
+    speech(ws, "Private account checks are temporarily unavailable. Please use the secure RORC website or contact the RORC team.");
+    return;
+  }
+  if (!ws.caller || ws.caller.ambiguous) {
+    await track(ws, { type: "account_check", success: false, errorCode: ws.caller?.ambiguous ? "ambiguous_caller" : "caller_not_found" });
+    speech(ws, "I could not securely match this number to one RORC account. Please contact the RORC team for account assistance.");
+    return;
+  }
+  if (ws.accountVerified) {
+    speech(ws, accountOverview(ws.caller));
+    return;
+  }
+  try {
+    const status = await pinStatus(ws.callerKey);
+    if (status.isLocked) {
+      await track(ws, { type: "pin_locked", success: false, errorCode: "pin_locked" });
+      speech(ws, "For your security, account PIN attempts are temporarily locked. Please wait thirty minutes, use the secure RORC website, or contact the RORC team.");
+      return;
+    }
+    ws.awaitingPin = true;
+    ws.pinDigits = "";
+    speech(ws, "For security, please enter the four digit account PIN using your keypad. I will not ask you to say it aloud.");
+  } catch (error) {
+    await track(ws, { type: "pin_status_error", success: false, error });
+    speech(ws, "Private account checks are temporarily unavailable. Please use the secure RORC website or contact the RORC team.");
+  }
+}
+
+async function handleFormIntent(ws, route) {
+  const formId = route.form_id !== "none" ? route.form_id : detectFormRequest(route.topic);
+  const form = getFormDefinition(formId);
+  if (!form) {
+    speech(ws, "Which form would you like help with: membership, facility rental, or banner sponsorship?");
+    return;
+  }
+  if (route.form_action === "guided") {
+    beginFormSession(ws, formId);
+    ws.finalOutcome = "form_started";
+    return;
+  }
+  if (route.form_action === "send_link") {
+    await sendFormLink(ws, formId);
+    ws.finalOutcome = "form_link_sent";
+    return;
+  }
+  ws.formOffer = formId;
+  await track(ws, { type: "form_offered", metadata: { formId } });
+  speech(ws, `I can text you the ${form.title} link now, or I can help fill out the basic information and then send you a secure link to review and finish. Which would you prefer?`);
+}
+
+async function handlePersonIntent(ws, question) {
+  if (!hasTransferReason(question)) {
+    ws.awaitingTransferReason = true;
+    await track(ws, { type: "transfer_screening_started" });
+    speech(ws, "I can help with most RORC questions here. What is the call regarding so I can either help you directly or prepare the right handoff?");
+    return;
+  }
+  const reply = await answerAndRemember(ws, question, "normal");
+  ws.transferOffered = true;
+  ws.transferSummary = `The caller asked for Quentin regarding: ${question.slice(0, 160)}`;
+  await track(ws, { type: "transfer_offered", metadata: { screened: true } });
+  speech(ws, `${reply} Would you still like me to connect you with Quentin?`);
+}
+
 const app = express();
 app.use((_req, res) => res.status(426).json({ error: "WebSocket upgrade required." }));
 const server = http.createServer(app);
@@ -446,13 +599,15 @@ wss.on("connection", (ws) => {
   ws.activeSpeech = "";
   ws.caller = null;
   ws.callerReady = Promise.resolve(null);
+  ws.analyticsReady = Promise.resolve(null);
+  ws.callerKey = "";
   ws.awaitingPin = false;
   ws.pinDigits = "";
   ws.accountVerified = false;
-  ws.pinAttempts = 0;
   ws.formOffer = "";
   ws.formSession = null;
   ws.awaitingTransferReason = false;
+  ws.finalOutcome = "disconnected";
   ws.on("message", async (raw) => {
     let message;
     try { message = JSON.parse(raw.toString("utf8")); } catch { return; }
@@ -465,6 +620,17 @@ wss.on("connection", (ws) => {
       ws.callSid = String(message.callSid || "");
       ws.fromNumber = String(message.from || "");
       ws.callerReady = getCallerAccount(ws.fromNumber).then((caller) => { ws.caller = caller; return caller; }).catch(() => null);
+      ws.analyticsReady = startCall({ callSid: ws.callSid, phone: ws.fromNumber, knowledgeVersion: KNOWLEDGE_VERSION })
+        .then(async (key) => {
+          ws.callerKey = key || "";
+          const caller = await ws.callerReady;
+          await updateCall(ws.callSid, { recognized: Boolean(caller && !caller.ambiguous) });
+          return key;
+        })
+        .catch((error) => {
+          console.error("RORC call analytics setup failed", error);
+          return null;
+        });
       return;
     }
     if (message.type === "interrupt") { ws.activeSpeech = ""; return; }
@@ -474,19 +640,29 @@ wss.on("connection", (ws) => {
       ws.pinDigits = `${ws.pinDigits}${digit}`.slice(0, 4);
       if (ws.pinDigits.length < 4 || ws.processing) return;
       ws.processing = true;
-      ws.pinAttempts += 1;
       try {
-        if (verifyAccountPin(ws.caller, ws.pinDigits)) {
+        const succeeded = verifyAccountPin(ws.caller, ws.pinDigits);
+        const status = await recordPinAttempt(ws.callerKey, succeeded);
+        if (succeeded) {
           ws.awaitingPin = false;
           ws.accountVerified = true;
+          ws.finalOutcome = "account_checked";
+          await updateCall(ws.callSid, { verified: true, outcome: ws.finalOutcome });
+          await track(ws, { type: "pin_verified" });
           speech(ws, accountOverview(ws.caller));
-        } else if (ws.pinAttempts >= 3) {
+        } else if (status.isLocked) {
           ws.awaitingPin = false;
-          speech(ws, "That PIN did not match. For your security, please use the RORC website or contact the RORC team for account help.");
+          await track(ws, { type: "pin_failed", success: false, errorCode: "pin_locked", metadata: { failedAttempts: status.failedAttempts } });
+          speech(ws, "That PIN did not match. For your security, account PIN attempts are locked for thirty minutes. Please use the secure RORC website or contact the RORC team for help.");
         } else {
+          await track(ws, { type: "pin_failed", success: false, errorCode: "pin_mismatch", metadata: { failedAttempts: status.failedAttempts } });
           ws.pinDigits = "";
-          speech(ws, "That PIN did not match. Please enter the four digits again using your keypad.");
+          speech(ws, `That PIN did not match. You have ${Math.max(0, 3 - status.failedAttempts)} attempts remaining. Please enter the four digits again using your keypad.`);
         }
+      } catch (error) {
+        ws.awaitingPin = false;
+        await track(ws, { type: "pin_error", success: false, error });
+        speech(ws, "Private account checks are temporarily unavailable. Please use the secure RORC website or contact the RORC team.");
       } finally { ws.pinDigits = ""; ws.processing = false; }
       return;
     }
@@ -522,53 +698,25 @@ wss.on("connection", (ws) => {
       ws.awaitingTransferReason = false;
       ws.processing = true;
       try {
-        const reply = await answer(question, ws.history);
-        ws.history.push({ role: "user", content: question }, { role: "assistant", content: reply });
-        ws.history = ws.history.slice(-10);
+        const reply = await answerAndRemember(ws, question, "normal");
         ws.transferOffered = true;
         ws.transferSummary = `The caller asked for Quentin regarding: ${question.slice(0, 160)}`;
+        await track(ws, { type: "transfer_offered", metadata: { screened: true } });
         speech(ws, `${reply} Would you still like me to connect you with Quentin?`);
       } catch (error) {
         console.error("RORC transfer screening failed", error);
+        await track(ws, { type: "transfer_screening_error", success: false, error });
         speech(ws, "Thank you. Would you like me to connect you with Quentin now?");
         ws.transferOffered = true;
       } finally { ws.processing = false; }
       return;
     }
-    if (isAccountRequest(question)) {
-      await ws.callerReady;
-      if (!ws.caller || ws.caller.ambiguous) {
-        speech(ws, "I could not securely match this number to one RORC account. Please contact the RORC team for account assistance.");
-      } else if (ws.accountVerified) {
-        speech(ws, accountOverview(ws.caller));
-      } else {
-        ws.awaitingPin = true;
-        ws.pinDigits = "";
-        speech(ws, "For security, please enter the four digit account PIN using your keypad. I will not ask you to say it aloud.");
-      }
-      return;
-    }
-    if (isSmsRequest(question)) {
-      ws.processing = true;
-      try { await sendRequestedSms(ws, question); }
-      catch (error) { console.error("RORC receptionist SMS failed", error); speech(ws, "I could not send that text right now. Please visit Ruth Obenchain R C dot com or try again later."); }
-      finally { ws.processing = false; }
-      return;
-    }
-    const requestedForm = detectFormRequest(question);
-    if (requestedForm) {
-      if (isGuidedFormChoice(question)) {
-        beginFormSession(ws, requestedForm);
-        return;
-      }
-      const form = getFormDefinition(requestedForm);
-      ws.formOffer = requestedForm;
-      speech(ws, `I can text you the ${form.title} link now, or I can help fill out the basic information and then send you a secure link to review and finish. Which would you prefer?`);
-      return;
-    }
     if (ws.transferOffered) {
       if (isYes(question)) {
         ws.transferOffered = false;
+        ws.finalOutcome = "transferred";
+        await track(ws, { type: "transfer_requested" });
+        await updateCall(ws.callSid, { outcome: ws.finalOutcome });
         ws.send(JSON.stringify({ type: "end", handoffData: JSON.stringify({ reasonCode: "approved-rorc-transfer", summary: ws.transferSummary || "The caller requested RORC staff assistance." }) }));
         return;
       }
@@ -576,29 +724,50 @@ wss.on("connection", (ws) => {
       speech(ws, "No problem. What else can I help you with?");
       return;
     }
-    if (isPersonRequest(question) && !hasTransferReason(question)) {
-      ws.awaitingTransferReason = true;
-      speech(ws, "I can help with most RORC questions here. What is the call regarding so I can either help you directly or prepare the right handoff?");
-      return;
-    }
     ws.processing = true;
     try {
-      const reply = await answer(question, ws.history);
-      ws.history.push({ role: "user", content: question }, { role: "assistant", content: reply });
-      ws.history = ws.history.slice(-10);
-      if (isPersonRequest(question)) {
-        ws.transferOffered = true;
-        ws.transferSummary = `The caller asked for Quentin regarding: ${question.slice(0, 160)}`;
-        speech(ws, `${reply} Would you like me to connect you with Quentin now?`);
-      } else if (replyNeedsHuman(reply)) {
+      const route = await routeIntent(ws, question);
+      if (route.needsClarification) {
+        speech(ws, "I want to make sure I take the right action. Are you asking for information, a text message, help with a form, private account information, or a person?");
+        return;
+      }
+      if (route.intent === "check_account") {
+        await beginAccountCheck(ws);
+        return;
+      }
+      if (route.intent === "send_information") {
+        await sendRequestedSms(ws, question);
+        ws.finalOutcome = "sms_sent";
+        return;
+      }
+      if (route.intent === "start_form") {
+        await handleFormIntent(ws, route);
+        return;
+      }
+      if (route.intent === "request_person") {
+        await handlePersonIntent(ws, question);
+        return;
+      }
+      const reply = await answerAndRemember(ws, question, route.intent === "detailed_explanation" ? "detailed" : "brief");
+      if (replyNeedsHuman(reply)) {
         ws.transferOffered = true;
         ws.transferSummary = `The website receptionist could not fully resolve: ${question.slice(0, 160)}`;
+        await track(ws, { type: "transfer_offered", metadata: { screened: false, reason: "unresolved_answer" } });
         speech(ws, `${reply} If you need personal help with that, I can try connecting you with Quentin. Would you like me to do that?`);
       } else speech(ws, reply);
     } catch (error) {
       console.error("RORC receptionist response failed", error);
+      await track(ws, { type: "request_error", success: false, error });
       speech(ws, "I'm sorry, I had trouble answering that. Please try your question again.");
     } finally { ws.processing = false; }
+  });
+  ws.on("close", () => {
+    Promise.resolve(ws.analyticsReady)
+      .then(() => updateCall(ws.callSid, { outcome: ws.finalOutcome, ended: true }))
+      .catch((error) => console.error("RORC call completion analytics failed", error));
+  });
+  ws.on("error", (error) => {
+    track(ws, { type: "websocket_error", success: false, error });
   });
 });
 

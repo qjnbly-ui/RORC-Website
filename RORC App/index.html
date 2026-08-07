@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icons/favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./app.css" />
+    <link rel="stylesheet" href="./app.css?v=20260807-receptionist" />
   </head>
   <body>
     <section id="authGate" class="auth-gate" aria-live="polite">
@@ -108,6 +108,15 @@
             <path d="M20 12h2"></path>
           </svg>
           <span>Bot Settings</span>
+        </button>
+        <button class="drawer-item" data-route="receptionistAnalytics" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 19V9"></path>
+            <path d="M10 19V5"></path>
+            <path d="M16 19v-7"></path>
+            <path d="M22 19V3"></path>
+          </svg>
+          <span>Receptionist</span>
         </button>
         <button class="drawer-item" data-route="notificationsEmail" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -589,6 +598,6 @@
 
     <script src="/scripts/rorc-supabase-client.js" defer></script>
     <script src="/scripts/rorc-password-reveal.js" defer></script>
-    <script src="./app.js?v=20260802-open-contact" defer></script>
+    <script src="./app.js?v=20260807-receptionist" defer></script>
   </body>
 </html>

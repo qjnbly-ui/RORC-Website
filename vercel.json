@@ -1,8 +1,13 @@
 {
+  "buildCommand": "npm run build:receptionist-knowledge",
   "crons": [
     {
       "path": "/api/dispatch-scheduled-member-messages",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cleanup-receptionist-data",
+      "schedule": "20 10 * * *"
     }
   ]
 }

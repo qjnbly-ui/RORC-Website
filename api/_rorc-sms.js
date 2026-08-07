@@ -40,14 +40,16 @@ async function hasConsent(phone) {
   return rows[0]?.consent_status === "opt_in";
 }
 
-async function sendSms(to, body) {
+async function sendSms(to, body, options = {}) {
   const accountSid = String(process.env.TWILIO_ACCOUNT_SID || "").trim();
   const authToken = String(process.env.TWILIO_AUTH_TOKEN || "").trim();
   const from = normalizePhone(process.env.RORC_RECEPTIONIST_NUMBER || process.env.TWILIO_FROM_NUMBER);
   const recipient = normalizePhone(to);
   if (!accountSid || !authToken || !from || !recipient) throw new Error("RORC SMS is not configured.");
   try {
-    return await twilio(accountSid, authToken).messages.create({ from, to: recipient, body: String(body || "").slice(0, 1500) });
+    const payload = { from, to: recipient, body: String(body || "").slice(0, 1500) };
+    if (options.statusCallback) payload.statusCallback = String(options.statusCallback);
+    return await twilio(accountSid, authToken).messages.create(payload);
   } catch (error) {
     const code = error?.code ? ` Twilio ${error.code}.` : "";
     const status = error?.status ? ` HTTP ${error.status}.` : "";

@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 
 const root = path.resolve(__dirname, "..");
 const sources = [
@@ -60,11 +61,37 @@ function chunks(text, max = 2800) {
   return result;
 }
 
-const pages = sources.flatMap(([route, file]) => {
-  const html = fs.readFileSync(path.join(root, file), "utf8");
-  const title = decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || route);
-  return chunks(visibleText(html)).map((text, index) => ({ route, title, index, text }));
-});
+function buildKnowledge() {
+  const pages = sources.flatMap(([route, file]) => {
+    const html = fs.readFileSync(path.join(root, file), "utf8");
+    const title = decode(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || route);
+    return chunks(visibleText(html)).map((text, index) => ({ route, title, index, text }));
+  });
+  const contentHash = crypto.createHash("sha256").update(JSON.stringify(pages)).digest("hex");
+  return { contentHash, pages };
+}
 
-fs.writeFileSync(path.join(root, "api", "rorc-site-knowledge.json"), `${JSON.stringify({ generatedAt: new Date().toISOString(), pages }, null, 2)}\n`);
-console.log(`Built ${pages.length} RORC receptionist knowledge chunks.`);
+function serializedKnowledge() {
+  return `${JSON.stringify(buildKnowledge(), null, 2)}\n`;
+}
+
+function run() {
+  const destination = path.join(root, "api", "rorc-site-knowledge.json");
+  const output = serializedKnowledge();
+  if (process.argv.includes("--check")) {
+    const current = fs.existsSync(destination) ? fs.readFileSync(destination, "utf8") : "";
+    if (current !== output) {
+      console.error("RORC receptionist knowledge is out of date. Run npm run build:receptionist-knowledge.");
+      process.exitCode = 1;
+      return;
+    }
+    console.log("RORC receptionist knowledge is current.");
+    return;
+  }
+  fs.writeFileSync(destination, output);
+  console.log(`Built ${buildKnowledge().pages.length} RORC receptionist knowledge chunks.`);
+}
+
+if (require.main === module) run();
+
+module.exports = { buildKnowledge, chunks, serializedKnowledge, visibleText };

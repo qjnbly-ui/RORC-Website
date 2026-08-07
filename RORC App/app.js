@@ -67,6 +67,7 @@ let doorAccessEntries = [];
 let notificationDispatchRecords = [];
 let memberNotifications = [];
 let adminNotes = [];
+let receptionistAnalyticsRange = "30d";
 let sponsorSubmissions = [];
 let notificationRealtimeChannel = null;
 let notificationRealtimeRetryTimer = null;
@@ -270,6 +271,7 @@ const accountManagerOnlyRoutes = new Set([
   "gymProjects",
   "advertisementBanners",
   "message",
+  "receptionistAnalytics",
   "notificationsEmail",
   "masterLogs",
   "billingPrices",
@@ -381,6 +383,11 @@ const routes = {
     title: "Bot Settings",
     template: "feedbackTemplate",
     afterRender: renderAutomationSettingsPage
+  },
+  receptionistAnalytics: {
+    title: "Receptionist",
+    template: "feedbackTemplate",
+    afterRender: renderReceptionistAnalyticsPage
   },
   notifications: {
     title: "Notifications",
@@ -2323,6 +2330,104 @@ function renderScheduledMessageActions(record) {
   return actions.length
     ? `<div class="rental-card-btn-row notification-history-actions">${actions.join("")}</div>`
     : "";
+}
+
+function receptionistMetricLabel(value) {
+  return String(value || "unknown").replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function receptionistCountRows(values, emptyLabel) {
+  const rows = Object.entries(values || {}).sort((a, b) => b[1] - a[1]);
+  if (!rows.length) return `<p class="receptionist-empty">${escapeHtml(emptyLabel)}</p>`;
+  return `<div class="receptionist-breakdown">${rows.map(([label, count]) => `
+    <div><span>${escapeHtml(receptionistMetricLabel(label))}</span><strong>${Number(count || 0).toLocaleString()}</strong></div>
+  `).join("")}</div>`;
+}
+
+async function fetchReceptionistAnalytics(range = "30d") {
+  const token = currentAuthSession?.access_token || "";
+  const response = await fetch(`/api/receptionist-analytics?range=${encodeURIComponent(range)}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw createHttpError(body.error || "Could not load receptionist analytics.", response.status);
+  return body;
+}
+
+async function renderReceptionistAnalyticsPage() {
+  if (!view) return;
+  view.innerHTML = `<section class="empty-state"><p>Loading receptionist analytics…</p></section>`;
+  try {
+    const data = await fetchReceptionistAnalytics(receptionistAnalyticsRange);
+    const summary = data.summary || {};
+    const activity = data.activity || {};
+    const latency = data.latency || {};
+    const issues = Array.isArray(data.recentIssues) ? data.recentIssues : [];
+    view.innerHTML = `
+      <section class="receptionist-analytics-shell">
+        <header class="receptionist-analytics-header">
+          <div>
+            <p class="page-kicker">AI Receptionist</p>
+            <h2>Call reliability</h2>
+            <p>Private caller wording is visible only here for seven days. PIN entries and guided-form answers are never recorded.</p>
+          </div>
+          <label>Range
+            <select id="receptionistAnalyticsRange">
+              ${["7d", "30d", "90d"].map((range) => `<option value="${range}" ${range === data.range ? "selected" : ""}>${range.replace("d", " days")}</option>`).join("")}
+            </select>
+          </label>
+        </header>
+        <div class="receptionist-metric-grid">
+          <article><span>Calls</span><strong>${Number(summary.calls || 0).toLocaleString()}</strong></article>
+          <article><span>Completed</span><strong>${Number(summary.completionRate || 0).toFixed(1)}%</strong></article>
+          <article><span>Recognized callers</span><strong>${Number(summary.recognizedCallers || 0).toLocaleString()}</strong></article>
+          <article><span>Verified accounts</span><strong>${Number(summary.verifiedAccounts || 0).toLocaleString()}</strong></article>
+          <article><span>Texts sent</span><strong>${Number(activity.textsSent || 0).toLocaleString()}</strong></article>
+          <article><span>SMS failures</span><strong>${Number(activity.smsFailures || 0).toLocaleString()}</strong></article>
+          <article><span>Forms started</span><strong>${Number(activity.formsStarted || 0).toLocaleString()}</strong></article>
+          <article><span>Transfers</span><strong>${Number(activity.transfers || 0).toLocaleString()}</strong></article>
+        </div>
+        <div class="receptionist-detail-grid">
+          <article><h3>Intent routing</h3>${receptionistCountRows(data.intents, "No routed requests in this range.")}</article>
+          <article><h3>Call outcomes</h3>${receptionistCountRows(data.outcomes, "No completed outcomes in this range.")}</article>
+          <article>
+            <h3>Performance</h3>
+            <div class="receptionist-breakdown">
+              <div><span>Router average</span><strong>${Number(latency.routeAverageMs || 0).toLocaleString()} ms</strong></div>
+              <div><span>Router p95</span><strong>${Number(latency.routeP95Ms || 0).toLocaleString()} ms</strong></div>
+              <div><span>Answer average</span><strong>${Number(latency.answerAverageMs || 0).toLocaleString()} ms</strong></div>
+              <div><span>Answer p95</span><strong>${Number(latency.answerP95Ms || 0).toLocaleString()} ms</strong></div>
+            </div>
+          </article>
+          <article>
+            <h3>Routing health</h3>
+            <div class="receptionist-breakdown">
+              <div><span>Fallbacks</span><strong>${Number(activity.routerFallbacks || 0).toLocaleString()}</strong></div>
+              <div><span>Low confidence</span><strong>${Number(activity.lowConfidence || 0).toLocaleString()}</strong></div>
+              <div><span>Form links/drafts</span><strong>${Number(activity.formsSent || 0).toLocaleString()}</strong></div>
+              <div><span>Account checks</span><strong>${Number(activity.accountChecks || 0).toLocaleString()}</strong></div>
+            </div>
+          </article>
+        </div>
+        <article class="receptionist-issues-card">
+          <h3>Recent routing issues</h3>
+          ${issues.length ? `<div class="receptionist-issues-list">${issues.map((issue) => `
+            <details>
+              <summary><span>${escapeHtml(receptionistMetricLabel(issue.intent || issue.errorCode || "Review"))}</span><time>${escapeHtml(formatDateTime(issue.at))}</time></summary>
+              <p>${escapeHtml(issue.wording)}</p>
+              <small>Confidence: ${issue.confidence === null ? "Unavailable" : Number(issue.confidence).toFixed(2)} · ${escapeHtml(issue.source || "model")}${issue.errorCode ? ` · ${escapeHtml(issue.errorCode)}` : ""}</small>
+            </details>
+          `).join("")}</div>` : `<p class="receptionist-empty">No low-confidence or fallback wording is available in this range.</p>`}
+        </article>
+      </section>
+    `;
+    document.getElementById("receptionistAnalyticsRange")?.addEventListener("change", (event) => {
+      receptionistAnalyticsRange = event.target.value;
+      renderReceptionistAnalyticsPage();
+    });
+  } catch (error) {
+    renderRouteLoadError(routes.receptionistAnalytics, error);
+  }
 }
 
 async function fetchAdminNotes({ includeArchived = false } = {}) {
