@@ -1,5 +1,6 @@
 {
   "buildCommand": "npm run build:receptionist-knowledge",
+  "outputDirectory": ".",
   "crons": [
     {
       "path": "/api/dispatch-scheduled-member-messages",
