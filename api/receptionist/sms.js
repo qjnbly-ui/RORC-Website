@@ -16,7 +16,7 @@ module.exports = async function handler(req, res) {
     await consent(from, "opt_out", "inbound_sms");
     response.message("RORC texts are disabled. Reply START to opt in again or HELP for help.");
   } else if (/^help$/i.test(body)) {
-    response.message("RORC SMS help: text START to opt in or STOP to opt out. For support, call 541-904-0428.");
+    response.message("RORC SMS help: text START to opt in or STOP to opt out. For support, call (541) 652-6065.");
   }
   return sendTwiML(res, response);
 };
