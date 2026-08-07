@@ -5,14 +5,61 @@ const { WebSocketServer, WebSocket } = require("ws");
 const { toSpeechText } = require("../_receptionist");
 const { getCallerAccount, verifyAccountPin, accountOverview } = require("../_rorc-account-phone");
 const { consent, hasConsent, sendSms } = require("../_rorc-sms");
+const siteKnowledge = require("../rorc-site-knowledge.json");
 
 const RULES = [
   "You are the warm AI receptionist for the Ruth Obenchain Recreation Center, commonly called RORC, in Bly, Oregon.",
-  "Answer only from this current knowledge: RORC is a community recreation center at 19140 Edler Street in Bly; it offers memberships, gym and open-gym access, community events, rentals, and member support. Facility hours and event availability can change, so direct callers to ruthobenchainrc.com or the RORC team when you are unsure.",
-  "Keep answers to three or four short spoken sentences. Never use markdown, bullets, raw URLs, or symbols. Say the website as Ruth Obenchain R C dot com.",
+  "Use the supplied RORC website context as the source of truth and answer as capably as someone navigating the public website for the caller.",
+  "Give a direct, useful answer before suggesting a page. Explain steps, requirements, prices, policies, hours, events, rentals, memberships, projects, sponsorships, and other public information when the context supports them.",
+  "Keep ordinary answers to three to six clear spoken sentences, but use more when needed to answer accurately. Never use markdown, bullets, raw URLs, or symbols. Say the website as Ruth Obenchain R C dot com.",
   "Do not invent prices, hours, availability, reservations, policies, or account details. Do not request passwords, payment-card details, or other sensitive information.",
-  "If the caller asks for a person, first ask what the call is about. Once they give a legitimate RORC-related reason, offer a live transfer and wait for a clear yes before transferring.",
+  "Do not mention or offer Quentin unless the caller asks for him or another person, or the supplied information is genuinely insufficient for a request requiring personal help.",
+  "Private account information is handled separately after caller recognition and keypad PIN verification.",
 ].join(" ");
+
+const STOP_WORDS = new Set("a an and are as at be by can do for from had has have how i if in is it me my of on or our that the their they this to was we what when where which who why will with you your".split(" "));
+
+function searchTerms(value) {
+  return [...new Set(String(value || "").toLowerCase().match(/[a-z0-9']{2,}/g) || [])].filter((word) => !STOP_WORDS.has(word));
+}
+
+function websiteContext(question) {
+  const terms = searchTerms(question);
+  const text = String(question || "").toLowerCase();
+  const boostedRoutes = new Set();
+  if (/\b(member|membership|join|plan|price|cost|open gym|weight room|full facility)\b/.test(text)) boostedRoutes.add("/memberships/");
+  if (/\b(rent|rental|book|booking|reservation|party|wedding|deposit|cleaning|maintenance)\b/.test(text)) boostedRoutes.add("/rentals/");
+  if (/\b(event|calendar|schedule|today|tomorrow|this week)\b/.test(text)) boostedRoutes.add("/events/");
+  if (/\b(sponsor|banner|donat|support rorc)\b/.test(text)) boostedRoutes.add("/sponsors/");
+  if (/\b(work exchange|volunteer)\b/.test(text)) boostedRoutes.add("/work-exchange/");
+  if (/\b(window|windows|history tile)\b/.test(text)) boostedRoutes.add("/windows/");
+  if (/\b(project|renovation|improvement)\b/.test(text)) boostedRoutes.add("/projects/");
+  if (/\b(history|story|about rorc|who runs)\b/.test(text)) boostedRoutes.add("/about-rorc/");
+  if (/\b(contact|phone|email|support)\b/.test(text)) boostedRoutes.add("/support/");
+  if (/\b(privacy|data|information collect)\b/.test(text)) boostedRoutes.add("/privacy-policy/");
+  if (/\b(term|policy|rules|refund|cancel)\b/.test(text)) boostedRoutes.add("/terms-of-service/");
+  const ranked = siteKnowledge.pages.map((page) => {
+    const haystack = `${page.title} ${page.route} ${page.text}`.toLowerCase();
+    const termScore = terms.reduce((total, term) => total + (haystack.includes(term) ? (page.title.toLowerCase().includes(term) ? 5 : 2) : 0), 0);
+    const score = termScore + (boostedRoutes.has(page.route) ? 20 : 0);
+    return { page, score };
+  }).sort((a, b) => b.score - a.score || a.page.index - b.page.index);
+  const selected = ranked.filter((item) => item.score > 0).slice(0, 7);
+  const fallback = selected.length ? selected : ranked.slice(0, 3);
+  return fallback.map(({ page }) => `Page ${page.title} (${page.route}): ${page.text}`).join("\n\n").slice(0, 18000);
+}
+
+async function liveWebsiteContext(question) {
+  const text = String(question || "");
+  const wantsEvents = /\b(event|calendar|schedule|today|tomorrow|this week|rental availability|available date)\b/i.test(text);
+  const wantsStatus = /\b(open|closed|hours|busy|activity|temperature|right now|currently)\b/i.test(text);
+  const requests = [];
+  if (wantsEvents) requests.push(fetch("https://www.ruthobenchainrc.com/api/events", { signal: AbortSignal.timeout(3500) }).then((response) => response.ok ? response.json() : null).catch(() => null));
+  if (wantsStatus) requests.push(fetch("https://www.ruthobenchainrc.com/api/facility-activity", { signal: AbortSignal.timeout(3500) }).then((response) => response.ok ? response.json() : null).catch(() => null));
+  if (!requests.length) return "";
+  const results = (await Promise.all(requests)).filter(Boolean);
+  return results.length ? `LIVE RORC WEBSITE DATA: ${JSON.stringify(results).slice(0, 12000)}` : "";
+}
 
 function wsUrl(req) {
   const host = String(req.headers["x-forwarded-host"] || req.headers.host || "ruthobenchainrc.com").split(",")[0].trim();
@@ -39,7 +86,16 @@ function isYes(value) {
 }
 
 function isPersonRequest(value) {
-  return /\b(talk|speak|connect|transfer|forward|put me through|reach)\b.{0,60}\b(person|human|staff|team|someone|representative|receptionist)\b|\b(person|human|staff|team|someone|representative|receptionist)\b.{0,60}\b(talk|speak|connect|transfer|reach)\b/i.test(String(value || ""));
+  return /\b(talk|speak|connect|transfer|forward|put me through|reach)\b.{0,80}\b(quentin|person|human|staff|team|someone|representative|receptionist)\b|\b(quentin|person|human|staff|team|someone|representative|receptionist)\b.{0,80}\b(talk|speak|connect|transfer|forward|reach)\b|\b(is|are)\s+(quentin|someone|staff)\s+(there|available)\b/i.test(String(value || ""));
+}
+
+function hasTransferReason(value) {
+  const text = String(value || "").trim();
+  return text.split(/\s+/).length >= 6 && /\b(membership|billing|rental|event|sponsor|project|account|issue|problem|facility|gym|access|payment|support|website|policy|reservation|personal matter)\b/i.test(text);
+}
+
+function replyNeedsHuman(value) {
+  return /\b(i (?:do not|don't) (?:have|know)|i cannot confirm|not listed in the (?:site|website|information)|contact the rorc team|requires personal assistance)\b/i.test(String(value || ""));
 }
 
 function isAccountRequest(value) {
@@ -53,10 +109,11 @@ function isSmsRequest(value) {
 async function answer(question, history) {
   const key = String(process.env.GROQ_API_KEY || "").trim();
   if (!key) return "I can help with general RORC information, but the conversational service is still being configured. Please visit Ruth Obenchain R C dot com or call the RORC team directly.";
+  const [siteContext, liveContext] = await Promise.all([Promise.resolve(websiteContext(question)), liveWebsiteContext(question)]);
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: String(process.env.GROQ_RECEPTIONIST_MODEL || "openai/gpt-oss-120b"), temperature: 0.2, max_tokens: 360, messages: [{ role: "system", content: RULES }, ...history.slice(-8), { role: "user", content: question }] }),
+    body: JSON.stringify({ model: String(process.env.GROQ_RECEPTIONIST_MODEL || "openai/gpt-oss-120b"), temperature: 0.15, max_tokens: 650, messages: [{ role: "system", content: `${RULES}\n\nCURRENT PUBLIC RORC WEBSITE CONTEXT:\n${siteContext}${liveContext ? `\n\n${liveContext}` : ""}` }, ...history.slice(-8), { role: "user", content: question }] }),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data?.error?.message || "AI response failed");
@@ -94,6 +151,7 @@ wss.on("connection", (ws) => {
   ws.pinAttempts = 0;
   ws.awaitingSmsConsent = false;
   ws.pendingSmsQuestion = "";
+  ws.awaitingTransferReason = false;
   ws.on("message", async (raw) => {
     let message;
     try { message = JSON.parse(raw.toString("utf8")); } catch { return; }
@@ -153,6 +211,23 @@ wss.on("connection", (ws) => {
       } else speech(ws, "Please say yes if you would like the requested information by text, or no if you do not.");
       return;
     }
+    if (ws.awaitingTransferReason) {
+      ws.awaitingTransferReason = false;
+      ws.processing = true;
+      try {
+        const reply = await answer(question, ws.history);
+        ws.history.push({ role: "user", content: question }, { role: "assistant", content: reply });
+        ws.history = ws.history.slice(-10);
+        ws.transferOffered = true;
+        ws.transferSummary = `The caller asked for Quentin regarding: ${question.slice(0, 160)}`;
+        speech(ws, `${reply} Would you still like me to connect you with Quentin?`);
+      } catch (error) {
+        console.error("RORC transfer screening failed", error);
+        speech(ws, "Thank you. Would you like me to connect you with Quentin now?");
+        ws.transferOffered = true;
+      } finally { ws.processing = false; }
+      return;
+    }
     if (isAccountRequest(question)) {
       await ws.callerReady;
       if (!ws.caller || ws.caller.ambiguous) {
@@ -183,16 +258,25 @@ wss.on("connection", (ws) => {
       speech(ws, "No problem. What else can I help you with?");
       return;
     }
+    if (isPersonRequest(question) && !hasTransferReason(question)) {
+      ws.awaitingTransferReason = true;
+      speech(ws, "I can help with most RORC questions here. What is the call regarding so I can either help you directly or prepare the right handoff?");
+      return;
+    }
     ws.processing = true;
     try {
       const reply = await answer(question, ws.history);
       ws.history.push({ role: "user", content: question }, { role: "assistant", content: reply });
-      ws.transferOffered = true;
-      ws.transferSummary = `The caller wants RORC assistance regarding: ${question.slice(0, 140)}`;
-      const offer = isPersonRequest(question) || /\b(speak|talk|connect|transfer)\b/i.test(question)
-        ? "Would you like me to connect you with Quentin now?"
-        : "If you would rather speak with Quentin, I can connect you with him. Would you like me to do that now?";
-      speech(ws, `${reply} ${offer}`);
+      ws.history = ws.history.slice(-10);
+      if (isPersonRequest(question)) {
+        ws.transferOffered = true;
+        ws.transferSummary = `The caller asked for Quentin regarding: ${question.slice(0, 160)}`;
+        speech(ws, `${reply} Would you like me to connect you with Quentin now?`);
+      } else if (replyNeedsHuman(reply)) {
+        ws.transferOffered = true;
+        ws.transferSummary = `The website receptionist could not fully resolve: ${question.slice(0, 160)}`;
+        speech(ws, `${reply} If you need personal help with that, I can try connecting you with Quentin. Would you like me to do that?`);
+      } else speech(ws, reply);
     } catch (error) {
       console.error("RORC receptionist response failed", error);
       speech(ws, "I'm sorry, I had trouble answering that. Please try your question again.");
@@ -201,3 +285,7 @@ wss.on("connection", (ws) => {
 });
 
 module.exports = server;
+module.exports.websiteContext = websiteContext;
+module.exports.isPersonRequest = isPersonRequest;
+module.exports.hasTransferReason = hasTransferReason;
+module.exports.replyNeedsHuman = replyNeedsHuman;

@@ -1,5 +1,6 @@
 {
   "scripts": {
+    "build:receptionist-knowledge": "node scripts/build-receptionist-knowledge.js",
     "test": "node --test tests/*.test.js",
     "rorc:create-auth-users": "node scripts/create-supabase-auth-users.js"
   },
