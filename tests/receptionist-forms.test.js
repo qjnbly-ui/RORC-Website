@@ -20,6 +20,15 @@ test("recognizes guided form choice", () => {
   assert.equal(receptionist.isGuidedFormChoice("Just send the link"), false);
 });
 
+test("answer depth scales to the caller's request across all topics", () => {
+  assert.deepEqual(receptionist.responseLimits("Is the gym available for rent?"), { maxTokens: 90, maxSentences: 2 });
+  assert.deepEqual(receptionist.responseLimits("Explain all rental requirements step by step"), { maxTokens: 600, maxSentences: 10 });
+  assert.equal(receptionist.wantsDetailedAnswer("What are the membership prices?"), false);
+  assert.equal(receptionist.wantsDetailedAnswer("Walk me through all membership requirements"), true);
+  assert.equal(receptionist.trimAnswerForQuestion("Yes, it is available. Insurance may be required. Here is every policy. Here is another rule.", "Is it available?"), "Yes, it is available. Insurance may be required.");
+  assert.equal(detectFormRequest("Is the gym available for rent?"), "");
+});
+
 test("normalizes common spoken form values without sending them to an AI model", async () => {
   assert.equal(receptionist.spokenEmail("quentin dot nichols at example dot com"), "quentin.nichols@example.com");
   assert.equal(receptionist.spokenDate("August 20th", new Date("2026-08-06T12:00:00Z")), "2026-08-20");

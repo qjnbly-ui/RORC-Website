@@ -12,8 +12,10 @@ const siteKnowledge = require("../rorc-site-knowledge.json");
 const RULES = [
   "You are the warm AI receptionist for the Ruth Obenchain Recreation Center, commonly called RORC, in Bly, Oregon.",
   "Use the supplied RORC website context as the source of truth and answer as capably as someone navigating the public website for the caller.",
-  "Give a direct, useful answer before suggesting a page. Explain steps, requirements, prices, policies, hours, events, rentals, memberships, projects, sponsorships, and other public information when the context supports them.",
-  "Keep ordinary answers to three to six clear spoken sentences, but use more when needed to answer accurately. Never use markdown, bullets, raw URLs, or symbols. Say the website as Ruth Obenchain R C dot com.",
+  "Answer only the question the caller actually asked. For a simple yes-or-no question, answer in one or two short sentences.",
+  "Give a direct, useful answer before suggesting a page. Explain steps, requirements, prices, policies, hours, events, rentals, memberships, projects, sponsorships, and other public information only when the caller asks for those details.",
+  "Do not recite an entire webpage or add unrelated requirements. For example, do not explain alcohol insurance, every rental rule, or the full application process unless the caller asks about it.",
+  "Keep ordinary answers to one to four clear spoken sentences, but use more when the caller requests detail. Never use markdown, bullets, raw URLs, or symbols. Say the website as Ruth Obenchain R C dot com.",
   "Do not invent prices, hours, availability, reservations, policies, or account details. Do not request passwords, payment-card details, or other sensitive information.",
   "Do not mention or offer Quentin unless the caller asks for him or another person, or the supplied information is genuinely insufficient for a request requiring personal help.",
   "Private account information is handled separately after caller recognition and keypad PIN verification.",
@@ -68,7 +70,7 @@ function websiteContext(question) {
 
 async function liveWebsiteContext(question) {
   const text = String(question || "");
-  const wantsEvents = /\b(event|calendar|schedule|today|tomorrow|this week|rental availability|available date)\b/i.test(text);
+  const wantsEvents = /\b(event|calendar|schedule|today|tomorrow|this week|weekend|rental availability|available date)\b|\bavailable\b.{0,40}\b(rent|rental)\b|\b(rent|rental)\b.{0,40}\bavailable\b/i.test(text);
   const wantsStatus = /\b(open|closed|hours|busy|activity|temperature|right now|currently)\b/i.test(text);
   const requests = [];
   if (wantsEvents) requests.push(fetch("https://www.ruthobenchainrc.com/api/events", { signal: AbortSignal.timeout(3500) }).then((response) => response.ok ? response.json() : null).catch(() => null));
@@ -124,6 +126,33 @@ function isSmsRequest(value) {
   return /\b(text|sms|message)\b.{0,100}\b(me|my|that|it|link|page|website|information|info|details|answer|summary|recap|directions)\b/i.test(text)
     || /\b(send|share|forward)\b.{0,100}\b(me|my phone|that|it|the link|a link|this|page|website|information|info|details|answer|summary|directions)\b/i.test(text)
     || /\b(send|share|forward)\b.{0,100}\b(link|page|website|information|info|details|directions)\b/i.test(text);
+}
+
+function wantsDetailedAnswer(value) {
+  return /\b(explain|details?|everything|all (?:the )?(?:information|rules|requirements|options)|step by step|walk me through|full process|in depth|compare|requirements|rules|polic(?:y|ies))\b/i.test(String(value || ""));
+}
+
+function isSimpleQuestion(value) {
+  return /^(?:is|are|am|can|could|do|does|did|will|would|has|have|should|may)\b/i.test(String(value || "").trim());
+}
+
+function responseLimits(question) {
+  if (wantsDetailedAnswer(question)) return { maxTokens: 600, maxSentences: 10 };
+  if (isSimpleQuestion(question)) return { maxTokens: 90, maxSentences: 2 };
+  return { maxTokens: 220, maxSentences: 4 };
+}
+
+function responseModeInstruction(question) {
+  if (wantsDetailedAnswer(question)) return "The caller explicitly requested detail. Give a focused explanation covering only that requested topic.";
+  if (isSimpleQuestion(question)) return "This is a simple direct question. Answer it immediately in no more than two short sentences. Do not add prices, rules, exceptions, application steps, insurance information, or other page content unless needed to answer the exact question.";
+  return "Give a focused answer in no more than four sentences. Include only information needed for the exact question and omit adjacent webpage content.";
+}
+
+function trimAnswerForQuestion(value, question) {
+  const clean = toSpeechText(value);
+  const sentences = clean.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [];
+  const { maxSentences } = responseLimits(question);
+  return sentences.slice(0, maxSentences).join(" ").replace(/\s+/g, " ").trim();
 }
 
 function smsDestination(question, history = []) {
@@ -318,14 +347,15 @@ async function answer(question, history) {
   const key = String(process.env.GROQ_API_KEY || "").trim();
   if (!key) return "I can help with general RORC information, but the conversational service is still being configured. Please visit Ruth Obenchain R C dot com or call the RORC team directly.";
   const [siteContext, liveContext] = await Promise.all([Promise.resolve(websiteContext(question)), liveWebsiteContext(question)]);
+  const limits = responseLimits(question);
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: String(process.env.GROQ_RECEPTIONIST_MODEL || "openai/gpt-oss-120b"), temperature: 0.15, max_tokens: 650, messages: [{ role: "system", content: `${RULES}\n\nCURRENT PUBLIC RORC WEBSITE CONTEXT:\n${siteContext}${liveContext ? `\n\n${liveContext}` : ""}` }, ...history.slice(-8), { role: "user", content: question }] }),
+    body: JSON.stringify({ model: String(process.env.GROQ_RECEPTIONIST_MODEL || "openai/gpt-oss-120b"), temperature: 0.15, max_tokens: limits.maxTokens, messages: [{ role: "system", content: `${RULES}\n\nCURRENT PUBLIC RORC WEBSITE CONTEXT:\n${siteContext}${liveContext ? `\n\n${liveContext}` : ""}\n\nQUESTION-SPECIFIC RESPONSE MODE: ${responseModeInstruction(question)}` }, ...history.slice(-8), { role: "user", content: question }] }),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data?.error?.message || "AI response failed");
-  return toSpeechText(data?.choices?.[0]?.message?.content) || "I'm sorry, I couldn't answer that right now. Please try again or contact the RORC team.";
+  return trimAnswerForQuestion(data?.choices?.[0]?.message?.content, question) || "I'm sorry, I couldn't answer that right now. Please try again or contact the RORC team.";
 }
 
 async function recordRequestedSmsConsent(ws) {
@@ -577,6 +607,9 @@ module.exports.websiteContext = websiteContext;
 module.exports.isPersonRequest = isPersonRequest;
 module.exports.hasTransferReason = hasTransferReason;
 module.exports.replyNeedsHuman = replyNeedsHuman;
+module.exports.wantsDetailedAnswer = wantsDetailedAnswer;
+module.exports.responseLimits = responseLimits;
+module.exports.trimAnswerForQuestion = trimAnswerForQuestion;
 module.exports.isSmsRequest = isSmsRequest;
 module.exports.smsDestination = smsDestination;
 module.exports.smsMessageFor = smsMessageFor;
