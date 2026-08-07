@@ -299,17 +299,13 @@ async function answer(question, history) {
   return toSpeechText(data?.choices?.[0]?.message?.content) || "I'm sorry, I couldn't answer that right now. Please try again or contact the RORC team.";
 }
 
-function requestSmsConsent(ws, action) {
-  ws.awaitingSmsConsent = true;
-  ws.pendingSmsAction = action;
-  speech(ws, "I can text that to the number you are calling from. Message and data rates may apply, and message frequency varies. Would you like me to send it? You can say stop at any time to opt out.");
+async function recordRequestedSmsConsent(ws) {
+  if (!ws.fromNumber) throw new Error("The caller phone number is unavailable.");
+  if (!(await hasConsent(ws.fromNumber))) await consent(ws.fromNumber, "opt_in", "voice_request");
 }
 
-async function sendRequestedSms(ws, question, consentConfirmed = false) {
-  if (!ws.fromNumber || (!consentConfirmed && !(await hasConsent(ws.fromNumber)))) {
-    requestSmsConsent(ws, { type: "site_information", question });
-    return;
-  }
+async function sendRequestedSms(ws, question) {
+  await recordRequestedSmsConsent(ws);
   const link = smsDestination(question, ws.history);
   const previous = priorAnswer(ws.history);
   const reply = isReferentialSmsRequest(question) && previous ? previous : await answer(question, ws.history);
@@ -318,33 +314,21 @@ async function sendRequestedSms(ws, question, consentConfirmed = false) {
   speech(ws, "Done. I texted the information and the most relevant RORC page to the number you are calling from.");
 }
 
-async function sendFormLink(ws, formId, consentConfirmed = false) {
+async function sendFormLink(ws, formId) {
   const form = getFormDefinition(formId);
   if (!form) throw new Error("Unknown RORC form.");
-  if (!ws.fromNumber || (!consentConfirmed && !(await hasConsent(ws.fromNumber)))) {
-    requestSmsConsent(ws, { type: "form_link", formId });
-    return;
-  }
+  await recordRequestedSmsConsent(ws);
   await sendSms(ws.fromNumber, `RORC ${form.title}: ${form.url}\n\nComplete and submit the form securely online. Reply STOP to opt out or HELP for help.`);
   speech(ws, `Done. I texted you the ${form.title} link.`);
 }
 
-async function sendFormDraft(ws, formId, answers, consentConfirmed = false) {
+async function sendFormDraft(ws, formId, answers) {
   const form = getFormDefinition(formId);
   if (!form) throw new Error("Unknown RORC form.");
-  if (!ws.fromNumber || (!consentConfirmed && !(await hasConsent(ws.fromNumber)))) {
-    requestSmsConsent(ws, { type: "form_draft", formId, answers });
-    return;
-  }
+  await recordRequestedSmsConsent(ws);
   const draft = await createFormDraft(formId, answers, ws.fromNumber);
   await sendSms(ws.fromNumber, `RORC ${form.title} draft: ${draft.url}\n\nReview the prefilled information, complete the remaining required sections, and submit it within 7 days. Reply STOP to opt out or HELP for help.`);
   speech(ws, `Done. I texted your prefilled ${form.title}. Please review it and finish the required sections online within seven days.`);
-}
-
-async function performSmsAction(ws, action) {
-  if (action?.type === "form_link") return sendFormLink(ws, action.formId, true);
-  if (action?.type === "form_draft") return sendFormDraft(ws, action.formId, action.answers, true);
-  return sendRequestedSms(ws, action?.question || "RORC information", true);
 }
 
 function beginFormSession(ws, formId) {
@@ -410,8 +394,6 @@ wss.on("connection", (ws) => {
   ws.pinDigits = "";
   ws.accountVerified = false;
   ws.pinAttempts = 0;
-  ws.awaitingSmsConsent = false;
-  ws.pendingSmsAction = null;
   ws.formOffer = "";
   ws.formSession = null;
   ws.awaitingTransferReason = false;
@@ -455,27 +437,6 @@ wss.on("connection", (ws) => {
     if (message.type !== "prompt" || message.last === false || ws.processing) return;
     const question = toSpeechText(message.voicePrompt).slice(0, 800);
     if (!question) return;
-    if (ws.awaitingSmsConsent) {
-      if (isYes(question)) {
-        ws.awaitingSmsConsent = false;
-        const action = ws.pendingSmsAction;
-        ws.pendingSmsAction = null;
-        ws.processing = true;
-        try {
-          await consent(ws.fromNumber, "opt_in", "voice_call");
-          await performSmsAction(ws, action);
-        } catch (error) {
-          console.error("RORC verbal SMS consent failed", error);
-          speech(ws, "I could not send that text right now. Please try again later.");
-        } finally { ws.processing = false; }
-      } else if (/^(no|nope|not now|don't|do not)[.!? ]*$/i.test(question)) {
-        const discardedDraft = ws.pendingSmsAction?.type === "form_draft";
-        ws.awaitingSmsConsent = false;
-        ws.pendingSmsAction = null;
-        speech(ws, discardedDraft ? "No problem. I will not send a text, and I discarded the form answers from this call." : "No problem. I will not send a text.");
-      } else speech(ws, "Please say yes if you would like the requested information by text, or no if you do not.");
-      return;
-    }
     if (ws.formOffer) {
       const formId = ws.formOffer;
       if (isGuidedFormChoice(question)) {

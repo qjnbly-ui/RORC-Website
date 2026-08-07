@@ -24,7 +24,7 @@ Optional variables:
 - `TWILIO_RECEPTIONIST_VOICE`
 - `GROQ_RECEPTIONIST_MODEL`
 
-The receptionist validates Twilio webhooks and answers from indexed public RORC website content, with selective live lookups for events and facility status. It screens requests for Quentin, asks what the call concerns when needed, and requires clear confirmation before transferring. For account questions, it matches the caller's number to one RORC member account and verifies the existing four-digit account PIN through keypad entry. Callers can provide SMS consent verbally during the call or by texting START. STOP and HELP are supported. Account information is read-only and the receptionist does not trigger heater controls or write call transcripts to Supabase.
+The receptionist validates Twilio webhooks and answers from indexed public RORC website content, with selective live lookups for events and facility status. It screens requests for Quentin, asks what the call concerns when needed, and requires clear confirmation before transferring. For account questions, it matches the caller's number to one RORC member account and verifies the existing four-digit account PIN through keypad entry. When a caller explicitly requests a text/link or chooses guided form help after being told a link will be sent, that request is recorded as voice consent and the receptionist sends without asking for a second confirmation. It then says what it sent. START, STOP, and HELP remain supported by text. Account information is read-only and the receptionist does not trigger heater controls or write call transcripts to Supabase.
 
 ## Guided forms
 
