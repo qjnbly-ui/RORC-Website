@@ -55,8 +55,9 @@ function getFormDefinition(formId) {
 function detectFormRequest(value) {
   const text = String(value || "").toLowerCase();
   if (/\bi (?:want|would like|need) to (?:become a |renew my )?(?:sponsor|sponsorship)\b/.test(text)) return "sponsor";
-  if (/\bi (?:want|would like|need) to rent\b|\bbook (?:the |a )?(?:gym|facility|center)\b/.test(text)) return "rental";
+  if (/\bi(?:'d| would) like to rent\b|\bi (?:want|would like|need) to rent\b|\bbook (?:the |a )?(?:gym|facility|center)\b/.test(text)) return "rental";
   if (/\b(sponsor|sponsorship|banner)\b.{0,80}\b(form|apply|application|sign ?up|fill|submit|renew)\b|\b(form|apply|application|sign ?up|fill|submit|renew)\b.{0,80}\b(sponsor|sponsorship|banner)\b/.test(text)) return "sponsor";
+  if (!/\b(price|pricing|cost|how much)\b/.test(text) && /\b(help|guide|walk|step by step)\b.{0,100}\b(rent|rental|book|reserve|facility application|rental application|rental form)\b|\b(rent|rental|book|reserve|facility application|rental application|rental form)\b.{0,100}\b(help|guide|walk|step by step)\b/.test(text)) return "rental";
   if (/\b(rent|rental|reservation|book|booking|event)\b.{0,80}\b(form|apply|application|request|reserve|book|fill|submit)\b|\b(form|apply|application|request|reserve|book|fill|submit)\b.{0,80}\b(rent|rental|facility|event)\b/.test(text)) return "rental";
   if (/\b(member|membership|join|enroll)\b.{0,80}\b(form|apply|application|sign ?up|join|enroll|fill|submit)\b|\b(form|apply|application|sign ?up|join|enroll|fill|submit)\b.{0,80}\b(member|membership|rorc)\b|^i (?:want|would like) to join\b/.test(text)) return "membership";
   return "";

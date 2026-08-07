@@ -7,8 +7,12 @@ const { tokenHash, sanitizedAnswers } = require("../api/_rorc-form-drafts");
 test("detects all public RORC form requests", () => {
   assert.equal(detectFormRequest("I want to join RORC"), "membership");
   assert.equal(detectFormRequest("I would like to rent the facility"), "rental");
+  assert.equal(detectFormRequest("Can you help me with a rental?"), "rental");
+  assert.equal(detectFormRequest("Guide me step by step through the rental application"), "rental");
+  assert.equal(detectFormRequest("I'd like to rent the gym"), "rental");
   assert.equal(detectFormRequest("Help me renew my sponsorship"), "sponsor");
   assert.equal(detectFormRequest("How much is a membership?"), "");
+  assert.equal(detectFormRequest("Can you help me understand rental pricing?"), "");
 });
 
 test("recognizes guided form choice", () => {

@@ -527,6 +527,10 @@ wss.on("connection", (ws) => {
     }
     const requestedForm = detectFormRequest(question);
     if (requestedForm) {
+      if (isGuidedFormChoice(question)) {
+        beginFormSession(ws, requestedForm);
+        return;
+      }
       const form = getFormDefinition(requestedForm);
       ws.formOffer = requestedForm;
       speech(ws, `I can text you the ${form.title} link now, or I can help fill out the basic information and then send you a secure link to review and finish. Which would you prefer?`);
