@@ -136,7 +136,9 @@ const communicationsState = {
   preferenceFilter: "opt_out",
   preferenceSearch: "",
   preferencesLoading: false,
-  preferencesLoadedAt: 0
+  preferencesLoadedAt: 0,
+  contactPickerOpen: false,
+  contactPickerIndex: -1
 };
 let sponsorSubmissions = [];
 let kioskBroadcastChannel = null;
@@ -2794,12 +2796,107 @@ function updateCommunicationsBadge() {
   badge.textContent = unread > 99 ? "99+" : String(unread || "");
 }
 
-function communicationsContactOptions() {
-  return communicationsContacts().map((contact) => `
-    <option value="${escapeAttribute(formatCommunicationsPhone(contact.phone))}">${escapeHtml(contact.name)}</option>
-  `).join("");
+function filteredCommunicationsContacts(query = "") {
+  const search = String(query || "").trim().toLowerCase();
+  if (!search) return communicationsContacts();
+  const digits = search.replace(/\D/g, "");
+  return communicationsContacts().filter((contact) => {
+    const phone = formatCommunicationsPhone(contact.phone);
+    return contact.name.toLowerCase().includes(search) || phone.toLowerCase().includes(search)
+      || (digits && contact.phone.replace(/\D/g, "").includes(digits));
+  });
 }
 
+function renderCommunicationsContactPicker() {
+  const picker = document.getElementById("communicationsRecipientPicker");
+  const input = document.getElementById("communicationsNewPhone");
+  const toggle = document.getElementById("communicationsRecipientToggle");
+  const list = document.getElementById("communicationsContactList");
+  if (!picker || !input || !toggle || !list) return;
+  const contacts = filteredCommunicationsContacts(input.value);
+  const open = communicationsState.contactPickerOpen;
+  communicationsState.contactPickerIndex = Math.min(communicationsState.contactPickerIndex, Math.max(-1, contacts.length - 1));
+  list.hidden = !open;
+  input.setAttribute("aria-expanded", String(open));
+  toggle.setAttribute("aria-expanded", String(open));
+  toggle.classList.toggle("is-open", open);
+  if (!open) { input.removeAttribute("aria-activedescendant"); return; }
+  if (!contacts.length) {
+    list.innerHTML = `<p class="communications-contact-empty">No matching RORC contacts. You can still enter a phone number.</p>`;
+    input.removeAttribute("aria-activedescendant");
+    return;
+  }
+  list.innerHTML = contacts.map((contact, index) => `
+    <button class="communications-contact-option ${index === communicationsState.contactPickerIndex ? "is-highlighted" : ""}" id="communicationsContactOption${index}" data-communications-contact="${escapeAttribute(contact.phone)}" type="button" role="option" aria-selected="${index === communicationsState.contactPickerIndex}">
+      <span class="communications-contact-avatar" aria-hidden="true">${escapeHtml(contact.name.charAt(0).toUpperCase() || "#")}</span>
+      <span><strong>${escapeHtml(contact.name)}</strong><small>${escapeHtml(formatCommunicationsPhone(contact.phone))}</small></span>
+    </button>
+  `).join("");
+  const highlighted = list.querySelector(".is-highlighted");
+  if (highlighted) { input.setAttribute("aria-activedescendant", highlighted.id); highlighted.scrollIntoView({ block: "nearest" }); }
+  else input.removeAttribute("aria-activedescendant");
+  list.querySelectorAll("[data-communications-contact]").forEach((button) => {
+    button.addEventListener("pointerdown", (event) => event.preventDefault());
+    button.addEventListener("click", () => selectCommunicationsContact(button.dataset.communicationsContact));
+  });
+}
+
+function setCommunicationsContactPickerOpen(open) {
+  communicationsState.contactPickerOpen = Boolean(open);
+  if (!open) communicationsState.contactPickerIndex = -1;
+  renderCommunicationsContactPicker();
+}
+
+function selectCommunicationsContact(phone) {
+  const normalized = normalizeCommunicationsPhone(phone);
+  const input = document.getElementById("communicationsNewPhone");
+  if (!normalized || !input) return;
+  communicationsState.draftPhone = normalized;
+  input.value = formatCommunicationsPhone(normalized);
+  setCommunicationsContactPickerOpen(false);
+  input.focus();
+}
+
+function bindCommunicationsContactPicker() {
+  const picker = document.getElementById("communicationsRecipientPicker");
+  const input = document.getElementById("communicationsNewPhone");
+  const toggle = document.getElementById("communicationsRecipientToggle");
+  if (!picker || !input || !toggle) return;
+  input.addEventListener("focus", () => setCommunicationsContactPickerOpen(true));
+  input.addEventListener("input", () => {
+    communicationsState.draftPhone = input.value;
+    communicationsState.contactPickerOpen = true;
+    communicationsState.contactPickerIndex = -1;
+    renderCommunicationsContactPicker();
+  });
+  input.addEventListener("keydown", (event) => {
+    const contacts = filteredCommunicationsContacts(input.value);
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      communicationsState.contactPickerOpen = true;
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      communicationsState.contactPickerIndex = contacts.length ? (communicationsState.contactPickerIndex + direction + contacts.length) % contacts.length : -1;
+      renderCommunicationsContactPicker();
+      return;
+    }
+    if (event.key === "Escape") { event.preventDefault(); setCommunicationsContactPickerOpen(false); return; }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const selected = contacts[communicationsState.contactPickerIndex];
+      if (communicationsState.contactPickerOpen && selected) selectCommunicationsContact(selected.phone);
+      else beginCommunicationConversation();
+    }
+  });
+  toggle.addEventListener("click", () => {
+    const shouldOpen = !communicationsState.contactPickerOpen;
+    setCommunicationsContactPickerOpen(shouldOpen);
+    input.focus();
+  });
+  picker.addEventListener("focusout", () => window.setTimeout(() => {
+    if (!picker.contains(document.activeElement)) setCommunicationsContactPickerOpen(false);
+  }, 0));
+  renderCommunicationsContactPicker();
+}
 function communicationStatusLabel(message) {
   if (message.direction !== "outbound") return "";
   if (message.status === "delivered") return "Delivered";
@@ -3241,13 +3338,18 @@ async function renderCommunicationsPage() {
           <button class="${preferencesActive ? "is-active" : ""}" data-communications-tab="preferences" type="button" role="tab" aria-selected="${preferencesActive}">Text Preferences${communicationsState.preferenceSummary.optedOut ? ` <span class="communications-tab-count">${communicationsState.preferenceSummary.optedOut}</span>` : ""}</button>
         </div>
       </header>
-      <datalist id="communicationsContacts">${communicationsContactOptions()}</datalist>
       <p class="communications-page-status" id="communicationsPageStatus" aria-live="polite"></p>
       ${messagesActive ? `
         <div class="communications-new-row">
           <label for="communicationsNewPhone">Start a conversation</label>
           <div>
-            <input id="communicationsNewPhone" type="tel" inputmode="tel" list="communicationsContacts" value="${escapeAttribute(formatCommunicationsPhone(communicationsState.draftPhone))}" placeholder="Phone number or member" autocomplete="off" />
+            <div class="communications-recipient-picker" id="communicationsRecipientPicker">
+              <div class="communications-recipient-control">
+                <input id="communicationsNewPhone" type="search" inputmode="search" value="${escapeAttribute(formatCommunicationsPhone(communicationsState.draftPhone))}" placeholder="Search member or enter phone number" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="communicationsContactList" aria-expanded="false" />
+                <button class="communications-recipient-toggle" id="communicationsRecipientToggle" type="button" aria-label="Show RORC contacts" aria-controls="communicationsContactList" aria-expanded="false"><span aria-hidden="true">⌄</span></button>
+              </div>
+              <div class="communications-contact-list" id="communicationsContactList" role="listbox" aria-label="RORC contacts" hidden></div>
+            </div>
             <button id="communicationsNewButton" type="button">Open</button>
           </div>
         </div>
@@ -3266,9 +3368,7 @@ async function renderCommunicationsPage() {
   });
   if (messagesActive) {
     document.getElementById("communicationsNewButton")?.addEventListener("click", beginCommunicationConversation);
-    document.getElementById("communicationsNewPhone")?.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") beginCommunicationConversation();
-    });
+    bindCommunicationsContactPicker();
     renderCommunicationsThreadList();
     renderCommunicationConversation();
     startCommunicationsPolling();
