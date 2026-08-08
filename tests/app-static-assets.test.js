@@ -130,10 +130,10 @@ test("Vercel builds all generated assets and applies explicit static cache heade
   const config = JSON.parse(read("vercel.json"));
   assert.equal(config.buildCommand, "npm run vercel-build");
 
-  const versionedApp = config.headers.find((rule) => rule.source === "/RORC App/(.*)" && rule.has?.[0]?.key === "v");
+  const versionedApp = config.headers.find((rule) => rule.source === "/RORC%20App/(.*)" && rule.has?.[0]?.key === "v");
   const versionedScripts = config.headers.find((rule) => rule.source === "/scripts/(.*)" && rule.has?.[0]?.key === "v");
-  const indexHeader = config.headers.find((rule) => rule.source === "/RORC App/index.html");
-  const workerHeader = config.headers.find((rule) => rule.source === "/RORC App/sw.js");
+  const indexHeader = config.headers.find((rule) => rule.source === "/RORC%20App/index.html");
+  const workerHeader = config.headers.find((rule) => rule.source === "/RORC%20App/sw.js");
 
   assert.equal(versionedApp.headers[0].value, "public, max-age=31536000, immutable");
   assert.equal(versionedScripts.headers[0].value, "public, max-age=31536000, immutable");

@@ -4,7 +4,7 @@
   "outputDirectory": ".",
   "headers": [
     {
-      "source": "/RORC App/(.*)",
+      "source": "/RORC%20App/(.*)",
       "has": [
         {
           "type": "query",
@@ -34,7 +34,7 @@
       ]
     },
     {
-      "source": "/RORC App",
+      "source": "/RORC%20App",
       "headers": [
         {
           "key": "Cache-Control",
@@ -43,7 +43,7 @@
       ]
     },
     {
-      "source": "/RORC App/",
+      "source": "/RORC%20App/",
       "headers": [
         {
           "key": "Cache-Control",
@@ -52,7 +52,7 @@
       ]
     },
     {
-      "source": "/RORC App/index.html",
+      "source": "/RORC%20App/index.html",
       "headers": [
         {
           "key": "Cache-Control",
@@ -61,7 +61,7 @@
       ]
     },
     {
-      "source": "/RORC App/sw.js",
+      "source": "/RORC%20App/sw.js",
       "headers": [
         {
           "key": "Cache-Control",
