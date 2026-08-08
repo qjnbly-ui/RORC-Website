@@ -2604,8 +2604,19 @@ function communicationsContacts() {
   return [...byPhone.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function communicationContactForPhone(phone) {
+  const normalized = normalizeCommunicationsPhone(phone);
+  return normalized
+    ? communicationsContacts().find((contact) => contact.phone === normalized) || null
+    : null;
+}
+
+function communicationRecipientValue(phone = communicationsState.draftPhone) {
+  return communicationContactForPhone(phone)?.name || formatCommunicationsPhone(phone);
+}
+
 function communicationThreadName(thread) {
-  return thread?.contact?.name || communicationsContacts().find((contact) => contact.phone === thread?.phone)?.name || formatCommunicationsPhone(thread?.phone) || "New conversation";
+  return thread?.contact?.name || communicationContactForPhone(thread?.phone)?.name || formatCommunicationsPhone(thread?.phone) || "New conversation";
 }
 
 function communicationsAuthHeaders(json = false) {
@@ -2861,7 +2872,7 @@ function selectCommunicationsContact(phone) {
   const input = document.getElementById("communicationsNewPhone");
   if (!normalized || !input) return;
   communicationsState.draftPhone = normalized;
-  input.value = formatCommunicationsPhone(normalized);
+  input.value = communicationRecipientValue(normalized);
   input.focus();
   setCommunicationsContactPickerOpen(false);
 }
@@ -2962,7 +2973,7 @@ function renderCommunicationConversation() {
     `;
     return;
   }
-  const name = thread ? communicationThreadName(thread) : formatCommunicationsPhone(phone);
+  const name = thread ? communicationThreadName(thread) : communicationContactForPhone(phone)?.name || formatCommunicationsPhone(phone);
   container.innerHTML = `
     <header class="communications-conversation-header">
       <div>
@@ -3013,6 +3024,8 @@ async function selectCommunicationThread(threadId) {
   if (!thread) return;
   communicationsState.selectedThreadId = thread.id;
   communicationsState.draftPhone = thread.phone;
+  const recipientInput = document.getElementById("communicationsNewPhone");
+  if (recipientInput) recipientInput.value = communicationRecipientValue(thread.phone);
   communicationsState.messages = [];
   renderCommunicationsThreadList();
   renderCommunicationConversation();
@@ -3069,7 +3082,10 @@ async function refreshCommunicationThreads({ initial = false } = {}) {
 
 function beginCommunicationConversation() {
   const input = document.getElementById("communicationsNewPhone");
-  const phone = normalizeCommunicationsPhone(input?.value);
+  const inputValue = String(input?.value || "").trim();
+  const selectedContact = communicationContactForPhone(communicationsState.draftPhone);
+  const phone = normalizeCommunicationsPhone(inputValue)
+    || (selectedContact?.name === inputValue ? selectedContact.phone : "");
   const status = document.getElementById("communicationsPageStatus");
   if (!phone) {
     if (status) {
@@ -3354,7 +3370,7 @@ async function renderCommunicationsPage() {
           <div>
             <div class="communications-recipient-picker" id="communicationsRecipientPicker">
               <div class="communications-recipient-control">
-                <input id="communicationsNewPhone" type="search" inputmode="search" value="${escapeAttribute(formatCommunicationsPhone(communicationsState.draftPhone))}" placeholder="Search member or enter phone number" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="communicationsContactList" aria-expanded="false" />
+                <input id="communicationsNewPhone" type="search" inputmode="search" value="${escapeAttribute(communicationRecipientValue())}" placeholder="Search member or enter phone number" autocomplete="off" role="combobox" aria-autocomplete="list" aria-controls="communicationsContactList" aria-expanded="false" />
                 <button class="communications-recipient-toggle" id="communicationsRecipientToggle" type="button" aria-label="Show RORC contacts" aria-controls="communicationsContactList" aria-expanded="false"><span aria-hidden="true">⌄</span></button>
               </div>
               <div class="communications-contact-list" id="communicationsContactList" role="listbox" aria-label="RORC contacts" hidden></div>

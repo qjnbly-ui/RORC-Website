@@ -117,7 +117,7 @@ test("service worker caches only versioned static assets and performs one update
   assert.ok(version > 66);
   assert.doesNotMatch(html, /20260808-text-preferences/);
   assert.match(html, /app\.css\?v=20260808-contact-picker-status/);
-  assert.match(html, /app\.js\?v=20260808-contact-picker-status/);
+  assert.match(html, /app\.js\?v=20260808-contact-picker-name/);
   assert.doesNotMatch(source, /app\.config\.js|twilio-voice\.min\.js/);
   versionedAssets.forEach((asset) => assert.match(source, new RegExp(asset.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
   assert.match(source, /url\.pathname\.startsWith\("\/api\/"\)/);
@@ -137,8 +137,41 @@ test("communications uses a branded contact picker with membership status", () =
   assert.match(source, /role="combobox"/);
   assert.match(source, /communications-contact-status/);
   assert.match(source, /accountTypeTone\(contact\.accountType\)/);
+  assert.match(source, /function communicationRecipientValue\(phone = communicationsState\.draftPhone\)/);
+  assert.match(source, /input\.value = communicationRecipientValue\(normalized\)/);
+  assert.match(source, /communicationContactForPhone\(phone\)\?\.name \|\| formatCommunicationsPhone\(phone\)/);
   assert.match(css, /\.communications-contact-list\s*\{/);
   assert.match(css, /\.communications-contact-status \.status-dot/);
+});
+
+test("selected communications contacts keep their name in search and chat", () => {
+  const source = read("RORC App/app.js");
+  const helperSource = source.slice(
+    source.indexOf("function normalizeCommunicationsPhone"),
+    source.indexOf("function communicationsAuthHeaders")
+  );
+  const context = {
+    accountMembers: [],
+    globalMemberDirectory: [{
+      memberName: "Quentin Nichols",
+      phoneNumber: "(619) 882-3030",
+      accountType: "Active Membership"
+    }],
+    communicationsState: { draftPhone: "+16198823030" },
+    canonicalAccountType: (value) => value
+  };
+
+  vm.runInNewContext(helperSource, context);
+
+  assert.equal(context.communicationRecipientValue(), "Quentin Nichols");
+  assert.equal(
+    context.communicationContactForPhone("(619) 882-3030").name,
+    "Quentin Nichols"
+  );
+  assert.equal(
+    context.communicationThreadName({ phone: "+16198823030" }),
+    "Quentin Nichols"
+  );
 });
 
 test("mobile form actions clear the bottom navigation and device safe area", () => {
