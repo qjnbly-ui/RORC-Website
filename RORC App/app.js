@@ -13399,7 +13399,10 @@ function bindMemberPickers() {
   });
 }
 
-function formatDateTime(date) {
+function formatDateTime(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown date";
+
   return new Intl.DateTimeFormat("en-US", {
     month: "2-digit",
     day: "2-digit",
