@@ -269,10 +269,10 @@ function buildTextMessageBody(title, message) {
 
 function buildScheduledMessageEmails(recipients, subject, message) {
   const safeSubject = escapeHtml(subject);
-  const safeMessage = escapeHtml(message).replaceAll("\n", "<br />");
+  const safeMessage = escapeHtml(message);
   const html = buildEmailTemplate({
     title: safeSubject,
-    bodyHtml: `<p style="margin:0;color:#d1d5db;line-height:1.65;font-size:16px;text-align:center;">${safeMessage}</p>`
+    bodyHtml: `<div style="margin:0;color:#d1d5db;line-height:1.65;font-size:16px;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;">${safeMessage}</div>`
   });
   return (recipients || []).map((to) => ({
       from: RESEND_FROM_EMAIL,

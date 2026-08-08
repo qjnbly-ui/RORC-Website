@@ -523,7 +523,7 @@ const routes = {
     afterRender: renderBillingPricesPage
   },
   messageCompose: {
-    title: "Message Data Form",
+    title: "New Announcement",
     template: "feedbackTemplate",
     formRoute: true,
     returnRoute: "notificationsEmail",
@@ -2370,17 +2370,35 @@ async function renderNotificationsPage() {
     if (historyFilter === "email") return Boolean(channels.email);
     return true;
   });
+  const scheduledCount = allRecords.filter((record) => ["scheduled", "processing"].includes(record.scheduledStatus)).length;
+  const attentionCount = allRecords.filter((record) => record.scheduledStatus === "failed" || record.warnings?.length).length;
 
   root.innerHTML = `
-    <section class="live-record-page">
-      <header class="account-page-heading">
+    <section class="announcements-page">
+      <header class="announcements-header">
         <div>
-          <p class="eyebrow">Sent Messages</p>
-          <h2>Message History</h2>
+          <p class="eyebrow">Member Communications</p>
+          <h2>Announcements</h2>
+          <p>Send one clear update across text, email, and the RORC app.</p>
         </div>
+        <button class="announcements-new-button" type="button" data-announcement-new>
+          <span aria-hidden="true">+</span>
+          New announcement
+        </button>
       </header>
-      <div class="detail-card">
-        <div class="notification-history-tabs master-logs-tabs" role="tablist" aria-label="Message history channels">
+
+      <div class="announcements-overview" aria-label="Announcement summary">
+        <div><strong>${allRecords.length}</strong><span>Recent</span></div>
+        <div><strong>${scheduledCount}</strong><span>Scheduled</span></div>
+        <div><strong>${attentionCount}</strong><span>Needs attention</span></div>
+      </div>
+
+      <div class="announcements-toolbar">
+        <div>
+          <p class="eyebrow">History</p>
+          <h3>${historyFilter === "all" ? "All announcements" : `${historyFilter === "in_app" ? "In-App" : historyFilter[0].toUpperCase() + historyFilter.slice(1)} announcements`}</h3>
+        </div>
+        <div class="notification-history-tabs" role="tablist" aria-label="Message history channels">
           <button class="notification-history-tab master-logs-tab ${historyFilter === "all" ? "is-active" : ""}" data-notification-history-filter="all" type="button">All</button>
           <button class="notification-history-tab master-logs-tab ${historyFilter === "in_app" ? "is-active" : ""}" data-notification-history-filter="in_app" type="button">In-App</button>
           <button class="notification-history-tab master-logs-tab ${historyFilter === "text" ? "is-active" : ""}" data-notification-history-filter="text" type="button">Text</button>
@@ -2388,34 +2406,44 @@ async function renderNotificationsPage() {
         </div>
       </div>
       ${records.length ? `
-      <div class="detail-card">
-        <ol class="record-list heater-record-list">
+      <div class="announcements-history">
+        <div class="announcements-history-head" aria-hidden="true">
+          <span>Announcement</span><span>Audience &amp; channels</span><span>Status</span><span>Date</span>
+        </div>
+        <ol class="announcements-history-list">
           ${records.map((record) => `
             <li data-notification-item="${escapeAttribute(record.id)}">
-              <strong class="heater-record-event">${escapeHtml(record.title)}</strong>
-              <span class="heater-record-meta">${escapeHtml(formatNotificationHistoryMeta(record))}</span>
-              <button class="heater-state-action is-paid" type="button" disabled>${escapeHtml(record.statusLabel)}</button>
-              <p class="heater-record-message">${escapeHtml(record.message || "")}</p>
+              <div class="announcement-history-message">
+                <strong>${escapeHtml(record.title)}</strong>
+                <p>${escapeHtml(record.message || "")}</p>
+              </div>
+              <div class="announcement-history-audience">
+                <strong>${escapeHtml(record.recipientsLabel)}</strong>
+                <span>${escapeHtml(record.channelsLabel)}</span>
+              </div>
+              <div class="announcement-history-status ${record.scheduledStatus === "failed" || record.warnings?.length ? "is-warning" : ""}">
+                <span aria-hidden="true"></span>
+                ${escapeHtml(record.statusLabel)}
+              </div>
+              <time datetime="${escapeAttribute(record.createdAt)}">${escapeHtml(formatShortDateTime(record.createdAt))}</time>
               ${renderScheduledMessageActions(record)}
             </li>
           `).join("")}
         </ol>
       </div>
       ` : `
-      <section class="empty-state">
-        <p>No messages sent yet.</p>
+      <section class="announcements-empty">
+        <h3>No announcements here yet</h3>
+        <p>Create an announcement or choose a different channel filter.</p>
+        <button type="button" data-announcement-new>Create announcement</button>
       </section>
       `}
-      <button class="heater-fab message-fab" type="button" aria-label="Create new message">
-        <span class="heater-fab-label">New</span>
-        <span class="heater-fab-icon" aria-hidden="true">+</span>
-      </button>
     </section>
   `;
 
-  document.querySelector(".message-fab")?.addEventListener("click", () => {
+  document.querySelectorAll("[data-announcement-new]").forEach((button) => button.addEventListener("click", () => {
     render("messageCompose");
-  });
+  }));
   bindNotificationHistoryFilters();
 
   bindScheduledMessageActions();
@@ -5488,58 +5516,107 @@ function renderMessageComposerPage() {
   const localNow = toFacilityDatetimeLocalValue(new Date().toISOString());
 
   root.innerHTML = `
-    <form id="messageComposerForm" class="form-screen message-composer-screen" autocomplete="off">
-      <div class="form-card">
-        <label>
-          <span>Title<mark>*</mark></span>
-          <input id="messageTitle" type="text" required />
-        </label>
-
-        <div class="segmented-field">
-          <span>Delivery Channels</span>
-          <div class="segmented-control" data-multi-select="true">
-            <button id="messageChannelText" class="segment" type="button" aria-pressed="false">Text</button>
-            <button id="messageChannelEmail" class="segment" type="button" aria-pressed="false">Email</button>
-            <button id="messageChannelInApp" class="segment" type="button" aria-pressed="false">In-App</button>
-          </div>
+    <form id="messageComposerForm" class="announcement-composer" autocomplete="off">
+      <header class="announcement-composer-header">
+        <button class="announcement-back-button" data-route-target="notificationsEmail" type="button" aria-label="Back to announcements">
+          <span aria-hidden="true">&#8592;</span>
+        </button>
+        <div>
+          <p class="eyebrow">New Announcement</p>
+          <h2>Write once. Reach everyone.</h2>
+          <p>Compose a clear update, choose where it should appear, then review every version before delivery.</p>
         </div>
+      </header>
 
-        <label>
-          <span>To Members<mark>*</mark></span>
-          <input id="messageMembers" class="member-picker-value" type="hidden" required />
-          <button
-            id="messageMembersPicker"
-            class="member-picker-button multi-member-picker-button"
-            data-member-multi-picker="messageMembers"
-            data-member-picker-source="memberSignIn"
-            data-member-picker-placeholder="Select members"
-            data-member-picker-title="To Members"
-            type="button"
-          >
-            <span class="member-picker-selected">
-              <span class="member-picker-placeholder">Select members</span>
-            </span>
-            <span class="member-picker-plus" aria-hidden="true">+</span>
-          </button>
-        </label>
-        <p id="messageRecipientSummary" class="auth-message">No members selected.</p>
+      <div class="announcement-composer-grid">
+        <main class="announcement-editor">
+          <div class="announcement-section-heading">
+            <span>01</span>
+            <div><h3>Write your message</h3><p>Formatting and blank lines are preserved in email.</p></div>
+          </div>
+          <label class="announcement-field">
+            <span>Subject <mark>*</mark></span>
+            <input id="messageTitle" type="text" maxlength="180" placeholder="A short, useful headline" required />
+          </label>
+          <label class="announcement-field announcement-body-field">
+            <span>Message <mark>*</mark></span>
+            <textarea id="messageBody" rows="14" wrap="soft" placeholder="Hello everyone,&#10;&#10;Write your update here. Use blank lines and dashes to make longer announcements easy to scan.&#10;&#10;Thank you,&#10;Ruth Obenchain Recreation Center" required></textarea>
+          </label>
+          <div class="announcement-editor-meta">
+            <span id="messageBodyStats">0 characters</span>
+            <span>Plain text · line breaks preserved</span>
+          </div>
+        </main>
 
-        <label>
-          <span>Message<mark>*</mark></span>
-          <textarea id="messageBody" required></textarea>
-        </label>
+        <aside class="announcement-delivery">
+          <section>
+            <div class="announcement-section-heading">
+              <span>02</span>
+              <div><h3>Choose your audience</h3><p>Select one or more active members.</p></div>
+            </div>
+            <input id="messageMembers" class="member-picker-value" type="hidden" required />
+            <button
+              id="messageMembersPicker"
+              class="member-picker-button multi-member-picker-button"
+              data-member-multi-picker="messageMembers"
+              data-member-picker-source="memberSignIn"
+              data-member-picker-placeholder="Select members"
+              data-member-picker-title="To Members"
+              type="button"
+            >
+              <span class="member-picker-selected">
+                <span class="member-picker-placeholder">Select members</span>
+              </span>
+              <span class="member-picker-plus" aria-hidden="true">+</span>
+            </button>
+            <p id="messageRecipientSummary" class="announcement-inline-summary">No members selected.</p>
+          </section>
 
-        <label>
-          <span>Time & Date (Pacific)</span>
-          <input id="messageSendAt" type="datetime-local" value="${escapeAttribute(localNow)}" />
-        </label>
+          <section>
+            <div class="announcement-section-heading">
+              <span>03</span>
+              <div><h3>Delivery channels</h3><p>Send through any combination.</p></div>
+            </div>
+            <div class="announcement-channel-list" data-multi-select="true">
+              <button id="messageChannelText" class="announcement-channel" type="button" aria-pressed="false">
+                <span class="announcement-channel-icon" aria-hidden="true">T</span>
+                <span><strong>Text message</strong><small>Direct to saved mobile numbers</small></span>
+                <span class="announcement-channel-check" aria-hidden="true">&#10003;</span>
+              </button>
+              <button id="messageChannelEmail" class="announcement-channel" type="button" aria-pressed="false">
+                <span class="announcement-channel-icon" aria-hidden="true">E</span>
+                <span><strong>Email</strong><small>Full layout with subject and footer</small></span>
+                <span class="announcement-channel-check" aria-hidden="true">&#10003;</span>
+              </button>
+              <button id="messageChannelInApp" class="announcement-channel" type="button" aria-pressed="false">
+                <span class="announcement-channel-icon" aria-hidden="true">A</span>
+                <span><strong>In-App</strong><small>Stored in member notifications</small></span>
+                <span class="announcement-channel-check" aria-hidden="true">&#10003;</span>
+              </button>
+            </div>
+          </section>
 
+          <section>
+            <div class="announcement-section-heading">
+              <span>04</span>
+              <div><h3>Delivery time</h3><p>Times use the Pacific time zone.</p></div>
+            </div>
+            <label class="announcement-field">
+              <span>Send now or schedule</span>
+              <input id="messageSendAt" type="datetime-local" value="${escapeAttribute(localNow)}" />
+            </label>
+            <button id="messageSendNow" class="announcement-send-now" type="button">Reset to send now</button>
+          </section>
+        </aside>
+      </div>
+
+      <footer class="announcement-composer-actions">
         <p id="messageComposerResult" class="auth-message" aria-live="polite"></p>
-      </div>
-      <div class="form-actions">
-        <button class="text-action" data-route-target="notificationsEmail" type="button">Cancel</button>
-        <button id="messageComposerSave" class="save-action" type="submit">Save</button>
-      </div>
+        <div>
+          <button class="announcement-cancel" data-route-target="notificationsEmail" type="button">Cancel</button>
+          <button id="messageComposerSave" class="announcement-review-button" type="submit">Review announcement <span aria-hidden="true">&#8594;</span></button>
+        </div>
+      </footer>
     </form>
   `;
 
@@ -5594,6 +5671,153 @@ async function sendMemberMessage(payload) {
     throw new Error(body.error || "Could not send message.");
   }
   return body;
+}
+
+function announcementEmailPreviewHtml(title, message) {
+  const safeTitle = escapeHtml(title || "Announcement");
+  const safeMessage = escapeHtml(message || "");
+  return `
+    <!doctype html>
+    <html lang="en">
+      <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+      <body style="margin:0;background:#111;color:#f5f5f5;">
+        <div style="font-family:Arial,sans-serif;background:#111;color:#f5f5f5;padding:28px;line-height:1.55;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#1b1b1b;border:1px solid #333;border-radius:14px;overflow:hidden;">
+            <tr><td style="padding:28px 28px 16px;border-bottom:1px solid #333;text-align:center;"><h2 style="margin:0;color:#fff;font-size:32px;line-height:1.15;">${safeTitle}</h2></td></tr>
+            <tr><td style="padding:24px 28px;"><div style="margin:0;color:#d1d5db;line-height:1.65;font-size:16px;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;">${safeMessage}</div></td></tr>
+            <tr><td style="padding:24px 28px;border-top:1px solid #333;color:#888;font-size:13px;line-height:1.6;text-align:center;">
+              <p style="margin:0 0 8px;">&copy; 2026 Ruth Obenchain Recreation Center</p>
+              <p style="margin:0 0 8px;"><a href="https://ruthobenchainrc.com/support/" style="color:#bbb;text-decoration:none;">Support</a> &nbsp;|&nbsp; <a href="https://ruthobenchainrc.com/privacy-policy/" style="color:#bbb;text-decoration:none;">Privacy Policy</a> &nbsp;|&nbsp; <a href="https://ruthobenchainrc.com/terms-of-service/" style="color:#bbb;text-decoration:none;">Terms of Service</a></p>
+              <p style="margin:0;">Operated by Bly Community Action Team<br>Designed &amp; Built by N3XRA</p>
+            </td></tr>
+          </table>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+function showAnnouncementReviewDialog({ title, message, memberIds, channels, sendAt }) {
+  const existing = document.querySelector(".announcement-review-overlay");
+  if (existing) existing.remove();
+
+  const selectedMembers = memberIds.map((id) => findMember(id)).filter(Boolean);
+  const phoneCount = new Set(selectedMembers.map((member) => String(member.phoneNumber || "").trim()).filter(Boolean)).size;
+  const emailCount = new Set(selectedMembers.map((member) => String(member.emailAddress || "").trim().toLowerCase()).filter(Boolean)).size;
+  const sendAtIso = fromFacilityDatetimeLocalValue(sendAt) || sendAt;
+  const parsedSendAt = Date.parse(sendAtIso);
+  const isScheduled = Number.isFinite(parsedSendAt) && parsedSendAt > Date.now() + 60000;
+  const deliveryLabel = isScheduled ? formatFacilityShortDateTime(sendAtIso) : "Send immediately";
+  const previews = [
+    channels.text ? { key: "text", label: "Text" } : null,
+    channels.email ? { key: "email", label: "Email" } : null,
+    channels.inApp ? { key: "inApp", label: "In-App" } : null
+  ].filter(Boolean);
+  const firstPreview = previews[0]?.key || "text";
+
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.className = "communication-preview-overlay announcement-review-overlay";
+    overlay.innerHTML = `
+      <section class="announcement-review-dialog" role="dialog" aria-modal="true" aria-labelledby="announcementReviewTitle">
+        <header class="announcement-review-header">
+          <div>
+            <p class="eyebrow">Final Review</p>
+            <h2 id="announcementReviewTitle">Approve this announcement</h2>
+            <p>Check the audience, timing, and each selected delivery format.</p>
+          </div>
+          <button class="announcement-review-close" type="button" aria-label="Close review">&#10005;</button>
+        </header>
+
+        <div class="announcement-review-summary">
+          <div><span>Audience</span><strong>${selectedMembers.length} ${selectedMembers.length === 1 ? "member" : "members"}</strong><small>${phoneCount} phones · ${emailCount} emails</small></div>
+          <div><span>Channels</span><strong>${previews.map((preview) => preview.label).join(" + ")}</strong><small>${previews.length} selected</small></div>
+          <div><span>Delivery</span><strong>${escapeHtml(deliveryLabel)}</strong><small>Pacific time</small></div>
+        </div>
+
+        <div class="announcement-review-content">
+          <nav class="announcement-preview-tabs" role="tablist" aria-label="Announcement previews">
+            ${previews.map((preview) => `<button class="${preview.key === firstPreview ? "is-active" : ""}" data-announcement-preview-tab="${preview.key}" type="button" role="tab" aria-selected="${preview.key === firstPreview}">${preview.label}</button>`).join("")}
+          </nav>
+          ${channels.text ? `
+            <section class="announcement-preview-panel ${firstPreview === "text" ? "is-active" : ""}" data-announcement-preview-panel="text">
+              <div class="announcement-phone-preview">
+                <div class="announcement-phone-bar"><span>RORC</span><small>(541) 652-6065</small></div>
+                <div class="announcement-text-bubble">${escapeHtml(message)}</div>
+                <small>${message.length.toLocaleString()} characters · ${Math.max(1, Math.ceil(message.length / 160))} estimated text ${Math.max(1, Math.ceil(message.length / 160)) === 1 ? "part" : "parts"}</small>
+              </div>
+            </section>
+          ` : ""}
+          ${channels.email ? `
+            <section class="announcement-preview-panel ${firstPreview === "email" ? "is-active" : ""}" data-announcement-preview-panel="email">
+              <div class="announcement-email-subject"><span>Subject</span><strong>${escapeHtml(title)}</strong></div>
+              <iframe class="announcement-email-frame" title="Email announcement preview" sandbox=""></iframe>
+            </section>
+          ` : ""}
+          ${channels.inApp ? `
+            <section class="announcement-preview-panel ${firstPreview === "inApp" ? "is-active" : ""}" data-announcement-preview-panel="inApp">
+              <article class="announcement-app-preview">
+                <span class="announcement-app-mark" aria-hidden="true">R</span>
+                <div><small>RORC Announcement · Just now</small><h3>${escapeHtml(title)}</h3><p>${escapeHtml(message)}</p></div>
+              </article>
+            </section>
+          ` : ""}
+        </div>
+
+        <label class="announcement-review-approval">
+          <input type="checkbox" />
+          <span><strong>I reviewed this announcement.</strong><small>The selected audience and delivery details are correct.</small></span>
+        </label>
+
+        <footer class="announcement-review-actions">
+          <button class="announcement-review-back" type="button">Back to editing</button>
+          <button class="announcement-review-confirm" type="button" disabled>${isScheduled ? "Approve & schedule" : "Approve & send"}</button>
+        </footer>
+      </section>
+    `;
+
+    const previousOverflow = document.body.style.overflow;
+    const close = (confirmed) => {
+      document.body.style.overflow = previousOverflow;
+      overlay.remove();
+      document.removeEventListener("keydown", onKeydown);
+      resolve(Boolean(confirmed));
+    };
+    const onKeydown = (event) => {
+      if (event.key === "Escape") close(false);
+    };
+
+    overlay.addEventListener("click", (event) => {
+      if (event.target === overlay) close(false);
+    });
+    overlay.querySelector(".announcement-review-close")?.addEventListener("click", () => close(false));
+    overlay.querySelector(".announcement-review-back")?.addEventListener("click", () => close(false));
+    overlay.querySelectorAll("[data-announcement-preview-tab]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const key = button.dataset.announcementPreviewTab;
+        overlay.querySelectorAll("[data-announcement-preview-tab]").forEach((tab) => {
+          const selected = tab === button;
+          tab.classList.toggle("is-active", selected);
+          tab.setAttribute("aria-selected", String(selected));
+        });
+        overlay.querySelectorAll("[data-announcement-preview-panel]").forEach((panel) => {
+          panel.classList.toggle("is-active", panel.dataset.announcementPreviewPanel === key);
+        });
+      });
+    });
+    const approval = overlay.querySelector(".announcement-review-approval input");
+    const confirmButton = overlay.querySelector(".announcement-review-confirm");
+    approval?.addEventListener("change", () => {
+      if (confirmButton) confirmButton.disabled = !approval.checked;
+    });
+    confirmButton?.addEventListener("click", () => close(true));
+    document.addEventListener("keydown", onKeydown);
+    document.body.appendChild(overlay);
+    document.body.style.overflow = "hidden";
+    const emailFrame = overlay.querySelector(".announcement-email-frame");
+    if (emailFrame) emailFrame.srcdoc = announcementEmailPreviewHtml(title, message);
+    overlay.querySelector(".announcement-review-close")?.focus();
+  });
 }
 
 async function triggerHeaterOnSequence(memberIds, options = {}) {
@@ -5737,6 +5961,10 @@ function bindMessageComposerActions() {
   const textToggle = document.getElementById("messageChannelText");
   const emailToggle = document.getElementById("messageChannelEmail");
   const inAppToggle = document.getElementById("messageChannelInApp");
+  const bodyInput = document.getElementById("messageBody");
+  const bodyStats = document.getElementById("messageBodyStats");
+  const sendAtInput = document.getElementById("messageSendAt");
+  const sendNowButton = document.getElementById("messageSendNow");
 
   if (!form || !saveButton || !result || !textToggle || !emailToggle || !inAppToggle) return;
 
@@ -5751,6 +5979,16 @@ function bindMessageComposerActions() {
     textToggle.setAttribute("aria-pressed", String(includeText));
     emailToggle.setAttribute("aria-pressed", String(includeEmail));
     inAppToggle.setAttribute("aria-pressed", String(includeInApp));
+    updateBodyStats();
+  };
+
+  const updateBodyStats = () => {
+    if (!bodyStats) return;
+    const characterCount = String(bodyInput?.value || "").length;
+    const textParts = Math.max(1, Math.ceil(characterCount / 160));
+    bodyStats.textContent = includeText && characterCount
+      ? `${characterCount.toLocaleString()} characters · about ${textParts} text ${textParts === 1 ? "part" : "parts"}`
+      : `${characterCount.toLocaleString()} characters`;
   };
 
   const setResult = (message, tone = "default") => {
@@ -5774,6 +6012,10 @@ function bindMessageComposerActions() {
   });
 
   document.getElementById("messageMembers")?.addEventListener("change", setMessageRecipientSummary);
+  bodyInput?.addEventListener("input", updateBodyStats);
+  sendNowButton?.addEventListener("click", () => {
+    if (sendAtInput) sendAtInput.value = toFacilityDatetimeLocalValue(new Date().toISOString());
+  });
   setMessageRecipientSummary();
   // Force a clean default every time this screen opens.
   includeText = false;
@@ -5809,20 +6051,27 @@ function bindMessageComposerActions() {
       return;
     }
 
+    setResult("Opening final review...");
+    const channels = { text: includeText, email: includeEmail, inApp: includeInApp };
+    const confirmed = await showAnnouncementReviewDialog({ title, message, memberIds, channels, sendAt });
+    if (!confirmed) {
+      setResult("");
+      return;
+    }
+
+    const normalizedSendAt = fromFacilityDatetimeLocalValue(sendAt) || sendAt;
+    const isScheduled = Number.isFinite(Date.parse(normalizedSendAt)) && Date.parse(normalizedSendAt) > Date.now() + 60000;
     saveButton.disabled = true;
-    setResult("Sending...");
+    saveButton.textContent = isScheduled ? "Scheduling..." : "Sending...";
+    setResult(isScheduled ? "Scheduling announcement..." : "Sending announcement...");
 
     try {
       const response = await sendMemberMessage({
         title,
         message,
         memberIds,
-        channels: {
-          text: includeText,
-          email: includeEmail,
-          inApp: includeInApp
-        },
-        sendAt: fromFacilityDatetimeLocalValue(sendAt) || sendAt
+        channels,
+        sendAt: normalizedSendAt
       });
 
       setResult(response.scheduled
@@ -5858,6 +6107,7 @@ function bindMessageComposerActions() {
       setResult(error.message || "Could not send message.", "error");
     } finally {
       saveButton.disabled = false;
+      saveButton.innerHTML = `Review announcement <span aria-hidden="true">&#8594;</span>`;
     }
   });
 }
