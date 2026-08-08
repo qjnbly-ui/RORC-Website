@@ -69,8 +69,19 @@ test("composer stays compact and contains large recipient selections", () => {
   assert.match(appCss, /\.announcement-recipient-selection strong,[\s\S]*?text-overflow:\s*ellipsis/s);
 });
 
+test("composer uses visible rich text and preserves formatting on paste", () => {
+  assert.match(appJs, /class="announcement-rich-editor"[\s\S]*?contenteditable="true"/);
+  assert.match(appJs, /function announcementEditorToMarkdown\(/);
+  assert.match(appJs, /sanitizeAnnouncementEditorHtml\(richText\)/);
+  assert.match(appJs, /announcementEditorHtmlFromMarkdown\(plainText\)/);
+  assert.match(appJs, /document\.execCommand\(command, false, null\)/);
+  assert.doesNotMatch(appJs, /<textarea id="messageBody"/);
+});
+
 test("announcements provide wide, intermediate, and compact responsive layouts", () => {
-  assert.match(appCss, /\.announcement-composer-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1\.65fr\)/s);
+  assert.match(appCss, /\.announcement-composer-grid\s*\{[^}]*grid-template-columns:\s*minmax\(340px, 0\.75fr\) minmax\(0, 1\.65fr\)/s);
+  assert.match(appCss, /@media \(min-width: 981px\)[\s\S]*?\.announcement-delivery\s*\{[^}]*overflow-y:\s*auto/s);
+  assert.match(appCss, /@media \(min-width: 981px\)[\s\S]*?\.announcement-rich-editor\s*\{[^}]*min-height:\s*0/s);
   assert.match(appCss, /@media \(max-width: 980px\)[\s\S]*?\.announcement-composer-grid\s*\{[^}]*grid-template-columns:\s*1fr/s);
   assert.match(appCss, /@media \(max-width: 700px\)[\s\S]*?\.announcements-history-list > li/s);
 });

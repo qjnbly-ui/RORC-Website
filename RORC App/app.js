@@ -5703,30 +5703,6 @@ function renderMessageComposerPage() {
   root.innerHTML = `
     <form id="messageComposerForm" class="announcement-composer" autocomplete="off">
       <div class="announcement-composer-grid">
-        <main class="announcement-editor">
-          <div class="announcement-section-heading">
-            <div><h3>Write your message</h3><p>Formatting and blank lines are preserved in email.</p></div>
-          </div>
-          <label class="announcement-field">
-            <span>Subject <mark>*</mark></span>
-            <input id="messageTitle" type="text" maxlength="180" placeholder="A short, useful headline" required />
-          </label>
-          <div class="announcement-field announcement-body-field">
-            <label for="messageBody">Message <mark>*</mark></label>
-            <span class="announcement-format-toolbar" role="toolbar" aria-label="Message formatting">
-              <button type="button" data-announcement-format="bold" aria-label="Bold selected text"><strong>B</strong></button>
-              <button type="button" data-announcement-format="italic" aria-label="Italicize selected text"><em>I</em></button>
-              <button type="button" data-announcement-format="bullets" aria-label="Create bulleted list">&#8226; List</button>
-              <button type="button" data-announcement-format="numbers" aria-label="Create numbered list">1. List</button>
-            </span>
-            <textarea id="messageBody" rows="14" wrap="soft" placeholder="Hello everyone,&#10;&#10;Write your update here. Use blank lines and dashes to make longer announcements easy to scan.&#10;&#10;Thank you,&#10;Ruth Obenchain Recreation Center" required></textarea>
-          </div>
-          <div class="announcement-editor-meta">
-            <span id="messageBodyStats">0 characters</span>
-            <span>Select text, then apply bold, italics, or a list.</span>
-          </div>
-        </main>
-
         <aside class="announcement-delivery">
           <section>
             <div class="announcement-section-heading">
@@ -5784,6 +5760,38 @@ function renderMessageComposerPage() {
             <button id="messageSendNow" class="announcement-send-now" type="button">Reset to send now</button>
           </section>
         </aside>
+
+        <main class="announcement-editor">
+          <div class="announcement-section-heading">
+            <div><h3>Write your message</h3><p>Formatting appears as it will in email. Blank lines are preserved.</p></div>
+          </div>
+          <label class="announcement-field">
+            <span>Subject <mark>*</mark></span>
+            <input id="messageTitle" type="text" maxlength="180" placeholder="A short, useful headline" required />
+          </label>
+          <div class="announcement-field announcement-body-field">
+            <label id="messageBodyLabel" for="messageBody">Message <mark>*</mark></label>
+            <span class="announcement-format-toolbar" role="toolbar" aria-label="Message formatting">
+              <button type="button" data-announcement-format="bold" aria-label="Bold selected text" title="Bold"><strong>B</strong></button>
+              <button type="button" data-announcement-format="italic" aria-label="Italicize selected text" title="Italic"><em>I</em></button>
+              <button type="button" data-announcement-format="bullets" aria-label="Create bulleted list" title="Bulleted list">&#8226; List</button>
+              <button type="button" data-announcement-format="numbers" aria-label="Create numbered list" title="Numbered list">1. List</button>
+            </span>
+            <div
+              id="messageBody"
+              class="announcement-rich-editor"
+              contenteditable="true"
+              role="textbox"
+              aria-labelledby="messageBodyLabel"
+              aria-multiline="true"
+              data-placeholder="Hello everyone,\n\nWrite your update here. Formatting from pasted text is preserved.\n\nThank you,\nRuth Obenchain Recreation Center"
+            ></div>
+          </div>
+          <div class="announcement-editor-meta">
+            <span id="messageBodyStats">0 characters</span>
+            <span>Formatting is applied as you type or paste.</span>
+          </div>
+        </main>
       </div>
 
       <footer class="announcement-composer-actions">
@@ -5929,43 +5937,160 @@ function announcementPlainText(value) {
     .trim();
 }
 
-function applyAnnouncementTextFormat(textarea, action) {
-  if (!textarea) return;
-  const value = textarea.value;
-  let start = textarea.selectionStart ?? value.length;
-  let end = textarea.selectionEnd ?? start;
-  let selection = value.slice(start, end);
-  let replacement = selection;
-  let selectionOffset = 0;
-  let selectionLength = 0;
+function announcementEditorHtmlFromMarkdown(value) {
+  const lines = String(value || "").replace(/\r\n?/g, "\n").split("\n");
+  const blocks = [];
+  let paragraph = [];
+  let listType = "";
+  let listItems = [];
 
-  if (action === "bold" || action === "italic") {
-    const marker = action === "bold" ? "**" : "*";
-    const fallback = action === "bold" ? "bold text" : "italic text";
-    selection = selection || fallback;
-    replacement = `${marker}${selection}${marker}`;
-    selectionOffset = marker.length;
-    selectionLength = selection.length;
-  } else if (action === "bullets" || action === "numbers") {
-    const lineStart = value.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
-    const nextBreak = value.indexOf("\n", end);
-    const lineEnd = nextBreak === -1 ? value.length : nextBreak;
-    start = lineStart;
-    end = lineEnd;
-    selection = value.slice(start, end) || "List item";
-    replacement = selection.split("\n").map((line, index) => {
-      const cleanLine = line.replace(/^\s*(?:[-*]|\d+[.)])\s+/, "");
-      return action === "numbers" ? `${index + 1}. ${cleanLine}` : `- ${cleanLine}`;
-    }).join("\n");
-    selectionLength = replacement.length;
-  } else {
-    return;
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push(`<p>${paragraph.map(formatAnnouncementInlineHtml).join("<br>")}</p>`);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!listItems.length) return;
+    const tag = listType === "ol" ? "ol" : "ul";
+    blocks.push(`<${tag}>${listItems.map((item) => `<li>${formatAnnouncementInlineHtml(item)}</li>`).join("")}</${tag}>`);
+    listType = "";
+    listItems = [];
+  };
+
+  lines.forEach((line) => {
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+    const unordered = line.match(/^\s*[-*]\s+(.+)$/);
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (unordered || ordered) {
+      flushParagraph();
+      const nextType = ordered ? "ol" : "ul";
+      if (listType && listType !== nextType) flushList();
+      listType = nextType;
+      listItems.push((unordered || ordered)[1]);
+      return;
+    }
+    flushList();
+    paragraph.push(line);
+  });
+  flushParagraph();
+  flushList();
+  return blocks.join("");
+}
+
+function sanitizeAnnouncementEditorHtml(value) {
+  const source = document.createElement("template");
+  const clean = document.createElement("div");
+  source.innerHTML = String(value || "");
+
+  const appendChildren = (from, to) => {
+    Array.from(from.childNodes).forEach((child) => appendNode(child, to));
+  };
+  const appendNode = (node, parent) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      parent.appendChild(document.createTextNode(node.textContent || ""));
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+    const tag = node.tagName.toLowerCase();
+    if (["script", "style", "template", "iframe", "object"].includes(tag)) return;
+    const directTags = { b: "strong", strong: "strong", i: "em", em: "em", p: "p", div: "p", br: "br", ul: "ul", ol: "ol", li: "li" };
+    let outputTag = directTags[tag] || "";
+    if (/^h[1-6]$/.test(tag)) outputTag = "p";
+
+    if (outputTag) {
+      const output = document.createElement(outputTag);
+      if (outputTag !== "br") appendChildren(node, output);
+      if (/^h[1-6]$/.test(tag)) {
+        const strong = document.createElement("strong");
+        while (output.firstChild) strong.appendChild(output.firstChild);
+        output.appendChild(strong);
+      }
+      parent.appendChild(output);
+      return;
+    }
+
+    if (tag === "span") {
+      const style = String(node.getAttribute("style") || "").toLowerCase();
+      const isBold = /font-weight\s*:\s*(?:bold|[6-9]00)/.test(style);
+      const isItalic = /font-style\s*:\s*italic/.test(style);
+      if (isBold || isItalic) {
+        const outer = document.createElement(isBold ? "strong" : "em");
+        const inner = isBold && isItalic ? document.createElement("em") : outer;
+        if (inner !== outer) outer.appendChild(inner);
+        appendChildren(node, inner);
+        parent.appendChild(outer);
+        return;
+      }
+    }
+    appendChildren(node, parent);
+  };
+
+  appendChildren(source.content, clean);
+  return clean.innerHTML;
+}
+
+function announcementEditorToMarkdown(editor) {
+  if (!editor) return "";
+
+  const inline = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
+    if (node.nodeType !== Node.ELEMENT_NODE) return "";
+    const tag = node.tagName.toLowerCase();
+    const content = Array.from(node.childNodes).map(inline).join("");
+    if (tag === "strong" || tag === "b") return content ? `**${content}**` : "";
+    if (tag === "em" || tag === "i") return content ? `*${content}*` : "";
+    if (tag === "br") return "\n";
+    return content;
+  };
+  const block = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
+    if (node.nodeType !== Node.ELEMENT_NODE) return "";
+    const tag = node.tagName.toLowerCase();
+    if (tag === "ul" || tag === "ol") {
+      return Array.from(node.children)
+        .filter((child) => child.tagName.toLowerCase() === "li")
+        .map((item, index) => `${tag === "ol" ? `${index + 1}.` : "-"} ${inline(item).trim()}`)
+        .join("\n") + "\n\n";
+    }
+    if (["p", "div"].includes(tag)) return `${inline(node)}\n\n`;
+    if (tag === "br") return "\n";
+    return inline(node);
+  };
+
+  return Array.from(editor.childNodes)
+    .map(block)
+    .join("")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+}
+
+function applyAnnouncementTextFormat(editor, action) {
+  if (!editor) return;
+  const commands = {
+    bold: "bold",
+    italic: "italic",
+    bullets: "insertUnorderedList",
+    numbers: "insertOrderedList"
+  };
+  const command = commands[action];
+  if (!command) return;
+  editor.focus();
+  document.execCommand(command, false, null);
+  editor.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function insertAnnouncementEditorHtml(editor, html) {
+  if (!editor || !html) return;
+  editor.focus();
+  if (!document.execCommand("insertHTML", false, html)) {
+    editor.insertAdjacentHTML("beforeend", html);
   }
-
-  textarea.setRangeText(replacement, start, end, "end");
-  textarea.focus();
-  textarea.setSelectionRange(start + selectionOffset, start + selectionOffset + (selectionLength || replacement.length));
-  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  editor.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
 function announcementEmailPreviewHtml(title, message) {
@@ -6288,7 +6413,7 @@ function bindMessageComposerActions() {
 
   const updateBodyStats = () => {
     if (!bodyStats) return;
-    const characterCount = announcementPlainText(bodyInput?.value || "").length;
+    const characterCount = announcementPlainText(announcementEditorToMarkdown(bodyInput)).length;
     const textParts = Math.max(1, Math.ceil(characterCount / 160));
     bodyStats.textContent = includeText && characterCount
       ? `${characterCount.toLocaleString()} characters · about ${textParts} text ${textParts === 1 ? "part" : "parts"}`
@@ -6316,11 +6441,25 @@ function bindMessageComposerActions() {
   });
 
   document.getElementById("messageMembers")?.addEventListener("change", () => setMessageRecipientSummary({ includeText }));
-  bodyInput?.addEventListener("input", updateBodyStats);
+  bodyInput?.addEventListener("input", () => {
+    bodyInput.removeAttribute("aria-invalid");
+    updateBodyStats();
+  });
+  bodyInput?.addEventListener("paste", (event) => {
+    event.preventDefault();
+    const richText = event.clipboardData?.getData("text/html") || "";
+    const plainText = event.clipboardData?.getData("text/plain") || "";
+    const hasRichFormatting = /<(?:b|strong|i|em|ul|ol|li|h[1-6])\b|font-(?:weight|style)\s*:/i.test(richText);
+    const pastedHtml = hasRichFormatting
+      ? sanitizeAnnouncementEditorHtml(richText)
+      : announcementEditorHtmlFromMarkdown(plainText);
+    insertAnnouncementEditorHtml(bodyInput, pastedHtml);
+  });
   sendNowButton?.addEventListener("click", () => {
     if (sendAtInput) sendAtInput.value = toFacilityDatetimeLocalValue(new Date().toISOString());
   });
   document.querySelectorAll("[data-announcement-format]").forEach((button) => {
+    button.addEventListener("mousedown", (event) => event.preventDefault());
     button.addEventListener("click", () => applyAnnouncementTextFormat(bodyInput, button.dataset.announcementFormat));
   });
   setMessageRecipientSummary({ includeText });
@@ -6337,7 +6476,7 @@ function bindMessageComposerActions() {
     event.preventDefault();
 
     const title = String(document.getElementById("messageTitle")?.value || "").trim();
-    const message = String(document.getElementById("messageBody")?.value || "").trim();
+    const message = announcementEditorToMarkdown(bodyInput);
     const memberIds = selectedMessageMemberIds();
     const sendAt = String(document.getElementById("messageSendAt")?.value || "").trim();
 
@@ -6348,6 +6487,8 @@ function bindMessageComposerActions() {
 
     if (!message) {
       setResult("Message is required.", "error");
+      bodyInput?.setAttribute("aria-invalid", "true");
+      bodyInput?.focus();
       return;
     }
 
