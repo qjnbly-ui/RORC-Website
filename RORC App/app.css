@@ -16,7 +16,13 @@
   --bottom-nav-height: 92px;
   --form-actions-height: 84px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
-  --app-viewport-height: 100dvh;
+  --app-viewport-height: 100vh;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --app-viewport-height: 100dvh;
+  }
 }
 
 .receptionist-analytics-shell {
@@ -5407,7 +5413,7 @@ textarea:focus-visible,
 .form-actions {
   align-items: center;
   background: var(--panel-bg);
-  bottom: var(--bottom-nav-height);
+  bottom: calc(var(--bottom-nav-height) + var(--safe-bottom));
   display: grid;
   grid-template-columns: 1fr 1fr;
   left: 0;

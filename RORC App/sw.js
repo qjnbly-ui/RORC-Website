@@ -1,10 +1,10 @@
-const CACHE_VERSION = "rorc-app-v67";
+const CACHE_VERSION = "rorc-app-v68";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const NAVIGATION_CACHE = `${CACHE_VERSION}-navigation`;
 const OFFLINE_PAGE = "./index.html";
 const APP_SHELL = [
   OFFLINE_PAGE,
-  "./app.css?v=20260808-navigation-icons",
+  "./app.css?v=20260808-mobile-actions-safe-area",
   "./resource-coordinator.js?v=20260808-reliable-sync",
   "./app.js?v=20260808-reliable-sync",
   "./vendor/supabase.min.js?v=2.112.2",

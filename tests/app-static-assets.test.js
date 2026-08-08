@@ -126,6 +126,17 @@ test("service worker caches only versioned static assets and performs one update
   assert.match(appSource, /if \(appReloadingForUpdate\) return;/);
 });
 
+test("mobile form actions clear the bottom navigation and device safe area", () => {
+  const css = read("RORC App/app.css");
+
+  assert.match(
+    css,
+    /\.form-actions\s*\{[^}]*bottom:\s*calc\(var\(--bottom-nav-height\) \+ var\(--safe-bottom\)\)/s
+  );
+  assert.match(css, /--app-viewport-height:\s*100vh/);
+  assert.match(css, /@supports \(height:\s*100dvh\)/);
+});
+
 test("Vercel builds all generated assets and applies explicit static cache headers", () => {
   const config = JSON.parse(read("vercel.json"));
   assert.equal(config.buildCommand, "npm run vercel-build");
