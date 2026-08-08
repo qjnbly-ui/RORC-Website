@@ -2597,7 +2597,8 @@ function communicationsContacts() {
     if (!phone || byPhone.has(phone)) return;
     byPhone.set(phone, {
       phone,
-      name: member?.memberName || member?.member_name || "RORC member"
+      name: member?.memberName || member?.member_name || "RORC member",
+      accountType: canonicalAccountType(member?.accountType || member?.account_type)
     });
   });
   return [...byPhone.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -2803,6 +2804,7 @@ function filteredCommunicationsContacts(query = "") {
   return communicationsContacts().filter((contact) => {
     const phone = formatCommunicationsPhone(contact.phone);
     return contact.name.toLowerCase().includes(search) || phone.toLowerCase().includes(search)
+      || contact.accountType.toLowerCase().includes(search)
       || (digits && contact.phone.replace(/\D/g, "").includes(digits));
   });
 }
@@ -2829,7 +2831,14 @@ function renderCommunicationsContactPicker() {
   list.innerHTML = contacts.map((contact, index) => `
     <button class="communications-contact-option ${index === communicationsState.contactPickerIndex ? "is-highlighted" : ""}" id="communicationsContactOption${index}" data-communications-contact="${escapeAttribute(contact.phone)}" type="button" role="option" aria-selected="${index === communicationsState.contactPickerIndex}">
       <span class="communications-contact-avatar" aria-hidden="true">${escapeHtml(contact.name.charAt(0).toUpperCase() || "#")}</span>
-      <span><strong>${escapeHtml(contact.name)}</strong><small>${escapeHtml(formatCommunicationsPhone(contact.phone))}</small></span>
+      <span class="communications-contact-copy">
+        <strong>${escapeHtml(contact.name)}</strong>
+        <small>${escapeHtml(formatCommunicationsPhone(contact.phone))}</small>
+        <span class="communications-contact-status">
+          <span class="status-dot ${accountTypeTone(contact.accountType)}" aria-hidden="true"></span>
+          <span>${escapeHtml(contact.accountType)}</span>
+        </span>
+      </span>
     </button>
   `).join("");
   const highlighted = list.querySelector(".is-highlighted");

@@ -3110,10 +3110,14 @@ h1 {
   grid-template-columns: auto minmax(0, 1fr); padding: 10px; text-align: left; width: 100%;
 }
 .communications-new-row .communications-contact-option:hover, .communications-new-row .communications-contact-option.is-highlighted { background: #292929; }
-.communications-contact-avatar { align-items: center; background: #3b3b3b; border-radius: 50%; color: #fff; display: flex; font-size: .82rem; height: 34px; justify-content: center; width: 34px; }
-.communications-contact-option > span:last-child { display: grid; gap: 2px; min-width: 0; }
+.communications-contact-avatar { align-items: center; background: linear-gradient(145deg, #4a4a4a, #2d2d2d); border: 1px solid #5b5b5b; border-radius: 50%; color: #fff; display: flex; font-size: .82rem; font-weight: 850; height: 38px; justify-content: center; width: 38px; }
+.communications-contact-copy { display: grid; gap: 2px; min-width: 0; }
 .communications-contact-option strong, .communications-contact-option small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .communications-contact-option small, .communications-contact-empty { color: var(--muted); }
+.communications-contact-status { align-items: center; color: #c9cbd0; display: flex; font-size: .72rem; font-weight: 700; gap: 6px; line-height: 1.2; margin-top: 3px; min-width: 0; }
+.communications-contact-status > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.communications-contact-status .status-dot { border-width: 1.5px; flex: 0 0 auto; height: 12px; width: 12px; }
+.communications-contact-status .status-dot::after { height: 4px; left: 2.5px; top: 2.5px; width: 4px; }
 .communications-contact-empty { line-height: 1.45; margin: 0; padding: 14px; text-align: center; }
 .communications-grid {
   background: #151515;
@@ -3583,7 +3587,11 @@ h1 {
   }
 
   .communications-new-row > div {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .communications-new-row > div > #communicationsNewButton {
+    width: 100%;
   }
 
   .communications-grid {

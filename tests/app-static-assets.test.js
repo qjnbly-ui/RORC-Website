@@ -116,8 +116,8 @@ test("service worker caches only versioned static assets and performs one update
 
   assert.ok(version > 66);
   assert.doesNotMatch(html, /20260808-text-preferences/);
-  assert.match(html, /app\.css\?v=20260808-announcement-formatting-fix/);
-  assert.match(html, /app\.js\?v=20260808-announcement-formatting-fix/);
+  assert.match(html, /app\.css\?v=20260808-contact-picker-status/);
+  assert.match(html, /app\.js\?v=20260808-contact-picker-status/);
   assert.doesNotMatch(source, /app\.config\.js|twilio-voice\.min\.js/);
   versionedAssets.forEach((asset) => assert.match(source, new RegExp(asset.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
   assert.match(source, /url\.pathname\.startsWith\("\/api\/"\)/);
@@ -127,6 +127,18 @@ test("service worker caches only versioned static assets and performs one update
   assert.doesNotMatch(source, /client\.navigate|RORC_APP_UPDATED|postMessage\(/);
   assert.equal((appSource.match(/addEventListener\("controllerchange"/g) || []).length, 1);
   assert.match(appSource, /if \(appReloadingForUpdate\) return;/);
+});
+
+test("communications uses a branded contact picker with membership status", () => {
+  const source = read("RORC App/app.js");
+  const css = read("RORC App/app.css");
+
+  assert.match(source, /id="communicationsRecipientPicker"/);
+  assert.match(source, /role="combobox"/);
+  assert.match(source, /communications-contact-status/);
+  assert.match(source, /accountTypeTone\(contact\.accountType\)/);
+  assert.match(css, /\.communications-contact-list\s*\{/);
+  assert.match(css, /\.communications-contact-status \.status-dot/);
 });
 
 test("mobile form actions clear the bottom navigation and device safe area", () => {
