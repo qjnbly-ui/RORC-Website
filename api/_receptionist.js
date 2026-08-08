@@ -1,4 +1,5 @@
-const DEFAULT_GREETING = "Thanks for calling the Ruth Obenchain Recreation Center. You're speaking with the RORC AI receptionist. How can I help you today?";
+const VOICEMAIL_PROMPT = "You can press 0 at any time to leave a voicemail.";
+const DEFAULT_GREETING = `Thanks for calling the Ruth Obenchain Recreation Center. You're speaking with the RORC AI receptionist. ${VOICEMAIL_PROMPT} How can I help you today?`;
 
 function escapeXml(value) {
   return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&apos;");
@@ -22,7 +23,7 @@ function toSpeechText(value) {
 
 function buildTwiML({ websocketUrl, actionUrl, greeting = DEFAULT_GREETING, voice = "" }) {
   const voiceAttribute = voice ? ` voice="${escapeXml(voice)}"` : "";
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n  <Connect action="${escapeXml(actionUrl)}" method="POST">\n    <ConversationRelay url="${escapeXml(websocketUrl)}" welcomeGreeting="${escapeXml(greeting)}" welcomeGreetingInterruptible="none" reportInputDuringAgentSpeech="speech" language="en-US" transcriptionProvider="Deepgram" ttsProvider="ElevenLabs"${voiceAttribute} interruptSensitivity="low" speechTimeout="1200" ignoreBackchannel="true" dtmfDetection="true" />\n  </Connect>\n</Response>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n  <Connect action="${escapeXml(actionUrl)}" method="POST">\n    <ConversationRelay url="${escapeXml(websocketUrl)}" welcomeGreeting="${escapeXml(greeting)}" welcomeGreetingInterruptible="dtmf" reportInputDuringAgentSpeech="speech" language="en-US" transcriptionProvider="Deepgram" ttsProvider="ElevenLabs"${voiceAttribute} interruptSensitivity="low" speechTimeout="1200" ignoreBackchannel="true" dtmfDetection="true" />\n  </Connect>\n</Response>`;
 }
 
-module.exports = { DEFAULT_GREETING, buildTwiML, publicHttpUrl, publicWebSocketUrl, toSpeechText };
+module.exports = { DEFAULT_GREETING, VOICEMAIL_PROMPT, buildTwiML, publicHttpUrl, publicWebSocketUrl, toSpeechText };

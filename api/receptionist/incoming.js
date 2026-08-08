@@ -1,5 +1,5 @@
 const twilio = require("twilio");
-const { DEFAULT_GREETING, publicHttpUrl, publicWebSocketUrl } = require("../_receptionist");
+const { DEFAULT_GREETING, VOICEMAIL_PROMPT, publicHttpUrl, publicWebSocketUrl } = require("../_receptionist");
 const { sendTwiML, validateTwilioWebhook } = require("../_twilio-webhook");
 const { getCallerAccount } = require("../_rorc-account-phone");
 
@@ -18,6 +18,12 @@ function rotatingGreeting(firstName = "", random = Math.random) {
   return safeName ? `Welcome back, ${safeName}. ${intro}` : `Thanks for calling the Ruth Obenchain Recreation Center. ${intro}`;
 }
 
+function withVoicemailPrompt(greeting) {
+  const message = String(greeting || DEFAULT_GREETING).trim();
+  if (/press\s+(?:0|zero)\b/i.test(message)) return message;
+  return `${message} ${VOICEMAIL_PROMPT}`;
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== "POST" && req.method !== "GET") return res.status(405).send("Method not allowed.");
   if (!validateTwilioWebhook(req)) return res.status(403).send("Invalid Twilio signature.");
@@ -27,13 +33,13 @@ module.exports = async function handler(req, res) {
     ? String(caller?.member?.member_name || "").trim().split(/\s+/)[0]
     : "";
   const configuredGreeting = String(process.env.RORC_RECEPTIONIST_GREETING || "").trim();
-  const greeting = configuredGreeting || rotatingGreeting(firstName);
+  const greeting = withVoicemailPrompt(configuredGreeting || rotatingGreeting(firstName));
   const base = publicHttpUrl(req).replace(/\/api\/receptionist\/incoming(?:\?.*)?$/, "");
   const response = new twilio.twiml.VoiceResponse();
   response.connect({ action: `${base}/api/receptionist/transfer`, method: "POST" }).conversationRelay({
     url: publicWebSocketUrl(req),
     welcomeGreeting: greeting || DEFAULT_GREETING,
-    welcomeGreetingInterruptible: "none",
+    welcomeGreetingInterruptible: "dtmf",
     reportInputDuringAgentSpeech: "speech",
     language: "en-US",
     transcriptionProvider: "Deepgram",
@@ -49,3 +55,4 @@ module.exports = async function handler(req, res) {
 
 module.exports.GREETING_VARIANTS = GREETING_VARIANTS;
 module.exports.rotatingGreeting = rotatingGreeting;
+module.exports.withVoicemailPrompt = withVoicemailPrompt;

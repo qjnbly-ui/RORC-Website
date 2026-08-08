@@ -387,6 +387,17 @@ async function track(ws, event) {
   }
 }
 
+function isVoicemailRequest(message) {
+  return message?.type === "dtmf" && String(message.digit || "") === "0";
+}
+
+function voicemailHandoffMessage() {
+  return {
+    type: "end",
+    handoffData: JSON.stringify({ reasonCode: "voicemail" }),
+  };
+}
+
 async function recordRequestedSmsConsent(ws) {
   if (!ws.fromNumber) throw new Error("The caller phone number is unavailable.");
   if (!(await hasConsent(ws.fromNumber))) await consent(ws.fromNumber, "opt_in", "voice_request");
@@ -607,6 +618,7 @@ wss.on("connection", (ws) => {
   ws.formOffer = "";
   ws.formSession = null;
   ws.awaitingTransferReason = false;
+  ws.voicemailRequested = false;
   ws.finalOutcome = "disconnected";
   ws.on("message", async (raw) => {
     let message;
@@ -634,6 +646,22 @@ wss.on("connection", (ws) => {
       return;
     }
     if (message.type === "interrupt") { ws.activeSpeech = ""; return; }
+    if (isVoicemailRequest(message)) {
+      if (ws.voicemailRequested) return;
+      ws.voicemailRequested = true;
+      ws.awaitingPin = false;
+      ws.formOffer = "";
+      ws.formSession = null;
+      ws.transferOffered = false;
+      ws.awaitingTransferReason = false;
+      ws.finalOutcome = "voicemail";
+      ws.send(JSON.stringify(voicemailHandoffMessage()));
+      Promise.allSettled([
+        track(ws, { type: "voicemail_requested", metadata: { source: "dtmf_zero" } }),
+        updateCall(ws.callSid, { outcome: ws.finalOutcome }),
+      ]).catch(() => {});
+      return;
+    }
     if (message.type === "dtmf" && ws.awaitingPin) {
       const digit = String(message.digit || "");
       if (!/^\d$/.test(digit)) return;
@@ -790,3 +818,5 @@ module.exports.spokenTime = spokenTime;
 module.exports.spokenNumber = spokenNumber;
 module.exports.spokenPhone = spokenPhone;
 module.exports.isGuidedFormChoice = isGuidedFormChoice;
+module.exports.isVoicemailRequest = isVoicemailRequest;
+module.exports.voicemailHandoffMessage = voicemailHandoffMessage;
