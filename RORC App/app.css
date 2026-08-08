@@ -8690,6 +8690,13 @@ textarea:focus-visible,
   outline: none;
 }
 
+.announcement-format-toolbar button.is-active,
+.announcement-format-toolbar button[aria-pressed="true"] {
+  background: rgba(239, 59, 54, 0.2);
+  border-color: rgba(248, 113, 113, 0.78);
+  color: #fff;
+}
+
 .announcement-body-field textarea,
 .announcement-body-field .announcement-rich-editor {
   border-radius: 0 0 7px 7px;

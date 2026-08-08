@@ -5772,10 +5772,10 @@ function renderMessageComposerPage() {
           <div class="announcement-field announcement-body-field">
             <label id="messageBodyLabel" for="messageBody">Message <mark>*</mark></label>
             <span class="announcement-format-toolbar" role="toolbar" aria-label="Message formatting">
-              <button type="button" data-announcement-format="bold" aria-label="Bold selected text" title="Bold"><strong>B</strong></button>
-              <button type="button" data-announcement-format="italic" aria-label="Italicize selected text" title="Italic"><em>I</em></button>
-              <button type="button" data-announcement-format="bullets" aria-label="Create bulleted list" title="Bulleted list">&#8226; List</button>
-              <button type="button" data-announcement-format="numbers" aria-label="Create numbered list" title="Numbered list">1. List</button>
+              <button type="button" data-announcement-format="bold" aria-label="Bold selected text" aria-pressed="false" title="Bold"><strong>B</strong></button>
+              <button type="button" data-announcement-format="italic" aria-label="Italicize selected text" aria-pressed="false" title="Italic"><em>I</em></button>
+              <button type="button" data-announcement-format="bullets" aria-label="Create bulleted list" aria-pressed="false" title="Bulleted list">&#8226; List</button>
+              <button type="button" data-announcement-format="numbers" aria-label="Create numbered list" aria-pressed="false" title="Numbered list">1. List</button>
             </span>
             <div
               id="messageBody"
@@ -5789,7 +5789,7 @@ function renderMessageComposerPage() {
           </div>
           <div class="announcement-editor-meta">
             <span id="messageBodyStats">0 characters</span>
-            <span>Formatting is applied as you type or paste.</span>
+            <span>Formatting appears in email. Text messages use clean plain text.</span>
           </div>
         </main>
       </div>
@@ -6037,51 +6037,132 @@ function sanitizeAnnouncementEditorHtml(value) {
 function announcementEditorToMarkdown(editor) {
   if (!editor) return "";
 
-  const inline = (node) => {
-    if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
-    if (node.nodeType !== Node.ELEMENT_NODE) return "";
-    const tag = node.tagName.toLowerCase();
-    const content = Array.from(node.childNodes).map(inline).join("");
-    if (tag === "strong" || tag === "b") return content ? `**${content}**` : "";
-    if (tag === "em" || tag === "i") return content ? `*${content}*` : "";
-    if (tag === "br") return "\n";
-    return content;
+  const tokens = [];
+  const pushBreak = (count = 1) => {
+    if (!tokens.length) return;
+    const previous = tokens[tokens.length - 1];
+    if (previous.type === "break") previous.count = Math.max(previous.count, count);
+    else tokens.push({ type: "break", count });
   };
-  const block = (node) => {
-    if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
-    if (node.nodeType !== Node.ELEMENT_NODE) return "";
-    const tag = node.tagName.toLowerCase();
-    if (tag === "ul" || tag === "ol") {
-      return Array.from(node.children)
-        .filter((child) => child.tagName.toLowerCase() === "li")
-        .map((item, index) => `${tag === "ol" ? `${index + 1}.` : "-"} ${inline(item).trim()}`)
-        .join("\n") + "\n\n";
+  const pushText = (value, styles = {}) => {
+    String(value || "").replace(/\r\n?/g, "\n").split(/(\n+)/).forEach((part) => {
+      if (!part) return;
+      if (/^\n+$/.test(part)) {
+        pushBreak(part.length);
+        return;
+      }
+      const next = {
+        type: "text",
+        value: part,
+        bold: Boolean(styles.bold),
+        italic: Boolean(styles.italic)
+      };
+      const previous = tokens[tokens.length - 1];
+      if (previous?.type === "text" && previous.bold === next.bold && previous.italic === next.italic) {
+        previous.value += next.value;
+      } else {
+        tokens.push(next);
+      }
+    });
+  };
+  const walkChildren = (node, styles, context) => {
+    Array.from(node.childNodes || []).forEach((child) => walk(child, styles, context));
+  };
+  const walk = (node, styles = {}, context = {}) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      pushText(node.textContent || "", styles);
+      return;
     }
-    if (["p", "div"].includes(tag)) return `${inline(node)}\n\n`;
-    if (tag === "br") return "\n";
-    return inline(node);
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+    const tag = String(node.tagName || "").toLowerCase();
+    if (tag === "strong" || tag === "b") {
+      walkChildren(node, { ...styles, bold: true }, context);
+      return;
+    }
+    if (tag === "em" || tag === "i") {
+      walkChildren(node, { ...styles, italic: true }, context);
+      return;
+    }
+    if (tag === "br") {
+      pushBreak(1);
+      return;
+    }
+    if (tag === "ul" || tag === "ol") {
+      if (tokens.length && tokens[tokens.length - 1].type !== "break") pushBreak(context.inListItem ? 1 : 2);
+      const items = Array.from(node.children || []).filter((child) => String(child.tagName || "").toLowerCase() === "li");
+      items.forEach((item, index) => {
+        if (index) pushBreak(1);
+        pushText(`${tag === "ol" ? `${index + 1}.` : "-"} `);
+        walkChildren(item, styles, { ...context, inListItem: true });
+        pushBreak(1);
+      });
+      pushBreak(context.inListItem ? 1 : 2);
+      return;
+    }
+    if (tag === "li") {
+      walkChildren(node, styles, { ...context, inListItem: true });
+      return;
+    }
+    if (tag === "p" || tag === "div") {
+      const breakCount = context.inListItem ? 1 : 2;
+      if (tokens.length && tokens[tokens.length - 1].type !== "break") pushBreak(breakCount);
+      walkChildren(node, styles, context);
+      pushBreak(breakCount);
+      return;
+    }
+    walkChildren(node, styles, context);
+  };
+  const formatText = (token) => {
+    const match = token.value.match(/^(\s*)([\s\S]*?)(\s*)$/);
+    const leading = match?.[1] || "";
+    const content = match?.[2] || "";
+    const trailing = match?.[3] || "";
+    if (!content || (!token.bold && !token.italic)) return token.value;
+    const marker = token.bold && token.italic ? "***" : token.bold ? "**" : "*";
+    return `${leading}${marker}${content}${marker}${trailing}`;
   };
 
-  return Array.from(editor.childNodes)
-    .map(block)
+  Array.from(editor.childNodes || []).forEach((node) => walk(node));
+  return tokens
+    .map((token) => token.type === "break" ? "\n".repeat(token.count) : formatText(token))
     .join("")
     .replace(/[ \t]+\n/g, "\n")
     .trim();
 }
 
+const ANNOUNCEMENT_FORMAT_COMMANDS = {
+  bold: "bold",
+  italic: "italic",
+  bullets: "insertUnorderedList",
+  numbers: "insertOrderedList"
+};
+
 function applyAnnouncementTextFormat(editor, action) {
   if (!editor) return;
-  const commands = {
-    bold: "bold",
-    italic: "italic",
-    bullets: "insertUnorderedList",
-    numbers: "insertOrderedList"
-  };
-  const command = commands[action];
+  const command = ANNOUNCEMENT_FORMAT_COMMANDS[action];
   if (!command) return;
   editor.focus();
   document.execCommand(command, false, null);
   editor.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function updateAnnouncementFormatToolbar(editor, buttons) {
+  const selection = window.getSelection();
+  const selectionIsInEditor = Boolean(selection?.rangeCount && editor?.contains(selection.anchorNode));
+  buttons.forEach((button) => {
+    const command = ANNOUNCEMENT_FORMAT_COMMANDS[button.dataset.announcementFormat];
+    let isActive = false;
+    if (selectionIsInEditor && command) {
+      try {
+        isActive = document.queryCommandState(command);
+      } catch (_error) {
+        isActive = false;
+      }
+    }
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  });
 }
 
 function insertAnnouncementEditorHtml(editor, html) {
@@ -6393,6 +6474,7 @@ function bindMessageComposerActions() {
   const bodyStats = document.getElementById("messageBodyStats");
   const sendAtInput = document.getElementById("messageSendAt");
   const sendNowButton = document.getElementById("messageSendNow");
+  const formatButtons = Array.from(document.querySelectorAll("[data-announcement-format]"));
 
   if (!form || !saveButton || !result || !textToggle || !emailToggle || !inAppToggle) return;
 
@@ -6444,7 +6526,11 @@ function bindMessageComposerActions() {
   bodyInput?.addEventListener("input", () => {
     bodyInput.removeAttribute("aria-invalid");
     updateBodyStats();
+    updateAnnouncementFormatToolbar(bodyInput, formatButtons);
   });
+  bodyInput?.addEventListener("keyup", () => updateAnnouncementFormatToolbar(bodyInput, formatButtons));
+  bodyInput?.addEventListener("mouseup", () => updateAnnouncementFormatToolbar(bodyInput, formatButtons));
+  bodyInput?.addEventListener("focus", () => updateAnnouncementFormatToolbar(bodyInput, formatButtons));
   bodyInput?.addEventListener("paste", (event) => {
     event.preventDefault();
     const richText = event.clipboardData?.getData("text/html") || "";
@@ -6458,10 +6544,21 @@ function bindMessageComposerActions() {
   sendNowButton?.addEventListener("click", () => {
     if (sendAtInput) sendAtInput.value = toFacilityDatetimeLocalValue(new Date().toISOString());
   });
-  document.querySelectorAll("[data-announcement-format]").forEach((button) => {
+  formatButtons.forEach((button) => {
     button.addEventListener("mousedown", (event) => event.preventDefault());
-    button.addEventListener("click", () => applyAnnouncementTextFormat(bodyInput, button.dataset.announcementFormat));
+    button.addEventListener("click", () => {
+      applyAnnouncementTextFormat(bodyInput, button.dataset.announcementFormat);
+      updateAnnouncementFormatToolbar(bodyInput, formatButtons);
+    });
   });
+  const handleFormattingSelectionChange = () => {
+    if (!document.contains(bodyInput)) {
+      document.removeEventListener("selectionchange", handleFormattingSelectionChange);
+      return;
+    }
+    updateAnnouncementFormatToolbar(bodyInput, formatButtons);
+  };
+  document.addEventListener("selectionchange", handleFormattingSelectionChange);
   setMessageRecipientSummary({ includeText });
   loadSmsPreferences()
     .then(() => setMessageRecipientSummary({ includeText }))

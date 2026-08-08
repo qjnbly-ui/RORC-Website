@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 
 const root = path.resolve(__dirname, "..");
 const appJs = fs.readFileSync(path.join(root, "RORC App", "app.js"), "utf8");
@@ -75,7 +76,47 @@ test("composer uses visible rich text and preserves formatting on paste", () => 
   assert.match(appJs, /sanitizeAnnouncementEditorHtml\(richText\)/);
   assert.match(appJs, /announcementEditorHtmlFromMarkdown\(plainText\)/);
   assert.match(appJs, /document\.execCommand\(command, false, null\)/);
+  assert.match(appJs, /document\.queryCommandState\(command\)/);
+  assert.match(appCss, /\.announcement-format-toolbar button\.is-active/);
   assert.doesNotMatch(appJs, /<textarea id="messageBody"/);
+});
+
+test("nested editor formatting keeps paragraphs and lists intact in text and email", () => {
+  const functionStart = appJs.indexOf("function announcementEditorToMarkdown(");
+  const functionEnd = appJs.indexOf("\nconst ANNOUNCEMENT_FORMAT_COMMANDS", functionStart);
+  const announcementEditorToMarkdown = vm.runInNewContext(
+    `(${appJs.slice(functionStart, functionEnd)})`,
+    { Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 } }
+  );
+  const text = (value) => ({ nodeType: 3, textContent: value });
+  const element = (tagName, ...childNodes) => ({
+    nodeType: 1,
+    tagName: tagName.toUpperCase(),
+    childNodes,
+    children: childNodes.filter((node) => node.nodeType === 1)
+  });
+  const editor = element("div",
+    element("b",
+      element("div", text("Hello,")),
+      element("div", element("br")),
+      element("ul",
+        element("li", text("Test 1")),
+        element("li", text("Test 2"))
+      )
+    ),
+    element("div", element("i", text("Test three")))
+  );
+
+  const markdown = announcementEditorToMarkdown(editor);
+  const plain = announcementMessageToPlainText(markdown);
+  const html = renderAnnouncementMessageHtml(markdown);
+
+  assert.equal(markdown, "**Hello,**\n\n- **Test 1**\n- **Test 2**\n\n*Test three*");
+  assert.equal(plain, "Hello,\n\n• Test 1\n• Test 2\n\nTest three");
+  assert.match(html, /<strong>Hello,<\/strong>/);
+  assert.match(html, /<ul[^>]*><li[^>]*><strong>Test 1<\/strong><\/li><li[^>]*><strong>Test 2<\/strong><\/li><\/ul>/);
+  assert.match(html, /<em>Test three<\/em>/);
+  assert.doesNotMatch(plain, /\*\*/);
 });
 
 test("announcements provide wide, intermediate, and compact responsive layouts", () => {
