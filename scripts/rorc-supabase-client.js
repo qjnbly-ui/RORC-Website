@@ -4,12 +4,13 @@
   }
 
   const SUPABASE_URL = "https://aedvuofiodtsgijcxyqx.supabase.co";
-  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFlZHZ1b2Zpb2R0c2dpamN4eXF4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2Mjc1NDcsImV4cCI6MjA5MjIwMzU0N30.96l4tY1YLdAN-90x8nAYICCBjLSYVMaaZLzNS6_L9wU";
-  const SUPABASE_CDN = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+  const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_lNxmEUnsIUXeoAe9MLp0BA_QInzqALY";
+  const SUPABASE_SDK_URL = "/RORC%20App/vendor/supabase.min.js?v=2.112.2";
   const initialAuthParams = readAuthParams();
 
   let libraryPromise = null;
   let clientPromise = null;
+  let realtimeRecoveryTimer = null;
   let lastAuthEvent = "";
   const authEventSubscribers = new Set();
 
@@ -43,7 +44,8 @@
     }
 
     libraryPromise = new Promise((resolve, reject) => {
-      const existing = document.querySelector(`script[src="${SUPABASE_CDN}"]`);
+      const expectedUrl = new URL(SUPABASE_SDK_URL, window.location.origin).href;
+      const existing = [...document.scripts].find((candidate) => candidate.src === expectedUrl);
 
       if (existing) {
         existing.addEventListener("load", () => resolve(window.supabase), { once: true });
@@ -52,7 +54,8 @@
       }
 
       const script = document.createElement("script");
-      script.src = SUPABASE_CDN;
+      script.src = SUPABASE_SDK_URL;
+      script.async = true;
       script.onload = () => resolve(window.supabase);
       script.onerror = () => reject(new Error("Could not load Supabase client."));
       document.head.appendChild(script);
@@ -71,11 +74,30 @@
         throw new Error("Supabase client library is unavailable.");
       }
 
-      const client = supabaseLibrary.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      let client = null;
+      const handleHeartbeat = (status) => {
+        if (!["timeout", "error", "disconnected"].includes(status) || realtimeRecoveryTimer) {
+          return;
+        }
+
+        realtimeRecoveryTimer = window.setTimeout(() => {
+          realtimeRecoveryTimer = null;
+          if (client?.realtime && !client.realtime.isConnected()) {
+            client.realtime.connect();
+          }
+        }, 1000);
+      };
+
+      client = supabaseLibrary.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
         auth: {
           autoRefreshToken: true,
           detectSessionInUrl: true,
           persistSession: true
+        },
+        realtime: {
+          worker: true,
+          heartbeatIntervalMs: 15000,
+          heartbeatCallback: handleHeartbeat
         }
       });
 

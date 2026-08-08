@@ -117,6 +117,7 @@ let communicationsPollTimer = null;
 let communicationsCallTimer = null;
 let communicationsVoiceDevice = null;
 let communicationsActiveCall = null;
+let twilioVoiceSdkPromise = null;
 const communicationsState = {
   activeTab: "messages",
   threads: [],
@@ -132,23 +133,24 @@ const communicationsState = {
   callBusy: false
 };
 let sponsorSubmissions = [];
-let notificationRealtimeChannel = null;
-let notificationRealtimeRetryTimer = null;
-let timesheetRealtimeChannel = null;
-let timesheetRealtimeRetryTimer = null;
-let timesheetSyncInFlight = false;
-let timesheetSyncPending = false;
-let timesheetSyncNeedsRender = false;
-let accountTypeRealtimeChannel = null;
-let accountTypeRealtimeRetryTimer = null;
-let accountTypeSyncInFlight = false;
-let accountTypeSyncPending = false;
-let accountTypeSyncNeedsRender = false;
-let heaterEntriesRealtimeChannel = null;
-let heaterEntriesRealtimeRetryTimer = null;
-let heaterEntriesSyncInFlight = false;
-let heaterEntriesSyncPending = false;
-let heaterEntriesSyncNeedsRender = false;
+let kioskBroadcastChannel = null;
+let notificationBroadcastChannel = null;
+let notificationWakeCleanup = null;
+let realtimeSyncController = null;
+let realtimeAuthSubscription = null;
+let appResourcesRegistered = false;
+const pendingRenderedScopes = new Set();
+let pendingScopeRenderTimer = null;
+const stripeReconciliationByAccount = new Map();
+const KIOSK_SYNC_SCOPES = Object.freeze(["attendance", "directory", "heater", "calendar", "settings"]);
+const resourceCoordinator = window.RORC_RESOURCE_COORDINATOR?.createResourceCoordinator?.({
+  onChange(name, state) {
+    if (state.status === "error" && state.hasValue) {
+      appState.syncStatus = "delayed";
+      appState.dataError = state.error?.message || `Could not refresh ${name}.`;
+    }
+  }
+}) || null;
 let recentGuestWindowTimer = null;
 let heaterCountdownTimer = null;
 let thermostatStatus = null;
@@ -324,6 +326,7 @@ const appState = {
   sponsorSubmissionsFilter: "active",
   dataStatus: "loading",
   dataError: "",
+  syncStatus: "syncing",
   authMemberId: "",
   currentUserEmail: "",
   pendingThermostatSystem: ""
@@ -417,13 +420,15 @@ const routes = {
     title: "Member Sign In",
     template: "memberSignInTemplate",
     formRoute: true,
-    returnRoute: "currentlySignedIn"
+    returnRoute: "currentlySignedIn",
+    afterRender: () => renderSignInRoute("memberSignIn")
   },
   guestSignIn: {
     title: "Guest Sign In",
     template: "guestSignInTemplate",
     formRoute: true,
-    returnRoute: "currentlySignedIn"
+    returnRoute: "currentlySignedIn",
+    afterRender: () => renderSignInRoute("guestSignIn")
   },
   currentlySignedIn: {
     title: "Currently Signed In",
@@ -433,7 +438,7 @@ const routes = {
   heaterRecords: {
     title: "Thermostat",
     template: "heaterRecordsTemplate",
-    afterRender: renderHeaterRecords
+    afterRender: renderHeaterRecordsRoute
   },
   access: {
     title: "Access",
@@ -456,12 +461,12 @@ const routes = {
     title: "Details",
     template: "accountDetailTemplate",
     detailRoute: true,
-    afterRender: () => renderAccountDetail(appState.selectedMemberId)
+    afterRender: () => renderAccountDetailRoute(appState.selectedMemberId)
   },
   myAccount: {
     title: "My Account",
     template: "accountDetailTemplate",
-    afterRender: () => renderAccountDetail(appUserSession.memberId)
+    afterRender: () => renderAccountDetailRoute(appUserSession.memberId)
   },
   otherUsers: {
     title: "Account Members",
@@ -510,7 +515,7 @@ const routes = {
   masterLogs: {
     title: "Reports & Logs",
     template: "feedbackTemplate",
-    afterRender: renderMasterLogsPage
+    afterRender: renderMasterLogsRoute
   },
   billingPrices: {
     title: "Pricing",
@@ -1036,7 +1041,7 @@ async function inviteAccountUser(event) {
     if (deliveryErrors) {
       setShareStatus(`${document.getElementById("shareStatus")?.textContent || ""}${deliveryErrors}`);
     }
-    hydrateFromSupabase().catch((error) => console.warn("Refresh after invite failed.", error));
+    refreshDirectoryResources().catch((error) => console.warn("Refresh after invite failed.", error));
   } catch (error) {
     setShareStatus(error.message || "Could not invite account user.");
   } finally {
@@ -2337,9 +2342,21 @@ function sponsorStatusClass(status) {
   return "currently-on";
 }
 
-function renderNotificationsPage() {
+async function renderNotificationsPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
+
+  const state = resourceState("messageHistory");
+  if (!state.hasValue) root.innerHTML = `<section class="empty-state"><p>Loading message history…</p></section>`;
+  try {
+    await ensureResource("messageHistory");
+  } catch (error) {
+    if (!state.hasValue) {
+      root.innerHTML = `<section class="empty-state"><p>${escapeHtml(error.message || "Could not load message history.")}</p></section>`;
+      return;
+    }
+  }
+  if (appState.currentRoute !== "notificationsEmail") return;
 
   const historyFilter = String(appState.notificationsHistoryFilter || "all");
   const allRecords = [...notificationDispatchRecords]
@@ -2885,6 +2902,39 @@ async function fetchCommunicationsVoiceToken() {
   return body.token;
 }
 
+function loadTwilioVoiceSdk() {
+  if (window.Twilio?.Device) return Promise.resolve(window.Twilio);
+  if (twilioVoiceSdkPromise) return twilioVoiceSdkPromise;
+
+  twilioVoiceSdkPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-rorc-twilio-voice]');
+    const script = existing || document.createElement("script");
+    const fail = () => {
+      twilioVoiceSdkPromise = null;
+      script.remove();
+      reject(new Error("The calling component could not be loaded."));
+    };
+    const ready = () => {
+      if (!window.Twilio?.Device) {
+        fail();
+        return;
+      }
+      resolve(window.Twilio);
+    };
+
+    script.addEventListener("load", ready, { once: true });
+    script.addEventListener("error", fail, { once: true });
+    if (!existing) {
+      script.src = "/RORC%20App/vendor/twilio-voice.min.js?v=2.18.3";
+      script.defer = true;
+      script.dataset.rorcTwilioVoice = "true";
+      document.head.appendChild(script);
+    }
+  });
+
+  return twilioVoiceSdkPromise;
+}
+
 async function startOutboundCommunicationCall() {
   const input = document.getElementById("communicationsCallPhone");
   const phone = normalizeCommunicationsPhone(input?.value || communicationsState.callPhone);
@@ -2894,16 +2944,14 @@ async function startOutboundCommunicationCall() {
     input?.focus();
     return;
   }
-  if (!window.Twilio?.Device) {
-    communicationsState.callStatus = "The calling component did not load. Refresh the app and try again.";
-    updateCommunicationsCallUi();
-    return;
-  }
   communicationsState.callPhone = phone;
   communicationsState.callBusy = true;
-  communicationsState.callStatus = "Requesting microphone access…";
+  communicationsState.callStatus = "Loading secure calling…";
   updateCommunicationsCallUi();
   try {
+    await loadTwilioVoiceSdk();
+    communicationsState.callStatus = "Requesting microphone access…";
+    updateCommunicationsCallUi();
     const token = await fetchCommunicationsVoiceToken();
     if (communicationsVoiceDevice) {
       communicationsVoiceDevice.destroy();
@@ -3032,6 +3080,18 @@ async function renderCommunicationsPage() {
     await refreshCommunicationThreads({ initial: true });
   } else {
     stopCommunicationsPolling();
+    communicationsState.callStatus = window.Twilio?.Device ? "Ready to call" : "Loading secure calling…";
+    updateCommunicationsCallUi();
+    loadTwilioVoiceSdk()
+      .then(() => {
+        if (appState.currentRoute !== "communications" || communicationsState.activeTab !== "call") return;
+        communicationsState.callStatus = "Ready to call";
+        updateCommunicationsCallUi();
+      })
+      .catch((error) => {
+        communicationsState.callStatus = `${error.message || "Calling is unavailable."} Select Call to retry.`;
+        updateCommunicationsCallUi();
+      });
     document.getElementById("communicationsCallPhone")?.addEventListener("input", (event) => {
       communicationsState.callPhone = event.target.value;
     });
@@ -3260,9 +3320,23 @@ function bindAdminNotesActions() {
   });
 }
 
-function renderUserNotificationsPage() {
+async function renderUserNotificationsPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
+
+  const state = resourceState("notifications");
+  if (!state.hasValue) {
+    root.innerHTML = `<section class="empty-state"><p>Loading notifications…</p></section>`;
+  }
+  try {
+    await ensureResource("notifications");
+  } catch (error) {
+    if (!state.hasValue) {
+      root.innerHTML = `<section class="empty-state"><p>${escapeHtml(error.message || "Could not load notifications.")}</p></section>`;
+      return;
+    }
+  }
+  if (appState.currentRoute !== "notifications") return;
 
   const records = [...memberNotifications]
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
@@ -3320,6 +3394,21 @@ function formatNotificationHistoryMeta(record) {
     record.recipientsLabel,
     formatShortDateTime(record.createdAt)
   ].filter((value) => String(value || "").trim()).join(" · ");
+}
+
+async function renderMasterLogsRoute() {
+  renderMasterLogsPage();
+  const resourceName = masterLogsResourceName();
+  try {
+    await ensureResource(resourceName);
+    if (appState.currentRoute === "masterLogs" && resourceName === masterLogsResourceName()) {
+      renderMasterLogsPage();
+    }
+  } catch (error) {
+    appState.dataStatus = "partial";
+    appState.dataError = error.message || "Could not load this report.";
+    renderMasterLogsPage();
+  }
 }
 
 function renderMasterLogsPage() {
@@ -3506,11 +3595,19 @@ function renderMasterLogsPage() {
 
 function bindMasterLogsActions() {
   document.querySelectorAll("[data-master-logs-tab]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const tab = String(button.dataset.masterLogsTab || "").trim();
       if (!tab || tab === appState.masterLogsTab) return;
       appState.masterLogsTab = tab;
       renderMasterLogsPage();
+      try {
+        await ensureResource(masterLogsResourceName());
+        if (appState.currentRoute === "masterLogs" && appState.masterLogsTab === tab) renderMasterLogsPage();
+      } catch (error) {
+        appState.dataStatus = "partial";
+        appState.dataError = error.message || "Could not load this report.";
+        renderMasterLogsPage();
+      }
     });
   });
 
@@ -3819,7 +3916,7 @@ async function createStripeInvoiceForBillingItems({
       throw new Error(body.error || "Could not create Stripe invoice.");
     }
 
-    await hydrateFromSupabase();
+    await refreshTargetedResources(["billing", "identity"], { rerender: false });
     refreshAfterRecordMutation();
     const url = body.invoice?.url || body.invoices?.[0]?.url || "";
     if (setMessage) {
@@ -3866,7 +3963,7 @@ async function syncStripeInvoiceStatusesForBillingItems({
     if (!response.ok || body.success === false) {
       throw new Error(body.error || "Could not refresh Stripe status.");
     }
-    await hydrateFromSupabase();
+    await refreshTargetedResources(["billing", "identity"], { rerender: false });
     refreshAfterRecordMutation();
     if (setMessage) setMessage("Stripe invoice status refreshed.", "success");
     else showAppNotice("Stripe invoice status refreshed.");
@@ -4680,7 +4777,7 @@ function openMasterLogEditor(recordType, recordId, options = {}) {
       const { error } = await client.from("heater_use_entries").update(payload).eq("id", recordId);
       if (error) throw error;
 
-      await hydrateFromSupabase();
+      await refreshHeaterResources({ rerender: false });
       refreshAfterRecordMutation();
       setResult(
         billingLocked
@@ -4739,7 +4836,10 @@ function openMasterLogEditor(recordType, recordId, options = {}) {
         if (error) throw error;
       }
 
-      await hydrateFromSupabase();
+      await refreshTargetedResources(
+        isTimesheet ? ["attendanceHistory", "billing"] : ["heater", "billing"],
+        { scope: isTimesheet ? "attendance" : "heater", rerender: false }
+      );
       refreshAfterRecordMutation();
       close();
     } catch (error) {
@@ -4772,7 +4872,10 @@ function openMasterLogEditor(recordType, recordId, options = {}) {
         if (error) throw error;
       }
 
-      await hydrateFromSupabase();
+      await refreshTargetedResources(
+        isTimesheet ? ["attendanceHistory", "billing"] : ["heater", "billing"],
+        { scope: isTimesheet ? "attendance" : "heater", rerender: false }
+      );
       refreshAfterRecordMutation();
       close();
     } catch (error) {
@@ -4807,7 +4910,7 @@ function openMasterLogEditor(recordType, recordId, options = {}) {
       const { error } = await query;
       if (error) throw error;
 
-      await hydrateFromSupabase();
+      await refreshTargetedResources(["billing"], { rerender: false });
       refreshAfterRecordMutation();
       close();
     } catch (error) {
@@ -5022,7 +5125,7 @@ function openBillingLogEditor(recordId, options = {}) {
             }
           : billingItem
       ));
-      await hydrateFromSupabase();
+      await refreshTargetedResources(["billing"], { rerender: false });
       refreshAfterRecordMutation();
       close();
     } catch (error) {
@@ -5154,7 +5257,7 @@ function openBillingLogEditor(recordId, options = {}) {
 
       billingLineItems = billingLineItems.filter((billingItem) => billingItem.id !== recordId);
       await syncRentalPaymentStateForBillingItems(client, affectedItems, billingLineItems);
-      await hydrateFromSupabase();
+      await refreshTargetedResources(["billing"], { rerender: false });
       refreshAfterRecordMutation();
       close();
     } catch (error) {
@@ -6195,8 +6298,10 @@ function renderRouteLoadError(route, error) {
   view.innerHTML = `
     <section class="empty-state">
       <p>${escapeHtml(error?.message || `Could not load ${route?.title || "this page"}.`)}</p>
+      <button class="text-action" data-route-load-retry type="button">Retry</button>
     </section>
   `;
+  view.querySelector("[data-route-load-retry]")?.addEventListener("click", () => render(appState.currentRoute));
 }
 
 function showRouteLoading(routeName) {
@@ -6262,6 +6367,14 @@ async function createSupabaseClient() {
         autoRefreshToken: true,
         detectSessionInUrl: true,
         persistSession: true
+      },
+      realtime: {
+        worker: true,
+        heartbeatCallback(status) {
+          if (status === "disconnected" && supabaseClient) {
+            supabaseClient.realtime.connect();
+          }
+        }
       }
     }
   );
@@ -9655,7 +9768,7 @@ async function reviewCalendarEventRequest(root, requestId, action) {
       throw new Error(body.error || "Could not review request.");
     }
     calendarRequestNotice = action === "approve" ? "Calendar request approved." : "Calendar request rejected.";
-    await renderCalendarPage();
+    await refreshCalendarPageAfterMutation();
   } catch (error) {
     root.insertAdjacentHTML("afterbegin", `<div class="feedback-error">${escapeHtml(error.message || "Could not review request.")}</div>`);
   }
@@ -9674,10 +9787,9 @@ async function renderMyEventsPage() {
   }
 
   try {
-    const body = await fetchCalendarEventRequests({ includeEvents: true, mineOnly: true });
-    calendarEventRequests = body.requests || [];
-    updateOwnedCalendarEventAvailability(body.events || [], calendarEventRequests);
-    renderMyEventsView(root, body.events || [], calendarEventRequests);
+    await ensureResource("myEvents");
+    if (appState.currentRoute !== "myEvents") return;
+    renderMyEventsView(root, calendarEvents, calendarEventRequests);
   } catch (error) {
     revealReadyContent(root);
     root.innerHTML = `<p class="feedback-empty">${escapeHtml(error.message || "Could not load your events.")}</p>`;
@@ -9811,6 +9923,9 @@ async function submitMyEventsDeleteRequest(root, eventId) {
     calendarRequestNotice = "Event delete submitted for approval.";
     hasOwnedCalendarEvents = true;
     updateNavigationVisibility();
+    invalidateResource("myEvents");
+    invalidateResource("calendar");
+    await ensureResource("myEvents", { force: true });
     await renderMyEventsPage();
   } catch (error) {
     root.insertAdjacentHTML("afterbegin", `<div class="feedback-error">${escapeHtml(error.message || "Could not submit delete request.")}</div>`);
@@ -9854,6 +9969,13 @@ async function saveFacilityHourOverrideToServer(dateIso, override) {
   });
 }
 
+async function refreshCalendarPageAfterMutation() {
+  invalidateResource("calendar");
+  invalidateResource("myEvents");
+  await ensureResource("calendar", { force: true });
+  if (appState.currentRoute === "calendar") await renderCalendarPage();
+}
+
 async function renderCalendarPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
@@ -9863,27 +9985,8 @@ async function renderCalendarPage() {
   deferContentUntilReady(root);
 
   try {
-    const token = currentAuthSession?.access_token || "";
-    if (!token) throw new Error("Please sign in again.");
-    const [eventsResult, requestsResult] = await Promise.all([
-      fetch("/api/events", {
-        headers: { Authorization: `Bearer ${token}` }
-      }),
-      (isAccountManager(appUserSession) || canRequestCalendarEventChanges(appUserSession))
-        ? fetchCalendarEventRequests()
-        : Promise.resolve({ requests: [] })
-    ]);
-    const body  = await eventsResult.json();
-    if (!eventsResult.ok || !body.success) throw new Error(body.error || "Could not load events");
-    const sharedHours = body.facilityHours || {};
-    facilityHours = normalizeFacilityHours(sharedHours);
-    facilityHourOverrides = normalizeFacilityHourOverrides(sharedHours.overrides || {});
-    calendarFacilityBlocks = Array.isArray(body.facilityBlocks) ? body.facilityBlocks : [];
-    calendarEvents = body.events || [];
-    calendarEventRequests = requestsResult.requests || [];
-    if (canViewOwnedCalendarEvents(appUserSession) && calendarEventRequests.length) {
-      updateOwnedCalendarEventAvailability([], calendarEventRequests);
-    }
+    await ensureResource("calendar");
+    if (appState.currentRoute !== "calendar") return;
     renderCalendarView(root);
     if (pendingCalendarRentalCreate) {
       if (!isAccountManager(appUserSession)) {
@@ -11419,7 +11522,7 @@ async function submitMemberCalendarRequest(root, options) {
     hasOwnedCalendarEvents = true;
     updateNavigationVisibility();
     modal.hidden = true;
-    await renderCalendarPage();
+    await refreshCalendarPageAfterMutation();
   } catch (error) {
     showCalError(errEl, error.message || "Could not submit calendar request.");
   } finally {
@@ -11640,7 +11743,7 @@ async function saveCalendarEvent(root) {
     }
 
     modal.hidden = true;
-    await renderCalendarPage();
+    await refreshCalendarPageAfterMutation();
   } catch (err) {
     showCalError(errEl, err.message || "Could not save event.");
   } finally {
@@ -11690,7 +11793,7 @@ async function deleteCalendarEvent(root) {
       hasOwnedCalendarEvents = true;
       updateNavigationVisibility();
       modal.hidden = true;
-      await renderCalendarPage();
+      await refreshCalendarPageAfterMutation();
     } catch (error) {
       showCalError(errEl, error.message || "Could not submit delete request.");
     }
@@ -11769,7 +11872,7 @@ async function deleteCalendarEvent(root) {
     }
 
     modal.hidden = true;
-    await renderCalendarPage();
+    await refreshCalendarPageAfterMutation();
   } catch (err) {
     showCalError(errEl, err.message || "Could not delete event.");
   }
@@ -11918,11 +12021,15 @@ function canUsePrivilegedTimesheetApi() {
   return Boolean(isKioskAccount(appUserSession));
 }
 
-async function fetchPrivilegedTimesheetEntries() {
+async function fetchPrivilegedTimesheetEntries(viewName = "") {
   const token = currentAuthSession?.access_token || "";
   if (!token) return [];
 
-  const response = await fetch("/api/timesheet-entries", {
+  const query = new URLSearchParams();
+  if (viewName) query.set("view", viewName);
+  const endpoint = `/api/timesheet-entries${query.size ? `?${query.toString()}` : ""}`;
+
+  const response = await fetch(endpoint, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`
@@ -12147,487 +12254,556 @@ async function markOwnNotificationsRead() {
   }
 }
 
-function stopNotificationRealtime() {
-  if (notificationRealtimeRetryTimer) {
-    window.clearTimeout(notificationRealtimeRetryTimer);
-    notificationRealtimeRetryTimer = null;
+function requireResourceCoordinator() {
+  if (!resourceCoordinator) {
+    throw new Error("The app resource coordinator did not load.");
   }
-
-  if (notificationRealtimeChannel) {
-    try {
-      notificationRealtimeChannel.unsubscribe();
-    } catch (error) {
-      // Ignore unsubscribe failures during cleanup.
-    }
-    notificationRealtimeChannel = null;
-  }
+  return resourceCoordinator;
 }
 
-function stopTimesheetRealtime() {
-  if (timesheetRealtimeRetryTimer) {
-    window.clearTimeout(timesheetRealtimeRetryTimer);
-    timesheetRealtimeRetryTimer = null;
-  }
-
-  if (timesheetRealtimeChannel) {
-    try {
-      timesheetRealtimeChannel.unsubscribe();
-    } catch (error) {
-      // Ignore unsubscribe failures during cleanup.
-    }
-    timesheetRealtimeChannel = null;
-  }
-}
-
-function stopAccountTypeRealtime() {
-  if (accountTypeRealtimeRetryTimer) {
-    window.clearTimeout(accountTypeRealtimeRetryTimer);
-    accountTypeRealtimeRetryTimer = null;
-  }
-
-  if (accountTypeRealtimeChannel) {
-    try {
-      accountTypeRealtimeChannel.unsubscribe();
-    } catch (error) {
-      // Ignore unsubscribe failures during cleanup.
-    }
-    accountTypeRealtimeChannel = null;
-  }
-}
-
-function scheduleTimesheetRealtimeReconnect() {
-  if (!currentAuthSession) return;
-  if (timesheetRealtimeRetryTimer) return;
-  timesheetRealtimeRetryTimer = window.setTimeout(() => {
-    timesheetRealtimeRetryTimer = null;
-    void startTimesheetRealtime();
-  }, 2500);
-}
-
-function scheduleAccountTypeRealtimeReconnect() {
-  if (!currentAuthSession) return;
-  if (accountTypeRealtimeRetryTimer) return;
-  accountTypeRealtimeRetryTimer = window.setTimeout(() => {
-    accountTypeRealtimeRetryTimer = null;
-    void startAccountTypeRealtime();
-  }, 2500);
-}
-
-function stopHeaterEntriesRealtime() {
-  if (heaterEntriesRealtimeRetryTimer) {
-    window.clearTimeout(heaterEntriesRealtimeRetryTimer);
-    heaterEntriesRealtimeRetryTimer = null;
-  }
-
-  if (heaterEntriesRealtimeChannel) {
-    try {
-      heaterEntriesRealtimeChannel.unsubscribe();
-    } catch (error) {
-      // Ignore unsubscribe failures during cleanup.
-    }
-    heaterEntriesRealtimeChannel = null;
-  }
-}
-
-function scheduleHeaterEntriesRealtimeReconnect() {
-  if (!currentAuthSession) return;
-  if (heaterEntriesRealtimeRetryTimer) return;
-  heaterEntriesRealtimeRetryTimer = window.setTimeout(() => {
-    heaterEntriesRealtimeRetryTimer = null;
-    void startHeaterEntriesRealtime();
-  }, 2500);
-}
-
-async function startTimesheetRealtime() {
-  if (!currentAuthSession) return;
-  stopTimesheetRealtime();
-
+async function loadIdentityResource() {
+  if (!currentAuthSession) throw new Error("Log in to load app data.");
   const client = await createSupabaseClient();
-  if (!client) return;
+  if (!client) throw new Error("App data is not available.");
 
-  timesheetRealtimeChannel = client
-    .channel("timesheet-entries-live")
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "timesheet_entries" },
-      () => {
-        syncTimesheetEntries({ rerender: appState.currentRoute === "currentlySignedIn" })
-          .catch((error) => {
-            console.warn("Could not sync timesheet realtime change.", error);
-          });
-      }
-    )
-    .subscribe(async (status) => {
-      if (status === "SUBSCRIBED") {
-        await syncTimesheetEntries({ rerender: appState.currentRoute === "currentlySignedIn" })
-          .catch((error) => {
-            console.warn("Could not sync timesheet after realtime subscribe.", error);
-          });
-        return;
-      }
+  const [profilesResult, permissionsResult] = await Promise.all([
+    client
+      .from("account_member_profiles")
+      .select("*")
+      .order("account_number", { ascending: true })
+      .order("member_name", { ascending: true }),
+    client.from("account_type_permissions").select("*")
+  ]);
+  if (profilesResult.error) throw profilesResult.error;
+  if (permissionsResult.error) throw permissionsResult.error;
 
-      if (status === "TIMED_OUT" || status === "CHANNEL_ERROR" || status === "CLOSED") {
-        scheduleTimesheetRealtimeReconnect();
-      }
-    });
-
-}
-
-async function startAccountTypeRealtime() {
-  if (!currentAuthSession) return;
-  stopAccountTypeRealtime();
-
-  const client = await createSupabaseClient();
-  if (!client) return;
-
-  const handleAccountTypeChange = () => {
-    syncAccountTypeData({ rerender: true })
-      .catch((error) => {
-        console.warn("Could not sync account type realtime change.", error);
-      });
-  };
-
-  accountTypeRealtimeChannel = client
-    .channel("account-types-live")
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "account_members" },
-      handleAccountTypeChange
-    )
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "account_type_permissions" },
-      handleAccountTypeChange
-    )
-    .subscribe(async (status) => {
-      if (status === "SUBSCRIBED") {
-        await syncAccountTypeData({ rerender: false })
-          .catch((error) => {
-            console.warn("Could not sync account types after realtime subscribe.", error);
-          });
-        return;
-      }
-
-      if (status === "TIMED_OUT" || status === "CHANNEL_ERROR" || status === "CLOSED") {
-        scheduleAccountTypeRealtimeReconnect();
-      }
-    });
-}
-
-async function startHeaterEntriesRealtime() {
-  if (!currentAuthSession) return;
-  stopHeaterEntriesRealtime();
-
-  const client = await createSupabaseClient();
-  if (!client) return;
-
-  heaterEntriesRealtimeChannel = client
-    .channel("heater-entries-live")
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "heater_use_entries" },
-      () => {
-        syncHeaterEntries({ rerender: true })
-          .catch((error) => {
-            console.warn("Could not sync heater entries realtime change.", error);
-          });
-      }
-    )
-    .subscribe(async (status) => {
-      if (status === "SUBSCRIBED") {
-        await syncHeaterEntries({ rerender: false })
-          .catch((error) => {
-            console.warn("Could not sync heater entries after realtime subscribe.", error);
-          });
-        return;
-      }
-
-      if (status === "TIMED_OUT" || status === "CHANNEL_ERROR" || status === "CLOSED") {
-        scheduleHeaterEntriesRealtimeReconnect();
-      }
-    });
-}
-
-async function syncHeaterEntries({ rerender = false } = {}) {
-  if (heaterEntriesSyncInFlight) {
-    heaterEntriesSyncPending = true;
-    heaterEntriesSyncNeedsRender = heaterEntriesSyncNeedsRender || rerender;
-    return;
+  const profiles = profilesResult.data || [];
+  const currentProfile = findProfileForSession(currentAuthSession, profiles);
+  if (!profiles.length || !currentProfile) {
+    throw new Error("This signed-in user is not linked to a RORC member profile.");
   }
 
-  heaterEntriesSyncInFlight = true;
-  try {
-    let shouldRerender = rerender;
-
-    do {
-      heaterEntriesSyncPending = false;
-      shouldRerender = shouldRerender || heaterEntriesSyncNeedsRender;
-      heaterEntriesSyncNeedsRender = false;
-
-      const client = await createSupabaseClient();
-      if (!client) return;
-
-      const [heaterResult, heaterGroupResult] = await Promise.all([
-        client
-          .from("heater_use_entries_with_duration")
-          .select("*")
-          .order("start_at", { ascending: false, nullsFirst: false })
-          .order("used_on", { ascending: false })
-          .limit(500),
-        client.from("heater_use_group_members").select("*")
-      ]);
-
-      if (heaterResult.error) throw heaterResult.error;
-
-      const heaterGroupMap = (heaterGroupResult.data || []).reduce((map, row) => {
-        const current = map.get(row.heater_use_entry_id) || [];
-        current.push(row.account_member_id);
-        map.set(row.heater_use_entry_id, current);
-        return map;
-      }, new Map());
-
-      const previouslyActiveSystems = new Set(
-        ["heat", "ac"].filter((systemType) => activeHeaterEntry(systemType) !== null)
-      );
-
-      heaterUseEntries = (heaterResult.data || []).map((row) => ({
-        id: row.id,
-        usedOn: row.used_on,
-        systemType: normalizeThermostatSystemType(row.system_type),
-        event: row.event,
-        responsibleMemberId: row.responsible_member_id,
-        groupMemberIds: heaterGroupMap.get(row.id) || [],
-        groupPay: Boolean(row.group_pay),
-        turnHeaterOn: row.turn_heater_on || "On",
-        targetTemperatureF: Number(row.target_temperature_f || 0) || null,
-        setATimer: Boolean(row.set_a_timer),
-        timerStart: row.timer_start || null,
-        timerStop: row.timer_stop || null,
-        startAt: row.start_at,
-        endAt: row.end_at,
-        paid: Boolean(row.paid),
-        note: row.note || ""
-      }));
-
-      previouslyActiveSystems.forEach((systemType) => {
-        if (activeHeaterEntry(systemType) === null) {
-          markThermostatSystemOff(systemType);
-          fetchThermostatStatus({ force: true }).catch(() => null);
-        }
-      });
-
-      if (shouldRerender && appState.currentRoute === "heaterRecords") {
-        render("heaterRecords");
-      }
-
-      shouldRerender = false;
-    } while (heaterEntriesSyncPending);
-  } finally {
-    heaterEntriesSyncInFlight = false;
-  }
-}
-
-async function syncTimesheetEntries({ rerender = false } = {}) {
-  if (timesheetSyncInFlight) {
-    timesheetSyncPending = true;
-    timesheetSyncNeedsRender = timesheetSyncNeedsRender || rerender;
-    return;
-  }
-
-  timesheetSyncInFlight = true;
-  try {
-    let shouldRerender = rerender;
-
-    do {
-      timesheetSyncPending = false;
-      shouldRerender = shouldRerender || timesheetSyncNeedsRender;
-      timesheetSyncNeedsRender = false;
-
-      if (canUsePrivilegedTimesheetApi()) {
-        timesheetEntries = await fetchPrivilegedTimesheetEntries();
-      } else {
-        const client = await createSupabaseClient();
-        if (!client) return;
-
-        const timesheetResult = await fetchVisibleTimesheetRows(client);
-
-        if (timesheetResult.error) {
-          throw timesheetResult.error;
-        }
-
-        timesheetEntries = (timesheetResult.data || []).map(mapTimesheetEntryRow);
-      }
-
-      refreshSessions(appState.authMemberId);
-      if (shouldRerender && appState.currentRoute === "currentlySignedIn") {
-        renderCurrentlySignedIn();
-        bindRouteActions();
-      }
-
-      shouldRerender = false;
-    } while (timesheetSyncPending);
-  } finally {
-    timesheetSyncInFlight = false;
-  }
-}
-
-async function syncAccountTypeData({ rerender = false } = {}) {
-  if (!currentAuthSession) return;
-
-  if (accountTypeSyncInFlight) {
-    accountTypeSyncPending = true;
-    accountTypeSyncNeedsRender = accountTypeSyncNeedsRender || rerender;
-    return;
-  }
-
-  accountTypeSyncInFlight = true;
-  try {
-    let shouldRerender = rerender;
-
-    do {
-      accountTypeSyncPending = false;
-      shouldRerender = shouldRerender || accountTypeSyncNeedsRender;
-      accountTypeSyncNeedsRender = false;
-
-      const client = await createSupabaseClient();
-      if (!client) return;
-
-      const [profilesResult, permissionsResult] = await Promise.all([
-        client
-          .from("account_member_profiles")
-          .select("*")
-          .order("account_number", { ascending: true })
-          .order("member_name", { ascending: true }),
-        client
-          .from("account_type_permissions")
-          .select("*")
-      ]);
-
-      if (profilesResult.error) {
-        throw profilesResult.error;
-      }
-
-      if (permissionsResult.error) {
-        throw permissionsResult.error;
-      }
-
-      const profiles = profilesResult.data || [];
-      const currentProfile = findProfileForSession(currentAuthSession, profiles);
-
-      if (!profiles.length || !currentProfile) {
-        throw new Error("This signed-in user is not linked to a RORC member profile.");
-      }
-
-      applyAccountProfileData(profiles, permissionsResult.data || []);
-      appState.authMemberId = currentProfile.account_member_id;
-      appState.currentUserEmail = currentAuthSession.user.email || currentProfile.email_address || "";
-      refreshSessions(appState.authMemberId);
-      updateDrawerIdentity();
-
-      try {
-        await loadGlobalMemberDirectory();
-      } catch (directoryError) {
-        console.warn("Could not refresh full member directory.", directoryError);
-      }
-
-      if (shouldRerender) {
-        render(appState.currentRoute);
-      }
-
-      shouldRerender = false;
-    } while (accountTypeSyncPending);
-  } finally {
-    accountTypeSyncInFlight = false;
-  }
-}
-
-function scheduleNotificationRealtimeReconnect() {
-  if (!currentAuthSession) return;
-  if (notificationRealtimeRetryTimer) return;
-  notificationRealtimeRetryTimer = window.setTimeout(() => {
-    notificationRealtimeRetryTimer = null;
-    void startNotificationRealtime();
-  }, 2500);
-}
-
-async function refreshNotificationsForCurrentRoute(announceNew = true) {
-  await refreshMemberNotifications({ announceNew });
-  if (appState.currentRoute === "notifications") {
-    render("notifications");
-  }
-  if (appState.currentRoute === "notificationsEmail" && isAccountManager(appUserSession)) {
-    await refreshMessageHistory();
-    render("notificationsEmail");
-  }
-}
-
-async function startNotificationRealtime() {
-  if (!currentAuthSession) return;
-  stopNotificationRealtime();
-
-  const client = await createSupabaseClient();
-  if (!client) return;
-
-  notificationRealtimeChannel = client
-    .channel("member-notifications-live")
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "member_notifications" },
-      async () => {
-        try {
-          await refreshNotificationsForCurrentRoute(true);
-        } catch (error) {
-          if (Number(error?.statusCode) === 401) {
-            stopNotificationRealtime();
-          }
-        }
-      }
-    )
-    .subscribe(async (status) => {
-      if (status === "SUBSCRIBED") {
-        try {
-          await refreshNotificationsForCurrentRoute(false);
-        } catch (error) {
-          if (Number(error?.statusCode) === 401) {
-            stopNotificationRealtime();
-          }
-        }
-        return;
-      }
-
-      if (status === "TIMED_OUT" || status === "CHANNEL_ERROR" || status === "CLOSED") {
-        scheduleNotificationRealtimeReconnect();
-      }
-    });
-}
-
-function renderAccessRouteDuringHydration(profiles, currentProfile) {
-  if (appState.currentRoute !== "access" || !currentProfile) return false;
-
-  applyAccountProfileData(profiles, []);
+  applyAccountProfileData(profiles, permissionsResult.data || []);
   appState.authMemberId = currentProfile.account_member_id;
   appState.currentUserEmail = currentAuthSession.user.email || currentProfile.email_address || "";
-  appState.dataStatus = "partial";
-  appState.dataError = "Loading remaining app data.";
   refreshSessions(appState.authMemberId);
   updateDrawerIdentity();
   updateNavigationVisibility();
+  return { profiles, permissions: permissionsResult.data || [], currentProfile };
+}
 
-  if (!canUseDoorAccess(appUserSession)) {
-    appState.dataStatus = "loading";
-    appState.dataError = "";
-    return false;
+async function loadAttendanceResource(viewName) {
+  let rows;
+  if (canUsePrivilegedTimesheetApi()) {
+    rows = await fetchPrivilegedTimesheetEntries(viewName === "history" ? "" : viewName);
+  } else {
+    const client = await createSupabaseClient();
+    if (!client) throw new Error("App data is not available.");
+    const result = viewName === "open"
+      ? await client
+        .from("timesheet_entries")
+        .select("*")
+        .is("signed_out_at", null)
+        .order("signed_in_at", { ascending: false })
+        .limit(100)
+      : await fetchVisibleTimesheetRows(client);
+    if (result.error) throw result.error;
+    rows = (result.data || []).map(mapTimesheetEntryRow);
   }
 
-  render("access");
-  appState.dataStatus = "loading";
-  appState.dataError = "";
+  timesheetEntries = rows;
+  refreshSessions(appState.authMemberId);
+  return timesheetEntries;
+}
+
+async function loadHeaterResource() {
+  const client = await createSupabaseClient();
+  if (!client) throw new Error("App data is not available.");
+  const [heaterResult, groupResult] = await Promise.all([
+    client
+      .from("heater_use_entries_with_duration")
+      .select("*")
+      .order("start_at", { ascending: false, nullsFirst: false })
+      .order("used_on", { ascending: false })
+      .limit(500),
+    client.from("heater_use_group_members").select("*")
+  ]);
+  if (heaterResult.error) throw heaterResult.error;
+  if (groupResult.error) throw groupResult.error;
+
+  const groupMap = (groupResult.data || []).reduce((map, row) => {
+    const current = map.get(row.heater_use_entry_id) || [];
+    current.push(row.account_member_id);
+    map.set(row.heater_use_entry_id, current);
+    return map;
+  }, new Map());
+  heaterUseEntries = (heaterResult.data || []).map((row) => ({
+    id: row.id,
+    usedOn: row.used_on,
+    systemType: normalizeThermostatSystemType(row.system_type),
+    event: row.event,
+    responsibleMemberId: row.responsible_member_id,
+    groupMemberIds: groupMap.get(row.id) || [],
+    groupPay: Boolean(row.group_pay),
+    turnHeaterOn: row.turn_heater_on || "On",
+    targetTemperatureF: Number(row.target_temperature_f || 0) || null,
+    setATimer: Boolean(row.set_a_timer),
+    timerStart: row.timer_start || null,
+    timerStop: row.timer_stop || null,
+    startAt: row.start_at,
+    endAt: row.end_at,
+    paid: Boolean(row.paid),
+    note: row.note || ""
+  }));
+  return heaterUseEntries;
+}
+
+async function loadDoorAccessResource() {
+  const client = await createSupabaseClient();
+  if (!client) throw new Error("App data is not available.");
+  const { data, error } = await client
+    .from("door_access_entries")
+    .select("*")
+    .order("access_requested_at", { ascending: false })
+    .limit(1000);
+  if (error) throw error;
+  doorAccessEntries = (data || []).map(mapDoorAccessEntryRow);
+  return doorAccessEntries;
+}
+
+async function loadBillingResource() {
+  const refreshed = await refreshBillingLineItems();
+  if (!refreshed) throw new Error("Could not refresh billing records.");
+  maybeReconcileStripeMembershipForBilling()
+    .then((synchronized) => {
+      if (synchronized) refreshRenderedScope("directory");
+    })
+    .catch((error) => console.warn("Background Stripe membership reconciliation failed.", error));
+  return billingLineItems;
+}
+
+async function loadThermostatSettingsResource() {
+  thermostatSystemAccess = await loadThermostatSystemAccess();
+  await refreshGymLightsMode({ force: true });
+  return { thermostatSystemAccess, gymLightsMode };
+}
+
+async function loadThermostatStatusResource() {
+  await fetchThermostatStatus({ force: true });
+  return thermostatStatus;
+}
+
+async function loadCalendarResource() {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) throw new Error("Please sign in again.");
+  const [eventsResult, requestsResult] = await Promise.all([
+    fetch("/api/events", { headers: { Authorization: `Bearer ${token}` } }),
+    (isAccountManager(appUserSession) || canRequestCalendarEventChanges(appUserSession))
+      ? fetchCalendarEventRequests()
+      : Promise.resolve({ requests: [] })
+  ]);
+  const body = await eventsResult.json().catch(() => ({}));
+  if (!eventsResult.ok || body.success === false) {
+    throw createHttpError(body.error || "Could not load events.", eventsResult.status);
+  }
+  const sharedHours = body.facilityHours || {};
+  facilityHours = normalizeFacilityHours(sharedHours);
+  facilityHourOverrides = normalizeFacilityHourOverrides(sharedHours.overrides || {});
+  calendarFacilityBlocks = Array.isArray(body.facilityBlocks) ? body.facilityBlocks : [];
+  calendarEvents = body.events || [];
+  calendarEventRequests = requestsResult.requests || [];
+  if (canViewOwnedCalendarEvents(appUserSession) && calendarEventRequests.length) {
+    updateOwnedCalendarEventAvailability([], calendarEventRequests);
+  }
+  return { events: calendarEvents, requests: calendarEventRequests };
+}
+
+async function loadMyEventsResource() {
+  const body = await fetchCalendarEventRequests({ includeEvents: true, mineOnly: true });
+  calendarEventRequests = body.requests || [];
+  calendarEvents = body.events || [];
+  updateOwnedCalendarEventAvailability(calendarEvents, calendarEventRequests);
+  return { events: calendarEvents, requests: calendarEventRequests };
+}
+
+async function loadManagerBadgesResource() {
+  await Promise.all([
+    refreshContractReviewBadge(),
+    refreshRentalReviewsBadge(),
+    refreshSponsorSubmissionsBadge()
+  ]);
+  return {
+    contractReviewPendingCount,
+    rentalReviewsPendingCount,
+    sponsorSubmissionsPendingCount
+  };
+}
+
+function registerAppResources() {
+  if (appResourcesRegistered) return;
+  const coordinator = requireResourceCoordinator();
+  coordinator.register("identity", { ttlMs: 5 * 60_000, loader: loadIdentityResource });
+  coordinator.register("directory", { ttlMs: 5 * 60_000, loader: loadGlobalMemberDirectory });
+  coordinator.register("attendanceOpen", { ttlMs: 15_000, loader: () => loadAttendanceResource("open") });
+  coordinator.register("attendanceSignIn", { ttlMs: 15_000, loader: () => loadAttendanceResource("sign-in") });
+  coordinator.register("attendanceHistory", { ttlMs: 15_000, loader: () => loadAttendanceResource("history") });
+  coordinator.register("heater", { ttlMs: 15_000, loader: loadHeaterResource });
+  coordinator.register("billing", { ttlMs: 60_000, loader: loadBillingResource });
+  coordinator.register("doorAccess", { ttlMs: 60_000, loader: loadDoorAccessResource });
+  coordinator.register("thermostatSettings", { ttlMs: 5 * 60_000, loader: loadThermostatSettingsResource });
+  coordinator.register("thermostatStatus", { ttlMs: 60_000, loader: loadThermostatStatusResource });
+  coordinator.register("calendar", { ttlMs: 60_000, loader: loadCalendarResource });
+  coordinator.register("myEvents", { ttlMs: 60_000, loader: loadMyEventsResource });
+  coordinator.register("notifications", {
+    ttlMs: 60_000,
+    loader: async () => {
+      await refreshMemberNotifications({ announceNew: true });
+      return memberNotifications;
+    }
+  });
+  coordinator.register("messageHistory", {
+    ttlMs: 60_000,
+    loader: async () => {
+      await refreshMessageHistory();
+      return notificationDispatchRecords;
+    }
+  });
+  coordinator.register("managerBadges", { ttlMs: 60_000, loader: loadManagerBadgesResource });
+  appResourcesRegistered = true;
+}
+
+function resourceState(name) {
+  registerAppResources();
+  return requireResourceCoordinator().getState(name);
+}
+
+function ensureResource(name, options = {}) {
+  registerAppResources();
+  return requireResourceCoordinator().ensure(name, options);
+}
+
+function invalidateResource(name, version = 0) {
+  registerAppResources();
+  return requireResourceCoordinator().invalidate(name, { version });
+}
+
+function attendanceResourceForRoute(routeName = appState.currentRoute) {
+  if (routeName === "memberSignIn" || routeName === "guestSignIn") return "attendanceSignIn";
+  if (routeName === "masterLogs" && appState.masterLogsTab === "timesheet") return "attendanceHistory";
+  if (routeName === "accountDetails" || routeName === "myAccount") return "attendanceHistory";
+  return "attendanceOpen";
+}
+
+function masterLogsResourceName() {
+  if (appState.masterLogsTab === "thermostat") return "heater";
+  if (appState.masterLogsTab === "billing") return "billing";
+  if (appState.masterLogsTab === "doorAccess") return "doorAccess";
+  return "attendanceHistory";
+}
+
+async function ensureResources(names, options = {}) {
+  const uniqueNames = [...new Set(names.filter(Boolean))];
+  const results = await Promise.allSettled(uniqueNames.map((name) => ensureResource(name, options)));
+  const failures = results.filter((result) => result.status === "rejected");
+  if (failures.length) {
+    appState.dataStatus = "partial";
+    appState.syncStatus = navigator.onLine === false ? "offline" : "delayed";
+    appState.dataError = failures[0].reason?.message || "Some data is delayed.";
+  } else if (appState.dataStatus !== "loading") {
+    appState.dataStatus = "live";
+    appState.syncStatus = "live";
+    appState.dataError = "";
+  }
+  return results;
+}
+
+function routeResourceNames(routeName = appState.currentRoute) {
+  if (routeName === "currentlySignedIn") {
+    return ["attendanceOpen", isKioskAccount(appUserSession) ? "directory" : ""];
+  }
+  if (routeName === "memberSignIn" || routeName === "guestSignIn") {
+    return ["attendanceSignIn", (isKioskAccount(appUserSession) || isAccountManager(appUserSession)) ? "directory" : ""];
+  }
+  if (routeName === "heaterRecords" || routeName === "heaterForm") {
+    return [
+      "heater",
+      "thermostatStatus",
+      "thermostatSettings",
+      isKioskAccount(appUserSession) ? "directory" : ""
+    ];
+  }
+  if (routeName === "calendar") return ["calendar"];
+  if (routeName === "myEvents") return ["myEvents"];
+  if (routeName === "notifications") return ["notifications"];
+  if (routeName === "notificationsEmail") return ["messageHistory"];
+  if (routeName === "masterLogs") return [masterLogsResourceName()];
+  if (routeName === "access") return ["doorAccess"];
+  return [];
+}
+
+function missingRouteResourceError(routeName = appState.currentRoute) {
+  for (const name of routeResourceNames(routeName).filter(Boolean)) {
+    const state = resourceState(name);
+    if (!state.hasValue && state.status === "error") {
+      return state.error || new Error(`Could not load ${name}.`);
+    }
+  }
+  return null;
+}
+
+function ensureRouteResources(routeName = appState.currentRoute, options = {}) {
+  return ensureResources(routeResourceNames(routeName), options);
+}
+
+async function refreshTargetedResources(names, { scope = "", rerender = true } = {}) {
+  const uniqueNames = [...new Set(names.filter(Boolean))];
+  uniqueNames.forEach((name) => invalidateResource(name));
+  await ensureResources(uniqueNames, { force: true });
+  if (rerender && scope) refreshRenderedScope(scope);
   return true;
 }
 
-async function hydrateFromSupabase() {
-  const client = await createSupabaseClient();
+function refreshDirectoryResources(options = {}) {
+  return refreshTargetedResources([
+    "identity",
+    (isKioskAccount(appUserSession) || isAccountManager(appUserSession)) ? "directory" : ""
+  ], { scope: "directory", ...options });
+}
 
+function refreshHeaterResources(options = {}) {
+  return refreshTargetedResources(["heater", "thermostatStatus", "billing"], { scope: "heater", ...options });
+}
+
+function routeHasActiveEditor() {
+  return Boolean(document.querySelector(
+    ".member-edit-overlay, .master-log-editor-overlay, .cal-modal:not([hidden]), .heater-confirm:not([hidden]), input:focus, textarea:focus, select:focus"
+  ));
+}
+
+function deferRenderedScope(scope) {
+  pendingRenderedScopes.add(scope);
+  if (pendingScopeRenderTimer) return;
+  pendingScopeRenderTimer = window.setTimeout(() => {
+    pendingScopeRenderTimer = null;
+    if (routeHasActiveEditor()) {
+      [...pendingRenderedScopes].forEach(deferRenderedScope);
+      return;
+    }
+    const scopes = [...pendingRenderedScopes];
+    pendingRenderedScopes.clear();
+    scopes.forEach(refreshRenderedScope);
+  }, 750);
+}
+
+function refreshRenderedScope(scope) {
+  if (routeHasActiveEditor()) {
+    deferRenderedScope(scope);
+    return;
+  }
+  if (scope === "attendance") {
+    if (appState.currentRoute === "currentlySignedIn") {
+      renderCurrentlySignedIn();
+      bindRouteActions();
+    } else if (appState.currentRoute === "memberSignIn" || appState.currentRoute === "guestSignIn") {
+      populateMemberSignIn();
+      populateGuestSignIn();
+      bindMemberPickers();
+    } else if (appState.currentRoute === "masterLogs" && appState.masterLogsTab === "timesheet") {
+      renderMasterLogsPage();
+    }
+    return;
+  }
+  if (scope === "heater" && appState.currentRoute === "heaterRecords") {
+    renderHeaterRecords();
+    return;
+  }
+  if (scope === "calendar" && appState.currentRoute === "calendar") {
+    const root = document.getElementById("feedbackContent");
+    if (root) renderCalendarView(root);
+    return;
+  }
+  if (scope === "calendar" && appState.currentRoute === "myEvents") {
+    const root = document.getElementById("feedbackContent");
+    if (root) renderMyEventsView(root, calendarEvents, calendarEventRequests);
+    return;
+  }
+  if (scope === "directory") {
+    if (appState.currentRoute === "accountInfo") renderAccountInfo();
+    else if (appState.currentRoute === "otherUsers") renderOtherUsers();
+    else if (appState.currentRoute === "myAccount") renderAccountDetail(appUserSession.memberId);
+    updateNavigationVisibility();
+  }
+}
+
+function invalidateScopeResources(scope, version) {
+  const names = scope === "attendance"
+    ? ["attendanceOpen", "attendanceSignIn", "attendanceHistory"]
+    : scope === "directory"
+      ? ["identity", "directory"]
+      : scope === "heater"
+        ? ["heater"]
+        : scope === "calendar"
+          ? ["calendar", "myEvents"]
+          : scope === "settings"
+            ? ["thermostatSettings", "thermostatStatus"]
+            : [];
+  names.forEach((name) => invalidateResource(name, version));
+}
+
+async function refreshKioskScope(scope, version) {
+  invalidateScopeResources(scope, version);
+  let names = [];
+  if (scope === "attendance" && ["currentlySignedIn", "memberSignIn", "guestSignIn", "masterLogs"].includes(appState.currentRoute)) {
+    names = [attendanceResourceForRoute()];
+  } else if (scope === "directory") {
+    names = ["identity", (isKioskAccount(appUserSession) || isAccountManager(appUserSession)) ? "directory" : ""];
+  } else if (scope === "heater" && ["heaterRecords", "heaterForm"].includes(appState.currentRoute)) {
+    names = ["heater"];
+  } else if (scope === "calendar" && appState.currentRoute === "calendar") {
+    names = ["calendar"];
+  } else if (scope === "calendar" && appState.currentRoute === "myEvents") {
+    names = ["myEvents"];
+  } else if (scope === "settings" && ["heaterRecords", "currentlySignedIn", "message"].includes(appState.currentRoute)) {
+    names = ["thermostatSettings", appState.currentRoute === "heaterRecords" ? "thermostatStatus" : ""];
+  }
+  await ensureResources(names, { force: true, version });
+  refreshRenderedScope(scope);
+}
+
+async function fetchKioskSyncVersions() {
+  const client = await createSupabaseClient();
+  if (!client) return [];
+  const { data, error } = await client
+    .from("kiosk_sync_versions")
+    .select("scope,version,updated_at");
+  if (error) throw error;
+  return data || [];
+}
+
+function subscribeKioskInvalidations(onInvalidate, onStatus) {
+  let active = true;
+  createSupabaseClient().then((client) => {
+    if (!active || !client) return;
+    kioskBroadcastChannel = client
+      .channel("rorc:kiosk:v1", { config: { private: true } })
+      .on("broadcast", { event: "invalidate" }, ({ payload }) => {
+        onInvalidate(payload).catch((error) => {
+          console.warn("Kiosk invalidation refresh failed.", error);
+        });
+      })
+      .subscribe(onStatus);
+  });
+  return () => {
+    active = false;
+    const channel = kioskBroadcastChannel;
+    kioskBroadcastChannel = null;
+    if (channel) createSupabaseClient().then((client) => client?.removeChannel(channel)).catch(() => {});
+  };
+}
+
+async function startNotificationBroadcast() {
+  const client = await createSupabaseClient();
+  const accountId = String(appUserSession.accountId || "");
+  if (!client || !accountId) return;
+  if (notificationBroadcastChannel) {
+    await client.removeChannel(notificationBroadcastChannel).catch(() => {});
+    notificationBroadcastChannel = null;
+  }
+
+  const refreshIfNeeded = () => {
+    invalidateResource("notifications");
+    const state = resourceState("notifications");
+    if (appState.currentRoute !== "notifications" && !state.hasValue) return;
+    ensureResource("notifications", { force: true })
+      .then(() => {
+        if (appState.currentRoute === "notifications" && !routeHasActiveEditor()) render("notifications");
+      })
+      .catch((error) => console.warn("Notification refresh failed.", error));
+  };
+
+  notificationBroadcastChannel = client
+    .channel(`rorc:account:${accountId}:notifications:v1`, { config: { private: true } })
+    .on("broadcast", { event: "invalidate" }, refreshIfNeeded)
+    .subscribe();
+
+  if (notificationWakeCleanup) notificationWakeCleanup();
+  const refreshKnownNotifications = () => {
+    if (document.visibilityState === "hidden" || !resourceState("notifications").hasValue) return;
+    refreshIfNeeded();
+  };
+  document.addEventListener("visibilitychange", refreshKnownNotifications);
+  window.addEventListener("online", refreshKnownNotifications);
+  window.addEventListener("pageshow", refreshKnownNotifications);
+  notificationWakeCleanup = () => {
+    document.removeEventListener("visibilitychange", refreshKnownNotifications);
+    window.removeEventListener("online", refreshKnownNotifications);
+    window.removeEventListener("pageshow", refreshKnownNotifications);
+    notificationWakeCleanup = null;
+  };
+}
+
+async function startRealtimeSyncController() {
+  stopRealtimeSyncController();
+  const client = await createSupabaseClient();
+  if (!client || !currentAuthSession) return;
+  await client.realtime.setAuth(currentAuthSession.access_token);
+  const authListener = client.auth.onAuthStateChange((_event, session) => {
+    if (session?.access_token) client.realtime.setAuth(session.access_token);
+  });
+  realtimeAuthSubscription = authListener.data.subscription;
+
+  await startNotificationBroadcast();
+  if (!isKioskAccount(appUserSession) && !isAccountManager(appUserSession)) return;
+
+  realtimeSyncController = window.RORC_RESOURCE_COORDINATOR.createSyncController({
+    scopes: KIOSK_SYNC_SCOPES,
+    fetchVersions: fetchKioskSyncVersions,
+    refreshScope: refreshKioskScope,
+    subscribe: subscribeKioskInvalidations,
+    onStateChange(status) {
+      if (status === "offline") appState.syncStatus = "offline";
+      else if (status === "delayed") appState.syncStatus = navigator.onLine === false ? "offline" : "delayed";
+      else if (status === "syncing") appState.syncStatus = "syncing";
+      else if (status === "live") appState.syncStatus = "live";
+    }
+  });
+  realtimeSyncController.start();
+}
+
+function stopRealtimeSyncController() {
+  realtimeSyncController?.stop();
+  realtimeSyncController = null;
+  realtimeAuthSubscription?.unsubscribe?.();
+  realtimeAuthSubscription = null;
+  notificationWakeCleanup?.();
+  if (notificationBroadcastChannel) {
+    const channel = notificationBroadcastChannel;
+    notificationBroadcastChannel = null;
+    createSupabaseClient().then((client) => client?.removeChannel(channel)).catch(() => {});
+  }
+}
+
+async function syncTimesheetEntries({ rerender = false, force = false } = {}) {
+  await ensureResource(attendanceResourceForRoute(), { force });
+  if (rerender) refreshRenderedScope("attendance");
+}
+
+async function syncHeaterEntries({ rerender = false, force = false } = {}) {
+  await ensureResource("heater", { force });
+  if (rerender) refreshRenderedScope("heater");
+}
+
+async function syncAccountTypeData({ rerender = false, force = false } = {}) {
+  await ensureResources([
+    "identity",
+    (isKioskAccount(appUserSession) || isAccountManager(appUserSession)) ? "directory" : ""
+  ], { force });
+  if (rerender) refreshRenderedScope("directory");
+}
+
+async function hydrateFromSupabase() {
+  performance.mark?.("rorc:init");
+  const client = await createSupabaseClient();
   if (!client) {
     appState.dataStatus = "error";
     appState.dataError = hasSupabaseConfig()
@@ -12638,13 +12814,8 @@ async function hydrateFromSupabase() {
   }
 
   const sessionResult = await client.auth.getSession();
-
-  if (sessionResult.error) {
-    throw sessionResult.error;
-  }
-
+  if (sessionResult.error) throw sessionResult.error;
   currentAuthSession = sessionResult.data.session || null;
-
   if (!currentAuthSession) {
     showAuthGate("Log in to open the RORC app.");
     return false;
@@ -12653,196 +12824,51 @@ async function hydrateFromSupabase() {
   if (window.RORC_SUPABASE?.getInitialAuthParams?.().type) {
     window.RORC_SUPABASE.cleanAuthUrl?.();
   }
-
   const initialRoute = requestedInitialRoute() || storedRefreshRoute();
-  if (initialRoute) {
-    appState.currentRoute = initialRoute;
-  }
+  if (initialRoute) appState.currentRoute = initialRoute;
 
   showAppShell();
   appState.dataStatus = "loading";
+  appState.dataError = "";
+  appState.syncStatus = navigator.onLine === false ? "offline" : "syncing";
   showRouteLoading(appState.currentRoute);
 
   try {
-    const profilesResult = await client
-      .from("account_member_profiles")
-      .select("*")
-      .order("account_number", { ascending: true })
-      .order("member_name", { ascending: true });
+    registerAppResources();
+    await ensureResource("identity", { force: true });
+    performance.mark?.("rorc:identity-ready");
 
-    if (profilesResult.error) {
-      throw profilesResult.error;
-    }
+    appState.dataStatus = "live";
+    await ensureRouteResources(appState.currentRoute);
+    render(appState.currentRoute);
+    performance.mark?.("rorc:first-route-render");
+    performance.mark?.("rorc:route-data-ready");
+    showInvalidSessionRefreshReturnMessage();
 
-    let profiles = profilesResult.data || [];
-    let currentProfile = findProfileForSession(currentAuthSession, profiles);
-
-    if (!profiles.length) {
-      throw new Error("No member profiles were returned for this login.");
-    }
-
-    if (!currentProfile) {
-      throw new Error("This signed-in user is not linked to a RORC member profile.");
-    }
-
-    renderAccessRouteDuringHydration(profiles, currentProfile);
-
-    if (await syncStripeMembershipForProfile(currentProfile)) {
-      const refreshedProfilesResult = await client
-        .from("account_member_profiles")
-        .select("*")
-        .order("account_number", { ascending: true })
-        .order("member_name", { ascending: true });
-
-      if (refreshedProfilesResult.error) {
-        throw refreshedProfilesResult.error;
-      }
-
-      profiles = refreshedProfilesResult.data || [];
-      currentProfile = findProfileForSession(currentAuthSession, profiles);
-
-      if (!currentProfile) {
-        throw new Error("This signed-in user is not linked to a RORC member profile.");
-      }
-
-      renderAccessRouteDuringHydration(profiles, currentProfile);
-    }
-
-    const [
-      timesheetResult,
-      heaterResult,
-      heaterGroupResult,
-      billingResult,
-      doorAccessResult,
-      permissionsResult
-    ] = await Promise.all([
-      fetchVisibleTimesheetRows(client),
-      client
-        .from("heater_use_entries_with_duration")
-        .select("*")
-        .order("start_at", { ascending: false, nullsFirst: false })
-        .order("used_on", { ascending: false })
-        .limit(500),
-      client
-        .from("heater_use_group_members")
-        .select("*"),
-      fetchBillingRows(client),
-      client
-        .from("door_access_entries")
-        .select("*")
-        .order("access_requested_at", { ascending: false })
-        .limit(1000),
-      client
-        .from("account_type_permissions")
-        .select("*")
-    ]);
-
-    const optionalErrors = [
-      ["timesheet records", timesheetResult.error],
-      ["heater records", heaterResult.error],
-      ["heater group records", heaterGroupResult.error],
-      ["billing records", billingResult.error],
-      ["door access records", doorAccessResult.error],
-      ["account type permissions", permissionsResult.error]
-    ].filter(([, error]) => Boolean(error));
-
-    applySupabaseData({
-      profiles,
-      timesheetRows: timesheetResult.error ? [] : (timesheetResult.data || []),
-      heaterRows: heaterResult.error ? [] : (heaterResult.data || []),
-      heaterGroupRows: heaterGroupResult.error ? [] : (heaterGroupResult.data || []),
-      billingRows: billingResult.error ? [] : (billingResult.data || []),
-      doorAccessRows: doorAccessResult.error ? [] : (doorAccessResult.data || []),
-      permissionsRows: permissionsResult.error ? [] : (permissionsResult.data || [])
-    });
-
-    appState.authMemberId = currentProfile.account_member_id;
-    appState.currentUserEmail = currentAuthSession.user.email || currentProfile.email_address || "";
-    appState.dataStatus = optionalErrors.length ? "partial" : "live";
-    appState.dataError = optionalErrors.length
-      ? `Could not load ${optionalErrors.map(([label]) => label).join(", ")}.`
-      : "";
-    refreshSessions(appState.authMemberId);
-    updateDrawerIdentity();
-    try {
-      await loadGlobalMemberDirectory();
-    } catch (directoryError) {
-      console.warn("Could not load full member directory.", directoryError);
-    }
-    if (isAccountManager(appUserSession)) {
-      try {
-        await refreshMessageHistory();
-      } catch (messageHistoryError) {
-        console.warn("Could not load message history.", messageHistoryError);
-      }
-      try {
-        await refreshContractReviewBadge();
-      } catch (reviewBadgeError) {
-        console.warn("Could not load account review count.", reviewBadgeError);
-      }
-      try {
-        await refreshRentalReviewsBadge();
-      } catch (rentalBadgeError) {
-        console.warn("Could not load rental review count.", rentalBadgeError);
-      }
-      try {
-        await refreshSponsorSubmissionsBadge();
-      } catch (sponsorBadgeError) {
-        console.warn("Could not load sponsor submission count.", sponsorBadgeError);
-      }
-    }
-    if (canUsePrivilegedTimesheetApi()) {
-      try {
-        timesheetEntries = await fetchPrivilegedTimesheetEntries();
-      } catch (timesheetError) {
-        console.warn("Could not load privileged timesheet entries.", timesheetError);
-        appState.dataStatus = "partial";
-        appState.dataError = appState.dataError || "Could not load global timesheet records.";
-      }
-    }
-    try {
-      await fetchThermostatStatus();
-    } catch (thermostatError) {
-      console.warn("Could not load thermostat status.", thermostatError);
-    }
-    try {
-      thermostatSystemAccess = await loadThermostatSystemAccess();
-    } catch (thermostatAccessError) {
-      thermostatSystemAccess = defaultThermostatSystemAccess();
-      console.warn("Could not load thermostat system access settings.", thermostatAccessError);
-    }
-    try {
-      await startNotificationRealtime();
-      await startTimesheetRealtime();
-      await startAccountTypeRealtime();
-      await startHeaterEntriesRealtime();
-    } catch (realtimeError) {
-      console.warn("Could not start realtime sync.", realtimeError);
-    }
-    await refreshOwnedCalendarEventAvailability();
+    startRealtimeSyncController()
+      .then(() => performance.mark?.("rorc:realtime-ready"))
+      .catch((error) => {
+        appState.syncStatus = navigator.onLine === false ? "offline" : "delayed";
+        console.warn("Could not start durable realtime sync.", error);
+      });
+    return appState.dataStatus === "live";
   } catch (error) {
-    console.error("Supabase data load failed.", error);
+    console.error("Supabase identity load failed.", error);
     if (maybeRefreshForInvalidSession(error)) return false;
-    clearLiveData();
     appState.dataStatus = "error";
     appState.dataError = error.message || "Data load failed.";
+    appState.syncStatus = navigator.onLine === false ? "offline" : "delayed";
     refreshSessions();
     updateDrawerIdentity();
     showAuthGate(appState.dataError, "error");
     return false;
   }
-
-  render(appState.currentRoute);
-  showInvalidSessionRefreshReturnMessage();
-  return appState.dataStatus === "live";
 }
 
 async function loadGlobalMemberDirectory() {
-  globalMemberDirectory = [];
-
   const canLoadFullDirectory = isAccountManager(appUserSession) || isKioskAccount(appUserSession);
   const token = currentAuthSession?.access_token || "";
-  if (!canLoadFullDirectory || !token) return;
+  if (!canLoadFullDirectory || !token) return globalMemberDirectory;
 
   const response = await fetch("/api/member-directory", {
     method: "GET",
@@ -12875,6 +12901,7 @@ async function loadGlobalMemberDirectory() {
     guardianMemberId: row.guardian_member_id || "",
     canAccessIndependently: row.can_access_independently !== false
   }));
+  return globalMemberDirectory;
 }
 
 function applyAccountProfileData(profiles = [], permissionsRows = []) {
@@ -13098,22 +13125,18 @@ function refreshSessions(memberId = appState.authMemberId) {
 }
 
 function dataSourceNotice() {
-  if (appState.dataStatus === "live") {
-    return `<p class="data-source-note">Live data</p>`;
+  if (appState.dataStatus === "loading" || appState.syncStatus === "syncing") {
+    return `<p class="data-source-note is-warning">Syncing…</p>`;
   }
-
-  if (appState.dataStatus === "partial") {
-    return `<p class="data-source-note is-warning">Live member data. ${escapeHtml(appState.dataError)}</p>`;
+  if (appState.syncStatus === "offline") {
+    return `<p class="data-source-note is-warning">Offline. Showing the most recent data on this screen.</p>`;
   }
-
-  if (appState.dataStatus === "loading") {
-    return "";
+  if (appState.dataStatus === "partial" || appState.syncStatus === "delayed") {
+    return `<p class="data-source-note is-warning">Sync delayed. ${escapeHtml(appState.dataError || "Retrying automatically.")}</p>`;
   }
-
   if (appState.dataStatus === "error") {
     return `<p class="data-source-note is-warning">Could not load data. ${escapeHtml(appState.dataError)}</p>`;
   }
-
   return "";
 }
 
@@ -13127,14 +13150,8 @@ function openDrawer() {
   document.body.classList.add("drawer-open");
 
   if (isAccountManager(appUserSession)) {
-    refreshContractReviewBadge().catch((error) => {
-      console.warn("Could not refresh account review badge.", error);
-    });
-    refreshRentalReviewsBadge().catch((error) => {
-      console.warn("Could not refresh rental review badge.", error);
-    });
-    refreshSponsorSubmissionsBadge().catch((error) => {
-      console.warn("Could not refresh sponsor submission badge.", error);
+    ensureResource("managerBadges").catch((error) => {
+      console.warn("Could not refresh manager badges.", error);
     });
   }
 }
@@ -14250,10 +14267,63 @@ function renderGymLightsModeBar(openEntries) {
   `;
 }
 
-function renderCurrentlySignedInRoute() {
+async function renderSignInRoute(routeName) {
+  await ensureRouteResources(routeName);
+  if (appState.currentRoute !== routeName) return;
+  const missingError = missingRouteResourceError(routeName);
+  if (missingError) {
+    renderRouteLoadError(routes[routeName], missingError);
+    return;
+  }
+  populateMemberSignIn();
+  populateGuestSignIn();
+  bindMemberPickers();
+  bindRouteActions();
+}
+
+async function renderCurrentlySignedInRoute() {
   renderCurrentlySignedIn();
-  void refreshGymLightsMode({ rerender: true });
-  void syncTimesheetEntries({ rerender: true });
+  const root = document.getElementById("currentlySignedInContent");
+  const attendanceState = resourceState("attendanceOpen");
+  if (!attendanceState.hasValue && root) {
+    root.innerHTML = `<section class="empty-state"><p>Loading currently signed in…</p></section>`;
+  }
+  await ensureRouteResources("currentlySignedIn");
+  if (appState.currentRoute !== "currentlySignedIn") return;
+  const missingError = missingRouteResourceError("currentlySignedIn");
+  if (missingError && !resourceState("attendanceOpen").hasValue && root) {
+    root.innerHTML = `
+      <section class="empty-state">
+        <p>${escapeHtml(missingError.message || "Could not load attendance.")}</p>
+        <button class="text-action" data-retry-resource="attendanceOpen" type="button">Retry</button>
+      </section>`;
+    bindRouteActions();
+    return;
+  }
+  renderCurrentlySignedIn();
+  bindRouteActions();
+}
+
+async function renderHeaterRecordsRoute() {
+  renderHeaterRecords();
+  const root = document.getElementById("heaterRecordsContent");
+  const state = resourceState("heater");
+  if (!state.hasValue && root) {
+    root.innerHTML = `<section class="empty-state"><p>Loading thermostat records…</p></section>`;
+  }
+  await ensureRouteResources("heaterRecords");
+  if (appState.currentRoute !== "heaterRecords") return;
+  const missingError = missingRouteResourceError("heaterRecords");
+  if (missingError && !resourceState("heater").hasValue && root) {
+    root.innerHTML = `
+      <section class="empty-state">
+        <p>${escapeHtml(missingError.message || "Could not load thermostat records.")}</p>
+        <button class="text-action" data-retry-resource="heater" type="button">Retry</button>
+      </section>`;
+    bindRouteActions();
+    return;
+  }
+  if (!routeHasActiveEditor()) renderHeaterRecords();
 }
 
 function renderSignedInCard(entry) {
@@ -14401,7 +14471,7 @@ function renderHeaterRecords() {
 
   root.innerHTML = `
     <section class="live-record-page">
-      <p class="data-source-note">Live data</p>
+      ${dataSourceNotice()}
       ${renderThermostatStatusPanel()}
       <p class="heater-personal-record-note">${escapeHtml(recordsNote)}</p>
       ${timerStatusNote}
@@ -14490,7 +14560,7 @@ async function turnHeaterOffActiveEntry(systemType = "", preferredEntryId = "") 
     || activeHeaterEntry(normalizedSystemType);
 
   if (!activeEntry) {
-    await hydrateFromSupabase();
+    await refreshHeaterResources({ rerender: false });
     activeEntry = findActiveEntryByIdAndSystem(preferredEntryId, normalizedSystemType)
       || activeHeaterEntry(normalizedSystemType);
   }
@@ -14508,7 +14578,7 @@ async function turnHeaterOffActiveEntry(systemType = "", preferredEntryId = "") 
       markThermostatSystemOff(normalizedSystemType);
     }
 
-    await hydrateFromSupabase();
+    await refreshHeaterResources({ rerender: false });
     clearThermostatActionFeedback();
     if (appState.currentRoute === "heaterRecords") render("heaterRecords");
     return;
@@ -14555,7 +14625,7 @@ async function turnHeaterOffActiveEntry(systemType = "", preferredEntryId = "") 
     if (!Array.isArray(fallbackRows) || fallbackRows.length === 0) {
       clearThermostatActionFeedback();
       markThermostatSystemOff(activeSystemType);
-      await hydrateFromSupabase();
+      await refreshHeaterResources({ rerender: false });
       if (appState.currentRoute === "heaterRecords") render("heaterRecords");
       return;
     }
@@ -14579,7 +14649,7 @@ async function turnHeaterOffActiveEntry(systemType = "", preferredEntryId = "") 
   });
 
   markThermostatSystemOff(activeSystemType);
-  await hydrateFromSupabase();
+  await refreshHeaterResources({ rerender: false });
   clearThermostatActionFeedback();
   render("heaterRecords");
 }
@@ -14614,7 +14684,7 @@ async function turnHeaterOffEntry(entry, { timerTriggered = false } = {}) {
     });
 
     markThermostatSystemOff(entry.systemType);
-    await hydrateFromSupabase();
+    await refreshHeaterResources({ rerender: false });
     if (appState.currentRoute === "heaterRecords") {
       render("heaterRecords");
     }
@@ -14631,7 +14701,7 @@ async function changeActiveThermostatTemperature(systemType = "", preferredEntry
     || activeHeaterEntry(normalizedSystemType);
 
   if (!activeEntry) {
-    await hydrateFromSupabase();
+    await refreshHeaterResources({ rerender: false });
     activeEntry = findActiveEntryByIdAndSystem(preferredEntryId, normalizedSystemType)
       || activeHeaterEntry(normalizedSystemType);
   }
@@ -14670,7 +14740,7 @@ async function changeActiveThermostatTemperature(systemType = "", preferredEntry
     });
 
     markThermostatSystemOn(normalizedSystemType, nextTemp);
-    await hydrateFromSupabase();
+    await refreshHeaterResources({ rerender: false });
     clearThermostatActionFeedback();
     if (appState.currentRoute === "heaterRecords") render("heaterRecords");
     return;
@@ -14717,7 +14787,7 @@ async function changeActiveThermostatTemperature(systemType = "", preferredEntry
   });
 
   markThermostatSystemOn(activeSystemType, nextTemp);
-  await hydrateFromSupabase();
+  await refreshHeaterResources({ rerender: false });
   clearThermostatActionFeedback();
   render("heaterRecords");
 }
@@ -14973,6 +15043,30 @@ function bindAccountInfoActions() {
 
 function bindOtherUsersActions() {
   bindMemberDirectoryActions("otherUsersSearch", "otherUsers");
+}
+
+function renderAccountDetailRoute(memberId) {
+  renderAccountDetail(memberId);
+}
+
+function detailPanelResourceName(panelName) {
+  if (panelName === "billing") return "billing";
+  if (panelName === "timesheet" || panelName === "guests") return "attendanceHistory";
+  if (panelName === "heater") return "heater";
+  if (panelName === "doorAccess") return "doorAccess";
+  return "";
+}
+
+function renderLoadedDetailPanel(memberId, panelName) {
+  const panel = document.querySelector(`[data-detail-panel-view="${CSS.escape(panelName)}"]`);
+  if (!panel) return;
+  const records = recordsForMember(memberId);
+  if (panelName === "billing") panel.innerHTML = renderBillingPanel(records.billing);
+  if (panelName === "timesheet") panel.innerHTML = renderTimesheetPanel(records.timesheet);
+  if (panelName === "guests") panel.innerHTML = renderGuestPanel(records.guests);
+  if (panelName === "heater") panel.innerHTML = renderHeaterPanel(records.heater);
+  if (panelName === "doorAccess") panel.innerHTML = renderDoorAccessPanel(records.doorAccess);
+  bindDetailLogOpenActions();
 }
 
 function renderAccountDetail(memberId) {
@@ -15439,6 +15533,42 @@ function showAutomationConfirmDialog(preview, options = {}) {
       frame.srcdoc = preview?.html || `<pre>${escapeHtml(preview?.text || "")}</pre>`;
     }
   });
+}
+
+async function maybeReconcileStripeMembershipForBilling() {
+  const member = findMember(appState.authMemberId || appUserSession.memberId);
+  const account = accountForMember(member);
+  const accountId = String(account?.id || member?.accountId || "");
+  const canSync = Boolean(member && accountId && (member.isBillingOwner || isAccountManager(appUserSession)));
+  if (!canSync) return false;
+
+  const lastSyncAt = Date.parse(account?.lastSync || "");
+  const syncIsFresh = Number.isFinite(lastSyncAt) && (Date.now() - lastSyncAt) < 24 * 60 * 60 * 1000;
+  if (syncIsFresh) return false;
+
+  const existing = stripeReconciliationByAccount.get(accountId);
+  if (existing?.promise) return existing.promise;
+  if (existing?.attemptedAt && (Date.now() - existing.attemptedAt) < 5 * 60 * 1000) return false;
+
+  const attemptedAt = Date.now();
+  const promise = (async () => {
+    const synchronized = await syncStripeMembershipForProfile({
+      account_id: accountId,
+      account_type: member.accountType,
+      is_billing_owner: member.isBillingOwner
+    });
+    if (!synchronized) return false;
+
+    account.lastSync = new Date().toISOString();
+    invalidateResource("identity");
+    await ensureResource("identity", { force: true });
+    return true;
+  })().finally(() => {
+    stripeReconciliationByAccount.set(accountId, { attemptedAt, promise: null });
+  });
+
+  stripeReconciliationByAccount.set(accountId, { attemptedAt, promise });
+  return promise;
 }
 
 async function syncStripeMembershipForProfile(profile) {
@@ -16112,7 +16242,7 @@ function openMemberEditDialog(member) {
       setResult("Saved.", "success");
       close();
       window.setTimeout(() => {
-        hydrateFromSupabase();
+        refreshDirectoryResources().catch((error) => console.warn("Member refresh failed.", error));
       }, 180);
     } catch (error) {
       setResult(error.message || "Could not save member.", "error");
@@ -16140,7 +16270,7 @@ function openMemberEditDialog(member) {
       close();
       render(appState.detailReturnRoute || "accountInfo");
       window.setTimeout(() => {
-        hydrateFromSupabase();
+        refreshDirectoryResources().catch((error) => console.warn("Member refresh failed.", error));
       }, 180);
     } catch (error) {
       setResult(error.message || "Could not delete the full user account.", "error");
@@ -16238,7 +16368,7 @@ function bindAccountDetailActions() {
   bindDetailLogOpenActions();
 
   document.querySelectorAll(".detail-tab").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
       const panelName = button.dataset.detailPanel;
 
       document.querySelectorAll(".detail-tab").forEach((tab) => {
@@ -16248,6 +16378,27 @@ function bindAccountDetailActions() {
       document.querySelectorAll("[data-detail-panel-view]").forEach((panel) => {
         panel.classList.toggle("is-active", panel.dataset.detailPanelView === panelName);
       });
+
+      const resourceName = detailPanelResourceName(panelName);
+      if (!resourceName) return;
+      const panel = document.querySelector(`[data-detail-panel-view="${CSS.escape(panelName)}"]`);
+      const state = resourceState(resourceName);
+      if (!state.hasValue && panel) {
+        panel.innerHTML = `<div class="detail-card detail-empty"><p>Loading ${escapeHtml(panelName)}…</p></div>`;
+      }
+      try {
+        await ensureResource(resourceName);
+        if (appState.currentRoute === "accountDetails" || appState.currentRoute === "myAccount") {
+          renderLoadedDetailPanel(
+            appState.currentRoute === "myAccount" ? appUserSession.memberId : appState.selectedMemberId,
+            panelName
+          );
+        }
+      } catch (error) {
+        if (panel) {
+          panel.innerHTML = `<div class="detail-card detail-empty"><p>${escapeHtml(error.message || `Could not load ${panelName}.`)}</p></div>`;
+        }
+      }
     });
   });
 }
@@ -17331,7 +17482,7 @@ async function saveHeaterUse() {
       markThermostatSystemOff(systemType);
     }
 
-    await hydrateFromSupabase();
+    await refreshHeaterResources({ rerender: false });
     clearThermostatActionFeedback();
     render("heaterRecords");
   } catch (error) {
@@ -17349,6 +17500,24 @@ async function saveHeaterUse() {
 function bindRouteActions() {
   document.querySelectorAll("[data-route-target]").forEach((button) => {
     button.addEventListener("click", () => render(button.dataset.routeTarget));
+  });
+
+  document.querySelectorAll("[data-retry-resource]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const resourceName = String(button.dataset.retryResource || "");
+      if (!resourceName) return;
+      button.disabled = true;
+      try {
+        await ensureResource(resourceName, { force: true });
+        appState.dataStatus = "live";
+        appState.dataError = "";
+        appState.syncStatus = navigator.onLine === false ? "offline" : "live";
+        render(appState.currentRoute);
+      } catch (error) {
+        button.disabled = false;
+        showDetailActionMessage(error.message || "Could not refresh data.");
+      }
+    });
   });
 
   document.querySelectorAll(".segmented-control").forEach((group) => {
@@ -17519,6 +17688,8 @@ async function handlePasswordReset() {
 async function handleLogout() {
   const client = await createSupabaseClient();
 
+  stopRealtimeSyncController();
+
   if (client) {
     await client.auth.signOut({ scope: "local" });
   }
@@ -17528,11 +17699,13 @@ async function handleLogout() {
   appState.currentUserEmail = "";
   appState.dataStatus = "loading";
   appState.dataError = "";
+  appState.syncStatus = "syncing";
   clearLiveData();
-  stopNotificationRealtime();
-  stopTimesheetRealtime();
-  stopAccountTypeRealtime();
-  stopHeaterEntriesRealtime();
+  resourceCoordinator?.clear?.();
+  if (pendingScopeRenderTimer) window.clearTimeout(pendingScopeRenderTimer);
+  pendingScopeRenderTimer = null;
+  pendingRenderedScopes.clear();
+  stripeReconciliationByAccount.clear();
   stopCommunicationsPolling();
   clearCommunicationsCallTimer();
   if (communicationsActiveCall) communicationsActiveCall.disconnect();
