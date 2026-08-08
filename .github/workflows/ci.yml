@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Run automated tests
+        run: npm test
+
+      - name: Build production assets
+        run: npm run vercel-build
+
+      - name: Verify generated assets
+        run: |
+          npm run check:receptionist-knowledge
+          npm run check:app-assets
+          git diff --exit-code
+
+      - name: Check browser script syntax
+        run: |
+          node --check "RORC App/app.js"
+          node --check "RORC App/resource-coordinator.js"
+          node --check "RORC App/sw.js"
+          node --check scripts/rorc-supabase-client.js

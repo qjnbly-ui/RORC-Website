@@ -18,6 +18,16 @@ const DIRECTORY_PROFILE_COLUMNS = [
   "guardian_member_id",
   "can_access_independently"
 ].join(",");
+const KIOSK_DIRECTORY_PROFILE_COLUMNS = [
+  "account_member_id",
+  "account_id",
+  "account_number",
+  "member_name",
+  "account_type",
+  "allow_guest_entry",
+  "allow_heater_use",
+  "can_access_independently"
+].join(",");
 let cachedDirectoryRows = null;
 let cachedDirectoryAt = 0;
 
@@ -42,6 +52,15 @@ module.exports = async (req, res) => {
 
     if (!["Account Manager", "Kiosk Account"].includes(role)) {
       return res.status(403).json({ success: false, error: "Only account managers and kiosk accounts can load full directory." });
+    }
+
+    if (role === "Kiosk Account") {
+      const directory = await loadKioskDirectoryRows();
+      return res.status(200).json({
+        success: true,
+        members: directory.rows,
+        warning: directory.warning || ""
+      });
     }
 
     const now = Date.now();
@@ -78,8 +97,43 @@ async function loadDirectoryRows() {
     return { rows: sortDirectoryRows(await hydrateDirectoryMailingAddresses(filterDirectoryRows(rows))), warning: "Loaded member directory from fallback tables." };
   } catch (fallbackError) {
     console.error("Member directory fallback unavailable:", fallbackError?.message || fallbackError);
-    return { rows: [], warning: "Member directory is temporarily unavailable." };
+    throw httpError(503, "Member directory is temporarily unavailable. Please try again.");
   }
+}
+
+async function loadKioskDirectoryRows() {
+  try {
+    const rows = await supabaseRest(
+      `account_member_profiles?select=${KIOSK_DIRECTORY_PROFILE_COLUMNS}&order=account_number.asc.nullslast,member_name.asc.nullslast&limit=10000`
+    );
+    return { rows: sortDirectoryRows(filterDirectoryRows(rows || []).map(projectKioskDirectoryRow)), warning: "" };
+  } catch (viewError) {
+    console.warn("Kiosk member directory profile view unavailable:", viewError?.message || viewError);
+  }
+
+  try {
+    const rows = await loadKioskDirectoryRowsFromBaseTables();
+    return {
+      rows: sortDirectoryRows(filterDirectoryRows(rows).map(projectKioskDirectoryRow)),
+      warning: "Loaded member directory from fallback tables."
+    };
+  } catch (fallbackError) {
+    console.error("Kiosk member directory fallback unavailable:", fallbackError?.message || fallbackError);
+    throw httpError(503, "Member directory is temporarily unavailable. Please try again.");
+  }
+}
+
+function projectKioskDirectoryRow(row) {
+  return {
+    account_member_id: row.account_member_id || row.id || "",
+    account_id: row.account_id || "",
+    account_number: row.account_number || "",
+    member_name: row.member_name || "",
+    account_type: row.account_type || "",
+    allow_guest_entry: Boolean(row.allow_guest_entry),
+    allow_heater_use: Boolean(row.allow_heater_use),
+    can_access_independently: row.can_access_independently !== false
+  };
 }
 
 function filterDirectoryRows(rows) {
@@ -157,6 +211,30 @@ async function loadDirectoryRowsFromBaseTables() {
       billing_status: billing.billing_status || "",
       current_period_end: billing.current_period_end || null,
       last_sync: billing.last_sync || null
+    };
+  });
+}
+
+async function loadKioskDirectoryRowsFromBaseTables() {
+  const [members, accounts] = await Promise.all([
+    supabaseRest(
+      "account_members?select=id,account_id,member_name,account_type,allow_guest_entry,allow_heater_use,can_access_independently&limit=10000"
+    ),
+    supabaseRest("accounts?select=id,account_number&limit=10000")
+  ]);
+  const accountById = new Map((accounts || []).map((account) => [account.id, account]));
+
+  return (members || []).map((member) => {
+    const account = accountById.get(member.account_id) || {};
+    return {
+      account_member_id: member.id,
+      account_id: member.account_id,
+      account_number: account.account_number || "",
+      member_name: member.member_name || "",
+      account_type: member.account_type || "",
+      allow_guest_entry: Boolean(member.allow_guest_entry),
+      allow_heater_use: Boolean(member.allow_heater_use),
+      can_access_independently: member.can_access_independently !== false
     };
   });
 }

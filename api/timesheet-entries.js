@@ -1,6 +1,20 @@
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
+const OPEN_TIMESHEET_LIMIT = 100;
+const SIGN_IN_GUEST_LIMIT = 100;
+const SIGN_IN_GUEST_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+const TIMESHEET_READ_COLUMNS = [
+  "id",
+  "member_id",
+  "member_or_guest",
+  "guest_name",
+  "day_pass_or_open_gym",
+  "member_entered_with_id",
+  "liability_accepted",
+  "signed_in_at",
+  "signed_out_at"
+].join(",");
 
 module.exports = async (req, res) => {
   if (!SERVICE_ROLE_KEY) {
@@ -22,11 +36,8 @@ module.exports = async (req, res) => {
     }
 
     if (req.method === "GET") {
-      const [recentRows, openRows] = await Promise.all([
-        supabaseRest("timesheet_entries?select=*&order=signed_in_at.desc&limit=250"),
-        supabaseRest("timesheet_entries?select=*&signed_out_at=is.null&order=signed_in_at.desc&limit=100")
-      ]);
-      return res.status(200).json({ success: true, entries: mergeTimesheetRows(recentRows, openRows) });
+      const entries = await loadTimesheetRows(requestedTimesheetView(req));
+      return res.status(200).json({ success: true, entries });
     }
 
     if (req.method === "POST") {
@@ -90,6 +101,47 @@ module.exports = async (req, res) => {
     return res.status(status).json({ success: false, error: error.message || "Server error" });
   }
 };
+
+function requestedTimesheetView(req) {
+  const rawView = Array.isArray(req?.query?.view) ? req.query.view[0] : req?.query?.view;
+  return String(rawView || "").trim().toLowerCase();
+}
+
+async function loadTimesheetRows(view) {
+  const openQuery = [
+    `timesheet_entries?select=${TIMESHEET_READ_COLUMNS}`,
+    "signed_out_at=is.null",
+    "order=signed_in_at.desc",
+    `limit=${OPEN_TIMESHEET_LIMIT}`
+  ].join("&");
+
+  if (view === "open") {
+    return supabaseRest(openQuery);
+  }
+
+  if (view === "sign-in") {
+    const signedInAfter = new Date(Date.now() - SIGN_IN_GUEST_LOOKBACK_MS).toISOString();
+    const recentGuestQuery = [
+      `timesheet_entries?select=${TIMESHEET_READ_COLUMNS}`,
+      "member_or_guest=eq.Guest",
+      `day_pass_or_open_gym=eq.${encodeURIComponent("Day Pass")}`,
+      `signed_in_at=gte.${encodeURIComponent(signedInAfter)}`,
+      "order=signed_in_at.desc",
+      `limit=${SIGN_IN_GUEST_LIMIT}`
+    ].join("&");
+    const [openRows, recentGuestRows] = await Promise.all([
+      supabaseRest(openQuery),
+      supabaseRest(recentGuestQuery)
+    ]);
+    return mergeTimesheetRows(openRows, recentGuestRows);
+  }
+
+  const [recentRows, openRows] = await Promise.all([
+    supabaseRest("timesheet_entries?select=*&order=signed_in_at.desc&limit=250"),
+    supabaseRest("timesheet_entries?select=*&signed_out_at=is.null&order=signed_in_at.desc&limit=100")
+  ]);
+  return mergeTimesheetRows(recentRows, openRows);
+}
 
 function normalizeEntries(input) {
   const rows = Array.isArray(input) ? input : [input];
