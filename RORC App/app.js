@@ -123,6 +123,7 @@ const communicationsState = {
   threads: [],
   messages: [],
   selectedThreadId: "",
+  pendingThreadPhone: "",
   draftPhone: "",
   draftBody: "",
   loading: false,
@@ -140,6 +141,7 @@ const communicationsState = {
   contactPickerOpen: false,
   contactPickerIndex: -1
 };
+let pendingAdminEmailMemberId = "";
 let sponsorSubmissions = [];
 let kioskBroadcastChannel = null;
 let notificationBroadcastChannel = null;
@@ -3058,6 +3060,16 @@ async function refreshCommunicationThreads({ initial = false } = {}) {
     if (initial) renderCommunicationsThreadList();
     const body = await communicationsRequest();
     communicationsState.threads = Array.isArray(body.threads) ? body.threads : [];
+    const pendingThreadPhone = normalizeCommunicationsPhone(communicationsState.pendingThreadPhone);
+    if (pendingThreadPhone) {
+      const matchingThread = communicationsState.threads.find((thread) => (
+        normalizeCommunicationsPhone(thread.phone) === pendingThreadPhone
+      ));
+      communicationsState.pendingThreadPhone = "";
+      communicationsState.draftPhone = pendingThreadPhone;
+      communicationsState.selectedThreadId = matchingThread?.id || "";
+      communicationsState.messages = [];
+    }
     if (communicationsState.selectedThreadId && !communicationsState.threads.some((thread) => thread.id === communicationsState.selectedThreadId)) {
       communicationsState.selectedThreadId = "";
       communicationsState.messages = [];
@@ -5824,6 +5836,9 @@ function renderMessageComposerPage() {
   if (!root) return;
 
   const localNow = toFacilityDatetimeLocalValue(new Date().toISOString());
+  const initialEmailMember = findMember(pendingAdminEmailMemberId);
+  const initialEmailMemberId = initialEmailMember?.emailAddress ? initialEmailMember.id : "";
+  pendingAdminEmailMemberId = "";
 
   root.innerHTML = `
     <form id="messageComposerForm" class="announcement-composer" autocomplete="off">
@@ -5833,7 +5848,7 @@ function renderMessageComposerPage() {
             <div class="announcement-section-heading">
               <div><h3>Choose your audience</h3><p>Select one or more active members.</p></div>
             </div>
-            <input id="messageMembers" class="member-picker-value" type="hidden" required />
+            <input id="messageMembers" class="member-picker-value" type="hidden" value="${escapeAttribute(initialEmailMemberId)}" required />
             <button
               id="messageMembersPicker"
               class="member-picker-button multi-member-picker-button"
@@ -5929,7 +5944,7 @@ function renderMessageComposerPage() {
     </form>
   `;
 
-  bindMessageComposerActions();
+  bindMessageComposerActions({ includeEmailInitially: Boolean(initialEmailMemberId) });
 }
 
 function selectedMessageMemberIds() {
@@ -6588,7 +6603,7 @@ async function verifyHeaterPin(memberId, pin) {
   }
 }
 
-function bindMessageComposerActions() {
+function bindMessageComposerActions({ includeEmailInitially = false } = {}) {
   const form = document.getElementById("messageComposerForm");
   const saveButton = document.getElementById("messageComposerSave");
   const result = document.getElementById("messageComposerResult");
@@ -6604,7 +6619,7 @@ function bindMessageComposerActions() {
   if (!form || !saveButton || !result || !textToggle || !emailToggle || !inAppToggle) return;
 
   let includeText = false;
-  let includeEmail = false;
+  let includeEmail = Boolean(includeEmailInitially);
   let includeInApp = false;
 
   const renderChannelToggles = () => {
@@ -6688,10 +6703,6 @@ function bindMessageComposerActions() {
   loadSmsPreferences()
     .then(() => setMessageRecipientSummary({ includeText }))
     .catch((error) => console.warn("Could not load text preferences for the announcement preview.", error));
-  // Force a clean default every time this screen opens.
-  includeText = false;
-  includeEmail = false;
-  includeInApp = false;
   renderChannelToggles();
 
   form.addEventListener("submit", async (event) => {
@@ -7342,12 +7353,14 @@ function clearLiveData() {
   communicationsState.threads = [];
   communicationsState.messages = [];
   communicationsState.selectedThreadId = "";
+  communicationsState.pendingThreadPhone = "";
   communicationsState.draftPhone = "";
   communicationsState.draftBody = "";
   communicationsState.preferences = [];
   communicationsState.preferenceSummary = { total: 0, optedOut: 0, optedIn: 0 };
   communicationsState.preferenceSearch = "";
   communicationsState.preferencesLoadedAt = 0;
+  pendingAdminEmailMemberId = "";
   updateCommunicationsBadge();
 }
 
@@ -17278,7 +17291,12 @@ function handleDetailQuickAction(button) {
     return;
   }
 
-  if (button.dataset.detailAction === "phone") {
+  const action = String(button.dataset.detailAction || "");
+  if (["phone", "text", "email"].includes(action) && openAdminInternalCommunication(member, action)) {
+    return;
+  }
+
+  if (action === "phone") {
     const href = phoneHref(member.phoneNumber, "tel");
 
     if (!href) {
@@ -17290,7 +17308,7 @@ function handleDetailQuickAction(button) {
     return;
   }
 
-  if (button.dataset.detailAction === "text") {
+  if (action === "text") {
     const href = phoneHref(member.phoneNumber, "sms");
 
     if (!href) {
@@ -17302,7 +17320,7 @@ function handleDetailQuickAction(button) {
     return;
   }
 
-  if (button.dataset.detailAction === "email") {
+  if (action === "email") {
     const href = emailHref(member.emailAddress, "RORC");
 
     if (!href) {
@@ -17330,6 +17348,46 @@ function handleDetailQuickAction(button) {
   if (button.dataset.detailAction === "edit") {
     openMemberEditDialog(member);
   }
+}
+
+function openAdminInternalCommunication(member, action) {
+  if (!canUseAccountAdminTools()) return false;
+
+  if (action === "email") {
+    if (!String(member.emailAddress || "").trim()) {
+      showDetailActionMessage("No email address is saved for this member.");
+      return true;
+    }
+    pendingAdminEmailMemberId = member.id;
+    render("messageCompose");
+    return true;
+  }
+
+  const phone = normalizeCommunicationsPhone(member.phoneNumber);
+  if (!phone) {
+    showDetailActionMessage("No valid phone number is saved for this member.");
+    return true;
+  }
+
+  communicationsState.contactPickerOpen = false;
+  communicationsState.contactPickerIndex = -1;
+  if (action === "phone") {
+    communicationsState.callPhone = phone;
+    communicationsState.callStatus = `Ready to call ${member.memberName}`;
+    communicationsState.activeTab = "call";
+  } else {
+    const matchingThread = communicationsState.threads.find((thread) => (
+      normalizeCommunicationsPhone(thread.phone) === phone
+    ));
+    communicationsState.activeTab = "messages";
+    communicationsState.pendingThreadPhone = phone;
+    communicationsState.draftPhone = phone;
+    communicationsState.draftBody = "";
+    communicationsState.selectedThreadId = matchingThread?.id || "";
+    communicationsState.messages = [];
+  }
+  render("communications");
+  return true;
 }
 
 function bindAccountDetailActions() {

@@ -117,7 +117,7 @@ test("service worker caches only versioned static assets and performs one update
   assert.ok(version > 66);
   assert.doesNotMatch(html, /20260808-text-preferences/);
   assert.match(html, /app\.css\?v=20260808-announcement-contact-picker/);
-  assert.match(html, /app\.js\?v=20260808-announcement-contact-picker/);
+  assert.match(html, /app\.js\?v=20260808-internal-member-actions/);
   assert.doesNotMatch(source, /app\.config\.js|twilio-voice\.min\.js/);
   versionedAssets.forEach((asset) => assert.match(source, new RegExp(asset.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
   assert.match(source, /url\.pathname\.startsWith\("\/api\/"\)/);
@@ -172,6 +172,17 @@ test("selected communications contacts keep their name in search and chat", () =
     context.communicationThreadName({ phone: "+16198823030" }),
     "Quentin Nichols"
   );
+});
+
+test("member account communication actions stay inside the admin app", () => {
+  const source = read("RORC App/app.js");
+
+  assert.match(source, /openAdminInternalCommunication\(member, action\)/);
+  assert.match(source, /communicationsState\.activeTab = "call"/);
+  assert.match(source, /communicationsState\.activeTab = "messages"/);
+  assert.match(source, /communicationsState\.pendingThreadPhone = phone/);
+  assert.match(source, /pendingAdminEmailMemberId = member\.id/);
+  assert.match(source, /bindMessageComposerActions\(\{ includeEmailInitially: Boolean\(initialEmailMemberId\) \}\)/);
 });
 
 test("mobile form actions clear the bottom navigation and device safe area", () => {
