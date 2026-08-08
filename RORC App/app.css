@@ -3088,6 +3088,33 @@ h1 {
   opacity: 0.62;
 }
 
+.communications-recipient-picker { min-width: 0; position: relative; }
+.communications-recipient-control { position: relative; }
+.communications-new-row .communications-recipient-control input { padding-right: 48px; }
+.communications-new-row .communications-recipient-toggle {
+  align-items: center; background: transparent; border-left: 1px solid #393939; border-radius: 0 10px 10px 0;
+  color: #b7b9bf; display: flex; font-size: 1.45rem; height: calc(100% - 2px); justify-content: center;
+  padding: 0; position: absolute; right: 1px; top: 1px; width: 44px;
+}
+.communications-new-row .communications-recipient-toggle:hover, .communications-new-row .communications-recipient-toggle.is-open { background: #252525; color: #fff; }
+.communications-recipient-toggle span { display: block; line-height: 1; transform: translateY(-2px); transition: transform .15s ease; }
+.communications-recipient-toggle.is-open span { transform: rotate(180deg) translateY(2px); }
+.communications-contact-list {
+  background: #121212; border: 1px solid #464646; border-radius: 12px; box-shadow: 0 18px 42px rgb(0 0 0 / 55%);
+  left: 0; max-height: min(360px, 48vh); overflow-y: auto; padding: 6px; position: absolute; right: 0;
+  top: calc(100% + 6px); z-index: 40;
+}
+.communications-contact-list[hidden] { display: none; }
+.communications-new-row .communications-contact-option {
+  align-items: center; background: transparent; border-radius: 9px; color: var(--text); display: grid; gap: 11px;
+  grid-template-columns: auto minmax(0, 1fr); padding: 10px; text-align: left; width: 100%;
+}
+.communications-new-row .communications-contact-option:hover, .communications-new-row .communications-contact-option.is-highlighted { background: #292929; }
+.communications-contact-avatar { align-items: center; background: #3b3b3b; border-radius: 50%; color: #fff; display: flex; font-size: .82rem; height: 34px; justify-content: center; width: 34px; }
+.communications-contact-option > span:last-child { display: grid; gap: 2px; min-width: 0; }
+.communications-contact-option strong, .communications-contact-option small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.communications-contact-option small, .communications-contact-empty { color: var(--muted); }
+.communications-contact-empty { line-height: 1.45; margin: 0; padding: 14px; text-align: center; }
 .communications-grid {
   background: #151515;
   border: 1px solid #343434;
