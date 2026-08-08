@@ -70,6 +70,18 @@ test("composer stays compact and contains large recipient selections", () => {
   assert.match(appCss, /\.announcement-recipient-selection strong,[\s\S]*?text-overflow:\s*ellipsis/s);
 });
 
+test("announcement audience uses the branded searchable contact menu", () => {
+  assert.match(appJs, /const useContactMenu = inputId === "messageMembers"/);
+  assert.match(appJs, /placeholder="Search name, phone, or membership"/);
+  assert.match(appJs, /renderMemberPickerOption\(member, selectedMemberIds\.has\(member\.id\), "checkbox", useContactMenu \? "contact" : "default"\)/);
+  assert.match(appJs, /class="communications-contact-avatar"/);
+  assert.match(appJs, /class="communications-contact-status"/);
+  assert.match(appJs, /member\.phoneNumber \|\| member\.phone_number/);
+  assert.match(appJs, /member-picker-selection-count/);
+  assert.match(appCss, /\.member-picker-contact-dialog\s*\{/);
+  assert.match(appCss, /\.member-picker-option\.member-picker-contact-option\s*\{/);
+});
+
 test("composer uses visible rich text and preserves formatting on paste", () => {
   assert.match(appJs, /class="announcement-rich-editor"[\s\S]*?contenteditable="true"/);
   assert.match(appJs, /function announcementEditorToMarkdown\(/);

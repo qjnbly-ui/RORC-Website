@@ -5571,6 +5571,111 @@ textarea:focus-visible,
   font-weight: 800;
 }
 
+.member-picker-contact-dialog {
+  background: #151515;
+  border-color: #3d3d3d;
+  border-radius: 18px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.62);
+  height: min(84dvh, 760px);
+  overflow: hidden;
+  width: min(620px, 94vw);
+}
+
+.member-picker-contact-dialog .member-picker-header {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.025), transparent);
+  padding-bottom: 22px;
+}
+
+.member-picker-contact-dialog .member-picker-header .page-kicker {
+  margin: 0 0 8px;
+}
+
+.member-picker-helper {
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 10px 0 0;
+}
+
+.member-picker-contact-dialog .member-picker-search-wrap {
+  padding-bottom: 10px;
+}
+
+.member-picker-contact-dialog .member-picker-search {
+  background: #0d0d0d;
+  border: 1px solid #444;
+  border-radius: 10px;
+  min-height: 52px;
+  padding: 0 14px;
+}
+
+.member-picker-contact-dialog .member-picker-search:focus {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px rgb(248 113 113 / 14%);
+  outline: none;
+}
+
+.member-picker-contact-dialog .member-picker-list {
+  padding: 6px 10px 10px;
+}
+
+.member-picker-option.member-picker-contact-option {
+  border-radius: 10px;
+  gap: 12px;
+  grid-template-columns: 28px 38px minmax(0, 1fr);
+  margin: 0;
+  min-height: 76px;
+  padding: 9px 12px;
+}
+
+.member-picker-contact-option:hover,
+.member-picker-contact-option.is-selected {
+  background: #292929;
+}
+
+.member-picker-contact-option.is-selected {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.member-picker-contact-option .member-picker-checkbox {
+  border-width: 2px;
+  height: 24px;
+  width: 24px;
+}
+
+.member-picker-contact-option.is-selected .member-picker-checkbox::after {
+  height: 11px;
+  left: 6px;
+  top: 2px;
+  width: 6px;
+}
+
+.member-picker-contact-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.member-picker-contact-copy strong,
+.member-picker-contact-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.member-picker-contact-copy small {
+  color: var(--muted);
+}
+
+.member-picker-contact-dialog .member-picker-footer {
+  justify-content: space-between;
+}
+
+.member-picker-selection-count {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
 .heater-responsible-field[hidden] {
   display: none;
 }

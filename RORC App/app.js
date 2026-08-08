@@ -14304,24 +14304,28 @@ function openMultiMemberPicker(button) {
   const title = button.dataset.memberPickerTitle || "Names";
   const options = memberPickerOptions(source);
   const selectedMemberIds = new Set(selectedMemberIdsFromInput(input));
+  const useContactMenu = inputId === "messageMembers";
 
   const overlay = document.createElement("div");
   overlay.className = "member-picker-overlay";
   overlay.innerHTML = `
-    <section class="member-picker-dialog" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
+    <section class="member-picker-dialog ${useContactMenu ? "member-picker-contact-dialog" : ""}" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
       <header class="member-picker-header">
+        ${useContactMenu ? `<p class="page-kicker">Announcement audience</p>` : ""}
         <h2>${escapeHtml(title)}</h2>
+        ${useContactMenu ? `<p class="member-picker-helper">Choose one or more members. Membership colors match the rest of the RORC app.</p>` : ""}
       </header>
       <div class="member-picker-search-wrap">
         <label>
-          <span>Search</span>
-          <input class="member-picker-search" type="search" autocomplete="off" />
+          <span class="${useContactMenu ? "sr-only" : ""}">Search</span>
+          <input class="member-picker-search" type="search" autocomplete="off" ${useContactMenu ? `placeholder="Search name, phone, or membership"` : ""} />
         </label>
       </div>
       <div class="member-picker-list" role="group">
-        ${options.map((member) => renderMemberPickerOption(member, selectedMemberIds.has(member.id), "checkbox")).join("")}
+        ${options.map((member) => renderMemberPickerOption(member, selectedMemberIds.has(member.id), "checkbox", useContactMenu ? "contact" : "default")).join("")}
       </div>
       <footer class="member-picker-footer">
+        ${useContactMenu ? `<span class="member-picker-selection-count" aria-live="polite">${selectedMemberIds.size} selected</span>` : ""}
         <button class="member-picker-done" type="button">Done</button>
       </footer>
     </section>
@@ -14332,6 +14336,7 @@ function openMultiMemberPicker(button) {
 
   const searchInput = overlay.querySelector(".member-picker-search");
   const doneButton = overlay.querySelector(".member-picker-done");
+  const selectionCount = overlay.querySelector(".member-picker-selection-count");
   const optionButtons = [...overlay.querySelectorAll("[data-member-picker-option]")];
 
   const close = () => {
@@ -14346,6 +14351,7 @@ function openMultiMemberPicker(button) {
       option.classList.toggle("is-selected", isSelected);
       option.setAttribute("aria-checked", String(isSelected));
     });
+    if (selectionCount) selectionCount.textContent = `${selectedMemberIds.size} selected`;
     setMultiMemberPickerValue(inputId, [...selectedMemberIds]);
   };
 
@@ -14387,9 +14393,10 @@ function openMultiMemberPicker(button) {
   document.addEventListener("keydown", handleKeydown);
 }
 
-function renderMemberPickerOption(member, selectedMember, role = "radio") {
+function renderMemberPickerOption(member, selectedMember, role = "radio", variant = "default") {
   const account = accountForMember(member);
   const memberAccountNumber = displayAccountNumberForMember(member);
+  const phone = formatCommunicationsPhone(member.phoneNumber || member.phone_number || "");
   const isSelected = typeof selectedMember === "boolean"
     ? selectedMember
     : member.id === selectedMember;
@@ -14397,10 +14404,35 @@ function renderMemberPickerOption(member, selectedMember, role = "radio") {
     member.memberName,
     member.accountType,
     memberAccountNumber,
-    member.emailAddress
+    member.emailAddress,
+    phone
   ].join(" ").toLowerCase();
 
   const controlClass = role === "checkbox" ? "member-picker-checkbox" : "member-picker-radio";
+
+  if (variant === "contact") {
+    return `
+      <button
+        class="member-picker-option member-picker-contact-option ${isSelected ? "is-selected" : ""}"
+        data-member-picker-option="${escapeHtml(member.id)}"
+        data-search="${escapeHtml(searchValue)}"
+        role="checkbox"
+        aria-checked="${isSelected}"
+        type="button"
+      >
+        <span class="member-picker-checkbox" aria-hidden="true"></span>
+        <span class="communications-contact-avatar" aria-hidden="true">${escapeHtml(member.memberName.charAt(0).toUpperCase() || "#")}</span>
+        <span class="member-picker-contact-copy">
+          <strong>${escapeHtml(member.memberName)}</strong>
+          <small>${escapeHtml(phone || "No phone number")}</small>
+          <span class="communications-contact-status">
+            <span class="status-dot ${accountTypeTone(member.accountType)}" aria-hidden="true"></span>
+            <span>${escapeHtml(member.accountType)}</span>
+          </span>
+        </span>
+      </button>
+    `;
+  }
 
   return `
     <button
