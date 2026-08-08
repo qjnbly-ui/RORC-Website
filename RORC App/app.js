@@ -2853,8 +2853,8 @@ function selectCommunicationsContact(phone) {
   if (!normalized || !input) return;
   communicationsState.draftPhone = normalized;
   input.value = formatCommunicationsPhone(normalized);
-  setCommunicationsContactPickerOpen(false);
   input.focus();
+  setCommunicationsContactPickerOpen(false);
 }
 
 function bindCommunicationsContactPicker() {
@@ -2889,8 +2889,8 @@ function bindCommunicationsContactPicker() {
   });
   toggle.addEventListener("click", () => {
     const shouldOpen = !communicationsState.contactPickerOpen;
+    if (shouldOpen) input.focus();
     setCommunicationsContactPickerOpen(shouldOpen);
-    input.focus();
   });
   picker.addEventListener("focusout", () => window.setTimeout(() => {
     if (!picker.contains(document.activeElement)) setCommunicationsContactPickerOpen(false);
