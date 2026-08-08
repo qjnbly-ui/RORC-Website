@@ -40,6 +40,18 @@ async function hasConsent(phone) {
   return rows[0]?.consent_status === "opt_in";
 }
 
+async function optedOutPhoneSet(phones = [], fetcher = fetch) {
+  if (!SERVICE_KEY) throw new Error("Supabase service access is not configured.");
+  const requested = new Set((phones || []).map(normalizePhone).filter(Boolean));
+  if (!requested.size) return new Set();
+  const response = await fetcher(`${SUPABASE_URL}/rest/v1/rorc_receptionist_sms_consent?select=phone_e164&consent_status=eq.opt_out&limit=10000`, {
+    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` }
+  });
+  if (!response.ok) throw await supabaseError(response, "Unable to load SMS opt-outs");
+  const rows = await response.json().catch(() => []);
+  return new Set((rows || []).map((row) => normalizePhone(row.phone_e164)).filter((phone) => requested.has(phone)));
+}
+
 async function sendSms(to, body, options = {}) {
   const accountSid = String(process.env.TWILIO_ACCOUNT_SID || "").trim();
   const authToken = String(process.env.TWILIO_AUTH_TOKEN || "").trim();
@@ -57,4 +69,4 @@ async function sendSms(to, body, options = {}) {
   }
 }
 
-module.exports = { normalizePhone, consent, hasConsent, sendSms };
+module.exports = { normalizePhone, consent, hasConsent, optedOutPhoneSet, sendSms };

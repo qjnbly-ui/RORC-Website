@@ -212,6 +212,54 @@ async function explicitSmsOptOut(phone, fetcher = fetch) {
   return rows?.[0]?.consent_status === "opt_out";
 }
 
+async function listSmsPreferences(fetcher = fetch) {
+  const [preferences, members] = await Promise.all([
+    serviceRest(
+      "rorc_receptionist_sms_consent?select=phone_e164,consent_status,consent_source,consented_at,opted_out_at,created_at,updated_at&order=updated_at.desc&limit=5000",
+      {},
+      fetcher
+    ),
+    serviceRest(
+      "account_members?select=id,member_name,account_type,phone_number&phone_number=not.is.null&limit=10000",
+      {},
+      fetcher
+    )
+  ]);
+
+  const membersByPhone = new Map();
+  for (const member of members || []) {
+    const phone = normalizePhone(member.phone_number);
+    if (!phone) continue;
+    const matches = membersByPhone.get(phone) || [];
+    matches.push({
+      id: member.id,
+      name: member.member_name || "Member",
+      accountType: member.account_type || ""
+    });
+    membersByPhone.set(phone, matches);
+  }
+
+  const normalized = (preferences || []).map((preference) => ({
+    phone: normalizePhone(preference.phone_e164),
+    status: preference.consent_status === "opt_in" ? "opt_in" : "opt_out",
+    source: preference.consent_source || "",
+    consentedAt: preference.consented_at || null,
+    optedOutAt: preference.opted_out_at || null,
+    createdAt: preference.created_at || null,
+    updatedAt: preference.updated_at || null,
+    members: membersByPhone.get(normalizePhone(preference.phone_e164)) || []
+  })).filter((preference) => preference.phone);
+
+  return {
+    preferences: normalized,
+    summary: {
+      total: normalized.length,
+      optedOut: normalized.filter((preference) => preference.status === "opt_out").length,
+      optedIn: normalized.filter((preference) => preference.status === "opt_in").length
+    }
+  };
+}
+
 function communicationsUrl(req, path) {
   return new URL(path, publicHttpUrl(req)).toString();
 }
@@ -280,6 +328,7 @@ module.exports = {
   explicitSmsOptOut,
   httpError,
   listMessages,
+  listSmsPreferences,
   listThreads,
   markThreadRead,
   parseInboundMedia,

@@ -1,12 +1,12 @@
-const CACHE_VERSION = "rorc-app-v69";
+const CACHE_VERSION = "rorc-app-v71";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const NAVIGATION_CACHE = `${CACHE_VERSION}-navigation`;
 const OFFLINE_PAGE = "./index.html";
 const APP_SHELL = [
   OFFLINE_PAGE,
-  "./app.css?v=20260808-announcements-workspace",
+  "./app.css?v=20260808-text-preferences",
   "./resource-coordinator.js?v=20260808-reliable-sync",
-  "./app.js?v=20260808-announcements-workspace",
+  "./app.js?v=20260808-text-preferences",
   "./vendor/supabase.min.js?v=2.112.2",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",

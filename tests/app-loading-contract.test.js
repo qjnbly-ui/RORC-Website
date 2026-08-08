@@ -119,5 +119,5 @@ test("Twilio Voice remains absent from startup and loads only on the communicati
   assert.doesNotMatch(hydrate, /loadTwilioVoiceSdk|twilio-voice\.min\.js/i);
   assert.deepEqual(twilioOwners, ["renderCommunicationsPage", "startOutboundCommunicationCall"]);
   assert.match(appSource, /communications:\s*\{[^}]*afterRender:\s*renderCommunicationsPage/s);
-  assert.match(communications, /if \(messagesActive\)[\s\S]*?else\s*\{[\s\S]*?loadTwilioVoiceSdk\(\)/);
+  assert.match(communications, /if \(messagesActive\)[\s\S]*?else if \(callActive\)\s*\{[\s\S]*?loadTwilioVoiceSdk\(\)/);
 });

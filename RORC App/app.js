@@ -130,7 +130,13 @@ const communicationsState = {
   callStatus: "Ready to call",
   callStartedAt: null,
   callMuted: false,
-  callBusy: false
+  callBusy: false,
+  preferences: [],
+  preferenceSummary: { total: 0, optedOut: 0, optedIn: 0 },
+  preferenceFilter: "opt_out",
+  preferenceSearch: "",
+  preferencesLoading: false,
+  preferencesLoadedAt: 0
 };
 let sponsorSubmissions = [];
 let kioskBroadcastChannel = null;
@@ -2370,9 +2376,6 @@ async function renderNotificationsPage() {
     if (historyFilter === "email") return Boolean(channels.email);
     return true;
   });
-  const scheduledCount = allRecords.filter((record) => ["scheduled", "processing"].includes(record.scheduledStatus)).length;
-  const attentionCount = allRecords.filter((record) => record.scheduledStatus === "failed" || record.warnings?.length).length;
-
   root.innerHTML = `
     <section class="announcements-page">
       <header class="announcements-header">
@@ -2386,12 +2389,6 @@ async function renderNotificationsPage() {
           New announcement
         </button>
       </header>
-
-      <div class="announcements-overview" aria-label="Announcement summary">
-        <div><strong>${allRecords.length}</strong><span>Recent</span></div>
-        <div><strong>${scheduledCount}</strong><span>Scheduled</span></div>
-        <div><strong>${attentionCount}</strong><span>Needs attention</span></div>
-      </div>
 
       <div class="announcements-toolbar">
         <div>
@@ -2624,6 +2621,169 @@ async function communicationsRequest(path = "", options = {}) {
     throw createHttpError(body.error || "Could not load calls and messages.", response.status);
   }
   return body;
+}
+
+async function loadSmsPreferences({ force = false } = {}) {
+  const cacheIsFresh = communicationsState.preferencesLoadedAt
+    && Date.now() - communicationsState.preferencesLoadedAt < 60000;
+  if (!force && cacheIsFresh) return communicationsState.preferences;
+  if (communicationsState.preferencesLoading) return communicationsState.preferences;
+
+  communicationsState.preferencesLoading = true;
+  try {
+    const response = await fetch("/api/sms-preferences", {
+      headers: communicationsAuthHeaders()
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || body.success === false) {
+      throw createHttpError(body.error || "Could not load text preferences.", response.status);
+    }
+    communicationsState.preferences = Array.isArray(body.preferences) ? body.preferences : [];
+    communicationsState.preferenceSummary = {
+      total: Number(body.summary?.total || 0),
+      optedOut: Number(body.summary?.optedOut || 0),
+      optedIn: Number(body.summary?.optedIn || 0)
+    };
+    communicationsState.preferencesLoadedAt = Date.now();
+    return communicationsState.preferences;
+  } finally {
+    communicationsState.preferencesLoading = false;
+  }
+}
+
+function optedOutSmsPhoneSet() {
+  return new Set(
+    communicationsState.preferences
+      .filter((preference) => preference.status === "opt_out")
+      .map((preference) => normalizeCommunicationsPhone(preference.phone))
+      .filter(Boolean)
+  );
+}
+
+function smsPreferenceSourceLabel(source) {
+  const labels = {
+    inbound_sms: "Text reply",
+    voice_request: "Phone request",
+    staff: "Staff update",
+    import: "Imported"
+  };
+  return labels[String(source || "").toLowerCase()] || "Text preference";
+}
+
+function filteredSmsPreferences() {
+  const filter = communicationsState.preferenceFilter;
+  const search = communicationsState.preferenceSearch.trim().toLowerCase();
+  return communicationsState.preferences.filter((preference) => {
+    if (filter !== "all" && preference.status !== filter) return false;
+    if (!search) return true;
+    const memberText = (preference.members || [])
+      .map((member) => `${member.name || ""} ${member.accountType || ""}`)
+      .join(" ");
+    return `${memberText} ${preference.phone || ""} ${formatCommunicationsPhone(preference.phone)} ${smsPreferenceSourceLabel(preference.source)}`
+      .toLowerCase()
+      .includes(search);
+  });
+}
+
+function renderSmsPreferencesList() {
+  const container = document.getElementById("smsPreferencesList");
+  if (!container) return;
+  const preferences = filteredSmsPreferences();
+  if (communicationsState.preferencesLoading && !communicationsState.preferences.length) {
+    container.innerHTML = `<p class="sms-preferences-empty">Loading text preferences…</p>`;
+    return;
+  }
+  if (!preferences.length) {
+    container.innerHTML = `<p class="sms-preferences-empty">No text preferences match this view.</p>`;
+    return;
+  }
+  container.innerHTML = `
+    <div class="sms-preferences-table" role="table" aria-label="Member text preferences">
+      <div class="sms-preferences-table-head" role="row">
+        <span role="columnheader">Person</span>
+        <span role="columnheader">Phone</span>
+        <span role="columnheader">Status</span>
+        <span role="columnheader">Changed</span>
+      </div>
+      ${preferences.map((preference) => {
+        const members = Array.isArray(preference.members) ? preference.members : [];
+        const memberNames = members.length ? members.map((member) => member.name || "Member").join(", ") : "Unknown number";
+        const accountTypes = [...new Set(members.map((member) => member.accountType).filter(Boolean))].join(", ");
+        const changedAt = preference.status === "opt_out"
+          ? (preference.optedOutAt || preference.updatedAt)
+          : (preference.consentedAt || preference.updatedAt);
+        const optedOut = preference.status === "opt_out";
+        return `
+          <div class="sms-preferences-row" role="row">
+            <span class="sms-preference-person" role="cell"><strong>${escapeHtml(memberNames)}</strong><small>${escapeHtml(accountTypes || "Not matched to a member")}</small></span>
+            <a role="cell" href="tel:${escapeAttribute(preference.phone)}">${escapeHtml(formatCommunicationsPhone(preference.phone))}</a>
+            <span role="cell"><mark class="sms-preference-status ${optedOut ? "is-opted-out" : "is-opted-in"}">${optedOut ? "Opted out" : "Opted in"}</mark></span>
+            <span class="sms-preference-changed" role="cell"><strong>${changedAt ? escapeHtml(formatShortDateTime(changedAt)) : "Unknown"}</strong><small>${escapeHtml(smsPreferenceSourceLabel(preference.source))}</small></span>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderSmsPreferencesPanel() {
+  const summary = communicationsState.preferenceSummary;
+  return `
+    <section class="sms-preferences-panel" aria-labelledby="smsPreferencesTitle">
+      <header class="sms-preferences-header">
+        <div>
+          <p class="page-kicker">Text delivery controls</p>
+          <h3 id="smsPreferencesTitle">Text Preferences</h3>
+          <p>People who text STOP are excluded from every staff text and announcement automatically.</p>
+        </div>
+        <button id="smsPreferencesRefresh" class="communications-secondary-action" type="button">Refresh</button>
+      </header>
+      <div class="sms-preferences-toolbar">
+        <div class="sms-preference-filters" role="group" aria-label="Filter text preferences">
+          <button class="${communicationsState.preferenceFilter === "opt_out" ? "is-active" : ""}" data-sms-preference-filter="opt_out" type="button">Opted out <span>${summary.optedOut}</span></button>
+          <button class="${communicationsState.preferenceFilter === "opt_in" ? "is-active" : ""}" data-sms-preference-filter="opt_in" type="button">Opted in <span>${summary.optedIn}</span></button>
+          <button class="${communicationsState.preferenceFilter === "all" ? "is-active" : ""}" data-sms-preference-filter="all" type="button">All <span>${summary.total}</span></button>
+        </div>
+        <label class="sms-preferences-search">
+          <span class="sr-only">Search text preferences</span>
+          <input id="smsPreferencesSearch" type="search" value="${escapeAttribute(communicationsState.preferenceSearch)}" placeholder="Search name or phone" autocomplete="off" />
+        </label>
+      </div>
+      <div id="smsPreferencesList" aria-live="polite"></div>
+      <aside class="sms-preferences-note">
+        <strong>Opt-outs are recipient controlled.</strong>
+        <span>To receive texts again, the person must reply START to the RORC number. Email and in-app announcements are not affected.</span>
+      </aside>
+    </section>
+  `;
+}
+
+function bindSmsPreferencesPanel() {
+  document.querySelectorAll("[data-sms-preference-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      communicationsState.preferenceFilter = button.dataset.smsPreferenceFilter || "opt_out";
+      renderCommunicationsPage();
+    });
+  });
+  document.getElementById("smsPreferencesSearch")?.addEventListener("input", (event) => {
+    communicationsState.preferenceSearch = event.target.value;
+    renderSmsPreferencesList();
+  });
+  document.getElementById("smsPreferencesRefresh")?.addEventListener("click", async () => {
+    const status = document.getElementById("communicationsPageStatus");
+    if (status) status.textContent = "Refreshing text preferences…";
+    try {
+      await loadSmsPreferences({ force: true });
+      if (status) status.textContent = "Text preferences are up to date.";
+      if (communicationsState.activeTab === "preferences") renderCommunicationsPage();
+    } catch (error) {
+      if (status) {
+        status.textContent = error.message || "Could not refresh text preferences.";
+        status.classList.add("is-error");
+      }
+    }
+  });
+  renderSmsPreferencesList();
 }
 
 function updateCommunicationsBadge() {
@@ -3060,7 +3220,13 @@ function renderCommunicationsCallPanel() {
 
 async function renderCommunicationsPage() {
   if (!view) return;
-  const messagesActive = communicationsState.activeTab === "messages";
+  const activeTab = ["messages", "call", "preferences"].includes(communicationsState.activeTab)
+    ? communicationsState.activeTab
+    : "messages";
+  const messagesActive = activeTab === "messages";
+  const callActive = activeTab === "call";
+  const preferencesActive = activeTab === "preferences";
+  communicationsState.activeTab = activeTab;
   view.innerHTML = `
     <section class="communications-shell">
       <header class="communications-header">
@@ -3071,7 +3237,8 @@ async function renderCommunicationsPage() {
         </div>
         <div class="communications-tabs" role="tablist" aria-label="Communications tools">
           <button class="${messagesActive ? "is-active" : ""}" data-communications-tab="messages" type="button" role="tab" aria-selected="${messagesActive}">Messages</button>
-          <button class="${!messagesActive ? "is-active" : ""}" data-communications-tab="call" type="button" role="tab" aria-selected="${!messagesActive}">Call</button>
+          <button class="${callActive ? "is-active" : ""}" data-communications-tab="call" type="button" role="tab" aria-selected="${callActive}">Call</button>
+          <button class="${preferencesActive ? "is-active" : ""}" data-communications-tab="preferences" type="button" role="tab" aria-selected="${preferencesActive}">Text Preferences${communicationsState.preferenceSummary.optedOut ? ` <span class="communications-tab-count">${communicationsState.preferenceSummary.optedOut}</span>` : ""}</button>
         </div>
       </header>
       <datalist id="communicationsContacts">${communicationsContactOptions()}</datalist>
@@ -3088,12 +3255,12 @@ async function renderCommunicationsPage() {
           <aside class="communications-thread-list" id="communicationsThreadList" aria-label="Text conversations"></aside>
           <section class="communications-conversation" id="communicationsConversation" aria-label="Selected conversation"></section>
         </div>
-      ` : renderCommunicationsCallPanel()}
+      ` : preferencesActive ? renderSmsPreferencesPanel() : renderCommunicationsCallPanel()}
     </section>
   `;
   document.querySelectorAll("[data-communications-tab]").forEach((button) => {
     button.addEventListener("click", () => {
-      communicationsState.activeTab = button.dataset.communicationsTab === "call" ? "call" : "messages";
+      communicationsState.activeTab = button.dataset.communicationsTab || "messages";
       renderCommunicationsPage();
     });
   });
@@ -3106,7 +3273,7 @@ async function renderCommunicationsPage() {
     renderCommunicationConversation();
     startCommunicationsPolling();
     await refreshCommunicationThreads({ initial: true });
-  } else {
+  } else if (callActive) {
     stopCommunicationsPolling();
     communicationsState.callStatus = window.Twilio?.Device ? "Ready to call" : "Loading secure calling…";
     updateCommunicationsCallUi();
@@ -3130,6 +3297,24 @@ async function renderCommunicationsPage() {
     document.getElementById("communicationsEndCallButton")?.addEventListener("click", endOutboundCommunicationCall);
     document.getElementById("communicationsMuteButton")?.addEventListener("click", toggleOutboundCommunicationMute);
     updateCommunicationsCallUi();
+  } else {
+    stopCommunicationsPolling();
+    bindSmsPreferencesPanel();
+    try {
+      const previousLoadedAt = communicationsState.preferencesLoadedAt;
+      await loadSmsPreferences();
+      if (previousLoadedAt !== communicationsState.preferencesLoadedAt
+        && appState.currentRoute === "communications"
+        && communicationsState.activeTab === "preferences") {
+        renderCommunicationsPage();
+      }
+    } catch (error) {
+      const status = document.getElementById("communicationsPageStatus");
+      if (status) {
+        status.textContent = error.message || "Could not load text preferences.";
+        status.classList.add("is-error");
+      }
+    }
   }
 }
 
@@ -5517,41 +5702,34 @@ function renderMessageComposerPage() {
 
   root.innerHTML = `
     <form id="messageComposerForm" class="announcement-composer" autocomplete="off">
-      <header class="announcement-composer-header">
-        <button class="announcement-back-button" data-route-target="notificationsEmail" type="button" aria-label="Back to announcements">
-          <span aria-hidden="true">&#8592;</span>
-        </button>
-        <div>
-          <p class="eyebrow">New Announcement</p>
-          <h2>Write once. Reach everyone.</h2>
-          <p>Compose a clear update, choose where it should appear, then review every version before delivery.</p>
-        </div>
-      </header>
-
       <div class="announcement-composer-grid">
         <main class="announcement-editor">
           <div class="announcement-section-heading">
-            <span>01</span>
             <div><h3>Write your message</h3><p>Formatting and blank lines are preserved in email.</p></div>
           </div>
           <label class="announcement-field">
             <span>Subject <mark>*</mark></span>
             <input id="messageTitle" type="text" maxlength="180" placeholder="A short, useful headline" required />
           </label>
-          <label class="announcement-field announcement-body-field">
-            <span>Message <mark>*</mark></span>
+          <div class="announcement-field announcement-body-field">
+            <label for="messageBody">Message <mark>*</mark></label>
+            <span class="announcement-format-toolbar" role="toolbar" aria-label="Message formatting">
+              <button type="button" data-announcement-format="bold" aria-label="Bold selected text"><strong>B</strong></button>
+              <button type="button" data-announcement-format="italic" aria-label="Italicize selected text"><em>I</em></button>
+              <button type="button" data-announcement-format="bullets" aria-label="Create bulleted list">&#8226; List</button>
+              <button type="button" data-announcement-format="numbers" aria-label="Create numbered list">1. List</button>
+            </span>
             <textarea id="messageBody" rows="14" wrap="soft" placeholder="Hello everyone,&#10;&#10;Write your update here. Use blank lines and dashes to make longer announcements easy to scan.&#10;&#10;Thank you,&#10;Ruth Obenchain Recreation Center" required></textarea>
-          </label>
+          </div>
           <div class="announcement-editor-meta">
             <span id="messageBodyStats">0 characters</span>
-            <span>Plain text · line breaks preserved</span>
+            <span>Select text, then apply bold, italics, or a list.</span>
           </div>
         </main>
 
         <aside class="announcement-delivery">
           <section>
             <div class="announcement-section-heading">
-              <span>02</span>
               <div><h3>Choose your audience</h3><p>Select one or more active members.</p></div>
             </div>
             <input id="messageMembers" class="member-picker-value" type="hidden" required />
@@ -5574,7 +5752,6 @@ function renderMessageComposerPage() {
 
           <section>
             <div class="announcement-section-heading">
-              <span>03</span>
               <div><h3>Delivery channels</h3><p>Send through any combination.</p></div>
             </div>
             <div class="announcement-channel-list" data-multi-select="true">
@@ -5598,7 +5775,6 @@ function renderMessageComposerPage() {
 
           <section>
             <div class="announcement-section-heading">
-              <span>04</span>
               <div><h3>Delivery time</h3><p>Times use the Pacific time zone.</p></div>
             </div>
             <label class="announcement-field">
@@ -5628,7 +5804,22 @@ function selectedMessageMemberIds() {
   return selectedMemberIdsFromInput(input);
 }
 
-function setMessageRecipientSummary() {
+function announcementSmsAudience(selectedMembers) {
+  const optedOutPhones = optedOutSmsPhoneSet();
+  const selectedPhones = new Set();
+  const eligiblePhones = new Set();
+  let optedOutMembers = 0;
+  selectedMembers.forEach((member) => {
+    const phone = normalizeCommunicationsPhone(member.phoneNumber || member.phone_number);
+    if (!phone) return;
+    selectedPhones.add(phone);
+    if (optedOutPhones.has(phone)) optedOutMembers += 1;
+    else eligiblePhones.add(phone);
+  });
+  return { selectedPhones, eligiblePhones, optedOutMembers };
+}
+
+function setMessageRecipientSummary({ includeText = false } = {}) {
   const summary = document.getElementById("messageRecipientSummary");
   if (!summary) return;
 
@@ -5641,18 +5832,17 @@ function setMessageRecipientSummary() {
     return;
   }
 
-  const phones = new Set(
-    selectedMembers
-      .map((member) => String(member.phoneNumber || "").trim())
-      .filter(Boolean)
-  );
+  const smsAudience = announcementSmsAudience(selectedMembers);
   const emails = new Set(
     selectedMembers
       .map((member) => String(member.emailAddress || "").trim().toLowerCase())
       .filter(Boolean)
   );
 
-  summary.textContent = `${selectedMembers.length} members selected · ${phones.size} phone numbers · ${emails.size} emails`;
+  summary.textContent = includeText
+    ? `${selectedMembers.length} members selected · ${smsAudience.eligiblePhones.size} text recipients · ${smsAudience.optedOutMembers} opted out · ${emails.size} emails`
+    : `${selectedMembers.length} members selected · ${smsAudience.selectedPhones.size} phone numbers · ${emails.size} emails`;
+  summary.classList.toggle("has-opted-out", includeText && smsAudience.optedOutMembers > 0);
 }
 
 async function sendMemberMessage(payload) {
@@ -5673,9 +5863,113 @@ async function sendMemberMessage(payload) {
   return body;
 }
 
+function formatAnnouncementInlineHtml(value) {
+  return escapeHtml(value)
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
+}
+
+function announcementMessageHtml(value) {
+  const lines = String(value || "").replace(/\r\n?/g, "\n").split("\n");
+  const blocks = [];
+  let paragraph = [];
+  let listType = "";
+  let listItems = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push(`<p style="margin:0 0 16px;color:#d1d5db;line-height:1.65;font-size:16px;text-align:left;">${paragraph.map(formatAnnouncementInlineHtml).join("<br />")}</p>`);
+    paragraph = [];
+  };
+  const flushList = () => {
+    if (!listItems.length) return;
+    const tag = listType === "ol" ? "ol" : "ul";
+    blocks.push(`<${tag} style="margin:0 0 16px;padding-left:24px;color:#d1d5db;line-height:1.65;font-size:16px;text-align:left;">${listItems.map((item) => `<li style="margin:0 0 7px;padding-left:3px;">${formatAnnouncementInlineHtml(item)}</li>`).join("")}</${tag}>`);
+    listType = "";
+    listItems = [];
+  };
+
+  lines.forEach((line) => {
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+    const unordered = line.match(/^\s*[-*]\s+(.+)$/);
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (unordered || ordered) {
+      flushParagraph();
+      const nextType = ordered ? "ol" : "ul";
+      if (listType && listType !== nextType) flushList();
+      listType = nextType;
+      listItems.push((unordered || ordered)[1]);
+      return;
+    }
+    flushList();
+    paragraph.push(line);
+  });
+  flushParagraph();
+  flushList();
+  return blocks.join("");
+}
+
+function announcementPlainText(value) {
+  return String(value || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n")
+    .map((line) => {
+      const unordered = line.match(/^\s*[-*]\s+(.+)$/);
+      const strip = (text) => String(text || "").replace(/\*\*([^*\n]+)\*\*/g, "$1").replace(/\*([^*\n]+)\*/g, "$1");
+      if (unordered) return `• ${strip(unordered[1])}`;
+      const ordered = line.match(/^(\s*\d+[.)]\s+)(.+)$/);
+      if (ordered) return `${ordered[1]}${strip(ordered[2])}`;
+      return strip(line);
+    })
+    .join("\n")
+    .trim();
+}
+
+function applyAnnouncementTextFormat(textarea, action) {
+  if (!textarea) return;
+  const value = textarea.value;
+  let start = textarea.selectionStart ?? value.length;
+  let end = textarea.selectionEnd ?? start;
+  let selection = value.slice(start, end);
+  let replacement = selection;
+  let selectionOffset = 0;
+  let selectionLength = 0;
+
+  if (action === "bold" || action === "italic") {
+    const marker = action === "bold" ? "**" : "*";
+    const fallback = action === "bold" ? "bold text" : "italic text";
+    selection = selection || fallback;
+    replacement = `${marker}${selection}${marker}`;
+    selectionOffset = marker.length;
+    selectionLength = selection.length;
+  } else if (action === "bullets" || action === "numbers") {
+    const lineStart = value.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
+    const nextBreak = value.indexOf("\n", end);
+    const lineEnd = nextBreak === -1 ? value.length : nextBreak;
+    start = lineStart;
+    end = lineEnd;
+    selection = value.slice(start, end) || "List item";
+    replacement = selection.split("\n").map((line, index) => {
+      const cleanLine = line.replace(/^\s*(?:[-*]|\d+[.)])\s+/, "");
+      return action === "numbers" ? `${index + 1}. ${cleanLine}` : `- ${cleanLine}`;
+    }).join("\n");
+    selectionLength = replacement.length;
+  } else {
+    return;
+  }
+
+  textarea.setRangeText(replacement, start, end, "end");
+  textarea.focus();
+  textarea.setSelectionRange(start + selectionOffset, start + selectionOffset + (selectionLength || replacement.length));
+  textarea.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 function announcementEmailPreviewHtml(title, message) {
   const safeTitle = escapeHtml(title || "Announcement");
-  const safeMessage = escapeHtml(message || "");
   return `
     <!doctype html>
     <html lang="en">
@@ -5684,7 +5978,7 @@ function announcementEmailPreviewHtml(title, message) {
         <div style="font-family:Arial,sans-serif;background:#111;color:#f5f5f5;padding:28px;line-height:1.55;">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#1b1b1b;border:1px solid #333;border-radius:14px;overflow:hidden;">
             <tr><td style="padding:28px 28px 16px;border-bottom:1px solid #333;text-align:center;"><h2 style="margin:0;color:#fff;font-size:32px;line-height:1.15;">${safeTitle}</h2></td></tr>
-            <tr><td style="padding:24px 28px;"><div style="margin:0;color:#d1d5db;line-height:1.65;font-size:16px;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;">${safeMessage}</div></td></tr>
+            <tr><td style="padding:24px 28px;">${announcementMessageHtml(message)}</td></tr>
             <tr><td style="padding:24px 28px;border-top:1px solid #333;color:#888;font-size:13px;line-height:1.6;text-align:center;">
               <p style="margin:0 0 8px;">&copy; 2026 Ruth Obenchain Recreation Center</p>
               <p style="margin:0 0 8px;"><a href="https://ruthobenchainrc.com/support/" style="color:#bbb;text-decoration:none;">Support</a> &nbsp;|&nbsp; <a href="https://ruthobenchainrc.com/privacy-policy/" style="color:#bbb;text-decoration:none;">Privacy Policy</a> &nbsp;|&nbsp; <a href="https://ruthobenchainrc.com/terms-of-service/" style="color:#bbb;text-decoration:none;">Terms of Service</a></p>
@@ -5702,7 +5996,8 @@ function showAnnouncementReviewDialog({ title, message, memberIds, channels, sen
   if (existing) existing.remove();
 
   const selectedMembers = memberIds.map((id) => findMember(id)).filter(Boolean);
-  const phoneCount = new Set(selectedMembers.map((member) => String(member.phoneNumber || "").trim()).filter(Boolean)).size;
+  const smsAudience = announcementSmsAudience(selectedMembers);
+  const phoneCount = channels.text ? smsAudience.eligiblePhones.size : smsAudience.selectedPhones.size;
   const emailCount = new Set(selectedMembers.map((member) => String(member.emailAddress || "").trim().toLowerCase()).filter(Boolean)).size;
   const sendAtIso = fromFacilityDatetimeLocalValue(sendAt) || sendAt;
   const parsedSendAt = Date.parse(sendAtIso);
@@ -5714,6 +6009,7 @@ function showAnnouncementReviewDialog({ title, message, memberIds, channels, sen
     channels.inApp ? { key: "inApp", label: "In-App" } : null
   ].filter(Boolean);
   const firstPreview = previews[0]?.key || "text";
+  const plainMessage = announcementPlainText(message);
 
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
@@ -5730,10 +6026,17 @@ function showAnnouncementReviewDialog({ title, message, memberIds, channels, sen
         </header>
 
         <div class="announcement-review-summary">
-          <div><span>Audience</span><strong>${selectedMembers.length} ${selectedMembers.length === 1 ? "member" : "members"}</strong><small>${phoneCount} phones · ${emailCount} emails</small></div>
+          <div><span>Audience</span><strong>${selectedMembers.length} ${selectedMembers.length === 1 ? "member" : "members"}</strong><small>${phoneCount} text recipients · ${emailCount} emails</small></div>
           <div><span>Channels</span><strong>${previews.map((preview) => preview.label).join(" + ")}</strong><small>${previews.length} selected</small></div>
           <div><span>Delivery</span><strong>${escapeHtml(deliveryLabel)}</strong><small>Pacific time</small></div>
         </div>
+
+        ${channels.text && smsAudience.optedOutMembers ? `
+          <aside class="announcement-review-optout" role="status">
+            <strong>${smsAudience.optedOutMembers} opted-out ${smsAudience.optedOutMembers === 1 ? "member" : "members"} will be skipped for text delivery.</strong>
+            <span>Selected email and in-app delivery will still reach them. They must reply START to receive future texts.</span>
+          </aside>
+        ` : ""}
 
         <div class="announcement-review-content">
           <nav class="announcement-preview-tabs" role="tablist" aria-label="Announcement previews">
@@ -5743,8 +6046,8 @@ function showAnnouncementReviewDialog({ title, message, memberIds, channels, sen
             <section class="announcement-preview-panel ${firstPreview === "text" ? "is-active" : ""}" data-announcement-preview-panel="text">
               <div class="announcement-phone-preview">
                 <div class="announcement-phone-bar"><span>RORC</span><small>(541) 652-6065</small></div>
-                <div class="announcement-text-bubble">${escapeHtml(message)}</div>
-                <small>${message.length.toLocaleString()} characters · ${Math.max(1, Math.ceil(message.length / 160))} estimated text ${Math.max(1, Math.ceil(message.length / 160)) === 1 ? "part" : "parts"}</small>
+                <div class="announcement-text-bubble">${escapeHtml(plainMessage)}</div>
+                <small>${plainMessage.length.toLocaleString()} characters · ${Math.max(1, Math.ceil(plainMessage.length / 160))} estimated text ${Math.max(1, Math.ceil(plainMessage.length / 160)) === 1 ? "part" : "parts"}</small>
               </div>
             </section>
           ` : ""}
@@ -5758,7 +6061,7 @@ function showAnnouncementReviewDialog({ title, message, memberIds, channels, sen
             <section class="announcement-preview-panel ${firstPreview === "inApp" ? "is-active" : ""}" data-announcement-preview-panel="inApp">
               <article class="announcement-app-preview">
                 <span class="announcement-app-mark" aria-hidden="true">R</span>
-                <div><small>RORC Announcement · Just now</small><h3>${escapeHtml(title)}</h3><p>${escapeHtml(message)}</p></div>
+                <div><small>RORC Announcement · Just now</small><h3>${escapeHtml(title)}</h3><p>${escapeHtml(plainMessage)}</p></div>
               </article>
             </section>
           ` : ""}
@@ -5980,11 +6283,12 @@ function bindMessageComposerActions() {
     emailToggle.setAttribute("aria-pressed", String(includeEmail));
     inAppToggle.setAttribute("aria-pressed", String(includeInApp));
     updateBodyStats();
+    setMessageRecipientSummary({ includeText });
   };
 
   const updateBodyStats = () => {
     if (!bodyStats) return;
-    const characterCount = String(bodyInput?.value || "").length;
+    const characterCount = announcementPlainText(bodyInput?.value || "").length;
     const textParts = Math.max(1, Math.ceil(characterCount / 160));
     bodyStats.textContent = includeText && characterCount
       ? `${characterCount.toLocaleString()} characters · about ${textParts} text ${textParts === 1 ? "part" : "parts"}`
@@ -6011,12 +6315,18 @@ function bindMessageComposerActions() {
     renderChannelToggles();
   });
 
-  document.getElementById("messageMembers")?.addEventListener("change", setMessageRecipientSummary);
+  document.getElementById("messageMembers")?.addEventListener("change", () => setMessageRecipientSummary({ includeText }));
   bodyInput?.addEventListener("input", updateBodyStats);
   sendNowButton?.addEventListener("click", () => {
     if (sendAtInput) sendAtInput.value = toFacilityDatetimeLocalValue(new Date().toISOString());
   });
-  setMessageRecipientSummary();
+  document.querySelectorAll("[data-announcement-format]").forEach((button) => {
+    button.addEventListener("click", () => applyAnnouncementTextFormat(bodyInput, button.dataset.announcementFormat));
+  });
+  setMessageRecipientSummary({ includeText });
+  loadSmsPreferences()
+    .then(() => setMessageRecipientSummary({ includeText }))
+    .catch((error) => console.warn("Could not load text preferences for the announcement preview.", error));
   // Force a clean default every time this screen opens.
   includeText = false;
   includeEmail = false;
@@ -6074,13 +6384,14 @@ function bindMessageComposerActions() {
         sendAt: normalizedSendAt
       });
 
+      const skippedText = Number(response.skippedOptOutCount || 0);
       setResult(response.scheduled
-        ? `Scheduled for ${formatFacilityShortDateTime(response.scheduledFor)}.`
-        : `Sent. Texts: ${response.sentTextCount || 0}, Emails: ${response.sentEmailCount || 0}, In-App: ${response.sentInAppCount || 0}.`,
+        ? `Scheduled for ${formatFacilityShortDateTime(response.scheduledFor)}.${skippedText ? ` ${skippedText} current text opt-out${skippedText === 1 ? "" : "s"} will be skipped.` : ""}`
+        : `Sent. Texts: ${response.sentTextCount || 0}, Emails: ${response.sentEmailCount || 0}, In-App: ${response.sentInAppCount || 0}.${skippedText ? ` Skipped ${skippedText} text opt-out${skippedText === 1 ? "" : "s"}.` : ""}`,
         "success");
       addNotificationDispatchRecord({
         title,
-        message,
+        message: announcementPlainText(message),
         includeText,
         includeEmail,
         includeInApp,
@@ -6670,6 +6981,10 @@ function clearLiveData() {
   communicationsState.selectedThreadId = "";
   communicationsState.draftPhone = "";
   communicationsState.draftBody = "";
+  communicationsState.preferences = [];
+  communicationsState.preferenceSummary = { total: 0, optedOut: 0, optedIn: 0 };
+  communicationsState.preferenceSearch = "";
+  communicationsState.preferencesLoadedAt = 0;
   updateCommunicationsBadge();
 }
 
@@ -13508,6 +13823,18 @@ function setMultiMemberPickerValue(inputId, memberIds) {
 
   if (selectedMembers.length === 0) {
     label.innerHTML = `<span class="member-picker-placeholder">${escapeHtml(placeholder)}</span>`;
+    return;
+  }
+
+  if (inputId === "messageMembers") {
+    const previewNames = selectedMembers.slice(0, 2).map((member) => member.memberName).join(", ");
+    const remaining = Math.max(0, selectedMembers.length - 2);
+    label.innerHTML = `
+      <span class="announcement-recipient-selection">
+        <strong>${selectedMembers.length} ${selectedMembers.length === 1 ? "member" : "members"} selected</strong>
+        <small>${escapeHtml(previewNames)}${remaining ? ` +${remaining} more` : ""}</small>
+      </span>
+    `;
     return;
   }
 

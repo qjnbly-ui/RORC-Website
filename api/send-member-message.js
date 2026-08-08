@@ -9,6 +9,8 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@ruthobenchainrc.com>";
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
 const { sendResendBatchEmails } = require("./_resend");
+const { announcementMessageToPlainText, renderAnnouncementMessageHtml } = require("./_announcement-formatting");
+const { optedOutPhoneSet } = require("./_rorc-sms");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -52,11 +54,16 @@ module.exports = async (req, res) => {
     if (!sendText && !sendEmail && !sendInApp) {
       return res.status(400).json({ success: false, error: "Select at least one delivery channel." });
     }
+    const plainMessage = announcementMessageToPlainText(message);
 
     const members = await loadMembers(memberIds);
     if (!members.length) {
       return res.status(404).json({ success: false, error: "No members found for selection." });
     }
+    const selectedPhones = [...new Set(members.map((member) => normalizePhone(member.phone_number)).filter(Boolean))];
+    const optedOutPhones = sendText ? await optedOutPhoneSet(selectedPhones) : new Set();
+    const eligibleTextPhones = selectedPhones.filter((phone) => !optedOutPhones.has(phone));
+    const skippedOptOutCount = members.filter((member) => optedOutPhones.has(normalizePhone(member.phone_number))).length;
 
     const scheduledFor = futureSendAtIso(requestedSendAt);
     if (scheduledFor) {
@@ -79,7 +86,7 @@ module.exports = async (req, res) => {
       await createMessageHistoryRows({
         memberIds: [manager.id],
         title,
-        message,
+        message: plainMessage,
         createdByMemberId: manager.id,
         channels: {
           text: sendText,
@@ -110,6 +117,7 @@ module.exports = async (req, res) => {
         sentTextCount: 0,
         sentEmailCount: 0,
         sentInAppCount: 0,
+        skippedOptOutCount,
         scheduledMessageId: scheduledMessage.id || "",
         historyRecord: {
           id: dispatchId,
@@ -117,7 +125,7 @@ module.exports = async (req, res) => {
           scheduledMessageId: scheduledMessage.id || "",
           scheduledStatus: "scheduled",
           title,
-          message,
+          message: plainMessage,
           channels: {
             text: sendText,
             email: sendEmail,
@@ -133,19 +141,31 @@ module.exports = async (req, res) => {
           sentEmailCount: 0,
           sentInAppCount: 0,
           warnings: [],
+          skippedOptOutCount,
           createdAt: new Date().toISOString()
         },
         warnings: []
       });
     }
 
-    const uniquePhones = [...new Set(members.map((m) => normalizePhone(m.phone_number)).filter(Boolean))];
+    const uniquePhones = eligibleTextPhones;
     const emailRecipients = collectEmailRecipients(members);
 
     let sentTextCount = 0;
     let sentEmailCount = 0;
     let sentInAppCount = 0;
     const errors = [];
+    if (skippedOptOutCount) {
+      errors.push(`Skipped ${skippedOptOutCount} opted-out ${skippedOptOutCount === 1 ? "member" : "members"} from text delivery.`);
+    }
+
+    if (sendText && selectedPhones.length > 0 && uniquePhones.length === 0 && !sendEmail && !sendInApp) {
+      return res.status(409).json({
+        success: false,
+        error: "All selected text recipients have opted out. They must reply START before receiving another text.",
+        skippedOptOutCount
+      });
+    }
 
     if (sendText) {
       if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
@@ -193,7 +213,7 @@ module.exports = async (req, res) => {
       await createMessageHistoryRows({
         memberIds: members.map((member) => member.id),
         title,
-        message,
+        message: plainMessage,
         createdByMemberId: manager.id,
         channels: {
           text: sendText,
@@ -205,6 +225,7 @@ module.exports = async (req, res) => {
           sentTextCount,
           sentEmailCount,
           sentInAppCount: sendInApp ? members.length : 0,
+          skippedOptOutCount,
           requestedSendAt,
           errorMessages: errors
         }
@@ -227,10 +248,11 @@ module.exports = async (req, res) => {
       sentTextCount,
       sentEmailCount,
       sentInAppCount,
+      skippedOptOutCount,
       historyRecord: {
         id: dispatchId,
         title,
-        message,
+        message: plainMessage,
         channels: {
           text: sendText,
           email: sendEmail,
@@ -240,6 +262,7 @@ module.exports = async (req, res) => {
         sentTextCount,
         sentEmailCount,
         sentInAppCount,
+        skippedOptOutCount,
         warnings: errors,
         createdAt: new Date().toISOString()
       },
@@ -440,22 +463,21 @@ async function sendTwilioText(to, body) {
 }
 
 function buildTextMessageBody(title, message) {
-  const body = String(message || "").trim();
+  const body = announcementMessageToPlainText(message);
   return body || String(title || "").trim();
 }
 
 function buildMemberMessageEmails(recipients, subject, message) {
   const safeSubject = escapeHtml(subject);
-  const safeMessage = escapeHtml(message);
   const html = buildEmailTemplate({
     title: safeSubject,
-    bodyHtml: `<div style="margin:0;color:#d1d5db;line-height:1.65;font-size:16px;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;">${safeMessage}</div>`
+    bodyHtml: renderAnnouncementMessageHtml(message)
   });
   return (recipients || []).map((to) => ({
       from: RESEND_FROM_EMAIL,
       to: [to],
       subject,
-      text: message,
+      text: announcementMessageToPlainText(message),
       html
   }));
 }

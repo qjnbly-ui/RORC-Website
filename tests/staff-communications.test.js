@@ -5,6 +5,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role-key";
 process.env.TWILIO_FROM_NUMBER = "+15416526065";
 
 const communications = require("../api/_staff-communications");
+const { optedOutPhoneSet } = require("../api/_rorc-sms");
 
 function jsonResponse(data, status = 200) {
   return {
@@ -59,4 +60,47 @@ test("ordinary inbound SMS is recorded in the separate staff inbox", async () =>
   assert.equal(rpcPayload.p_direction, "inbound");
   assert.equal(rpcPayload.p_body, "Can someone call me?");
   assert.equal(rpcPayload.p_message_status, "received");
+});
+
+test("SMS preferences match opted-out phone numbers to member names", async () => {
+  const result = await communications.listSmsPreferences(async (url) => {
+    if (url.includes("rorc_receptionist_sms_consent")) {
+      return jsonResponse([
+        {
+          phone_e164: "+15415550100",
+          consent_status: "opt_out",
+          consent_source: "inbound_sms",
+          opted_out_at: "2026-08-08T18:00:00.000Z",
+          updated_at: "2026-08-08T18:00:00.000Z"
+        }
+      ]);
+    }
+    return jsonResponse([
+      {
+        id: "member-1",
+        member_name: "Example Member",
+        account_type: "Full Facility Membership",
+        phone_number: "(541) 555-0100"
+      }
+    ]);
+  });
+
+  assert.equal(result.summary.optedOut, 1);
+  assert.equal(result.preferences[0].phone, "+15415550100");
+  assert.equal(result.preferences[0].members[0].name, "Example Member");
+});
+
+test("bulk SMS opt-out lookup returns only requested opted-out phones", async () => {
+  const optedOut = await optedOutPhoneSet([
+    "(541) 555-0100",
+    "+15415550101"
+  ], async (url) => {
+    assert.match(url, /consent_status=eq\.opt_out/);
+    return jsonResponse([
+      { phone_e164: "+15415550100" },
+      { phone_e164: "+15415550999" }
+    ]);
+  });
+
+  assert.deepEqual([...optedOut], ["+15415550100"]);
 });

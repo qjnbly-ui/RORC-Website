@@ -6,6 +6,8 @@ const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "+15416526065";
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@ruthobenchainrc.com>";
 const CRON_SECRET = process.env.CRON_SECRET || "";
+const { announcementMessageToPlainText, renderAnnouncementMessageHtml } = require("./_announcement-formatting");
+const { optedOutPhoneSet } = require("./_rorc-sms");
 const { sendResendBatchEmails } = require("./_resend");
 
 module.exports = async (req, res) => {
@@ -46,6 +48,7 @@ async function dispatchScheduledMessage(job) {
   const dispatchId = String(job?.dispatch_id || jobId || "").trim();
   const channels = job?.channels || {};
   const memberIds = Array.isArray(job?.member_ids) ? job.member_ids.map((id) => String(id || "").trim()).filter(Boolean) : [];
+  const plainMessage = announcementMessageToPlainText(job?.message);
 
   try {
     await updateScheduledJob(jobId, {
@@ -57,19 +60,25 @@ async function dispatchScheduledMessage(job) {
     const sendText = Boolean(channels.text);
     const sendEmail = Boolean(channels.email);
     const sendInApp = Boolean(channels.inApp);
-    const uniquePhones = [...new Set(members.map((m) => normalizePhone(m.phone_number)).filter(Boolean))];
+    const selectedPhones = [...new Set(members.map((member) => normalizePhone(member.phone_number)).filter(Boolean))];
+    const optedOutPhones = sendText ? await optedOutPhoneSet(selectedPhones) : new Set();
+    const uniquePhones = selectedPhones.filter((phone) => !optedOutPhones.has(phone));
+    const skippedOptOutCount = members.filter((member) => optedOutPhones.has(normalizePhone(member.phone_number))).length;
     const emailRecipients = collectEmailRecipients(members);
 
     let sentTextCount = 0;
     let sentEmailCount = 0;
     let sentInAppCount = 0;
     const errors = [];
+    if (skippedOptOutCount) {
+      errors.push(`Skipped ${skippedOptOutCount} opted-out ${skippedOptOutCount === 1 ? "member" : "members"} from text delivery.`);
+    }
 
     if (sendText) {
       if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
         errors.push("Twilio credentials are not configured.");
       } else if (!uniquePhones.length) {
-        errors.push("No selected members have phone numbers.");
+        if (!selectedPhones.length) errors.push("No selected members have phone numbers.");
       } else {
         for (const phone of uniquePhones) {
           try {
@@ -111,7 +120,7 @@ async function dispatchScheduledMessage(job) {
       await createMessageHistoryRows({
         memberIds: members.map((member) => member.id),
         title: job.title,
-        message: job.message,
+        message: plainMessage,
         createdByMemberId: job.created_by_member_id,
         channels: {
           text: sendText,
@@ -123,6 +132,7 @@ async function dispatchScheduledMessage(job) {
           sentTextCount,
           sentEmailCount,
           sentInAppCount: sendInApp ? members.length : 0,
+          skippedOptOutCount,
           scheduledMessageId: jobId,
           scheduledFor: job.scheduled_for,
           scheduleLabel: job.schedule_label || "",
@@ -139,7 +149,13 @@ async function dispatchScheduledMessage(job) {
     }
 
     const delivered = sentTextCount + sentEmailCount + sentInAppCount;
-    const status = delivered > 0 || !errors.length ? "sent" : "failed";
+    const fullySkippedByTextPreference = sendText
+      && selectedPhones.length > 0
+      && uniquePhones.length === 0
+      && skippedOptOutCount > 0
+      && !sendEmail
+      && !sendInApp;
+    const status = delivered > 0 || fullySkippedByTextPreference || !errors.length ? "sent" : "failed";
     await updateScheduledJob(jobId, {
       status,
       sent_at: status === "sent" ? new Date().toISOString() : null,
@@ -152,6 +168,7 @@ async function dispatchScheduledMessage(job) {
       sentTextCount,
       sentEmailCount,
       sentInAppCount,
+      skippedOptOutCount,
       warnings: errors
     };
   } catch (error) {
@@ -263,22 +280,21 @@ async function sendTwilioText(to, body) {
 }
 
 function buildTextMessageBody(title, message) {
-  const body = String(message || "").trim();
+  const body = announcementMessageToPlainText(message);
   return body || String(title || "").trim();
 }
 
 function buildScheduledMessageEmails(recipients, subject, message) {
   const safeSubject = escapeHtml(subject);
-  const safeMessage = escapeHtml(message);
   const html = buildEmailTemplate({
     title: safeSubject,
-    bodyHtml: `<div style="margin:0;color:#d1d5db;line-height:1.65;font-size:16px;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;">${safeMessage}</div>`
+    bodyHtml: renderAnnouncementMessageHtml(message)
   });
   return (recipients || []).map((to) => ({
       from: RESEND_FROM_EMAIL,
       to: [to],
       subject,
-      text: message,
+      text: announcementMessageToPlainText(message),
       html
   }));
 }
