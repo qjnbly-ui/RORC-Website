@@ -1,9 +1,10 @@
-const CACHE_VERSION = "rorc-app-v59";
+const CACHE_VERSION = "rorc-app-v60";
 const APP_SHELL = [
   "./",
   "./index.html",
-  "./app.css?v=20260807-receptionist",
-  "./app.js?v=20260807-receptionist",
+  "./app.css?v=20260808-communications",
+  "./app.js?v=20260808-communications",
+  "./vendor/twilio-voice.min.js?v=2.18.3",
   "./app.config.js",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",

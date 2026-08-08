@@ -2676,6 +2676,581 @@ h1 {
   }
 }
 
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.communications-shell {
+  display: grid;
+  gap: 16px;
+  margin: 0 auto;
+  max-width: 1180px;
+}
+
+.communications-header {
+  align-items: end;
+  background: linear-gradient(145deg, #1c1c1c, #151515);
+  border: 1px solid #343434;
+  border-radius: 18px;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  padding: 22px;
+}
+
+.communications-header h2 {
+  font-size: clamp(1.55rem, 4vw, 2.2rem);
+  margin: 2px 0 8px;
+}
+
+.communications-header p:last-child {
+  color: var(--muted);
+  line-height: 1.5;
+  margin: 0;
+  max-width: 680px;
+}
+
+.communications-tabs {
+  background: #0e0e0e;
+  border: 1px solid #373737;
+  border-radius: 12px;
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(2, minmax(105px, 1fr));
+  padding: 4px;
+}
+
+.communications-tabs button {
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 10px 16px;
+}
+
+.communications-tabs button.is-active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.communications-page-status {
+  color: var(--muted);
+  margin: -5px 2px -4px;
+  min-height: 20px;
+}
+
+.communications-page-status.is-error,
+.communications-composer small.is-error {
+  color: #fca5a5;
+}
+
+.communications-new-row {
+  background: #181818;
+  border: 1px solid #343434;
+  border-radius: 14px;
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.communications-new-row label,
+.communications-call-card label {
+  color: #d7d9dc;
+  font-size: 0.82rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+
+.communications-new-row > div {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr auto;
+}
+
+.communications-new-row input,
+.communications-call-card input,
+.communications-composer textarea {
+  background: #0d0d0d;
+  border: 1px solid #444;
+  border-radius: 10px;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+  padding: 12px 14px;
+  width: 100%;
+}
+
+.communications-new-row input:focus,
+.communications-call-card input:focus,
+.communications-composer textarea:focus {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px rgb(248 113 113 / 14%);
+}
+
+.communications-new-row button,
+.communications-composer button,
+.communications-primary-action,
+.communications-secondary-action,
+.communications-end-action,
+.communications-call-contact {
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+}
+
+.communications-new-row button,
+.communications-composer button,
+.communications-primary-action {
+  background: var(--accent);
+  color: #fff;
+  padding: 11px 20px;
+}
+
+.communications-new-row button:hover,
+.communications-composer button:hover,
+.communications-primary-action:hover {
+  background: var(--accent-pressed);
+}
+
+.communications-new-row button:disabled,
+.communications-composer button:disabled,
+.communications-primary-action:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.communications-grid {
+  background: #151515;
+  border: 1px solid #343434;
+  border-radius: 18px;
+  display: grid;
+  grid-template-columns: minmax(260px, 34%) minmax(0, 1fr);
+  min-height: 590px;
+  overflow: hidden;
+}
+
+.communications-thread-list {
+  border-right: 1px solid #323232;
+  max-height: 680px;
+  overflow-y: auto;
+}
+
+.communications-thread {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #2b2b2b;
+  color: var(--text);
+  cursor: pointer;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  padding: 14px;
+  text-align: left;
+  width: 100%;
+}
+
+.communications-thread:hover,
+.communications-thread.is-active {
+  background: #232323;
+}
+
+.communications-thread.is-active {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.communications-thread-avatar {
+  align-items: center;
+  background: #393939;
+  border-radius: 50%;
+  color: #fff;
+  display: inline-flex;
+  font-weight: 850;
+  height: 40px;
+  justify-content: center;
+  width: 40px;
+}
+
+.communications-thread-copy,
+.communications-thread-meta {
+  display: grid;
+  min-width: 0;
+}
+
+.communications-thread-copy {
+  gap: 4px;
+}
+
+.communications-thread-copy strong,
+.communications-thread-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.communications-thread-copy small,
+.communications-thread-meta time,
+.communications-empty-copy {
+  color: var(--muted);
+}
+
+.communications-thread-meta {
+  align-items: end;
+  gap: 7px;
+  justify-items: end;
+}
+
+.communications-thread-meta time {
+  font-size: 0.7rem;
+}
+
+.communications-thread-meta b {
+  align-items: center;
+  background: var(--accent);
+  border-radius: 999px;
+  display: inline-flex;
+  font-size: 0.7rem;
+  height: 20px;
+  justify-content: center;
+  min-width: 20px;
+  padding: 0 5px;
+}
+
+.communications-empty-copy {
+  line-height: 1.5;
+  margin: 0;
+  padding: 22px;
+}
+
+.communications-conversation {
+  display: grid;
+  grid-template-rows: auto minmax(300px, 1fr) auto;
+  min-width: 0;
+}
+
+.communications-conversation:has(.communications-conversation-empty) {
+  display: block;
+}
+
+.communications-conversation-empty {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 590px;
+  padding: 30px;
+  text-align: center;
+}
+
+.communications-conversation-empty span {
+  filter: grayscale(1);
+  font-size: 3rem;
+  opacity: 0.65;
+}
+
+.communications-conversation-empty h3 {
+  color: var(--text);
+  margin: 14px 0 4px;
+}
+
+.communications-conversation-empty p {
+  line-height: 1.5;
+  margin: 0;
+  max-width: 390px;
+}
+
+.communications-conversation-header {
+  align-items: center;
+  border-bottom: 1px solid #323232;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 15px 18px;
+}
+
+.communications-conversation-header h3,
+.communications-conversation-header p {
+  margin: 0;
+}
+
+.communications-conversation-header p {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin-top: 3px;
+}
+
+.communications-call-contact,
+.communications-secondary-action {
+  background: #303030;
+  color: #fff;
+  padding: 9px 14px;
+}
+
+.communications-message-list {
+  align-content: start;
+  background: radial-gradient(circle at top right, rgb(239 59 54 / 6%), transparent 38%), #111;
+  display: grid;
+  gap: 10px;
+  max-height: 520px;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.communications-message {
+  display: grid;
+  gap: 4px;
+  max-width: min(78%, 560px);
+}
+
+.communications-message.is-outbound {
+  justify-self: end;
+}
+
+.communications-message > div {
+  background: #2b2b2b;
+  border-radius: 15px 15px 15px 4px;
+  padding: 10px 13px;
+}
+
+.communications-message.is-outbound > div {
+  background: #a62c29;
+  border-radius: 15px 15px 4px 15px;
+}
+
+.communications-message p {
+  line-height: 1.42;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.communications-message footer {
+  color: #8d939b;
+  display: flex;
+  font-size: 0.68rem;
+  gap: 6px;
+}
+
+.communications-message.is-outbound footer {
+  justify-content: flex-end;
+}
+
+.communications-message footer .is-error {
+  color: #fca5a5;
+}
+
+.communications-attachment-note {
+  display: block;
+  margin-top: 4px;
+}
+
+.communications-composer {
+  align-items: end;
+  border-top: 1px solid #323232;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 14px;
+}
+
+.communications-composer textarea {
+  max-height: 130px;
+  min-height: 48px;
+  resize: vertical;
+}
+
+.communications-composer small {
+  color: var(--muted);
+  grid-column: 1 / -1;
+}
+
+.communications-call-panel {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.52fr);
+}
+
+.communications-call-card,
+.communications-safety-card {
+  background: #171717;
+  border: 1px solid #343434;
+  border-radius: 18px;
+}
+
+.communications-call-card {
+  align-items: stretch;
+  display: grid;
+  justify-items: center;
+  padding: clamp(28px, 7vw, 70px);
+  text-align: center;
+}
+
+.communications-phone-icon {
+  align-items: center;
+  background: rgb(239 59 54 / 15%);
+  border: 1px solid rgb(239 59 54 / 35%);
+  border-radius: 50%;
+  color: #ff7773;
+  display: inline-flex;
+  font-size: 2rem;
+  height: 76px;
+  justify-content: center;
+  margin-bottom: 18px;
+  width: 76px;
+}
+
+.communications-call-card h2 {
+  margin: 2px 0 4px;
+}
+
+.communications-call-number,
+.communications-call-status {
+  color: var(--muted);
+}
+
+.communications-call-card label,
+.communications-call-card input {
+  max-width: 460px;
+  text-align: left;
+}
+
+.communications-call-card label {
+  justify-self: stretch;
+  margin: 18px auto 7px;
+  width: min(100%, 460px);
+}
+
+.communications-call-status {
+  margin: 18px 0 4px;
+}
+
+.communications-call-duration {
+  font-size: 1.35rem;
+  min-height: 30px;
+}
+
+.communications-call-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 18px;
+}
+
+.communications-primary-action,
+.communications-secondary-action,
+.communications-end-action {
+  min-width: 108px;
+  padding: 12px 18px;
+}
+
+.communications-secondary-action.is-active {
+  background: #584b1c;
+  color: #fde68a;
+}
+
+.communications-end-action {
+  background: #641f1f;
+  color: #fff;
+}
+
+.communications-safety-card {
+  align-self: start;
+  line-height: 1.55;
+  padding: 22px;
+}
+
+.communications-safety-card strong {
+  color: #86efac;
+}
+
+.communications-safety-card p {
+  color: var(--muted);
+  margin: 8px 0 0;
+}
+
+@media (max-width: 820px) {
+  .communications-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .communications-tabs {
+    width: 100%;
+  }
+
+  .communications-grid,
+  .communications-call-panel {
+    grid-template-columns: 1fr;
+  }
+
+  .communications-grid {
+    overflow: visible;
+  }
+
+  .communications-thread-list {
+    border-bottom: 1px solid #323232;
+    border-right: 0;
+    max-height: 250px;
+  }
+
+  .communications-conversation-empty {
+    min-height: 330px;
+  }
+}
+
+@media (max-width: 520px) {
+  .communications-header,
+  .communications-new-row,
+  .communications-call-card,
+  .communications-safety-card {
+    border-radius: 12px;
+  }
+
+  .communications-header {
+    padding: 17px;
+  }
+
+  .communications-new-row > div {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .communications-grid {
+    border-radius: 12px;
+  }
+
+  .communications-message {
+    max-width: 88%;
+  }
+
+  .communications-message-list {
+    max-height: 430px;
+    padding: 14px;
+  }
+
+  .communications-conversation-header,
+  .communications-composer {
+    padding: 12px;
+  }
+
+  .communications-call-card {
+    padding: 32px 18px;
+  }
+}
+
 .member-delete-confirm-dialog p {
   color: var(--muted);
   margin: 0;

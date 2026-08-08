@@ -41,3 +41,19 @@ Public website knowledge is rebuilt deterministically on every Vercel deployment
 The receptionist supports the public membership signup, facility rental, and banner sponsorship forms. It offers to either text the direct form link or collect safe prefill fields and text a secure completion link. Callers may skip a field, finish online early, or cancel and discard the call's answers.
 
 Guided answers are parsed locally by the RORC server and are not sent to the general-answer AI model. The workflow never collects passwords, four-digit PINs, dates of birth, signatures, contract acknowledgements, payment-card details, or file uploads by phone. Drafts use a hashed 256-bit bearer token, are available only through the server-side endpoint, and expire after seven days. The browser removes the token fragment from the address bar after loading the draft.
+
+## Staff calls and messages
+
+The Account Manager-only **Calls & Messages** page is intentionally separate from member notifications, scheduled messages, and receptionist analytics. Ordinary inbound SMS messages received by the existing `/api/receptionist/sms` webhook are copied into the staff inbox. START, STOP, and HELP keep their existing behavior.
+
+Outgoing browser calls use a separate TwiML App and do not change the RORC number's incoming voice webhook. Configure that TwiML App's Voice Request URL as:
+
+`https://www.ruthobenchainrc.com/api/communications-voice-outbound`
+
+Add these Vercel environment variables for outbound browser calling:
+
+- `TWILIO_API_KEY_SID` — a Twilio API key SID used only to mint short-lived Voice access tokens
+- `TWILIO_API_KEY_SECRET` — the corresponding API key secret
+- `TWILIO_TWIML_APP_SID` — the SID of the outbound-only TwiML App above
+
+The Voice access token sets `incomingAllow` to false. Incoming calls continue to use `/api/receptionist/incoming` and remain answered by the AI receptionist.

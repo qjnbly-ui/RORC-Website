@@ -2,6 +2,7 @@ const twilio = require("twilio");
 const { publicHttpUrl } = require("../_receptionist");
 const { validateTwilioWebhook, sendTwiML } = require("../_twilio-webhook");
 const { consent } = require("../_rorc-sms");
+const { recordIncomingMessage } = require("../_staff-communications");
 
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).send("Method not allowed.");
@@ -9,6 +10,9 @@ module.exports = async function handler(req, res) {
   const from = String(req.body?.From || "").trim();
   const body = String(req.body?.Body || "").trim().toLowerCase();
   const response = new twilio.twiml.MessagingResponse();
+  await recordIncomingMessage(req.body || {}).catch((error) => {
+    console.error("Incoming staff message could not be saved.", error);
+  });
   if (/^(start|unstop|yes|subscribe)$/i.test(body)) {
     await consent(from, "opt_in", "inbound_sms");
     response.message("RORC texts are now enabled for requested information. Message frequency varies. Reply STOP to opt out or HELP for help.");

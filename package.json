@@ -1,13 +1,15 @@
 {
   "scripts": {
     "build:receptionist-knowledge": "node scripts/build-receptionist-knowledge.js",
+    "build:twilio-voice": "node scripts/build-twilio-voice.js",
     "check:receptionist-knowledge": "node scripts/build-receptionist-knowledge.js --check",
-    "vercel-build": "npm run build:receptionist-knowledge",
+    "vercel-build": "npm run build:receptionist-knowledge && npm run build:twilio-voice",
     "eval:receptionist": "node scripts/eval-receptionist-intents.js",
     "test": "node --test tests/*.test.js",
     "rorc:create-auth-users": "node scripts/create-supabase-auth-users.js"
   },
   "dependencies": {
+    "@twilio/voice-sdk": "^2.18.3",
     "express": "^5.1.0",
     "stripe": "^20.4.1",
     "twilio": "^5.10.4",

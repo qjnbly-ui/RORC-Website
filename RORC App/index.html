@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icons/favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./app.css?v=20260807-receptionist" />
+    <link rel="stylesheet" href="./app.css?v=20260808-communications" />
   </head>
   <body>
     <section id="authGate" class="auth-gate" aria-live="polite">
@@ -117,6 +117,15 @@
             <path d="M22 19V3"></path>
           </svg>
           <span>Receptionist</span>
+        </button>
+        <button class="drawer-item" data-route="communications" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"></path>
+            <path d="M8 9h8"></path>
+            <path d="M8 13h5"></path>
+            <path d="M16 3a5 5 0 0 1 5 5"></path>
+          </svg>
+          <span>Calls &amp; Messages <b id="drawerCommunicationsBadge" class="drawer-notification-badge" hidden></b></span>
         </button>
         <button class="drawer-item" data-route="notificationsEmail" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -598,6 +607,7 @@
 
     <script src="/scripts/rorc-supabase-client.js" defer></script>
     <script src="/scripts/rorc-password-reveal.js" defer></script>
-    <script src="./app.js?v=20260807-receptionist" defer></script>
+    <script src="./vendor/twilio-voice.min.js?v=2.18.3" defer></script>
+    <script src="./app.js?v=20260808-communications" defer></script>
   </body>
 </html>

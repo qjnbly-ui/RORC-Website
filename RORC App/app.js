@@ -68,6 +68,24 @@ let notificationDispatchRecords = [];
 let memberNotifications = [];
 let adminNotes = [];
 let receptionistAnalyticsRange = "30d";
+let communicationsPollTimer = null;
+let communicationsCallTimer = null;
+let communicationsVoiceDevice = null;
+let communicationsActiveCall = null;
+const communicationsState = {
+  activeTab: "messages",
+  threads: [],
+  messages: [],
+  selectedThreadId: "",
+  draftPhone: "",
+  draftBody: "",
+  loading: false,
+  callPhone: "",
+  callStatus: "Ready to call",
+  callStartedAt: null,
+  callMuted: false,
+  callBusy: false
+};
 let sponsorSubmissions = [];
 let notificationRealtimeChannel = null;
 let notificationRealtimeRetryTimer = null;
@@ -272,6 +290,7 @@ const accountManagerOnlyRoutes = new Set([
   "advertisementBanners",
   "message",
   "receptionistAnalytics",
+  "communications",
   "notificationsEmail",
   "masterLogs",
   "billingPrices",
@@ -388,6 +407,11 @@ const routes = {
     title: "Receptionist",
     template: "feedbackTemplate",
     afterRender: renderReceptionistAnalyticsPage
+  },
+  communications: {
+    title: "Calls & Messages",
+    template: "feedbackTemplate",
+    afterRender: renderCommunicationsPage
   },
   notifications: {
     title: "Notifications",
@@ -2427,6 +2451,517 @@ async function renderReceptionistAnalyticsPage() {
     });
   } catch (error) {
     renderRouteLoadError(routes.receptionistAnalytics, error);
+  }
+}
+
+function normalizeCommunicationsPhone(value) {
+  let digits = String(value || "").replace(/\D/g, "");
+  if (digits.length === 10) digits = `1${digits}`;
+  return /^[1-9][0-9]{7,14}$/.test(digits) ? `+${digits}` : "";
+}
+
+function formatCommunicationsPhone(value) {
+  const phone = normalizeCommunicationsPhone(value);
+  const match = phone.match(/^\+1(\d{3})(\d{3})(\d{4})$/);
+  return match ? `(${match[1]}) ${match[2]}-${match[3]}` : (phone || String(value || ""));
+}
+
+function communicationsContacts() {
+  const byPhone = new Map();
+  [...globalMemberDirectory, ...accountMembers].forEach((member) => {
+    const phone = normalizeCommunicationsPhone(member?.phoneNumber || member?.phone_number);
+    if (!phone || byPhone.has(phone)) return;
+    byPhone.set(phone, {
+      phone,
+      name: member?.memberName || member?.member_name || "RORC member"
+    });
+  });
+  return [...byPhone.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function communicationThreadName(thread) {
+  return thread?.contact?.name || communicationsContacts().find((contact) => contact.phone === thread?.phone)?.name || formatCommunicationsPhone(thread?.phone) || "New conversation";
+}
+
+function communicationsAuthHeaders(json = false) {
+  const headers = { Authorization: `Bearer ${currentAuthSession?.access_token || ""}` };
+  if (json) headers["Content-Type"] = "application/json";
+  return headers;
+}
+
+async function communicationsRequest(path = "", options = {}) {
+  const response = await fetch(`/api/communications${path}`, {
+    ...options,
+    headers: { ...communicationsAuthHeaders(Boolean(options.body)), ...(options.headers || {}) }
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.success === false) {
+    throw createHttpError(body.error || "Could not load calls and messages.", response.status);
+  }
+  return body;
+}
+
+function updateCommunicationsBadge() {
+  const badge = document.getElementById("drawerCommunicationsBadge");
+  if (!badge) return;
+  const unread = communicationsState.threads.reduce((sum, thread) => sum + Number(thread.unreadCount || 0), 0);
+  badge.hidden = unread < 1;
+  badge.textContent = unread > 99 ? "99+" : String(unread || "");
+}
+
+function communicationsContactOptions() {
+  return communicationsContacts().map((contact) => `
+    <option value="${escapeAttribute(formatCommunicationsPhone(contact.phone))}">${escapeHtml(contact.name)}</option>
+  `).join("");
+}
+
+function communicationStatusLabel(message) {
+  if (message.direction !== "outbound") return "";
+  if (message.status === "delivered") return "Delivered";
+  if (["undelivered", "failed"].includes(message.status)) return "Not delivered";
+  if (message.status === "sent") return "Sent";
+  return "Sending";
+}
+
+function renderCommunicationsThreadList() {
+  const container = document.getElementById("communicationsThreadList");
+  if (!container) return;
+  if (communicationsState.loading && !communicationsState.threads.length) {
+    container.innerHTML = `<p class="communications-empty-copy">Loading conversations…</p>`;
+    return;
+  }
+  if (!communicationsState.threads.length) {
+    container.innerHTML = `<p class="communications-empty-copy">No text conversations yet. Start one with a phone number above.</p>`;
+    return;
+  }
+  container.innerHTML = communicationsState.threads.map((thread) => `
+    <button class="communications-thread ${thread.id === communicationsState.selectedThreadId ? "is-active" : ""}" data-communications-thread="${escapeAttribute(thread.id)}" type="button">
+      <span class="communications-thread-avatar">${escapeHtml(communicationThreadName(thread).charAt(0).toUpperCase() || "#")}</span>
+      <span class="communications-thread-copy">
+        <strong>${escapeHtml(communicationThreadName(thread))}</strong>
+        <small>${thread.direction === "outbound" ? "You: " : ""}${escapeHtml(thread.preview || "Message")}</small>
+      </span>
+      <span class="communications-thread-meta">
+        <time>${escapeHtml(formatShortDateTime(thread.lastMessageAt))}</time>
+        ${thread.unreadCount ? `<b>${Math.min(99, Number(thread.unreadCount))}</b>` : ""}
+      </span>
+    </button>
+  `).join("");
+  container.querySelectorAll("[data-communications-thread]").forEach((button) => {
+    button.addEventListener("click", () => selectCommunicationThread(button.dataset.communicationsThread));
+  });
+}
+
+function selectedCommunicationThread() {
+  return communicationsState.threads.find((thread) => thread.id === communicationsState.selectedThreadId) || null;
+}
+
+function renderCommunicationConversation() {
+  const container = document.getElementById("communicationsConversation");
+  if (!container) return;
+  const thread = selectedCommunicationThread();
+  const phone = thread?.phone || communicationsState.draftPhone;
+  if (!phone) {
+    container.innerHTML = `
+      <div class="communications-conversation-empty">
+        <span aria-hidden="true">💬</span>
+        <h3>Select a conversation</h3>
+        <p>Choose an existing conversation or enter a phone number to start a new text.</p>
+      </div>
+    `;
+    return;
+  }
+  const name = thread ? communicationThreadName(thread) : formatCommunicationsPhone(phone);
+  container.innerHTML = `
+    <header class="communications-conversation-header">
+      <div>
+        <h3>${escapeHtml(name)}</h3>
+        <p>${escapeHtml(formatCommunicationsPhone(phone))}</p>
+      </div>
+      <button class="communications-call-contact" id="communicationsCallContact" type="button" aria-label="Call ${escapeAttribute(name)}">
+        <span aria-hidden="true">☎</span> Call
+      </button>
+    </header>
+    <div class="communications-message-list" id="communicationsMessageList" aria-live="polite">
+      ${communicationsState.messages.length ? communicationsState.messages.map((message) => `
+        <article class="communications-message is-${escapeAttribute(message.direction)}">
+          <div>
+            ${message.body ? `<p>${escapeHtml(message.body).replaceAll("\n", "<br />")}</p>` : ""}
+            ${message.mediaCount ? `<small class="communications-attachment-note">${message.mediaCount} attachment${message.mediaCount === 1 ? "" : "s"} received</small>` : ""}
+          </div>
+          <footer>
+            <time>${escapeHtml(formatShortTime(message.messageAt))}</time>
+            ${communicationStatusLabel(message) ? `<span class="${["undelivered", "failed"].includes(message.status) ? "is-error" : ""}">${escapeHtml(communicationStatusLabel(message))}</span>` : ""}
+          </footer>
+        </article>
+      `).join("") : `<p class="communications-empty-copy">No messages in this conversation yet.</p>`}
+    </div>
+    <form class="communications-composer" id="communicationsComposer">
+      <label class="sr-only" for="communicationsMessageBody">Message</label>
+      <textarea id="communicationsMessageBody" rows="2" maxlength="1600" placeholder="Write a text message…">${escapeHtml(communicationsState.draftBody)}</textarea>
+      <button id="communicationsSendButton" type="submit">Send</button>
+      <small id="communicationsComposerStatus" aria-live="polite">Texts are sent separately from member notifications and automations.</small>
+    </form>
+  `;
+  const messageList = document.getElementById("communicationsMessageList");
+  if (messageList) messageList.scrollTop = messageList.scrollHeight;
+  const messageBody = document.getElementById("communicationsMessageBody");
+  messageBody?.addEventListener("input", () => {
+    communicationsState.draftBody = messageBody.value;
+  });
+  document.getElementById("communicationsComposer")?.addEventListener("submit", sendCommunicationMessage);
+  document.getElementById("communicationsCallContact")?.addEventListener("click", () => {
+    communicationsState.callPhone = phone;
+    communicationsState.activeTab = "call";
+    renderCommunicationsPage();
+  });
+}
+
+async function selectCommunicationThread(threadId) {
+  const thread = communicationsState.threads.find((item) => item.id === threadId);
+  if (!thread) return;
+  communicationsState.selectedThreadId = thread.id;
+  communicationsState.draftPhone = thread.phone;
+  communicationsState.messages = [];
+  renderCommunicationsThreadList();
+  renderCommunicationConversation();
+  await loadCommunicationMessages(thread.id, true);
+}
+
+async function loadCommunicationMessages(threadId, markRead = false) {
+  if (!threadId) return;
+  const body = await communicationsRequest(`?threadId=${encodeURIComponent(threadId)}`);
+  if (communicationsState.selectedThreadId !== threadId) return;
+  communicationsState.messages = Array.isArray(body.messages) ? body.messages : [];
+  renderCommunicationConversation();
+  if (markRead) {
+    const thread = selectedCommunicationThread();
+    if (thread?.unreadCount) {
+      thread.unreadCount = 0;
+      updateCommunicationsBadge();
+      renderCommunicationsThreadList();
+      communicationsRequest("", {
+        method: "PATCH",
+        body: JSON.stringify({ action: "mark_read", threadId })
+      }).catch(() => {});
+    }
+  }
+}
+
+async function refreshCommunicationThreads({ initial = false } = {}) {
+  try {
+    communicationsState.loading = true;
+    if (initial) renderCommunicationsThreadList();
+    const body = await communicationsRequest();
+    communicationsState.threads = Array.isArray(body.threads) ? body.threads : [];
+    if (communicationsState.selectedThreadId && !communicationsState.threads.some((thread) => thread.id === communicationsState.selectedThreadId)) {
+      communicationsState.selectedThreadId = "";
+      communicationsState.messages = [];
+    }
+    updateCommunicationsBadge();
+    renderCommunicationsThreadList();
+    if (communicationsState.selectedThreadId) {
+      await loadCommunicationMessages(communicationsState.selectedThreadId, true);
+    }
+  } catch (error) {
+    if (appState.currentRoute === "communications") {
+      const status = document.getElementById("communicationsPageStatus");
+      if (status) {
+        status.textContent = error.message || "Could not load conversations.";
+        status.classList.add("is-error");
+      }
+    }
+  } finally {
+    communicationsState.loading = false;
+  }
+}
+
+function beginCommunicationConversation() {
+  const input = document.getElementById("communicationsNewPhone");
+  const phone = normalizeCommunicationsPhone(input?.value);
+  const status = document.getElementById("communicationsPageStatus");
+  if (!phone) {
+    if (status) {
+      status.textContent = "Enter a valid phone number.";
+      status.classList.add("is-error");
+    }
+    input?.focus();
+    return;
+  }
+  const existing = communicationsState.threads.find((thread) => thread.phone === phone);
+  if (existing) {
+    selectCommunicationThread(existing.id);
+    return;
+  }
+  communicationsState.selectedThreadId = "";
+  communicationsState.draftPhone = phone;
+  communicationsState.messages = [];
+  communicationsState.draftBody = "";
+  renderCommunicationsThreadList();
+  renderCommunicationConversation();
+  document.getElementById("communicationsMessageBody")?.focus();
+}
+
+async function sendCommunicationMessage(event) {
+  event.preventDefault();
+  const thread = selectedCommunicationThread();
+  const phone = thread?.phone || communicationsState.draftPhone;
+  const input = document.getElementById("communicationsMessageBody");
+  const button = document.getElementById("communicationsSendButton");
+  const status = document.getElementById("communicationsComposerStatus");
+  const message = String(input?.value || communicationsState.draftBody || "").trim();
+  if (!phone || !message || !button) return;
+  button.disabled = true;
+  button.textContent = "Sending…";
+  if (status) {
+    status.textContent = "Sending from (541) 652-6065…";
+    status.classList.remove("is-error");
+  }
+  try {
+    const result = await communicationsRequest("", {
+      method: "POST",
+      body: JSON.stringify({ action: "send_sms", to: phone, body: message })
+    });
+    communicationsState.draftBody = "";
+    if (input) input.value = "";
+    const threadId = result.message?.thread_id || result.message?.threadId || communicationsState.selectedThreadId;
+    await refreshCommunicationThreads();
+    if (threadId) await selectCommunicationThread(threadId);
+  } catch (error) {
+    if (status) {
+      status.textContent = error.message || "Could not send this text.";
+      status.classList.add("is-error");
+    }
+  } finally {
+    button.disabled = false;
+    button.textContent = "Send";
+  }
+}
+
+function startCommunicationsPolling() {
+  stopCommunicationsPolling();
+  communicationsPollTimer = window.setInterval(() => {
+    if (appState.currentRoute === "communications" && communicationsState.activeTab === "messages") {
+      refreshCommunicationThreads();
+    }
+  }, 8000);
+}
+
+function stopCommunicationsPolling() {
+  if (communicationsPollTimer) window.clearInterval(communicationsPollTimer);
+  communicationsPollTimer = null;
+}
+
+function callDurationLabel() {
+  if (!communicationsState.callStartedAt) return "";
+  const totalSeconds = Math.max(0, Math.floor((Date.now() - communicationsState.callStartedAt.getTime()) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  return `${minutes}:${String(totalSeconds % 60).padStart(2, "0")}`;
+}
+
+function updateCommunicationsCallUi() {
+  const status = document.getElementById("communicationsCallStatus");
+  const duration = document.getElementById("communicationsCallDuration");
+  const callButton = document.getElementById("communicationsCallButton");
+  const endButton = document.getElementById("communicationsEndCallButton");
+  const muteButton = document.getElementById("communicationsMuteButton");
+  if (status) status.textContent = communicationsState.callStatus;
+  if (duration) duration.textContent = callDurationLabel();
+  if (callButton) {
+    callButton.disabled = communicationsState.callBusy || Boolean(communicationsActiveCall);
+    callButton.textContent = communicationsState.callBusy ? "Preparing…" : "Call";
+  }
+  if (endButton) endButton.hidden = !communicationsActiveCall;
+  if (muteButton) {
+    muteButton.hidden = !communicationsActiveCall;
+    muteButton.textContent = communicationsState.callMuted ? "Unmute" : "Mute";
+    muteButton.classList.toggle("is-active", communicationsState.callMuted);
+  }
+}
+
+function clearCommunicationsCallTimer() {
+  if (communicationsCallTimer) window.clearInterval(communicationsCallTimer);
+  communicationsCallTimer = null;
+}
+
+function completeCommunicationCall(status = "Call ended") {
+  communicationsActiveCall = null;
+  communicationsState.callBusy = false;
+  communicationsState.callMuted = false;
+  communicationsState.callStatus = status;
+  communicationsState.callStartedAt = null;
+  clearCommunicationsCallTimer();
+  updateCommunicationsCallUi();
+}
+
+async function fetchCommunicationsVoiceToken() {
+  const response = await fetch("/api/communications-voice-token", {
+    headers: communicationsAuthHeaders()
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.token) {
+    throw createHttpError(body.error || "Could not prepare the call.", response.status);
+  }
+  return body.token;
+}
+
+async function startOutboundCommunicationCall() {
+  const input = document.getElementById("communicationsCallPhone");
+  const phone = normalizeCommunicationsPhone(input?.value || communicationsState.callPhone);
+  if (!phone) {
+    communicationsState.callStatus = "Enter a valid phone number.";
+    updateCommunicationsCallUi();
+    input?.focus();
+    return;
+  }
+  if (!window.Twilio?.Device) {
+    communicationsState.callStatus = "The calling component did not load. Refresh the app and try again.";
+    updateCommunicationsCallUi();
+    return;
+  }
+  communicationsState.callPhone = phone;
+  communicationsState.callBusy = true;
+  communicationsState.callStatus = "Requesting microphone access…";
+  updateCommunicationsCallUi();
+  try {
+    const token = await fetchCommunicationsVoiceToken();
+    if (communicationsVoiceDevice) {
+      communicationsVoiceDevice.destroy();
+    }
+    communicationsVoiceDevice = new window.Twilio.Device(token, {
+      closeProtection: true,
+      logLevel: 1
+    });
+    communicationsVoiceDevice.on("error", (error) => {
+      if (!communicationsActiveCall) {
+        communicationsState.callStatus = error?.message || "The calling service reported an error.";
+        communicationsState.callBusy = false;
+        updateCommunicationsCallUi();
+      }
+    });
+    const call = await communicationsVoiceDevice.connect({ params: { To: phone } });
+    communicationsActiveCall = call;
+    communicationsState.callBusy = false;
+    communicationsState.callStatus = `Calling ${formatCommunicationsPhone(phone)}…`;
+    call.on("accept", () => {
+      communicationsState.callStatus = `Connected to ${formatCommunicationsPhone(phone)}`;
+      communicationsState.callStartedAt = new Date();
+      clearCommunicationsCallTimer();
+      communicationsCallTimer = window.setInterval(updateCommunicationsCallUi, 1000);
+      updateCommunicationsCallUi();
+    });
+    call.on("disconnect", () => completeCommunicationCall("Call ended"));
+    call.on("cancel", () => completeCommunicationCall("Call canceled"));
+    call.on("reject", () => completeCommunicationCall("Call was declined"));
+    call.on("error", (error) => completeCommunicationCall(error?.message || "Call failed"));
+    updateCommunicationsCallUi();
+  } catch (error) {
+    communicationsState.callBusy = false;
+    communicationsState.callStatus = error.message || "Could not start the call.";
+    updateCommunicationsCallUi();
+  }
+}
+
+function endOutboundCommunicationCall() {
+  if (!communicationsActiveCall) return;
+  communicationsState.callStatus = "Ending call…";
+  updateCommunicationsCallUi();
+  communicationsActiveCall.disconnect();
+}
+
+function toggleOutboundCommunicationMute() {
+  if (!communicationsActiveCall) return;
+  communicationsState.callMuted = !communicationsState.callMuted;
+  communicationsActiveCall.mute(communicationsState.callMuted);
+  updateCommunicationsCallUi();
+}
+
+function renderCommunicationsCallPanel() {
+  return `
+    <section class="communications-call-panel">
+      <div class="communications-call-card">
+        <span class="communications-phone-icon" aria-hidden="true">☎</span>
+        <p class="page-kicker">Outbound calling</p>
+        <h2>Call from RORC</h2>
+        <p class="communications-call-number">Caller ID: (541) 652-6065</p>
+        <label for="communicationsCallPhone">Phone number</label>
+        <input id="communicationsCallPhone" type="tel" inputmode="tel" list="communicationsContacts" value="${escapeAttribute(formatCommunicationsPhone(communicationsState.callPhone))}" placeholder="(541) 555-0123" autocomplete="off" />
+        <p class="communications-call-status" id="communicationsCallStatus" aria-live="polite">${escapeHtml(communicationsState.callStatus)}</p>
+        <strong class="communications-call-duration" id="communicationsCallDuration">${escapeHtml(callDurationLabel())}</strong>
+        <div class="communications-call-actions">
+          <button id="communicationsCallButton" class="communications-primary-action" type="button">Call</button>
+          <button id="communicationsMuteButton" class="communications-secondary-action" type="button" ${communicationsActiveCall ? "" : "hidden"}>Mute</button>
+          <button id="communicationsEndCallButton" class="communications-end-action" type="button" ${communicationsActiveCall ? "" : "hidden"}>End call</button>
+        </div>
+      </div>
+      <aside class="communications-safety-card">
+        <strong>Incoming calls stay unchanged</strong>
+        <p>The AI receptionist will continue answering every incoming call. This dialer is outbound-only and uses a separate Twilio Voice application.</p>
+      </aside>
+    </section>
+  `;
+}
+
+async function renderCommunicationsPage() {
+  if (!view) return;
+  const messagesActive = communicationsState.activeTab === "messages";
+  view.innerHTML = `
+    <section class="communications-shell">
+      <header class="communications-header">
+        <div>
+          <p class="page-kicker">Staff communications</p>
+          <h2>Calls &amp; Messages</h2>
+          <p>One-to-one texts and outgoing calls from the RORC number, separate from notifications and automations.</p>
+        </div>
+        <div class="communications-tabs" role="tablist" aria-label="Communications tools">
+          <button class="${messagesActive ? "is-active" : ""}" data-communications-tab="messages" type="button" role="tab" aria-selected="${messagesActive}">Messages</button>
+          <button class="${!messagesActive ? "is-active" : ""}" data-communications-tab="call" type="button" role="tab" aria-selected="${!messagesActive}">Call</button>
+        </div>
+      </header>
+      <datalist id="communicationsContacts">${communicationsContactOptions()}</datalist>
+      <p class="communications-page-status" id="communicationsPageStatus" aria-live="polite"></p>
+      ${messagesActive ? `
+        <div class="communications-new-row">
+          <label for="communicationsNewPhone">Start a conversation</label>
+          <div>
+            <input id="communicationsNewPhone" type="tel" inputmode="tel" list="communicationsContacts" value="${escapeAttribute(formatCommunicationsPhone(communicationsState.draftPhone))}" placeholder="Phone number or member" autocomplete="off" />
+            <button id="communicationsNewButton" type="button">Open</button>
+          </div>
+        </div>
+        <div class="communications-grid">
+          <aside class="communications-thread-list" id="communicationsThreadList" aria-label="Text conversations"></aside>
+          <section class="communications-conversation" id="communicationsConversation" aria-label="Selected conversation"></section>
+        </div>
+      ` : renderCommunicationsCallPanel()}
+    </section>
+  `;
+  document.querySelectorAll("[data-communications-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      communicationsState.activeTab = button.dataset.communicationsTab === "call" ? "call" : "messages";
+      renderCommunicationsPage();
+    });
+  });
+  if (messagesActive) {
+    document.getElementById("communicationsNewButton")?.addEventListener("click", beginCommunicationConversation);
+    document.getElementById("communicationsNewPhone")?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") beginCommunicationConversation();
+    });
+    renderCommunicationsThreadList();
+    renderCommunicationConversation();
+    startCommunicationsPolling();
+    await refreshCommunicationThreads({ initial: true });
+  } else {
+    stopCommunicationsPolling();
+    document.getElementById("communicationsCallPhone")?.addEventListener("input", (event) => {
+      communicationsState.callPhone = event.target.value;
+    });
+    document.getElementById("communicationsCallPhone")?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") startOutboundCommunicationCall();
+    });
+    document.getElementById("communicationsCallButton")?.addEventListener("click", startOutboundCommunicationCall);
+    document.getElementById("communicationsEndCallButton")?.addEventListener("click", endOutboundCommunicationCall);
+    document.getElementById("communicationsMuteButton")?.addEventListener("click", toggleOutboundCommunicationMute);
+    updateCommunicationsCallUi();
   }
 }
 
@@ -5687,6 +6222,12 @@ function clearLiveData() {
   gymLightsModeLoading = false;
   supportsMinorMemberFields = false;
   hasOwnedCalendarEvents = false;
+  communicationsState.threads = [];
+  communicationsState.messages = [];
+  communicationsState.selectedThreadId = "";
+  communicationsState.draftPhone = "";
+  communicationsState.draftBody = "";
+  updateCommunicationsBadge();
 }
 
 function initialForSession(session) {
@@ -16904,6 +17445,12 @@ async function handleLogout() {
   stopTimesheetRealtime();
   stopAccountTypeRealtime();
   stopHeaterEntriesRealtime();
+  stopCommunicationsPolling();
+  clearCommunicationsCallTimer();
+  if (communicationsActiveCall) communicationsActiveCall.disconnect();
+  communicationsActiveCall = null;
+  if (communicationsVoiceDevice) communicationsVoiceDevice.destroy();
+  communicationsVoiceDevice = null;
   try {
     sessionStorage.removeItem(APP_REFRESH_ROUTE_KEY);
   } catch {}
@@ -16963,6 +17510,10 @@ function render(routeName) {
 
   if (resolvedRouteName === "otherUsers" && !hasOtherUsersOnCurrentAccount()) {
     resolvedRouteName = "myAccount";
+  }
+
+  if (resolvedRouteName !== "communications") {
+    stopCommunicationsPolling();
   }
 
   const route = routes[resolvedRouteName] || routes.currentlySignedIn;
