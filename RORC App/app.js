@@ -5,6 +5,7 @@ const navControl = document.getElementById("navControl");
 const navItems = [...document.querySelectorAll(".nav-item")];
 const appDrawer = document.getElementById("appDrawer");
 const drawerOverlay = document.getElementById("drawerOverlay");
+const drawerNav = document.getElementById("drawerNav");
 const drawerItems = [...document.querySelectorAll(".drawer-item")];
 const authGate = document.getElementById("authGate");
 const appLoginEmail = document.getElementById("appLoginEmail");
@@ -17,6 +18,50 @@ const appLogoutButton = document.getElementById("appLogoutButton");
 const drawerAvatar = document.getElementById("drawerAvatar");
 const drawerUserEmail = document.getElementById("drawerUserEmail");
 const supabaseSettings = window.RORC_SUPABASE_CONFIG || {};
+const NAVIGATION_ICON_MARKUP = Object.freeze({
+  accountInfo: `<rect x="3" y="4" width="18" height="16" rx="3"></rect><circle cx="9" cy="10" r="2.5"></circle><path d="M5.5 16c.8-2 2-3 3.5-3s2.7 1 3.5 3"></path><path d="M15 9h3"></path><path d="M15 13h3"></path>`,
+  myAccount: `<circle cx="12" cy="8" r="3.5"></circle><path d="M5 20c.8-4 3.1-6 7-6s6.2 2 7 6"></path>`,
+  notifications: `<path d="M18 8a6 6 0 1 0-12 0c0 6-3 8-3 8h18s-3-2-3-8"></path><path d="M14 20a2.3 2.3 0 0 1-4 0"></path>`,
+  otherUsers: `<circle cx="9" cy="8" r="3"></circle><path d="M3.5 20c.5-3.5 2.3-5.5 5.5-5.5s5 2 5.5 5.5"></path><circle cx="17" cy="9" r="2.2"></circle><path d="M15.5 15c3.2-.7 5.1 1 5.5 4"></path>`,
+  feedback: `<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"></path><path d="M8 9h8"></path><path d="M8 13h5"></path>`,
+  message: `<path d="M4 6h9"></path><path d="M17 6h3"></path><circle cx="15" cy="6" r="2"></circle><path d="M4 12h3"></path><path d="M11 12h9"></path><circle cx="9" cy="12" r="2"></circle><path d="M4 18h7"></path><path d="M15 18h5"></path><circle cx="13" cy="18" r="2"></circle>`,
+  receptionistAnalytics: `<path d="M4 13v-1a8 8 0 0 1 16 0v1"></path><path d="M4 13h3v6H6a2 2 0 0 1-2-2Z"></path><path d="M20 13h-3v6h1a2 2 0 0 0 2-2Z"></path><path d="M17 19c-.8 1.3-1.8 2-3.5 2H12"></path>`,
+  communications: `<path d="M8.5 4H5a2 2 0 0 0-2 2c0 8.3 6.7 15 15 15a2 2 0 0 0 2-2v-3.5l-4-1-1.2 2.4a13 13 0 0 1-7.7-7.7L9.5 8Z"></path><path d="M14 3h7v7"></path><path d="m21 3-6 6"></path>`,
+  notificationsEmail: `<path d="M3 11v2a2 2 0 0 0 2 2h2l11 5V4L7 9H5a2 2 0 0 0-2 2Z"></path><path d="m8 15 1 5h3"></path><path d="M21 9v6"></path>`,
+  contracts: `<rect x="5" y="4" width="14" height="17" rx="2"></rect><path d="M9 4.5V3h6v1.5"></path><path d="m9 13 2 2 4-5"></path><path d="M9 18h6"></path>`,
+  rentalReviews: `<rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M8 3v4"></path><path d="M16 3v4"></path><path d="M3 10h18"></path><path d="m9 16 2 2 4-5"></path>`,
+  rentalAccounts: `<rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="8" cy="11" r="2.5"></circle><path d="M5 16c.5-1.8 1.5-2.7 3-2.7s2.5.9 3 2.7"></path><path d="M14 10h4"></path><path d="M14 14h4"></path>`,
+  advertisementBanners: `<rect x="3" y="4" width="18" height="16" rx="2"></rect><circle cx="8" cy="9" r="2"></circle><path d="m3 17 5-5 3.5 3.5L14 13l7 7"></path>`,
+  calendar: `<rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M8 3v4"></path><path d="M16 3v4"></path><path d="M3 10h18"></path><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path>`,
+  myEvents: `<rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M8 3v4"></path><path d="M16 3v4"></path><path d="M3 10h18"></path><path d="m8 16 2 2 5-5"></path>`,
+  masterLogs: `<path d="M4 19V10"></path><path d="M10 19V5"></path><path d="M16 19v-7"></path><path d="M22 19V8"></path><path d="M2 21h22"></path>`,
+  billingPrices: `<path d="M20.5 13.5 13.5 20.5a2 2 0 0 1-2.8 0L3.5 13.3V4h9.3l7.7 6.7a2 2 0 0 1 0 2.8Z"></path><circle cx="8" cy="8.5" r="1.5"></circle><path d="M13 10v6"></path><path d="M15 11h-3a1.5 1.5 0 0 0 0 3h2a1.5 1.5 0 0 1 0 3h-3"></path>`,
+  about: `<circle cx="12" cy="12" r="9"></circle><path d="M12 11v6"></path><path d="M12 7h.01"></path>`,
+  share: `<circle cx="18" cy="5" r="2.5"></circle><circle cx="6" cy="12" r="2.5"></circle><circle cx="18" cy="19" r="2.5"></circle><path d="m8.2 10.8 7.5-4.5"></path><path d="m8.2 13.2 7.5 4.5"></path>`,
+  memberSignIn: `<circle cx="9" cy="8" r="3.5"></circle><path d="M3 20c.7-3.7 2.7-5.7 6-5.7 1.7 0 3 .5 4 1.4"></path><path d="m15 18 2 2 4-5"></path>`,
+  guestSignIn: `<circle cx="9" cy="8" r="3.5"></circle><path d="M3 20c.7-3.7 2.7-5.7 6-5.7 1.8 0 3.2.6 4.2 1.6"></path><path d="M18 14v6"></path><path d="M21 17h-6"></path>`,
+  currentlySignedIn: `<circle cx="8" cy="8" r="3"></circle><path d="M2.5 20c.5-3.6 2.3-5.5 5.5-5.5s5 1.9 5.5 5.5"></path><circle cx="17" cy="9" r="2.5"></circle><path d="M14.5 15c3.7-.9 6.5 1 7 5"></path>`,
+  access: `<path d="M5 21V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v17"></path><path d="M3 21h18"></path><circle cx="15" cy="12" r="1"></circle><path d="M8 6h7"></path>`,
+  heaterRecords: `<path d="M14 14.8V5a4 4 0 0 0-8 0v9.8a5 5 0 1 0 8 0Z"></path><path d="M10 8v8"></path><circle cx="10" cy="17" r="1.8"></circle><path d="M17 7h4"></path><path d="M17 11h3"></path>`
+});
+
+function applyNavigationIcons() {
+  [...drawerItems, ...navItems].forEach((item) => {
+    const svg = item.querySelector("svg");
+    const markup = NAVIGATION_ICON_MARKUP[item.dataset.route];
+    if (!svg || !markup) return;
+    svg.innerHTML = markup;
+    svg.classList.remove("flame-icon");
+    svg.classList.add("navigation-icon");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+  });
+}
+
+applyNavigationIcons();
 const STRIPE_FALLBACK_PORTAL = "https://payments.ruthobenchainrc.com/p/login/eVaeWh2tN0vxgSs288";
 const APP_REFRESH_ROUTE_KEY = "rorc-app-refresh-route";
 const APP_INVALID_SESSION_REFRESH_KEY = "rorc-app-invalid-session-refreshing";
@@ -310,7 +355,6 @@ const kioskAllowedRoutes = new Set([
   "notifications",
   "feedback",
   "about",
-  "share",
   "calendar"
 ]);
 
@@ -323,6 +367,46 @@ const rentalAccountAllowedRoutes = new Set([
   "calendar",
   "myEvents"
 ]);
+
+const restrictedAccountAllowedRoutes = new Set([
+  "myAccount",
+  "notifications",
+  "feedback",
+  "about"
+]);
+
+const drawerLayouts = {
+  manager: [
+    { title: "My Account", routes: ["notifications", "myAccount", "otherUsers", "myEvents"] },
+    { title: "People & Accounts", routes: ["accountInfo", "contracts", "rentalAccounts"] },
+    { title: "Communications", routes: ["communications", "notificationsEmail", "receptionistAnalytics"] },
+    // Admin Notes is intentionally hidden from navigation because the standalone task list saw almost no use.
+    // Before building another admin reminder/task feature, review the existing adminNotes route,
+    // /api/admin-notes endpoint, and public.admin_notes table so the same feature is not duplicated.
+    { title: "Facility & Scheduling", routes: ["rentalReviews", "calendar"] },
+    { title: "Reports & Billing", routes: ["masterLogs", "billingPrices"] },
+    { title: "App & Automation", routes: ["message", "advertisementBanners"] },
+    { title: "Help", routes: ["feedback", "about", "share"] }
+  ],
+  member: [
+    { title: "Account", routes: ["notifications", "myAccount", "otherUsers"] },
+    { title: "Schedule", routes: ["calendar", "myEvents"] },
+    { title: "Help", routes: ["feedback", "about", "share"] }
+  ],
+  kiosk: [
+    { title: "Facility Information", routes: ["calendar", "notifications"] },
+    { title: "Help", routes: ["feedback", "about"] }
+  ],
+  rental: [
+    { title: "Account", routes: ["notifications", "myAccount"] },
+    { title: "Rentals", routes: ["calendar", "myEvents"] },
+    { title: "Help", routes: ["feedback", "about", "share"] }
+  ],
+  restricted: [
+    { title: "Account Status", routes: ["notifications", "myAccount"] },
+    { title: "Help", routes: ["feedback", "about"] }
+  ]
+};
 
 let frontDoorSession = buildSession("");
 let appUserSession = buildSession("");
@@ -364,7 +448,7 @@ const routes = {
     afterRender: populateHeaterForm
   },
   accountInfo: {
-    title: "Account Administration",
+    title: "Members & Accounts",
     template: "accountInfoTemplate",
     afterRender: renderAccountInfo
   },
@@ -380,7 +464,7 @@ const routes = {
     afterRender: () => renderAccountDetail(appUserSession.memberId)
   },
   otherUsers: {
-    title: "Other Users On My Account",
+    title: "Account Members",
     template: "otherUsersTemplate",
     afterRender: renderOtherUsers
   },
@@ -404,7 +488,7 @@ const routes = {
     afterRender: renderAutomationSettingsPage
   },
   receptionistAnalytics: {
-    title: "Receptionist",
+    title: "AI Receptionist",
     template: "feedbackTemplate",
     afterRender: renderReceptionistAnalyticsPage
   },
@@ -414,22 +498,22 @@ const routes = {
     afterRender: renderCommunicationsPage
   },
   notifications: {
-    title: "Notifications",
+    title: "My Notifications",
     template: "feedbackTemplate",
     afterRender: renderUserNotificationsPage
   },
   notificationsEmail: {
-    title: "Notifications & Email",
+    title: "Announcements",
     template: "feedbackTemplate",
     afterRender: renderNotificationsPage
   },
   masterLogs: {
-    title: "Master Logs",
+    title: "Reports & Logs",
     template: "feedbackTemplate",
     afterRender: renderMasterLogsPage
   },
   billingPrices: {
-    title: "Billing Prices",
+    title: "Pricing",
     template: "feedbackTemplate",
     afterRender: renderBillingPricesPage
   },
@@ -561,10 +645,6 @@ function canUseRecordAdminTools() {
 
 function isKioskAccount(memberOrSession) {
   return canonicalAccountType(memberOrSession?.accountType) === "Kiosk Account";
-}
-
-function isKioskModeSession(memberOrSession) {
-  return isKioskAccount(memberOrSession) && String(memberOrSession?.memberName || "").trim().toLowerCase() === "rorc";
 }
 
 function isSpecialAccessAccount(memberOrSession) {
@@ -3277,7 +3357,7 @@ function renderMasterLogsPage() {
       <header class="account-page-heading">
         <div>
           <p class="eyebrow">${isBillingTab ? "Admin Billing" : "Admin Logs"}</p>
-          <h2>${isBillingTab ? "Billing Center" : "Master Logs"}</h2>
+          <h2>${isBillingTab ? "Billing Center" : "Reports & Logs"}</h2>
           ${isBillingTab ? "<p>Finalize charges in their source area, then send invoices and record payments here.</p>" : ""}
           ${dataSourceNotice()}
         </div>
@@ -4146,7 +4226,7 @@ function renderBillingPricesPage() {
     <section class="billing-prices-shell">
       <header class="billing-prices-header">
         <span class="eyebrow">Admin Billing</span>
-        <h2>Billing Prices</h2>
+        <h2>Pricing</h2>
         <p>Current app charges and the Stripe products used when invoices are created.</p>
       </header>
       <p class="data-source-note">
@@ -6250,77 +6330,82 @@ function hasOtherUsersOnCurrentAccount() {
   return otherUsersOnCurrentAccount().length > 0;
 }
 
-function updateNavigationVisibility() {
-  const showOtherUsers = hasOtherUsersOnCurrentAccount();
-  const showAccountManagerPages = isAccountManager(appUserSession);
-  const showDoorAccess = canUseDoorAccess(appUserSession);
-  const kioskMode = isKioskModeSession(appUserSession);
-  const rentalMode = isRentalAccount(appUserSession);
-  const alwaysVisibleRoutes = new Set(["notifications", "about", "share", "feedback"]);
-  const bottomNav = document.querySelector(".bottom-nav");
-  if (bottomNav) {
-    bottomNav.hidden = rentalMode;
-  }
-  navItems.forEach((item) => {
-    item.hidden = rentalMode;
-    if (item.dataset.route === "access") {
-      item.hidden = !showDoorAccess;
-    }
+function drawerLayoutKey() {
+  if (isAccountManager(appUserSession)) return "manager";
+  if (isKioskAccount(appUserSession)) return "kiosk";
+  if (isRentalAccount(appUserSession)) return "rental";
+  if (isRestrictedAccount(appUserSession)) return "restricted";
+  return "member";
+}
+
+function renderDrawerSections(layoutKey = drawerLayoutKey()) {
+  if (!drawerNav) return;
+
+  const sections = drawerLayouts[layoutKey] || drawerLayouts.member;
+  const fragment = document.createDocumentFragment();
+  const includedItems = new Set();
+
+  sections.forEach((definition) => {
+    const items = definition.routes
+      .map((routeName) => drawerItems.find((item) => item.dataset.route === routeName))
+      .filter(Boolean);
+    if (!items.length) return;
+
+    const section = document.createElement("section");
+    section.className = "drawer-section";
+    section.dataset.drawerSection = definition.title;
+
+    const title = document.createElement("h2");
+    title.className = "drawer-section-title";
+    title.textContent = definition.title;
+
+    const list = document.createElement("div");
+    list.className = "drawer-section-items";
+    items.forEach((item) => {
+      includedItems.add(item);
+      list.append(item);
+    });
+
+    section.hidden = items.every((item) => item.hidden);
+    section.append(title, list);
+    fragment.append(section);
   });
 
-  drawerItems
-    .filter((item) => item.dataset.route === "otherUsers")
-    .forEach((item) => {
-      item.hidden = kioskMode || !showOtherUsers;
-    });
+  drawerItems.forEach((item) => {
+    if (!includedItems.has(item)) item.hidden = true;
+  });
+  drawerNav.replaceChildren(fragment);
+}
 
-  drawerItems
-    .filter((item) => accountManagerOnlyRoutes.has(item.dataset.route))
-    .forEach((item) => {
-      item.hidden = kioskMode || !showAccountManagerPages;
-    });
-
-  drawerItems
-    .filter((item) => item.dataset.route === "access")
-    .forEach((item) => {
-      item.hidden = !showDoorAccess;
-    });
-
-  drawerItems
-    .filter((item) => item.dataset.route === "calendar")
-    .forEach((item) => {
-      item.hidden = !canViewCalendarRoute(appUserSession);
-    });
-
-  drawerItems
-    .filter((item) => item.dataset.route === "myEvents")
-    .forEach((item) => {
-      item.hidden = !canViewMyEventsRoute(appUserSession);
-    });
-
-  if (kioskMode) {
-    drawerItems.forEach((item) => {
-      const routeName = item.dataset.route;
-      item.hidden = !["feedback", "notifications", "about", "share", "calendar"].includes(routeName)
-        || (routeName === "calendar" && !canViewCalendarRoute(appUserSession));
-    });
+function updateNavigationVisibility() {
+  const showOtherUsers = hasOtherUsersOnCurrentAccount();
+  const showDoorAccess = canUseDoorAccess(appUserSession);
+  const kioskMode = isKioskAccount(appUserSession);
+  const rentalMode = isRentalAccount(appUserSession);
+  const restrictedMode = isRestrictedAccount(appUserSession);
+  const layoutKey = drawerLayoutKey();
+  const allowedDrawerRoutes = new Set((drawerLayouts[layoutKey] || drawerLayouts.member).flatMap((section) => section.routes));
+  const bottomNav = document.querySelector(".bottom-nav");
+  if (bottomNav) {
+    bottomNav.hidden = rentalMode || restrictedMode;
   }
 
-  if (rentalMode) {
-    drawerItems.forEach((item) => {
-      const routeName = item.dataset.route;
-      item.hidden = !rentalAccountAllowedRoutes.has(routeName)
-        || (routeName === "calendar" && !canViewCalendarRoute(appUserSession))
-        || (routeName === "myEvents" && !canViewMyEventsRoute(appUserSession));
-    });
-  }
+  navItems.forEach((item) => {
+    item.hidden = rentalMode || restrictedMode || (item.dataset.route === "access" && !showDoorAccess);
+  });
 
   drawerItems.forEach((item) => {
     const routeName = item.dataset.route;
-    if (alwaysVisibleRoutes.has(routeName)) {
-      item.hidden = false;
-    }
+    let visible = allowedDrawerRoutes.has(routeName);
+    if (routeName === "otherUsers") visible = visible && !kioskMode && showOtherUsers;
+    if (routeName === "calendar") visible = visible && canViewCalendarRoute(appUserSession);
+    if (routeName === "myEvents") visible = visible && canViewMyEventsRoute(appUserSession);
+    item.hidden = !visible;
   });
+
+  const feedbackLabel = drawerItems.find((item) => item.dataset.route === "feedback")?.querySelector("span");
+  if (feedbackLabel) feedbackLabel.textContent = restrictedMode ? "Contact RORC" : "Feedback";
+  renderDrawerSections(layoutKey);
 }
 
 function updateDrawerIdentity() {
@@ -14715,7 +14800,7 @@ function renderAccountInfo() {
     root.innerHTML = `
       <div class="restricted-card">
         <p class="eyebrow">Admin Only</p>
-        <h2>Account Administration is restricted.</h2>
+        <h2>Members & Accounts is restricted.</h2>
         <p>Use My Account to view your own membership information.</p>
       </div>
     `;
@@ -14783,7 +14868,7 @@ function renderOtherUsers() {
     <div class="account-page-heading">
       <div>
         <p class="eyebrow">Shared Account</p>
-        <h2>Other Users On My Account</h2>
+        <h2>Account Members</h2>
         <p>Review the other people attached to ${escapeHtml(account?.accountNumber || "your account")}. These users share the same account number, while each person keeps their own member record.</p>
         ${dataSourceNotice()}
       </div>
@@ -17487,12 +17572,16 @@ function render(routeName) {
 
   let resolvedRouteName = routeName;
 
-  if (isKioskModeSession(appUserSession) && !kioskAllowedRoutes.has(resolvedRouteName)) {
+  if (isKioskAccount(appUserSession) && !kioskAllowedRoutes.has(resolvedRouteName)) {
     resolvedRouteName = "currentlySignedIn";
   }
 
   if (isRentalAccount(appUserSession) && !rentalAccountAllowedRoutes.has(resolvedRouteName)) {
     resolvedRouteName = canViewCalendarRoute(appUserSession) ? "calendar" : "myAccount";
+  }
+
+  if (isRestrictedAccount(appUserSession) && !restrictedAccountAllowedRoutes.has(resolvedRouteName)) {
+    resolvedRouteName = "myAccount";
   }
 
   if (accountManagerOnlyRoutes.has(resolvedRouteName) && !isAccountManager(appUserSession)) {

@@ -503,8 +503,37 @@ select {
 }
 
 .drawer-nav {
+  display: grid;
+  gap: 22px;
   overflow: auto;
   padding: 30px 22px 12px;
+}
+
+.drawer-section {
+  min-width: 0;
+}
+
+.drawer-section + .drawer-section {
+  border-top: 1px solid rgba(174, 180, 189, 0.22);
+  padding-top: 18px;
+}
+
+.drawer-section[hidden],
+.drawer-item[hidden] {
+  display: none;
+}
+
+.drawer-section-title {
+  color: #8f959e;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  margin: 0 8px 6px 64px;
+  text-transform: uppercase;
+}
+
+.drawer-section-items {
+  display: grid;
 }
 
 .drawer-item {
@@ -515,11 +544,13 @@ select {
   color: #d5d8dd;
   cursor: pointer;
   display: grid;
-  gap: 24px;
-  grid-template-columns: 34px 1fr;
-  min-height: 64px;
-  padding: 0 8px;
+  border-radius: 12px;
+  gap: 16px;
+  grid-template-columns: 40px 1fr;
+  min-height: 58px;
+  padding: 0 10px 0 6px;
   text-align: left;
+  transition: background-color 160ms ease, color 160ms ease;
   width: 100%;
 }
 
@@ -528,18 +559,33 @@ select {
 }
 
 .drawer-item.is-active {
-  background: rgba(239, 59, 54, 0.18);
+  background: rgba(239, 59, 54, 0.14);
   color: #fff;
 }
 
 .drawer-item svg {
+  background: rgba(174, 180, 189, 0.1);
+  border-radius: 11px;
+  box-sizing: border-box;
+  color: #aeb4bd;
   fill: none;
-  height: 27px;
-  stroke: #aeb4bd;
+  height: 36px;
+  padding: 7px;
+  stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 2;
-  width: 27px;
+  transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
+  width: 36px;
+}
+
+.drawer-item:hover svg {
+  transform: translateX(1px);
+}
+
+.drawer-item.is-active svg {
+  background: var(--accent);
+  color: #fff;
 }
 
 .drawer-item span {
@@ -560,12 +606,6 @@ select {
   padding: 5px 9px;
   text-transform: uppercase;
   vertical-align: middle;
-}
-
-.drawer-divider {
-  background: #5a5a5a;
-  height: 1px;
-  margin: 10px 0;
 }
 
 .drawer-footer {
@@ -652,20 +692,26 @@ select {
   background: transparent;
   display: inline-flex;
   flex-direction: column;
-  gap: 5px;
+  border-radius: 11px;
+  gap: 4px;
   height: 40px;
   justify-content: center;
   padding: 0;
   position: relative;
-  width: 32px;
+  transition: background-color 160ms ease;
+  width: 40px;
+}
+
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .icon-btn span {
   background: var(--text);
   border-radius: 999px;
   display: block;
-  height: 3px;
-  width: 25px;
+  height: 2px;
+  width: 22px;
 }
 
 .icon-btn.is-back span {
@@ -4834,15 +4880,19 @@ h1 {
   color: var(--muted);
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 4px;
   justify-content: center;
   min-width: 0;
   padding: 10px 8px 12px;
 }
 
 .nav-item svg {
-  height: 28px;
-  width: 28px;
+  border-radius: 999px;
+  box-sizing: border-box;
+  height: 36px;
+  padding: 6px 16px;
+  transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
+  width: 56px;
 }
 
 .nav-item span {
@@ -4856,8 +4906,14 @@ h1 {
 }
 
 .nav-item.is-active {
-  background: var(--accent);
+  background: transparent;
   color: #fff;
+}
+
+.nav-item.is-active svg {
+  background: rgba(239, 59, 54, 0.2);
+  color: #ff6b67;
+  transform: translateY(-1px);
 }
 
 .nav-item:focus-visible,
@@ -5397,9 +5453,12 @@ textarea:focus-visible,
   padding: 0 16px;
 }
 
-.primary-action:active,
-.nav-item.is-active:active {
+.primary-action:active {
   background: var(--accent-pressed);
+}
+
+.nav-item:active svg {
+  background: rgba(239, 59, 54, 0.28);
 }
 
 @media (max-width: 720px) {
@@ -5682,12 +5741,21 @@ textarea:focus-visible,
   }
 
   .drawer-nav {
+    gap: 18px;
     padding: 18px 14px 10px;
   }
 
+  .drawer-section + .drawer-section {
+    padding-top: 14px;
+  }
+
+  .drawer-section-title {
+    margin-left: 54px;
+  }
+
   .drawer-item {
-    gap: 18px;
-    grid-template-columns: 30px 1fr;
+    gap: 12px;
+    grid-template-columns: 36px 1fr;
     min-height: 54px;
   }
 
