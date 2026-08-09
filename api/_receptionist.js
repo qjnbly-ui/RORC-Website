@@ -1,5 +1,5 @@
-const VOICEMAIL_PROMPT = "You can press 0 at any time to leave a voicemail.";
-const DEFAULT_GREETING = `Thanks for calling the Ruth Obenchain Recreation Center. You're speaking with the RORC AI receptionist. ${VOICEMAIL_PROMPT} How can I help you today?`;
+const MESSAGE_PROMPT = "If you need Quentin, I can also take a message for him; just press 0 anytime.";
+const DEFAULT_GREETING = `Thanks for calling the Ruth Obenchain Recreation Center. You're speaking with the RORC AI receptionist. ${MESSAGE_PROMPT} Otherwise, how can I help you today?`;
 
 function escapeXml(value) {
   return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&apos;");
@@ -26,4 +26,4 @@ function buildTwiML({ websocketUrl, actionUrl, greeting = DEFAULT_GREETING, voic
   return `<?xml version="1.0" encoding="UTF-8"?>\n<Response>\n  <Connect action="${escapeXml(actionUrl)}" method="POST">\n    <ConversationRelay url="${escapeXml(websocketUrl)}" welcomeGreeting="${escapeXml(greeting)}" welcomeGreetingInterruptible="dtmf" reportInputDuringAgentSpeech="speech" language="en-US" transcriptionProvider="Deepgram" ttsProvider="ElevenLabs"${voiceAttribute} interruptSensitivity="low" speechTimeout="1200" ignoreBackchannel="true" dtmfDetection="true" />\n  </Connect>\n</Response>`;
 }
 
-module.exports = { DEFAULT_GREETING, VOICEMAIL_PROMPT, buildTwiML, publicHttpUrl, publicWebSocketUrl, toSpeechText };
+module.exports = { DEFAULT_GREETING, MESSAGE_PROMPT, buildTwiML, publicHttpUrl, publicWebSocketUrl, toSpeechText };

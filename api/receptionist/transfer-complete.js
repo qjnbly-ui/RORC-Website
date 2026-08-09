@@ -1,5 +1,4 @@
 const twilio = require("twilio");
-const { appendVoicemailRecording } = require("../_receptionist-voicemail");
 const { sendTwiML, validateTwilioWebhook } = require("../_twilio-webhook");
 
 module.exports = function handler(req, res) {
@@ -11,6 +10,7 @@ module.exports = function handler(req, res) {
     response.hangup();
     return sendTwiML(res, response);
   }
-  appendVoicemailRecording(response, req, "I'm sorry, nobody is available right now.");
+  response.say({ voice: "alice" }, "I'm sorry, nobody is available right now. Please call back during normal facility hours.");
+  response.hangup();
   return sendTwiML(res, response);
 };
