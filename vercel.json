@@ -72,6 +72,14 @@
   ],
   "crons": [
     {
+      "path": "/api/dispatch-thermostat-timers",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/dispatch-facility-automation",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/dispatch-scheduled-member-messages",
       "schedule": "0 * * * *"
     },

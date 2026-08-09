@@ -6486,7 +6486,9 @@ async function triggerHeaterOnSequence(memberIds, options = {}) {
       memberIds: uniqueMemberIds,
       systemType: options.systemType || "heat",
       targetTemperatureF: options.targetTemperatureF || null,
-      silent: Boolean(options.silent)
+      silent: Boolean(options.silent),
+      action: options.action || "start",
+      heaterUseEntryId: options.heaterUseEntryId || null
     })
   });
 
@@ -6494,6 +6496,7 @@ async function triggerHeaterOnSequence(memberIds, options = {}) {
   if (!response.ok || body.success === false) {
     throw new Error(body.error || "Heater-on sequence failed.");
   }
+  return body;
 }
 
 async function fetchThermostatStatus({ force = false } = {}) {
@@ -6536,7 +6539,8 @@ async function triggerHeaterOffSequence(memberIds = [], options = {}) {
       systemType: options.systemType || "heat",
       heaterUseEntryId: options.heaterUseEntryId || null,
       timerTriggered: Boolean(options.timerTriggered),
-      timerMinutes: Number(options.timerMinutes || 0) || null
+      timerMinutes: Number(options.timerMinutes || 0) || null,
+      silent: Boolean(options.silent)
     })
   });
 
@@ -6544,6 +6548,16 @@ async function triggerHeaterOffSequence(memberIds = [], options = {}) {
   if (!response.ok || body.success === false) {
     throw new Error(body.error || "Heater-off sequence failed.");
   }
+  return body;
+}
+
+async function cancelThermostatStart(heaterUseEntryId, systemType) {
+  return triggerHeaterOnSequence([], {
+    action: "cancel",
+    heaterUseEntryId,
+    systemType,
+    silent: true
+  });
 }
 
 async function verifyThermostatRuntimeForRecord({ systemType, startAt, endAt }) {
@@ -14680,6 +14694,27 @@ function thermostatSystemLabel(systemType) {
   return normalizeThermostatSystemType(systemType) === "ac" ? "AC" : "Heat";
 }
 
+function thermostatRuntimeConflictError(systemType, activeSystemType = "") {
+  const requestedLabel = thermostatSystemLabel(systemType);
+  const activeLabel = activeSystemType ? thermostatSystemLabel(activeSystemType) : "Another thermostat";
+  if (activeSystemType && normalizeThermostatSystemType(activeSystemType) === normalizeThermostatSystemType(systemType)) {
+    return new Error(`${requestedLabel} already has an active runtime. Use the existing runtime instead of starting another one.`);
+  }
+  return new Error(`${activeLabel} is already active. Turn it off before starting ${requestedLabel}.`);
+}
+
+function normalizeThermostatInsertError(error, systemType) {
+  const code = String(error?.code || "");
+  const detail = `${error?.message || ""} ${error?.details || ""}`;
+  if (code === "23505" && (
+    detail.includes("idx_heater_use_entries_one_active_thermostat")
+    || detail.includes("idx_heater_use_entries_one_active_per_system")
+  )) {
+    return thermostatRuntimeConflictError(systemType);
+  }
+  return error;
+}
+
 function thermostatTempLabel(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? `${Math.round(numeric)}°F` : "Not set";
@@ -15339,7 +15374,6 @@ function renderSignedInCard(entry) {
 async function signOutTimesheetEntry(entryId) {
   const button = document.querySelector(`[data-sign-out-entry="${CSS.escape(entryId)}"]`);
   const entry = timesheetEntries.find((item) => item.id === entryId);
-  const openCountBefore = openTimesheetCount();
   const signedOutAt = new Date().toISOString();
   const linkedGuestMemberId = entry?.memberOrGuest === "Member" ? entry.memberId : "";
   if (button) {
@@ -15387,19 +15421,6 @@ async function signOutTimesheetEntry(entryId) {
 
     markLocalTimesheetSignedOut(entryId, signedOutAt, linkedGuestMemberId);
     render("currentlySignedIn");
-
-    if (openCountBefore > 0 && openTimesheetCount() === 0) {
-      const member = entry?.memberOrGuest === "Guest"
-        ? findMember(entry.memberEnteredWithId)
-        : findMember(entry?.memberId);
-      const memberName = entry?.memberOrGuest === "Guest"
-        ? (entry.guestName || member?.memberName || "Unknown")
-        : (member?.memberName || "Unknown");
-      const visitDurationMinutes = durationMinutes(entry?.signedInAt, signedOutAt) || 0;
-      triggerGymLightsOffSequence(memberName, visitDurationMinutes).catch((sequenceError) => {
-        console.warn("Gym lights off sequence failed.", sequenceError);
-      });
-    }
   } catch (error) {
     showDetailActionMessage(error.message || "Could not sign out.");
     if (button) {
@@ -15569,70 +15590,25 @@ async function turnHeaterOffActiveEntry(systemType = "", preferredEntryId = "") 
     return;
   }
 
-  const client = await createSupabaseClient();
-
-  if (!client) {
-    showDetailActionMessage("App data is not available.");
-    return;
-  }
-
   const activeSystemType = normalizeThermostatSystemType(activeEntry.systemType);
   const systemLabel = thermostatSystemLabel(activeSystemType);
-  const endAtIso = new Date().toISOString();
   setThermostatActionFeedback("off", activeSystemType, `Turning ${systemLabel} off. This can take a moment.`);
-  render("heaterRecords");
-
-  const { data: strictRows, error } = await client
-    .from("heater_use_entries")
-    .update({
-      end_at: endAtIso,
-      turn_heater_on: "Off"
-    })
-    .eq("id", activeEntry.id)
-    .is("end_at", null)
-    .select("id");
-
-  if (error) {
-    throw error;
-  }
-
-  if (!Array.isArray(strictRows) || strictRows.length === 0) {
-    const { data: fallbackRows, error: fallbackError } = await client
-      .from("heater_use_entries")
-      .update({
-        end_at: endAtIso,
-        turn_heater_on: "Off"
-      })
-      .eq("id", activeEntry.id)
-      .select("id");
-
-    if (fallbackError) throw fallbackError;
-    if (!Array.isArray(fallbackRows) || fallbackRows.length === 0) {
-      clearThermostatActionFeedback();
-      markThermostatSystemOff(activeSystemType);
-      await refreshHeaterResources({ rerender: false });
-      if (appState.currentRoute === "heaterRecords") render("heaterRecords");
-      return;
-    }
-  }
-
-  heaterUseEntries = heaterUseEntries.map((entry) => (
-    entry.id === activeEntry.id ? { ...entry, endAt: endAtIso, turnHeaterOn: "Off" } : entry
-  ));
   render("heaterRecords");
 
   const offRecipients = activeEntry.groupPay
     ? activeEntry.groupMemberIds
     : [activeEntry.responsibleMemberId];
 
-  await triggerHeaterOffSequence(offRecipients, {
+  const result = await triggerHeaterOffSequence(offRecipients, {
     systemType: activeSystemType,
     heaterUseEntryId: activeEntry.id,
     timerTriggered: false
-  }).catch((sequenceError) => {
-    console.warn("Heater off sequence failed.", sequenceError);
   });
 
+  const endAtIso = result?.endAt || new Date().toISOString();
+  heaterUseEntries = heaterUseEntries.map((entry) => (
+    entry.id === activeEntry.id ? { ...entry, endAt: endAtIso, turnHeaterOn: "Off" } : entry
+  ));
   markThermostatSystemOff(activeSystemType);
   await refreshHeaterResources({ rerender: false });
   clearThermostatActionFeedback();
@@ -15644,28 +15620,12 @@ async function turnHeaterOffEntry(entry, { timerTriggered = false } = {}) {
   pendingHeaterAutoOffIds.add(entry.id);
 
   try {
-    const client = await createSupabaseClient();
-    if (!client) return;
-
-    const { error } = await client
-      .from("heater_use_entries")
-      .update({
-        end_at: new Date().toISOString(),
-        turn_heater_on: "Off"
-      })
-      .eq("id", entry.id)
-      .is("end_at", null);
-
-    if (error) throw error;
-
     const offRecipients = entry.groupPay ? entry.groupMemberIds : [entry.responsibleMemberId];
     await triggerHeaterOffSequence(offRecipients, {
       systemType: normalizeThermostatSystemType(entry.systemType),
       heaterUseEntryId: entry.id,
       timerTriggered,
       timerMinutes: timerTriggered ? configuredTimerMinutes(entry) : null
-    }).catch((sequenceError) => {
-      console.warn("Heater off sequence failed.", sequenceError);
     });
 
     markThermostatSystemOff(entry.systemType);
@@ -15692,42 +15652,10 @@ async function changeActiveThermostatTemperature(systemType = "", preferredEntry
   }
 
   if (!activeEntry) {
-    if (!normalizedSystemType) {
-      clearThermostatActionFeedback();
-      await fetchThermostatStatus({ force: true }).catch(() => null);
-      if (appState.currentRoute === "heaterRecords") render("heaterRecords");
-      return;
-    }
-
-    const nextTemp = await openThermostatTemperatureDialog({
-      systemType: normalizedSystemType,
-      targetTemperatureF: thermostatSetPointForSystem(
-        normalizedSystemType,
-        thermostatStatus?.thermostats?.[normalizedSystemType] || null,
-        null
-      )
-    });
-    if (nextTemp === null) return;
-
-    const allowedRange = thermostatTemperatureRange(normalizedSystemType);
-    if (!Number.isFinite(nextTemp) || nextTemp < allowedRange.min || nextTemp > allowedRange.max) {
-      showDetailActionMessage(`Enter a temperature between ${allowedRange.min} and ${allowedRange.max}.`);
-      return;
-    }
-
-    setThermostatActionFeedback("temp", normalizedSystemType, `Updating ${thermostatSystemLabel(normalizedSystemType)} to ${Math.round(nextTemp)}°F.`);
-    render("heaterRecords");
-
-    await triggerHeaterOnSequence([], {
-      systemType: normalizedSystemType,
-      targetTemperatureF: Math.round(nextTemp),
-      silent: true
-    });
-
-    markThermostatSystemOn(normalizedSystemType, nextTemp);
-    await refreshHeaterResources({ rerender: false });
     clearThermostatActionFeedback();
+    await refreshHeaterResources({ rerender: false });
     if (appState.currentRoute === "heaterRecords") render("heaterRecords");
+    showDetailActionMessage("No active thermostat runtime was found. Start a billed runtime before changing the temperature.");
     return;
   }
 
@@ -15741,36 +15669,20 @@ async function changeActiveThermostatTemperature(systemType = "", preferredEntry
     return;
   }
 
-  const client = await createSupabaseClient();
-  if (!client) {
-    showDetailActionMessage("App data is not available.");
-    return;
-  }
-
   setThermostatActionFeedback("temp", activeSystemType, `Updating ${thermostatSystemLabel(activeSystemType)} to ${Math.round(nextTemp)}°F.`);
-  render("heaterRecords");
-
-  const { error } = await client
-    .from("heater_use_entries")
-    .update({ target_temperature_f: Math.round(nextTemp) })
-    .eq("id", activeEntry.id)
-    .is("end_at", null);
-
-  if (error) {
-    throw error;
-  }
-
-  heaterUseEntries = heaterUseEntries.map((entry) => (
-    entry.id === activeEntry.id ? { ...entry, targetTemperatureF: Math.round(nextTemp) } : entry
-  ));
   render("heaterRecords");
 
   await triggerHeaterOnSequence([], {
     systemType: activeSystemType,
     targetTemperatureF: Math.round(nextTemp),
-    silent: true
+    silent: true,
+    action: "temperature",
+    heaterUseEntryId: activeEntry.id
   });
 
+  heaterUseEntries = heaterUseEntries.map((entry) => (
+    entry.id === activeEntry.id ? { ...entry, targetTemperatureF: Math.round(nextTemp) } : entry
+  ));
   markThermostatSystemOn(activeSystemType, nextTemp);
   await refreshHeaterResources({ rerender: false });
   clearThermostatActionFeedback();
@@ -17996,43 +17908,6 @@ function canMemberSignInNow(member, signedInAt) {
   return { allowed: true, reason: "" };
 }
 
-function isEligibleForFirstSignInRule(member, signedInAt, wasNoOneSignedIn) {
-  if (!wasNoOneSignedIn || !member) return false;
-  return canMemberSignInNow(member, signedInAt).allowed;
-}
-
-async function triggerGymLightsOnSequence(memberName) {
-  const payload = { memberName };
-  const response = await fetch("/api/gym-lights-on-sequence", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || "Gym lights on sequence failed.");
-  }
-}
-
-async function triggerGymLightsOffSequence(memberName, visitDurationMinutes) {
-  const payload = { memberName, visitDurationMinutes };
-  const response = await fetch("/api/gym-lights-off-sequence", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || "Gym lights off sequence failed.");
-  }
-}
-
 async function loadGymLightsMode() {
   const token = currentAuthSession?.access_token || "";
   if (!token) return { mode: "full" };
@@ -18104,7 +17979,6 @@ async function saveMemberSignIn() {
 
   const uniqueMemberIds = [...new Set(selectedMemberIds)];
   const signedInAtDate = new Date();
-  const wasNoOneSignedIn = openTimesheetCount() === 0;
   const blockedMembers = uniqueMemberIds
     .map((memberId) => {
       const member = findMember(memberId);
@@ -18120,9 +17994,6 @@ async function saveMemberSignIn() {
     return;
   }
 
-  const firstValidMember = uniqueMemberIds
-    .map((memberId) => findMember(memberId))
-    .find((member) => isEligibleForFirstSignInRule(member, signedInAtDate, wasNoOneSignedIn));
   const alreadySignedIn = uniqueMemberIds.filter((memberId) => (
     timesheetEntries.some((entry) => (
       entry.memberOrGuest === "Member"
@@ -18175,12 +18046,6 @@ async function saveMemberSignIn() {
 
     upsertLocalTimesheetEntries(createdEntries);
     render("currentlySignedIn");
-
-    if (firstValidMember) {
-      triggerGymLightsOnSequence(firstValidMember.memberName).catch((sequenceError) => {
-        console.warn("Gym lights on sequence failed.", sequenceError);
-      });
-    }
   } catch (error) {
     showDetailActionMessage(error.message || "Could not save member sign-in.");
   } finally {
@@ -18249,7 +18114,6 @@ async function saveGuestSignIn() {
 
   try {
     const nowIso = new Date().toISOString();
-    const wasNoOneSignedIn = openTimesheetCount() === 0;
     const sponsorSignedIn = timesheetEntries.some((entry) => (
       entry.memberOrGuest === "Member"
       && entry.memberId === memberEnteredWithId
@@ -18298,12 +18162,6 @@ async function saveGuestSignIn() {
 
     upsertLocalTimesheetEntries(createdEntries);
     render("currentlySignedIn");
-
-    if (wasNoOneSignedIn && !sponsorSignedIn && sponsorMember) {
-      triggerGymLightsOnSequence(sponsorMember.memberName).catch((sequenceError) => {
-        console.warn("Gym lights on sequence failed.", sequenceError);
-      });
-    }
   } catch (error) {
     showDetailActionMessage(error.message || "Could not save guest sign-in.");
   } finally {
@@ -18409,9 +18267,13 @@ async function saveHeaterUse() {
     saveButton.textContent = `Starting ${systemLabel}...`;
   }
 
+  const groupPay = groupPayValue === "Y";
+  const responsibleMemberId = groupPay ? (multiResponsibleMemberIds[0] || null) : singleResponsibleMemberId;
+  let createdEntryId = "";
+  let startRequestSent = false;
+  let startConfirmed = false;
+
   try {
-    const groupPay = groupPayValue === "Y";
-    const responsibleMemberId = groupPay ? (multiResponsibleMemberIds[0] || null) : singleResponsibleMemberId;
     const usedOn = formatDateOnly(new Date());
     const now = new Date();
     const startAtIso = now.toISOString();
@@ -18427,6 +18289,12 @@ async function saveHeaterUse() {
 
     if (!groupPay && responsibleMemberId) {
       await verifyHeaterPin(responsibleMemberId, heaterPin);
+    }
+
+    await refreshHeaterResources({ rerender: false });
+    const existingRuntime = activeHeaterEntry();
+    if (existingRuntime) {
+      throw thermostatRuntimeConflictError(systemType, existingRuntime.systemType);
     }
 
     const { data: createdEntry, error } = await client
@@ -18448,8 +18316,9 @@ async function saveHeaterUse() {
       .single();
 
     if (error) {
-      throw error;
+      throw normalizeThermostatInsertError(error, systemType);
     }
+    createdEntryId = String(createdEntry?.id || "");
 
     if (groupPay && createdEntry?.id) {
       const groupRows = [...new Set(multiResponsibleMemberIds)].map((memberId) => ({
@@ -18493,12 +18362,14 @@ async function saveHeaterUse() {
 
     if (turnHeaterOn === "On") {
       const smsRecipients = groupPay ? multiResponsibleMemberIds : [singleResponsibleMemberId];
+      startRequestSent = true;
       await triggerHeaterOnSequence(smsRecipients, {
         systemType,
-        targetTemperatureF
-      }).catch((sequenceError) => {
-        console.warn("Heater on sequence failed.", sequenceError);
+        targetTemperatureF,
+        action: "start",
+        heaterUseEntryId: createdEntry?.id || null
       });
+      startConfirmed = true;
       markThermostatSystemOn(systemType, targetTemperatureF);
     } else if (turnHeaterOn === "Off") {
       const smsRecipients = groupPay ? multiResponsibleMemberIds : [singleResponsibleMemberId];
@@ -18516,6 +18387,22 @@ async function saveHeaterUse() {
     clearThermostatActionFeedback();
     render("heaterRecords");
   } catch (error) {
+    if (createdEntryId && !startConfirmed) {
+      try {
+        if (startRequestSent) {
+          await triggerHeaterOffSequence([], {
+            systemType,
+            heaterUseEntryId: createdEntryId,
+            silent: true
+          });
+        } else {
+          await cancelThermostatStart(createdEntryId, systemType);
+        }
+      } catch (rollbackError) {
+        console.error("Thermostat start rollback failed.", rollbackError);
+      }
+      await refreshHeaterResources({ rerender: false }).catch(() => null);
+    }
     clearThermostatActionFeedback();
     if (appState.currentRoute === "heaterRecords") render("heaterRecords");
     showDetailActionMessage(error.message || "Could not save heater record.");

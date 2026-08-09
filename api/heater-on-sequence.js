@@ -3,11 +3,15 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "+15416526065";
-const { setEcobeeHvacMode, setEcobeeTemperatureHold } = require("./_ecobee-client");
+const {
+  resumeEcobeeProgram,
+  setEcobeeHvacMode,
+  setEcobeeTemperatureHold
+} = require("./_ecobee-client");
 const ECOBEE_HEATER_THERMOSTAT_ID = process.env.ECOBEE_HEATER_THERMOSTAT_ID || process.env.ECOBEE_THERMOSTAT_ID || "";
 const ECOBEE_AC_THERMOSTAT_ID = process.env.ECOBEE_AC_THERMOSTAT_ID || "";
 
-module.exports = async (req, res) => {
+async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ success: false, error: "Method not allowed" });
   }
@@ -28,15 +32,39 @@ module.exports = async (req, res) => {
       return res.status(404).json({ success: false, error: "Member profile not found." });
     }
 
+    const action = normalizeAction(req.body?.action);
+    const heaterUseEntryId = String(req.body?.heaterUseEntryId || "").trim();
+    if (!heaterUseEntryId) {
+      return res.status(400).json({ success: false, error: "A thermostat runtime record is required." });
+    }
+
+    const entry = await loadHeaterUseEntryMeta(heaterUseEntryId);
+    if (!entry) {
+      return res.status(404).json({ success: false, error: "Thermostat runtime record not found." });
+    }
+    if (!entry.active) {
+      return res.status(409).json({ success: false, error: "Thermostat runtime is no longer active." });
+    }
+    if (!await canControlThermostatRuntime(sender, entry)) {
+      return res.status(403).json({ success: false, error: "You cannot control this thermostat runtime." });
+    }
+
+    const requestedSystemType = normalizeSystemType(req.body?.systemType);
+    if (requestedSystemType !== entry.systemType) {
+      return res.status(409).json({ success: false, error: "Thermostat runtime does not match the requested system." });
+    }
+
+    if (action === "cancel") {
+      await closeHeaterUseEntry(entry.id, entry.startAt || new Date().toISOString());
+      return res.status(200).json({ success: true, canceled: true, heaterUseEntryId: entry.id });
+    }
+
     const settings = await getAutomationConfig("heater_on");
-    const systemType = normalizeSystemType(req.body?.systemType);
+    const systemType = entry.systemType;
     const systemAccess = await getAutomationConfig("thermostat_system_access");
     const targetTemperatureF = Number(req.body?.targetTemperatureF || 0) || null;
     const silent = Boolean(req.body?.silent);
 
-    if (!silent && settings.enabled === false) {
-      return res.status(200).json({ success: true, skipped: true });
-    }
     if (systemType === "ac" && systemAccess.ac_enabled === false) {
       return res.status(403).json({ success: false, error: "AC is currently disabled by admin settings." });
     }
@@ -44,10 +72,22 @@ module.exports = async (req, res) => {
       return res.status(403).json({ success: false, error: "Heat is currently disabled by admin settings." });
     }
 
-    await turnThermostatOn({ systemType, targetTemperatureF });
+    validateTargetTemperature(systemType, targetTemperatureF);
 
-    if (silent) {
-      return res.status(200).json({ success: true, sentCount: 0, silent: true });
+    if (action === "temperature") {
+      await changeThermostatTemperature({ entry, targetTemperatureF });
+    } else {
+      await startThermostatRuntime({ entry, targetTemperatureF });
+    }
+
+    if (silent || settings.enabled === false) {
+      return res.status(200).json({
+        success: true,
+        sentCount: 0,
+        silent: true,
+        heaterUseEntryId: entry.id,
+        targetTemperatureF
+      });
     }
 
     const requestedIds = Array.isArray(req.body?.memberIds)
@@ -92,12 +132,58 @@ module.exports = async (req, res) => {
     return res.status(200).json({
       success: true,
       sentCount,
-      warnings: errors
+      warnings: errors,
+      heaterUseEntryId: entry.id,
+      targetTemperatureF
     });
   } catch (error) {
     return res.status(500).json({ success: false, error: error.message || "Server error" });
   }
-};
+}
+
+async function startThermostatRuntime({ entry, targetTemperatureF }) {
+  try {
+    await turnThermostatOn({ systemType: entry.systemType, targetTemperatureF });
+  } catch (startError) {
+    try {
+      await turnThermostatOff(entry.systemType);
+      await closeHeaterUseEntry(entry.id, entry.startAt || new Date().toISOString());
+    } catch (rollbackError) {
+      const combined = new Error(
+        `${startError.message || "Ecobee start failed."} `
+        + `Automatic shutdown could not be confirmed: ${rollbackError.message || "rollback failed"}`
+      );
+      combined.cause = startError;
+      throw combined;
+    }
+    throw startError;
+  }
+}
+
+async function changeThermostatTemperature({ entry, targetTemperatureF }) {
+  await turnThermostatOn({ systemType: entry.systemType, targetTemperatureF });
+
+  try {
+    await updateHeaterUseEntryTemperature(entry.id, targetTemperatureF);
+  } catch (updateError) {
+    if (entry.targetTemperatureF) {
+      try {
+        await turnThermostatOn({
+          systemType: entry.systemType,
+          targetTemperatureF: entry.targetTemperatureF
+        });
+      } catch (rollbackError) {
+        const combined = new Error(
+          `${updateError.message || "Could not save the new thermostat temperature."} `
+          + `The prior Ecobee setting could not be restored: ${rollbackError.message || "rollback failed"}`
+        );
+        combined.cause = updateError;
+        throw combined;
+      }
+    }
+    throw updateError;
+  }
+}
 
 function bearerToken(req) {
   const header = req.headers.authorization || req.headers.Authorization || "";
@@ -121,8 +207,85 @@ async function getSupabaseUser(token) {
 }
 
 async function getAccountMemberByAuthUserId(authUserId) {
-  const rows = await supabaseRest(`account_members?select=id&auth_user_id=eq.${encodeURIComponent(authUserId)}&limit=1`);
+  const rows = await supabaseRest(
+    `account_members?select=id,account_type&auth_user_id=eq.${encodeURIComponent(authUserId)}&limit=1`
+  );
   return rows[0] || null;
+}
+
+async function loadHeaterUseEntryMeta(heaterUseEntryId) {
+  const rows = await supabaseRest(
+    `heater_use_entries?select=id,system_type,responsible_member_id,group_pay,target_temperature_f,turn_heater_on,start_at,end_at&id=eq.${encodeURIComponent(heaterUseEntryId)}&limit=1`
+  );
+  const row = rows[0] || null;
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    systemType: normalizeSystemType(row.system_type),
+    responsibleMemberId: row.responsible_member_id || "",
+    groupPay: Boolean(row.group_pay),
+    targetTemperatureF: Number(row.target_temperature_f || 0) || null,
+    startAt: row.start_at || null,
+    active: !row.end_at && String(row.turn_heater_on || "On").trim().toLowerCase() === "on"
+  };
+}
+
+async function canControlThermostatRuntime(actor, entry) {
+  const accountType = String(actor?.account_type || "").trim();
+  if (["Account Manager", "Kiosk Account"].includes(accountType)) return true;
+  if (entry?.responsibleMemberId && entry.responsibleMemberId === actor?.id) return true;
+  if (!entry?.groupPay || !actor?.id) return false;
+
+  const rows = await supabaseRest(
+    `heater_use_group_members?select=account_member_id&heater_use_entry_id=eq.${encodeURIComponent(entry.id)}&account_member_id=eq.${encodeURIComponent(actor.id)}&limit=1`
+  );
+  return rows.length > 0;
+}
+
+async function closeHeaterUseEntry(heaterUseEntryId, endAt) {
+  return patchHeaterUseEntry(
+    heaterUseEntryId,
+    { end_at: endAt, turn_heater_on: "Off" },
+    "Could not cancel thermostat runtime"
+  );
+}
+
+async function updateHeaterUseEntryTemperature(heaterUseEntryId, targetTemperatureF) {
+  return patchHeaterUseEntry(
+    heaterUseEntryId,
+    { target_temperature_f: targetTemperatureF },
+    "Could not save thermostat temperature"
+  );
+}
+
+async function patchHeaterUseEntry(heaterUseEntryId, values, errorLabel) {
+  const params = new URLSearchParams({
+    id: `eq.${heaterUseEntryId}`,
+    turn_heater_on: "eq.On",
+    end_at: "is.null"
+  });
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/heater_use_entries?${params.toString()}`, {
+    method: "PATCH",
+    headers: {
+      apikey: SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      "Content-Type": "application/json",
+      Prefer: "return=representation"
+    },
+    body: JSON.stringify(values)
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`${errorLabel}: ${response.status} ${text}`);
+  }
+
+  const rows = await response.json();
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw new Error(`${errorLabel}: runtime is no longer active.`);
+  }
+  return rows[0];
 }
 
 async function loadMembersByIds(memberIds) {
@@ -223,6 +386,12 @@ async function turnThermostatOn({ systemType, targetTemperatureF }) {
   return setEcobeeHvacMode({ thermostatId, mode });
 }
 
+async function turnThermostatOff(systemType) {
+  const thermostatId = thermostatIdForSystem(systemType);
+  await resumeEcobeeProgram({ thermostatId });
+  return setEcobeeHvacMode({ thermostatId, mode: "off" });
+}
+
 function thermostatIdForSystem(systemType) {
   const normalizedSystemType = normalizeSystemType(systemType);
   const acId = String(ECOBEE_AC_THERMOSTAT_ID || "").trim();
@@ -245,6 +414,21 @@ function normalizeSystemType(value) {
   return String(value || "").trim().toLowerCase() === "ac" ? "ac" : "heat";
 }
 
+function normalizeAction(value) {
+  const action = String(value || "start").trim().toLowerCase();
+  return ["cancel", "temperature"].includes(action) ? action : "start";
+}
+
+function validateTargetTemperature(systemType, value) {
+  const target = Number(value);
+  const range = normalizeSystemType(systemType) === "ac"
+    ? { min: 60, max: 80 }
+    : { min: 45, max: 80 };
+  if (!Number.isFinite(target) || target < range.min || target > range.max) {
+    throw new Error(`Temperature must be between ${range.min} and ${range.max} degrees.`);
+  }
+}
+
 async function supabaseRest(path) {
   const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     headers: {
@@ -260,3 +444,7 @@ async function supabaseRest(path) {
 
   return response.json();
 }
+
+module.exports = handler;
+module.exports.changeThermostatTemperature = changeThermostatTemperature;
+module.exports.startThermostatRuntime = startThermostatRuntime;
