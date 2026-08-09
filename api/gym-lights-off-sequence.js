@@ -7,6 +7,7 @@ const GYM_OFF_TO_NUMBER = "+15418916772";
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const { resumeEcobeeProgram } = require("./_ecobee-client");
+const { hasActiveThermostatRuntime } = require("./_thermostat-runtime-state");
 const { parseSmsDestinations } = require("./_sms-destinations");
 const ECOBEE_AC_THERMOSTAT_ID = process.env.ECOBEE_AC_THERMOSTAT_ID || "";
 
@@ -28,6 +29,7 @@ module.exports = async (req, res) => {
     const step1Url = String(settings.step1_url || STEP_1_URL);
     const step2Url = String(settings.step2_url || STEP_2_URL);
     const warnings = [];
+    let fanAutomationSkipped = "";
 
     if (settings.step1_enabled !== false) {
       const step1 = await fetch(step1Url, { method: "GET" });
@@ -80,17 +82,34 @@ module.exports = async (req, res) => {
     }
 
     if (settings.ac_fan_enabled !== false) {
+      let acRuntimeActive = null;
       try {
-        await resumeEcobeeProgram({
-          thermostatId: String(settings.ac_thermostat_id || ECOBEE_AC_THERMOSTAT_ID).trim()
+        acRuntimeActive = await hasActiveThermostatRuntime({
+          supabaseUrl: SUPABASE_URL,
+          serviceRoleKey: SERVICE_ROLE_KEY,
+          systemType: "ac"
         });
       } catch (error) {
-        warnings.push(`AC fan off failed: ${error.message || "Ecobee request failed."}`);
+        fanAutomationSkipped = "priority_check_failed";
+        warnings.push(`AC fan off skipped: ${error.message || "Could not verify AC runtime."}`);
+      }
+
+      if (acRuntimeActive) {
+        fanAutomationSkipped = "active_ac";
+      } else if (acRuntimeActive === false) {
+        try {
+          await resumeEcobeeProgram({
+            thermostatId: String(settings.ac_thermostat_id || ECOBEE_AC_THERMOSTAT_ID).trim()
+          });
+        } catch (error) {
+          warnings.push(`AC fan off failed: ${error.message || "Ecobee request failed."}`);
+        }
       }
     }
 
     return res.status(200).json({
       success: true,
+      fanAutomationSkipped: fanAutomationSkipped || null,
       warnings
     });
   } catch (error) {

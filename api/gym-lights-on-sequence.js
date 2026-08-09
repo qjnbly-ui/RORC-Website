@@ -4,6 +4,7 @@ const HALF_LIGHTS_STEP_2_URL = "https://api-v2.voicemonkey.io/trigger?token=1f3e
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const { setEcobeeFanHold } = require("./_ecobee-client");
+const { hasActiveThermostatRuntime } = require("./_thermostat-runtime-state");
 const ECOBEE_AC_THERMOSTAT_ID = process.env.ECOBEE_AC_THERMOSTAT_ID || "";
 
 module.exports = async (req, res) => {
@@ -31,6 +32,7 @@ module.exports = async (req, res) => {
         : (settings.step2_url || STEP_2_URL)
     );
     const warnings = [];
+    let fanAutomationSkipped = "";
 
     if (settings.step1_enabled !== false) {
       const step1 = await fetch(step1Url, { method: "GET" });
@@ -65,19 +67,36 @@ module.exports = async (req, res) => {
     }
 
     if (settings.ac_fan_enabled !== false) {
+      let acRuntimeActive = null;
       try {
-        await setEcobeeFanHold({
-          thermostatId: String(settings.ac_thermostat_id || ECOBEE_AC_THERMOSTAT_ID).trim(),
-          fan: "on",
-          holdType: "indefinite"
+        acRuntimeActive = await hasActiveThermostatRuntime({
+          supabaseUrl: SUPABASE_URL,
+          serviceRoleKey: SERVICE_ROLE_KEY,
+          systemType: "ac"
         });
       } catch (error) {
-        warnings.push(`AC fan on failed: ${error.message || "Ecobee request failed."}`);
+        fanAutomationSkipped = "priority_check_failed";
+        warnings.push(`AC fan on skipped: ${error.message || "Could not verify AC runtime."}`);
+      }
+
+      if (acRuntimeActive) {
+        fanAutomationSkipped = "active_ac";
+      } else if (acRuntimeActive === false) {
+        try {
+          await setEcobeeFanHold({
+            thermostatId: String(settings.ac_thermostat_id || ECOBEE_AC_THERMOSTAT_ID).trim(),
+            fan: "on",
+            holdType: "indefinite"
+          });
+        } catch (error) {
+          warnings.push(`AC fan on failed: ${error.message || "Ecobee request failed."}`);
+        }
       }
     }
 
     return res.status(200).json({
       success: true,
+      fanAutomationSkipped: fanAutomationSkipped || null,
       warnings
     });
   } catch (error) {
