@@ -7,7 +7,6 @@ const { getCallerAccount, verifyAccountPin, accountOverview } = require("../_ror
 const { normalizePhone, consent, hasConsent, sendSms } = require("../_rorc-sms");
 const { createFormDraft } = require("../_rorc-form-drafts");
 const { getFormDefinition, detectFormRequest } = require("../_rorc-forms");
-const { callerContact, deliverReceptionistMessage } = require("../_receptionist-message");
 const { classifyIntent, fallbackIntent, safeIntentResult } = require("../_receptionist-router");
 const {
   pinStatus,
@@ -113,14 +112,6 @@ function speech(ws, text) {
 
 function isYes(value) {
   return /^(yes|yeah|yep|sure|okay|ok|please|go ahead|connect me|transfer me|sounds good)[.!? ]*$/i.test(String(value || "").trim());
-}
-
-function isNo(value) {
-  return /^(no|nope|not yet|do not|don't|cancel|never mind|nevermind)[.!? ]*$/i.test(String(value || "").trim());
-}
-
-function isStaffMessageRequest(value) {
-  return /\b(?:leave|take|send|give|pass along)\b.{0,60}\b(?:message|note)\b|\b(?:message|note)\b.{0,40}\b(?:for|to)\b.{0,30}\b(?:quentin|him|staff|team)\b/i.test(String(value || ""));
 }
 
 function isPersonRequest(value) {
@@ -396,96 +387,6 @@ async function track(ws, event) {
   }
 }
 
-function isMessageKeyRequest(message) {
-  return message?.type === "dtmf" && String(message.digit || "") === "0";
-}
-
-async function beginStaffMessage(ws, source = "spoken_request") {
-  const caller = await ws.callerReady;
-  const contact = callerContact(caller, ws.fromNumber);
-  ws.awaitingPin = false;
-  ws.pinDigits = "";
-  ws.formOffer = "";
-  ws.formSession = null;
-  ws.transferOffered = false;
-  ws.awaitingTransferReason = false;
-  ws.messageSession = {
-    stage: contact.name ? "message" : "name",
-    contact,
-    message: "",
-    source,
-  };
-  ws.finalOutcome = "message_started";
-  track(ws, { type: "staff_message_started", metadata: { source, recognized: Boolean(contact.name && caller && !caller.ambiguous) } });
-  speech(ws, contact.name
-    ? `Of course, ${contact.name.split(/\s+/)[0]}. I can take a message for Quentin. What would you like me to tell him?`
-    : "Of course. I can take a message for Quentin. First, what is your name?");
-}
-
-async function handleStaffMessageAnswer(ws, question) {
-  const session = ws.messageSession;
-  if (!session) return false;
-  if (/^(cancel|never mind|nevermind|stop)[.!? ]*$/i.test(question)) {
-    ws.messageSession = null;
-    speech(ws, "No problem. I discarded the message. What else can I help you with?");
-    return true;
-  }
-  if (session.stage === "name") {
-    const name = toSpeechText(question).replace(/^(?:my name is|this is|it is|it's)\s+/i, "").trim().slice(0, 120);
-    if (!name) {
-      speech(ws, "I did not catch your name. What name should I put with the message?");
-      return true;
-    }
-    session.contact.name = name;
-    session.stage = "message";
-    speech(ws, `Thanks, ${name.split(/\s+/)[0]}. What would you like me to tell Quentin?`);
-    return true;
-  }
-  if (session.stage === "message") {
-    session.message = toSpeechText(question).trim().slice(0, 1600);
-    if (!session.message) {
-      speech(ws, "I did not catch the message. What would you like me to tell Quentin?");
-      return true;
-    }
-    session.stage = "confirm";
-    speech(ws, `I heard: ${session.message} I will include your name and callback number${session.contact.email ? ", plus the email on your RORC account" : ""}. Should I send that to Quentin?`);
-    return true;
-  }
-  if (session.stage === "confirm") {
-    if (isNo(question) || /\b(change|correct|redo|say it again|not quite)\b/i.test(question)) {
-      session.stage = "message";
-      session.message = "";
-      speech(ws, "No problem. Tell me the message again exactly how you would like Quentin to receive it.");
-      return true;
-    }
-    if (!isYes(question)) {
-      speech(ws, "Please say yes to send it, or say no to change the message.");
-      return true;
-    }
-    const delivery = await deliverReceptionistMessage({
-      callSid: ws.callSid,
-      message: session.message,
-      contact: session.contact,
-    });
-    ws.messageSession = null;
-    ws.finalOutcome = "message_delivered";
-    await track(ws, {
-      type: "staff_message_delivered",
-      metadata: {
-        source: session.source,
-        textSent: delivery.textSent,
-        emailSent: delivery.emailSent,
-      },
-    });
-    const deliveryLabel = delivery.textSent && delivery.emailSent
-      ? "a text and an email"
-      : delivery.textSent ? "a text" : "an email";
-    speech(ws, `Done. I sent Quentin ${deliveryLabel} with your message and contact information. Is there anything else I can help you with?`);
-    return true;
-  }
-  return false;
-}
-
 async function recordRequestedSmsConsent(ws) {
   if (!ws.fromNumber) throw new Error("The caller phone number is unavailable.");
   if (!(await hasConsent(ws.fromNumber))) await consent(ws.fromNumber, "opt_in", "voice_request");
@@ -683,7 +584,7 @@ async function handlePersonIntent(ws, question) {
   ws.transferOffered = true;
   ws.transferSummary = `The caller asked for Quentin regarding: ${question.slice(0, 160)}`;
   await track(ws, { type: "transfer_offered", metadata: { screened: true } });
-  speech(ws, `${reply} Would you like me to try connecting you with Quentin, or I can take a message for him right here?`);
+  speech(ws, `${reply} Would you still like me to connect you with Quentin?`);
 }
 
 const app = express();
@@ -706,7 +607,6 @@ wss.on("connection", (ws) => {
   ws.formOffer = "";
   ws.formSession = null;
   ws.awaitingTransferReason = false;
-  ws.messageSession = null;
   ws.finalOutcome = "disconnected";
   ws.on("message", async (raw) => {
     let message;
@@ -734,19 +634,6 @@ wss.on("connection", (ws) => {
       return;
     }
     if (message.type === "interrupt") { ws.activeSpeech = ""; return; }
-    if (isMessageKeyRequest(message)) {
-      if (ws.messageSession) return;
-      ws.processing = true;
-      try {
-        await beginStaffMessage(ws, "dtmf_zero");
-      } catch (error) {
-        console.error("RORC message intake failed", error);
-        speech(ws, "I could not start a message right now. Please try again in a moment.");
-      } finally {
-        ws.processing = false;
-      }
-      return;
-    }
     if (message.type === "dtmf" && ws.awaitingPin) {
       const digit = String(message.digit || "");
       if (!/^\d$/.test(digit)) return;
@@ -782,30 +669,6 @@ wss.on("connection", (ws) => {
     if (message.type !== "prompt" || message.last === false || ws.processing) return;
     const question = toSpeechText(message.voicePrompt).slice(0, 800);
     if (!question) return;
-    if (ws.messageSession) {
-      ws.processing = true;
-      try {
-        await handleStaffMessageAnswer(ws, question);
-      } catch (error) {
-        console.error("RORC message delivery failed", error);
-        speech(ws, "I could not deliver that message just now. I still have it here. Please say yes to try again, or no to change it.");
-      } finally {
-        ws.processing = false;
-      }
-      return;
-    }
-    if (isStaffMessageRequest(question)) {
-      ws.processing = true;
-      try {
-        await beginStaffMessage(ws, "spoken_request");
-      } catch (error) {
-        console.error("RORC message intake failed", error);
-        speech(ws, "I could not start a message right now. Please try again in a moment.");
-      } finally {
-        ws.processing = false;
-      }
-      return;
-    }
     if (ws.formOffer) {
       const formId = ws.formOffer;
       if (isGuidedFormChoice(question)) {
@@ -890,7 +753,7 @@ wss.on("connection", (ws) => {
         ws.transferOffered = true;
         ws.transferSummary = `The website receptionist could not fully resolve: ${question.slice(0, 160)}`;
         await track(ws, { type: "transfer_offered", metadata: { screened: false, reason: "unresolved_answer" } });
-        speech(ws, `${reply} If you need personal help with that, I can try connecting you with Quentin, or I can take a message for him. Which would you prefer?`);
+        speech(ws, `${reply} If you need personal help with that, I can try connecting you with Quentin. Would you like me to do that?`);
       } else speech(ws, reply);
     } catch (error) {
       console.error("RORC receptionist response failed", error);
@@ -927,5 +790,3 @@ module.exports.spokenTime = spokenTime;
 module.exports.spokenNumber = spokenNumber;
 module.exports.spokenPhone = spokenPhone;
 module.exports.isGuidedFormChoice = isGuidedFormChoice;
-module.exports.isMessageKeyRequest = isMessageKeyRequest;
-module.exports.isStaffMessageRequest = isStaffMessageRequest;

@@ -21,7 +21,7 @@ async function rest(path, options = {}) {
 async function getCallerAccount(phone) {
   const normalized = normalizePhone(phone);
   if (!normalized) return null;
-  const rows = await rest("account_members?select=id,account_id,member_name,account_type,phone_number,email_address&phone_number=not.is.null&limit=10000");
+  const rows = await rest("account_members?select=id,account_id,member_name,account_type,phone_number&phone_number=not.is.null&limit=10000");
   const matches = (Array.isArray(rows) ? rows : []).filter((row) => normalizePhone(row.phone_number) === normalized);
   if (matches.length !== 1) return matches.length > 1 ? { ambiguous: true } : null;
   const member = matches[0];
