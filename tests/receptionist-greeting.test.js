@@ -13,3 +13,9 @@ test("greetings rotate across distinct introductions", () => {
   assert.match(first, /RORC AI receptionist/);
   assert.match(last, /RORC AI receptionist/);
 });
+
+test("greetings are short enough to avoid a long unattended opening", () => {
+  for (const greeting of incoming.GREETING_VARIANTS) {
+    assert.ok(greeting.split(/\s+/).length <= 14, greeting);
+  }
+});

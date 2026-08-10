@@ -4,11 +4,11 @@ const { sendTwiML, validateTwilioWebhook } = require("../_twilio-webhook");
 const { getCallerAccount } = require("../_rorc-account-phone");
 
 const GREETING_VARIANTS = [
-  "You're speaking with the RORC AI receptionist. I know I may sound a little funny at first, but give me a go. I promise I'm more capable than I sound. What can I help you with?",
-  "This is the RORC AI receptionist. Yes, I'm the computer voice, but don't let that fool you. Ask me about memberships, rentals, events, projects, or whatever brought you to RORC today.",
-  "You've reached the RORC AI receptionist. I don't drink coffee, but I do know my way around the RORC website. Give me a try. What would you like to know?",
-  "This is RORC's AI receptionist. I may sound a little unusual, but give me a chance. I aim to be one of the most helpful AI receptionists you've talked to. How can I help?",
-  "You're talking with the RORC AI receptionist. The voice may take a second to get used to, but the brain is ready. Ask me anything about RORC and I'll do my best to make this easy.",
+  "You're speaking with the RORC AI receptionist. How can I help you today?",
+  "This is the RORC AI receptionist. What can I help you with?",
+  "You've reached the RORC AI receptionist. What would you like to know?",
+  "This is RORC's AI receptionist. How can I help?",
+  "You're talking with the RORC AI receptionist. What can I do for you?",
 ];
 
 function rotatingGreeting(firstName = "", random = Math.random) {
@@ -34,7 +34,9 @@ module.exports = async function handler(req, res) {
     url: publicWebSocketUrl(req),
     welcomeGreeting: greeting || DEFAULT_GREETING,
     welcomeGreetingInterruptible: "none",
-    reportInputDuringAgentSpeech: "speech",
+    // Do not turn noise or early caller speech into a queued AI reply while the
+    // non-interruptible welcome greeting is still playing.
+    reportInputDuringAgentSpeech: "none",
     language: "en-US",
     transcriptionProvider: "Deepgram",
     ttsProvider: "ElevenLabs",
