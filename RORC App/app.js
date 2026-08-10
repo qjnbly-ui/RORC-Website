@@ -15581,7 +15581,11 @@ async function turnHeaterOffActiveEntry(systemType = "", preferredEntryId = "") 
         heaterUseEntryId: null,
         timerTriggered: false
       });
-      markThermostatSystemOff(normalizedSystemType);
+      await fetchThermostatStatus({ force: true }).catch(() => {
+        // The server already confirmed the command with Ecobee. Keep the
+        // controls responsive if only the follow-up display refresh fails.
+        markThermostatSystemOff(normalizedSystemType);
+      });
     }
 
     await refreshHeaterResources({ rerender: false });
@@ -15609,7 +15613,11 @@ async function turnHeaterOffActiveEntry(systemType = "", preferredEntryId = "") 
   heaterUseEntries = heaterUseEntries.map((entry) => (
     entry.id === activeEntry.id ? { ...entry, endAt: endAtIso, turnHeaterOn: "Off" } : entry
   ));
-  markThermostatSystemOff(activeSystemType);
+  await fetchThermostatStatus({ force: true }).catch(() => {
+    // The shutdown endpoint verifies Ecobee before it closes this record.
+    // This is only a display fallback when the separate status request fails.
+    markThermostatSystemOff(activeSystemType);
+  });
   await refreshHeaterResources({ rerender: false });
   clearThermostatActionFeedback();
   render("heaterRecords");
@@ -15628,7 +15636,9 @@ async function turnHeaterOffEntry(entry, { timerTriggered = false } = {}) {
       timerMinutes: timerTriggered ? configuredTimerMinutes(entry) : null
     });
 
-    markThermostatSystemOff(entry.systemType);
+    await fetchThermostatStatus({ force: true }).catch(() => {
+      markThermostatSystemOff(entry.systemType);
+    });
     await refreshHeaterResources({ rerender: false });
     if (appState.currentRoute === "heaterRecords") {
       render("heaterRecords");

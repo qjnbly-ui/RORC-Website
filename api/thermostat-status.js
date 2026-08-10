@@ -5,7 +5,6 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const ECOBEE_HEATER_THERMOSTAT_ID = process.env.ECOBEE_HEATER_THERMOSTAT_ID || process.env.ECOBEE_THERMOSTAT_ID || "";
 const ECOBEE_AC_THERMOSTAT_ID = process.env.ECOBEE_AC_THERMOSTAT_ID || "";
 const STATUS_CACHE_MS = 3 * 60 * 1000;
-const FORCED_STATUS_CACHE_MS = 30 * 1000;
 const FULL_STATUS_MAX_AGE_MS = 15 * 60 * 1000;
 let cachedStatus = null;
 let cachedStatusAt = 0;
@@ -34,7 +33,9 @@ module.exports = async (req, res) => {
 
     const cacheKey = `${ECOBEE_HEATER_THERMOSTAT_ID}|${ECOBEE_AC_THERMOSTAT_ID}`;
     const refreshRequested = String(req.query?.refresh || "").trim() === "1";
-    const cacheWindowMs = refreshRequested ? FORCED_STATUS_CACHE_MS : STATUS_CACHE_MS;
+    // A user-requested refresh must be a real Ecobee read. In particular, the
+    // control flow uses this immediately after a shutdown confirmation.
+    const cacheWindowMs = refreshRequested ? 0 : STATUS_CACHE_MS;
     if (cachedStatus && cachedStatusKey === cacheKey && Date.now() - cachedStatusAt < cacheWindowMs) {
       return res.status(200).json(cachedStatus);
     }

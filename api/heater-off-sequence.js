@@ -3,7 +3,12 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "+15416526065";
-const { resumeEcobeeProgram, setEcobeeFanHold, setEcobeeHvacMode } = require("./_ecobee-client");
+const {
+  getEcobeeThermostat,
+  resumeEcobeeProgram,
+  setEcobeeFanHold,
+  setEcobeeHvacMode
+} = require("./_ecobee-client");
 const { hasCurrentFacilityOccupancy } = require("./_facility-occupancy-state");
 const ECOBEE_HEATER_THERMOSTAT_ID = process.env.ECOBEE_HEATER_THERMOSTAT_ID || process.env.ECOBEE_THERMOSTAT_ID || "";
 const ECOBEE_AC_THERMOSTAT_ID = process.env.ECOBEE_AC_THERMOSTAT_ID || "";
@@ -420,7 +425,31 @@ async function turnThermostatOff(systemType) {
   const thermostatId = thermostatIdForSystem(normalizedSystemType);
 
   await resumeEcobeeProgram({ thermostatId });
-  return setEcobeeHvacMode({ thermostatId, mode: "off" });
+  await setEcobeeHvacMode({ thermostatId, mode: "off" });
+  return confirmThermostatOff(thermostatId);
+}
+
+async function confirmThermostatOff(thermostatId) {
+  const attempts = 3;
+  let lastState = null;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const thermostat = await getEcobeeThermostat({ thermostatId });
+    const hvacMode = String(thermostat?.settings?.hvacMode || "").trim().toLowerCase();
+    const equipmentStatus = String(thermostat?.equipmentStatus || "").trim();
+    const cooling = /(?:comp|aux)cool/i.test(equipmentStatus);
+    lastState = { hvacMode, equipmentStatus, cooling };
+
+    if (hvacMode === "off" && !cooling) return lastState;
+    if (attempt < attempts - 1) await delay(1500);
+  }
+
+  const detail = lastState?.equipmentStatus ? ` (equipment: ${lastState.equipmentStatus})` : "";
+  throw new Error(`Ecobee did not confirm that the thermostat turned off${detail}. The AC-use record was left open so it can be retried.`);
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function thermostatIdForSystem(systemType) {

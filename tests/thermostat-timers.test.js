@@ -100,7 +100,11 @@ test("timer shutdown closes the runtime only after Ecobee confirms off", async (
   process.env.ECOBEE_AC_THERMOSTAT_ID = "ac-thermostat";
   mockModule(ecobeeClientPath, {
     resumeEcobeeProgram: async () => events.push("resume"),
-    setEcobeeHvacMode: async () => events.push("mode-off")
+    setEcobeeHvacMode: async () => events.push("mode-off"),
+    getEcobeeThermostat: async () => {
+      events.push("confirm-off");
+      return { settings: { hvacMode: "off" }, equipmentStatus: "" };
+    }
   });
   global.fetch = async (url, options = {}) => {
     const requestUrl = String(url);
@@ -142,7 +146,7 @@ test("timer shutdown closes the runtime only after Ecobee confirms off", async (
     });
 
     assert.equal(result.success, true);
-    assert.deepEqual(events, ["resume", "mode-off", "close-record"]);
+    assert.deepEqual(events, ["resume", "mode-off", "confirm-off", "close-record"]);
   } finally {
     global.fetch = priorFetch;
     if (priorServiceKey === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
