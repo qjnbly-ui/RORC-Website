@@ -33,8 +33,8 @@ module.exports = async (req, res) => {
 
     const cacheKey = `${ECOBEE_HEATER_THERMOSTAT_ID}|${ECOBEE_AC_THERMOSTAT_ID}`;
     const refreshRequested = String(req.query?.refresh || "").trim() === "1";
-    // A user-requested refresh must be a real Ecobee read. In particular, the
-    // control flow uses this immediately after a shutdown confirmation.
+    // This bypasses the assembled response cache. The shared Ecobee client
+    // still honors Ecobee's three-minute minimum summary polling interval.
     const cacheWindowMs = refreshRequested ? 0 : STATUS_CACHE_MS;
     if (cachedStatus && cachedStatusKey === cacheKey && Date.now() - cachedStatusAt < cacheWindowMs) {
       return res.status(200).json(cachedStatus);
@@ -84,7 +84,7 @@ async function loadThermostatStatus(systemType, thermostatId) {
       return applySummaryToStatus(previous, summary);
     }
 
-    const thermostat = await getEcobeeThermostat({ thermostatId });
+    const thermostat = await getEcobeeThermostat({ thermostatId, includeEvents: false });
     return thermostatToStatus(systemType, thermostatId, thermostat, summary);
   } catch (error) {
     if (previous && !previous.error) {

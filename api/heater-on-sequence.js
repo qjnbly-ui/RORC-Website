@@ -4,9 +4,9 @@ const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "+15416526065";
 const {
-  resumeEcobeeProgram,
   setEcobeeHvacMode,
-  setEcobeeTemperatureHold
+  setEcobeeTemperatureHold,
+  stopEcobeeHvac
 } = require("./_ecobee-client");
 const ECOBEE_HEATER_THERMOSTAT_ID = process.env.ECOBEE_HEATER_THERMOSTAT_ID || process.env.ECOBEE_THERMOSTAT_ID || "";
 const ECOBEE_AC_THERMOSTAT_ID = process.env.ECOBEE_AC_THERMOSTAT_ID || "";
@@ -33,14 +33,18 @@ async function handler(req, res) {
     }
 
     const action = normalizeAction(req.body?.action);
+    const requestedSystemType = normalizeSystemType(req.body?.systemType);
     const heaterUseEntryId = String(req.body?.heaterUseEntryId || "").trim();
-    if (!heaterUseEntryId) {
-      return res.status(400).json({ success: false, error: "A thermostat runtime record is required." });
-    }
-
-    const entry = await loadHeaterUseEntryMeta(heaterUseEntryId);
+    const entry = heaterUseEntryId
+      ? await loadHeaterUseEntryMeta(heaterUseEntryId)
+      : action === "start"
+        ? await loadActiveHeaterUseEntry(requestedSystemType)
+        : null;
     if (!entry) {
-      return res.status(404).json({ success: false, error: "Thermostat runtime record not found." });
+      const error = heaterUseEntryId
+        ? "Thermostat runtime record not found."
+        : "A matching active thermostat runtime record is required.";
+      return res.status(heaterUseEntryId ? 404 : 400).json({ success: false, error });
     }
     if (!entry.active) {
       return res.status(409).json({ success: false, error: "Thermostat runtime is no longer active." });
@@ -49,7 +53,6 @@ async function handler(req, res) {
       return res.status(403).json({ success: false, error: "You cannot control this thermostat runtime." });
     }
 
-    const requestedSystemType = normalizeSystemType(req.body?.systemType);
     if (requestedSystemType !== entry.systemType) {
       return res.status(409).json({ success: false, error: "Thermostat runtime does not match the requested system." });
     }
@@ -231,6 +234,24 @@ async function loadHeaterUseEntryMeta(heaterUseEntryId) {
   };
 }
 
+async function loadActiveHeaterUseEntry(systemType) {
+  const rows = await supabaseRest(
+    `heater_use_entries?select=id,system_type,responsible_member_id,group_pay,target_temperature_f,turn_heater_on,start_at,end_at&system_type=eq.${encodeURIComponent(normalizeSystemType(systemType))}&turn_heater_on=eq.On&end_at=is.null&order=start_at.desc&limit=1`
+  );
+  const row = rows[0] || null;
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    systemType: normalizeSystemType(row.system_type),
+    responsibleMemberId: row.responsible_member_id || "",
+    groupPay: Boolean(row.group_pay),
+    targetTemperatureF: Number(row.target_temperature_f || 0) || null,
+    startAt: row.start_at || null,
+    active: !row.end_at && String(row.turn_heater_on || "On").trim().toLowerCase() === "on"
+  };
+}
+
 async function canControlThermostatRuntime(actor, entry) {
   const accountType = String(actor?.account_type || "").trim();
   if (["Account Manager", "Kiosk Account"].includes(accountType)) return true;
@@ -388,8 +409,7 @@ async function turnThermostatOn({ systemType, targetTemperatureF }) {
 
 async function turnThermostatOff(systemType) {
   const thermostatId = thermostatIdForSystem(systemType);
-  await resumeEcobeeProgram({ thermostatId });
-  return setEcobeeHvacMode({ thermostatId, mode: "off" });
+  return stopEcobeeHvac({ thermostatId });
 }
 
 function thermostatIdForSystem(systemType) {

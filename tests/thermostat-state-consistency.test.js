@@ -62,8 +62,8 @@ test("a failed thermostat start confirms off before canceling the billable runti
       events.push("start-failed");
       throw new Error("Ecobee unavailable");
     },
-    resumeEcobeeProgram: async () => events.push("resume"),
-    setEcobeeHvacMode: async () => events.push("mode-off")
+    setEcobeeHvacMode: async () => {},
+    stopEcobeeHvac: async () => events.push("stop")
   });
 
   try {
@@ -75,7 +75,7 @@ test("a failed thermostat start confirms off before canceling the billable runti
       },
       targetTemperatureF: 68
     }), /Ecobee unavailable/);
-    assert.deepEqual(events, ["start-failed", "resume", "mode-off", "close-record"]);
+    assert.deepEqual(events, ["start-failed", "stop", "close-record"]);
   } finally {
     restoreEnvironment(prior);
   }
@@ -91,8 +91,8 @@ test("an uncertain failed start remains open when shutdown cannot be confirmed",
 
   const { startThermostatRuntime } = loadHeaterOnWithEcobee({
     setEcobeeTemperatureHold: async () => { throw new Error("Start request failed"); },
-    resumeEcobeeProgram: async () => { throw new Error("Shutdown request failed"); },
-    setEcobeeHvacMode: async () => {}
+    setEcobeeHvacMode: async () => {},
+    stopEcobeeHvac: async () => { throw new Error("Shutdown request failed"); }
   });
 
   try {
@@ -118,8 +118,8 @@ test("temperature changes reach Ecobee before the runtime record and restore the
 
   const { changeThermostatTemperature } = loadHeaterOnWithEcobee({
     setEcobeeTemperatureHold: async (options) => targets.push(options.targetTemperatureF),
-    resumeEcobeeProgram: async () => {},
-    setEcobeeHvacMode: async () => {}
+    setEcobeeHvacMode: async () => {},
+    stopEcobeeHvac: async () => {}
   });
 
   try {
@@ -132,6 +132,83 @@ test("temperature changes reach Ecobee before the runtime record and restore the
       targetTemperatureF: 68
     }), /Could not save thermostat temperature/);
     assert.deepEqual(targets, [68, 72]);
+  } finally {
+    restoreEnvironment(prior);
+  }
+});
+
+test("cached app clients can start their authorized active runtime without sending its id", async () => {
+  const prior = prepareEnvironment();
+  const ecobeeTargets = [];
+  global.fetch = async (url) => {
+    const requestUrl = String(url);
+    if (requestUrl.includes("/auth/v1/user")) {
+      return { ok: true, json: async () => ({ id: "auth-user-1" }) };
+    }
+    if (requestUrl.includes("account_members?select=id,account_type")) {
+      return {
+        ok: true,
+        json: async () => [{ id: "member-1", account_type: "Active Membership" }]
+      };
+    }
+    if (requestUrl.includes("heater_use_entries?select=") && requestUrl.includes("system_type=eq.ac")) {
+      return {
+        ok: true,
+        json: async () => [{
+          id: "runtime-1",
+          system_type: "ac",
+          responsible_member_id: "member-1",
+          group_pay: false,
+          target_temperature_f: 68,
+          turn_heater_on: "On",
+          start_at: "2026-08-10T18:00:00.000Z",
+          end_at: null
+        }]
+      };
+    }
+    if (requestUrl.includes("automation_settings")) {
+      return {
+        ok: true,
+        json: async () => [{ config: { enabled: false, ac_enabled: true, heat_enabled: true } }]
+      };
+    }
+    throw new Error(`Unexpected fetch: ${requestUrl}`);
+  };
+
+  const handler = loadHeaterOnWithEcobee({
+    setEcobeeTemperatureHold: async (options) => ecobeeTargets.push(options),
+    setEcobeeHvacMode: async () => {},
+    stopEcobeeHvac: async () => {}
+  });
+  const response = {
+    statusCode: 0,
+    body: null,
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    json(body) {
+      this.body = body;
+      return this;
+    }
+  };
+
+  try {
+    await handler({
+      method: "POST",
+      headers: { authorization: "Bearer member-token" },
+      body: {
+        systemType: "ac",
+        targetTemperatureF: 68,
+        silent: true
+      }
+    }, response);
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.body.heaterUseEntryId, "runtime-1");
+    assert.equal(ecobeeTargets.length, 1);
+    assert.equal(ecobeeTargets[0].thermostatId, "ac-thermostat");
+    assert.equal(ecobeeTargets[0].targetTemperatureF, 68);
   } finally {
     restoreEnvironment(prior);
   }

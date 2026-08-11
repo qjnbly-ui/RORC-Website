@@ -59,7 +59,7 @@ module.exports = async (req, res) => {
     if (cached && Date.now() - cached.cachedAt < RUNTIME_CACHE_MS) {
       report = cached.report;
     } else {
-      report = await requestRuntimeWithFallbacks({ thermostatId, reportQuery, systemType });
+      report = await requestRuntimeReport({ thermostatId, reportQuery });
       runtimeCache.set(cacheKey, {
         cachedAt: Date.now(),
         report
@@ -128,66 +128,28 @@ function intervalForDate(value) {
   return Math.max(0, Math.min(287, Math.floor(((hours * 60) + minutes) / 5)));
 }
 
-function compactDateQuery(query) {
-  return {
-    ...query,
-    startDate: String(query.startDate || "").replaceAll("-", ""),
-    endDate: String(query.endDate || "").replaceAll("-", "")
-  };
-}
-
-async function requestRuntimeWithFallbacks({ thermostatId, reportQuery, systemType }) {
-  const attemptQueries = buildQueryAttempts(reportQuery, systemType);
-  let lastError = null;
-
-  for (const query of attemptQueries) {
-    try {
-      return await getEcobeeRuntimeReport({
-        thermostatId,
-        startDate: query.startDate,
-        startInterval: query.startInterval,
-        endDate: query.endDate,
-        endInterval: query.endInterval,
-        columns: query.columns
-      });
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  if (isEcobeeProcessingError(lastError)) {
+async function requestRuntimeReport({ thermostatId, reportQuery }) {
+  try {
+    return await getEcobeeRuntimeReport({
+      thermostatId,
+      startDate: reportQuery.startDate,
+      startInterval: reportQuery.startInterval,
+      endDate: reportQuery.endDate,
+      endInterval: reportQuery.endInterval,
+      columns: reportQuery.columns
+    });
+  } catch (error) {
+    if (!isEcobeeProcessingError(error)) throw error;
     throw httpError(
       422,
       "Ecobee could not process a runtime report for that historical window. Narrow Start At and End At to the actual heater runtime; if it is an older record, Ecobee may no longer have report data for that date."
     );
   }
-
-  throw lastError || new Error("Ecobee runtime report request failed.");
 }
 
 function isEcobeeProcessingError(error) {
   const message = String(error?.message || "");
   return message.includes('"code":3') || message.includes('"code": 3') || message.includes("Processing error");
-}
-
-function buildQueryAttempts(baseQuery, systemType) {
-  const narrowMetricColumns = systemType === "ac"
-    ? ["compCool1"]
-    : ["auxHeat1", "compHeat1"];
-  const narrowQuery = {
-    ...baseQuery,
-    metricColumns: narrowMetricColumns,
-    columns: `date,time,${narrowMetricColumns.join(",")}`
-  };
-  const compactBase = compactDateQuery(baseQuery);
-  const compactNarrow = compactDateQuery(narrowQuery);
-
-  return [
-    baseQuery,
-    compactBase,
-    narrowQuery,
-    compactNarrow
-  ];
 }
 
 function summarizeRuntimeReport(report, metricColumns) {

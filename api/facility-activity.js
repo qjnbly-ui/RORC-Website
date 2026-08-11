@@ -107,7 +107,14 @@ async function loadRoomClimate() {
       return roomClimateCache;
     }
 
-    const thermostat = await getEcobeeThermostat({ thermostatId: ECOBEE_ROOM_THERMOSTAT_ID });
+    const thermostat = await getEcobeeThermostat({
+      thermostatId: ECOBEE_ROOM_THERMOSTAT_ID,
+      includeSettings: false,
+      includeSensors: false,
+      includeWeather: false,
+      includeEvents: false,
+      includeEquipmentStatus: false
+    });
     const runtime = thermostat?.runtime || {};
     const result = {
       temperatureF: parseEcobeeTemperature(runtime.actualTemperature),

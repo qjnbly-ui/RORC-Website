@@ -45,12 +45,7 @@ test("AC shutdown restores the circulation fan after closure when the facility i
   const events = [];
 
   mockModule(ecobeeClientPath, {
-    resumeEcobeeProgram: async () => events.push("resume"),
-    setEcobeeHvacMode: async () => events.push("mode-off"),
-    getEcobeeThermostat: async () => {
-      events.push("confirm-off");
-      return { settings: { hvacMode: "off" }, equipmentStatus: "" };
-    },
+    stopEcobeeHvac: async () => events.push("stop"),
     setEcobeeFanHold: async (options) => events.push(`fan-on:${options.thermostatId}`)
   });
   mockModule(occupancyStatePath, {
@@ -107,9 +102,7 @@ test("AC shutdown restores the circulation fan after closure when the facility i
     assert.equal(result.success, true);
     assert.deepEqual(result.fanReconciliation, { restored: true, occupied: true, warnings: [] });
     assert.deepEqual(events, [
-      "resume",
-      "mode-off",
-      "confirm-off",
+      "stop",
       "close-record",
       "occupancy-check",
       "fan-on:configured-ac"
@@ -123,8 +116,7 @@ test("AC shutdown leaves the fan automatic when the facility is empty", async ()
   const prior = prepareEnvironment();
   let fanHoldCount = 0;
   mockModule(ecobeeClientPath, {
-    resumeEcobeeProgram: async () => {},
-    setEcobeeHvacMode: async () => {},
+    stopEcobeeHvac: async () => {},
     setEcobeeFanHold: async () => { fanHoldCount += 1; }
   });
   mockModule(occupancyStatePath, {

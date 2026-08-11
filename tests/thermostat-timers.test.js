@@ -88,7 +88,7 @@ test("dispatcher submits only due timers through the server-side close path", as
   }]);
 });
 
-test("timer shutdown closes the runtime only after Ecobee confirms off", async () => {
+test("timer shutdown closes the runtime after Ecobee accepts the off command", async () => {
   const priorServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const priorHeatId = process.env.ECOBEE_HEATER_THERMOSTAT_ID;
   const priorAcId = process.env.ECOBEE_AC_THERMOSTAT_ID;
@@ -99,12 +99,7 @@ test("timer shutdown closes the runtime only after Ecobee confirms off", async (
   process.env.ECOBEE_HEATER_THERMOSTAT_ID = "heat-thermostat";
   process.env.ECOBEE_AC_THERMOSTAT_ID = "ac-thermostat";
   mockModule(ecobeeClientPath, {
-    resumeEcobeeProgram: async () => events.push("resume"),
-    setEcobeeHvacMode: async () => events.push("mode-off"),
-    getEcobeeThermostat: async () => {
-      events.push("confirm-off");
-      return { settings: { hvacMode: "off" }, equipmentStatus: "" };
-    }
+    stopEcobeeHvac: async () => events.push("stop")
   });
   global.fetch = async (url, options = {}) => {
     const requestUrl = String(url);
@@ -146,7 +141,7 @@ test("timer shutdown closes the runtime only after Ecobee confirms off", async (
     });
 
     assert.equal(result.success, true);
-    assert.deepEqual(events, ["resume", "mode-off", "confirm-off", "close-record"]);
+    assert.deepEqual(events, ["stop", "close-record"]);
   } finally {
     global.fetch = priorFetch;
     if (priorServiceKey === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -171,8 +166,7 @@ test("a failed Ecobee timer shutdown leaves the runtime open for retry", async (
   process.env.ECOBEE_HEATER_THERMOSTAT_ID = "heat-thermostat";
   process.env.ECOBEE_AC_THERMOSTAT_ID = "ac-thermostat";
   mockModule(ecobeeClientPath, {
-    resumeEcobeeProgram: async () => { throw new Error("Ecobee unavailable"); },
-    setEcobeeHvacMode: async () => {}
+    stopEcobeeHvac: async () => { throw new Error("Ecobee unavailable"); }
   });
   global.fetch = async (url, options = {}) => {
     if (options.method === "PATCH") patchCount += 1;

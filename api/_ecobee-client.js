@@ -1,35 +1,19 @@
 const ECOBEE_CLIENT_ID = process.env.ECOBEE_CLIENT_ID || "";
 const ECOBEE_ACCESS_TOKEN = process.env.ECOBEE_ACCESS_TOKEN || "";
 const ECOBEE_REFRESH_TOKEN = process.env.ECOBEE_REFRESH_TOKEN || "";
+const ECOBEE_AUTH_ATTEMPTS = 3;
+const ECOBEE_SUMMARY_CACHE_MS = 3 * 60 * 1000;
+let activeEcobeeAccessToken = ECOBEE_ACCESS_TOKEN;
+let ecobeeRefreshPromise = null;
+const ecobeeSummaryCache = new Map();
 
 async function postEcobeeThermostat({ thermostatId, payload }) {
-  if (!ECOBEE_CLIENT_ID || !ECOBEE_ACCESS_TOKEN || !ECOBEE_REFRESH_TOKEN || !thermostatId) {
-    throw new Error("Ecobee credentials are not configured. Thermostat ID is required.");
-  }
-
-  let token = ECOBEE_ACCESS_TOKEN;
-  let result = await postEcobeePayload({ token, thermostatId, payload });
-
-  if (result.ok) return result;
-
-  const bodyText = result.text || "";
-  const expired = result.status === 401
-    || bodyText.includes('"code":14')
-    || bodyText.toLowerCase().includes("authentication token has expired");
-
-  if (!expired) {
-    throw new Error(`Ecobee request failed: ${result.status} ${bodyText}`);
-  }
-
-  const refreshed = await refreshEcobeeToken();
-  token = refreshed.access_token;
-  result = await postEcobeePayload({ token, thermostatId, payload });
-
-  if (!result.ok) {
-    throw new Error(`Ecobee retry failed: ${result.status} ${result.text || ""}`);
-  }
-
-  return result;
+  return executeEcobeeRequest({
+    thermostatId,
+    request: (token) => postEcobeePayload({ token, thermostatId, payload }),
+    requestErrorLabel: "Ecobee request failed",
+    retryErrorLabel: "Ecobee retry failed"
+  });
 }
 
 async function setEcobeeHvacMode({ thermostatId, mode }) {
@@ -45,7 +29,38 @@ async function setEcobeeHvacMode({ thermostatId, mode }) {
   });
 }
 
+async function stopEcobeeHvac({ thermostatId }) {
+  return postEcobeeThermostat({
+    thermostatId,
+    payload: {
+      thermostat: {
+        settings: {
+          hvacMode: "off"
+        }
+      },
+      functions: [
+        {
+          type: "resumeProgram",
+          params: {
+            resumeAll: false
+          }
+        }
+      ]
+    }
+  });
+}
+
 async function setEcobeeFanHold({ thermostatId, fan = "on", holdType = "indefinite" }) {
+  const thermostat = await getEcobeeThermostat({
+    thermostatId,
+    includeSettings: false,
+    includeSensors: false,
+    includeWeather: false,
+    includeEvents: false,
+    includeEquipmentStatus: false
+  });
+  const { heatHoldTemp, coolHoldTemp } = currentHoldTemperatures(thermostat);
+
   return postEcobeeThermostat({
     thermostatId,
     payload: {
@@ -54,6 +69,8 @@ async function setEcobeeFanHold({ thermostatId, fan = "on", holdType = "indefini
           type: "setHold",
           params: {
             holdType,
+            heatHoldTemp,
+            coolHoldTemp,
             fan
           }
         }
@@ -68,19 +85,25 @@ async function setEcobeeTemperatureHold({
   targetTemperatureF,
   holdType = "indefinite"
 }) {
-  const thermostat = await getEcobeeThermostat({ thermostatId });
+  const thermostat = await getEcobeeThermostat({
+    thermostatId,
+    includeSettings: false,
+    includeSensors: false,
+    includeWeather: false,
+    includeEvents: false,
+    includeEquipmentStatus: false
+  });
   const runtime = thermostat?.runtime || {};
+  const current = currentHoldTemperatures(thermostat);
   const target = toEcobeeTemp(targetTemperatureF);
   const heatRange = validRange(runtime.desiredHeatRange, [450, 790]);
   const coolRange = validRange(runtime.desiredCoolRange, [650, 920]);
-  const currentHeat = Number(runtime.desiredHeat || 0) || heatRange[0];
-  const currentCool = Number(runtime.desiredCool || 0) || coolRange[1];
   const heatHoldTemp = mode === "heat"
     ? clamp(target, heatRange)
-    : clamp(currentHeat, heatRange);
+    : current.heatHoldTemp;
   const coolHoldTemp = mode === "cool"
     ? clamp(target, coolRange)
-    : clamp(currentCool, coolRange);
+    : current.coolHoldTemp;
 
   return postEcobeeThermostat({
     thermostatId,
@@ -110,70 +133,60 @@ async function resumeEcobeeProgram({ thermostatId }) {
     payload: {
       functions: [
         {
-          type: "resumeProgram"
+          type: "resumeProgram",
+          params: {
+            resumeAll: false
+          }
         }
       ]
     }
   });
 }
 
-async function getEcobeeThermostat({ thermostatId }) {
-  if (!ECOBEE_CLIENT_ID || !ECOBEE_ACCESS_TOKEN || !ECOBEE_REFRESH_TOKEN || !thermostatId) {
-    throw new Error("Ecobee credentials are not configured. Thermostat ID is required.");
+async function getEcobeeThermostat({
+  thermostatId,
+  includeSettings = true,
+  includeRuntime = true,
+  includeSensors = true,
+  includeWeather = true,
+  includeEvents = true,
+  includeEquipmentStatus = true
+}) {
+  const result = await executeEcobeeRequest({
+    thermostatId,
+    request: (token) => getEcobeeThermostatWithToken({
+      token,
+      thermostatId,
+      includeSettings,
+      includeRuntime,
+      includeSensors,
+      includeWeather,
+      includeEvents,
+      includeEquipmentStatus
+    }),
+    requestErrorLabel: "Ecobee status request failed",
+    retryErrorLabel: "Ecobee status retry failed"
+  });
+  if (!result.thermostat) {
+    throw new Error("Ecobee did not return the requested thermostat.");
   }
-
-  let token = ECOBEE_ACCESS_TOKEN;
-  let result = await getEcobeeThermostatWithToken({ token, thermostatId });
-
-  if (result.ok) return result.thermostat;
-
-  const bodyText = result.text || "";
-  const expired = result.status === 401
-    || bodyText.includes('"code":14')
-    || bodyText.toLowerCase().includes("authentication token has expired");
-
-  if (!expired) {
-    throw new Error(`Ecobee status request failed: ${result.status} ${bodyText}`);
-  }
-
-  const refreshed = await refreshEcobeeToken();
-  token = refreshed.access_token;
-  result = await getEcobeeThermostatWithToken({ token, thermostatId });
-
-  if (!result.ok) {
-    throw new Error(`Ecobee status retry failed: ${result.status} ${result.text || ""}`);
-  }
-
   return result.thermostat;
 }
 
 async function getEcobeeThermostatSummary({ thermostatId }) {
-  if (!ECOBEE_CLIENT_ID || !ECOBEE_ACCESS_TOKEN || !ECOBEE_REFRESH_TOKEN || !thermostatId) {
-    throw new Error("Ecobee credentials are not configured. Thermostat ID is required.");
+  const cacheKey = String(thermostatId || "").trim();
+  const cached = ecobeeSummaryCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < ECOBEE_SUMMARY_CACHE_MS) {
+    return cached.summary;
   }
 
-  let token = ECOBEE_ACCESS_TOKEN;
-  let result = await getEcobeeThermostatSummaryWithToken({ token, thermostatId });
-
-  if (result.ok) return result.summary;
-
-  const bodyText = result.text || "";
-  const expired = result.status === 401
-    || bodyText.includes('"code":14')
-    || bodyText.toLowerCase().includes("authentication token has expired");
-
-  if (!expired) {
-    throw new Error(`Ecobee summary request failed: ${result.status} ${bodyText}`);
-  }
-
-  const refreshed = await refreshEcobeeToken();
-  token = refreshed.access_token;
-  result = await getEcobeeThermostatSummaryWithToken({ token, thermostatId });
-
-  if (!result.ok) {
-    throw new Error(`Ecobee summary retry failed: ${result.status} ${result.text || ""}`);
-  }
-
+  const result = await executeEcobeeRequest({
+    thermostatId,
+    request: (token) => getEcobeeThermostatSummaryWithToken({ token, thermostatId }),
+    requestErrorLabel: "Ecobee summary request failed",
+    retryErrorLabel: "Ecobee summary retry failed"
+  });
+  ecobeeSummaryCache.set(cacheKey, { cachedAt: Date.now(), summary: result.summary });
   return result.summary;
 }
 
@@ -185,49 +198,67 @@ async function getEcobeeRuntimeReport({
   endInterval = 287,
   columns = ""
 }) {
-  if (!ECOBEE_CLIENT_ID || !ECOBEE_ACCESS_TOKEN || !ECOBEE_REFRESH_TOKEN || !thermostatId) {
+  const result = await executeEcobeeRequest({
+    thermostatId,
+    request: (token) => getEcobeeRuntimeReportWithToken({
+      token,
+      thermostatId,
+      startDate,
+      endDate,
+      startInterval,
+      endInterval,
+      columns
+    }),
+    requestErrorLabel: "Ecobee runtime report request failed",
+    retryErrorLabel: "Ecobee runtime report retry failed"
+  });
+  return result.report;
+}
+
+async function executeEcobeeRequest({
+  thermostatId,
+  request,
+  requestErrorLabel,
+  retryErrorLabel
+}) {
+  if (!ECOBEE_CLIENT_ID || !ECOBEE_REFRESH_TOKEN || !thermostatId) {
     throw new Error("Ecobee credentials are not configured. Thermostat ID is required.");
   }
 
-  let token = ECOBEE_ACCESS_TOKEN;
-  let result = await getEcobeeRuntimeReportWithToken({
-    token,
-    thermostatId,
-    startDate,
-    endDate,
-    startInterval,
-    endInterval,
-    columns
-  });
+  let token = activeEcobeeAccessToken;
+  if (!token) token = await refreshEcobeeAccessToken("");
+  let result = null;
 
-  if (result.ok) return result.report;
-
-  const bodyText = result.text || "";
-  const expired = result.status === 401
-    || bodyText.includes('"code":14')
-    || bodyText.toLowerCase().includes("authentication token has expired");
-
-  if (!expired) {
-    throw new Error(`Ecobee runtime report request failed: ${result.status} ${bodyText}`);
+  for (let attempt = 0; attempt < ECOBEE_AUTH_ATTEMPTS; attempt += 1) {
+    result = await request(token);
+    if (result.ok) return result;
+    if (!isExpiredEcobeeResponse(result)) {
+      throw new Error(`${requestErrorLabel}: ${result.status} ${result.text || ""}`);
+    }
+    if (attempt < ECOBEE_AUTH_ATTEMPTS - 1) {
+      token = await refreshEcobeeAccessToken(token);
+    }
   }
 
-  const refreshed = await refreshEcobeeToken();
-  token = refreshed.access_token;
-  result = await getEcobeeRuntimeReportWithToken({
-    token,
-    thermostatId,
-    startDate,
-    endDate,
-    startInterval,
-    endInterval,
-    columns
-  });
+  throw new Error(`${retryErrorLabel}: ${result?.status || 0} ${result?.text || ""}`);
+}
 
-  if (!result.ok) {
-    throw new Error(`Ecobee runtime report retry failed: ${result.status} ${result.text || ""}`);
+async function refreshEcobeeAccessToken(expiredToken) {
+  if (activeEcobeeAccessToken && activeEcobeeAccessToken !== expiredToken) {
+    return activeEcobeeAccessToken;
   }
+  if (ecobeeRefreshPromise) return ecobeeRefreshPromise;
 
-  return result.report;
+  const refreshRequest = refreshEcobeeToken().then((body) => {
+    activeEcobeeAccessToken = body.access_token;
+    return activeEcobeeAccessToken;
+  });
+  ecobeeRefreshPromise = refreshRequest;
+  try {
+    return await refreshRequest;
+  } finally {
+    if (ecobeeRefreshPromise === refreshRequest) ecobeeRefreshPromise = null;
+  }
 }
 
 async function postEcobeePayload({ token, thermostatId, payload }) {
@@ -249,35 +280,36 @@ async function postEcobeePayload({ token, thermostatId, payload }) {
   const text = await response.text();
   const body = parseJson(text);
   return {
-    ok: response.ok && Number(body?.status?.code || 0) === 0,
+    ok: response.ok && Number(body?.status?.code) === 0,
     status: response.status,
     text
   };
 }
 
-async function getEcobeeThermostatWithToken({ token, thermostatId }) {
+async function getEcobeeThermostatWithToken({
+  token,
+  thermostatId,
+  includeSettings,
+  includeRuntime,
+  includeSensors,
+  includeWeather,
+  includeEvents,
+  includeEquipmentStatus
+}) {
   const query = encodeURIComponent(JSON.stringify({
     selection: {
       selectionType: "thermostats",
       selectionMatch: thermostatId,
-      includeSettings: true,
-      includeRuntime: true,
-      includeSensors: true,
-      includeWeather: true,
-      includeEvents: true,
-      includeEquipmentStatus: true
+      includeSettings,
+      includeRuntime,
+      includeSensors,
+      includeWeather,
+      includeEvents,
+      includeEquipmentStatus
     }
   }));
 
-  let result = await fetchEcobeeThermostatQuery({ token, query, queryParam: "json" });
-  if (!result.ok) {
-    const fallback = await fetchEcobeeThermostatQuery({ token, query, queryParam: "body" });
-    if (fallback.ok || !isExpiredEcobeeResponse(result)) {
-      result = fallback;
-    }
-  }
-
-  return result;
+  return fetchEcobeeThermostatQuery({ token, query, queryParam: "json" });
 }
 
 async function getEcobeeThermostatSummaryWithToken({ token, thermostatId }) {
@@ -289,15 +321,7 @@ async function getEcobeeThermostatSummaryWithToken({ token, thermostatId }) {
     }
   }));
 
-  let result = await fetchEcobeeThermostatSummaryQuery({ token, query, queryParam: "json", thermostatId });
-  if (!result.ok) {
-    const fallback = await fetchEcobeeThermostatSummaryQuery({ token, query, queryParam: "body", thermostatId });
-    if (fallback.ok || !isExpiredEcobeeResponse(result)) {
-      result = fallback;
-    }
-  }
-
-  return result;
+  return fetchEcobeeThermostatSummaryQuery({ token, query, queryParam: "json", thermostatId });
 }
 
 async function fetchEcobeeThermostatQuery({ token, query, queryParam }) {
@@ -312,7 +336,7 @@ async function fetchEcobeeThermostatQuery({ token, query, queryParam }) {
   const text = await response.text();
   const body = parseJson(text);
   return {
-    ok: response.ok && Number(body?.status?.code || 0) === 0,
+    ok: response.ok && Number(body?.status?.code) === 0,
     status: response.status,
     text,
     thermostat: Array.isArray(body?.thermostatList) ? body.thermostatList[0] : null
@@ -331,7 +355,7 @@ async function fetchEcobeeThermostatSummaryQuery({ token, query, queryParam, the
   const text = await response.text();
   const body = parseJson(text);
   return {
-    ok: response.ok && Number(body?.status?.code || 0) === 0,
+    ok: response.ok && Number(body?.status?.code) === 0,
     status: response.status,
     text,
     summary: parseThermostatSummary(body, thermostatId)
@@ -359,14 +383,7 @@ async function getEcobeeRuntimeReportWithToken({
     columns
   }));
 
-  let result = await fetchEcobeeRuntimeReportQuery({ token, query, queryParam: "json" });
-  if (!result.ok) {
-    const fallback = await fetchEcobeeRuntimeReportQuery({ token, query, queryParam: "body" });
-    if (fallback.ok || !isExpiredEcobeeResponse(result)) {
-      result = fallback;
-    }
-  }
-  return result;
+  return fetchEcobeeRuntimeReportQuery({ token, query, queryParam: "body" });
 }
 
 async function fetchEcobeeRuntimeReportQuery({ token, query, queryParam }) {
@@ -381,7 +398,7 @@ async function fetchEcobeeRuntimeReportQuery({ token, query, queryParam }) {
   const text = await response.text();
   const body = parseJson(text);
   return {
-    ok: response.ok && Number(body?.status?.code || 0) === 0,
+    ok: response.ok && Number(body?.status?.code) === 0,
     status: response.status,
     text,
     report: body
@@ -418,8 +435,20 @@ function findCsvRowForThermostat(rows, thermostatId) {
 function isExpiredEcobeeResponse(result) {
   const text = result?.text || "";
   return result?.status === 401
-    || text.includes('"code":14')
+    || /"code"\s*:\s*14(?:\D|$)/.test(text)
     || text.toLowerCase().includes("authentication token has expired");
+}
+
+function currentHoldTemperatures(thermostat) {
+  const runtime = thermostat?.runtime || {};
+  const heatRange = validRange(runtime.desiredHeatRange, [450, 790]);
+  const coolRange = validRange(runtime.desiredCoolRange, [650, 920]);
+  const desiredHeat = Number(runtime.desiredHeat || 0) || heatRange[0];
+  const desiredCool = Number(runtime.desiredCool || 0) || coolRange[1];
+  return {
+    heatHoldTemp: clamp(desiredHeat, heatRange),
+    coolHoldTemp: clamp(desiredCool, coolRange)
+  };
 }
 
 async function refreshEcobeeToken() {
@@ -486,5 +515,6 @@ module.exports = {
   resumeEcobeeProgram,
   setEcobeeFanHold,
   setEcobeeHvacMode,
-  setEcobeeTemperatureHold
+  setEcobeeTemperatureHold,
+  stopEcobeeHvac
 };
