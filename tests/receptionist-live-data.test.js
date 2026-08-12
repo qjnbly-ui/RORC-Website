@@ -147,17 +147,40 @@ test("missing partial live fields are never reported as zero", () => {
 
 test("answer generation retries with the fallback model and never emits the blanket apology", async () => {
   const models = [];
+  const payloads = [];
   const answer = await receptionist.answer("Tell me about RORC.", [], "brief", {}, {
     apiKey: "test-key",
     liveSnapshot: snapshot(),
     fetch: async (_url, options) => {
-      const model = JSON.parse(options.body).model;
+      const payload = JSON.parse(options.body);
+      const model = payload.model;
+      payloads.push(payload);
       models.push(model);
       if (models.length === 1) return response({ error: { message: "primary unavailable" } }, false);
       return response({ choices: [{ message: { content: "RORC is a community recreation center in Bly, Oregon." } }] });
     },
   });
   assert.deepEqual(models, ["openai/gpt-oss-120b", "openai/gpt-oss-20b"]);
+  assert.equal(payloads[0].reasoning_effort, "low");
+  assert.equal(payloads[0].max_completion_tokens, 622);
+  assert.equal(payloads[0].max_tokens, undefined);
   assert.equal(answer, "RORC is a community recreation center in Bly, Oregon.");
   assert.doesNotMatch(answer, /sorry|try again/i);
+});
+
+test("answer generation never speaks an explicitly truncated model response", async () => {
+  let attempts = 0;
+  const generated = await receptionist.answer("Tell me about RORC.", [], "brief", {}, {
+    apiKey: "test-key",
+    liveSnapshot: snapshot(),
+    fetch: async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return response({ choices: [{ finish_reason: "length", message: { content: "I don’t have" } }] });
+      }
+      return response({ choices: [{ finish_reason: "stop", message: { content: "RORC is a community recreation center in Bly, Oregon." } }] });
+    },
+  });
+  assert.equal(attempts, 2);
+  assert.equal(generated, "RORC is a community recreation center in Bly, Oregon.");
 });

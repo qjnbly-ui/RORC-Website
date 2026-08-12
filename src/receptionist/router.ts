@@ -52,6 +52,7 @@ const ROUTER_PROMPT = [
   "Use live_data facility for current room climate, occupancy, check-in counts, member counts, or historical activity patterns.",
   "Use live_data events for schedules, facility hours, calendar questions, or rental availability; use both when both sources help.",
   "Use busiest_time or quietest_time for those specific traffic questions, and activity_trends for broader traffic-pattern questions.",
+  "Route traffic questions to the matching live fact even when the caller asks about a period broader than the available data; the answer layer will state the measurement window it actually has.",
   "Set live_fact to the single best matching live fact, or none when live data is only supporting context.",
   "A question such as 'Is the gym available for rent?' is simple_question, not start_form.",
   "A question about rental prices or rules is not start_form unless the caller says they want to apply, book, rent, or fill out the form.",
@@ -91,7 +92,8 @@ async function classifyIntent(question: string, history: HistoryItem[] = [], opt
     body: JSON.stringify({
       model: String(options.model || process.env.GROQ_RECEPTIONIST_ROUTER_MODEL || "openai/gpt-oss-20b"),
       temperature: 0,
-      max_tokens: 260,
+      reasoning_effort: "low",
+      max_completion_tokens: 640,
       response_format: { type: "json_schema", json_schema: ROUTER_SCHEMA },
       messages: [
         { role: "system", content: ROUTER_PROMPT },
@@ -106,6 +108,8 @@ async function classifyIntent(question: string, history: HistoryItem[] = [], opt
     error.status = response.status;
     throw error;
   }
+  const finishReason = data?.choices?.[0]?.finish_reason;
+  if (finishReason && finishReason !== "stop") throw new Error(`Intent router response was incomplete (${finishReason}).`);
   let parsed;
   try { parsed = JSON.parse(data?.choices?.[0]?.message?.content || ""); }
   catch { throw new Error("Intent router returned invalid JSON."); }

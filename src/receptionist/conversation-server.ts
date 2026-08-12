@@ -40,7 +40,7 @@ interface KnowledgePage { title: string; route: string; text: string; index: num
 const siteKnowledge = require("../../api/rorc-site-knowledge.json") as { contentHash?: string; generatedAt?: string; pages: KnowledgePage[] };
 
 const KNOWLEDGE_VERSION = String(siteKnowledge.contentHash || siteKnowledge.generatedAt || "unknown").slice(0, 80);
-const PROMPT_VERSION = "rorc-receptionist-2026-08-12-review-v1";
+const PROMPT_VERSION = "rorc-receptionist-2026-08-12-feedback-v2";
 const ROUTER_MODEL = String(process.env.GROQ_RECEPTIONIST_ROUTER_MODEL || "openai/gpt-oss-20b");
 const ANSWER_MODEL = String(process.env.GROQ_RECEPTIONIST_MODEL || "openai/gpt-oss-120b");
 const ANSWER_FALLBACK_MODEL = String(process.env.GROQ_RECEPTIONIST_FALLBACK_MODEL || ROUTER_MODEL);
@@ -52,6 +52,9 @@ const RULES = [
   "Live facility and event data is supplied on every public-information request. Use it whenever it answers the caller, regardless of the caller's wording.",
   "When live data is marked stale, describe it as the latest recorded information rather than current information.",
   "Answer only the question the caller actually asked. For a simple yes-or-no question, answer in one or two short sentences.",
+  "Use recent conversation context for follow-up questions. If the caller asks you to repeat yourself, repeat the most recent answer instead of introducing new information.",
+  "Treat casual greetings such as what's up as conversation, not as requests for temperature, occupancy, schedules, or other live facility readings.",
+  "If the supplied information cannot answer the exact question, say that clearly in a complete sentence and give the closest relevant information that is available. Never stop in the middle of a sentence.",
   "Give a direct, useful answer before suggesting a page. Explain steps, requirements, prices, policies, hours, events, rentals, memberships, projects, sponsorships, and other public information only when the caller asks for those details.",
   "Do not recite an entire webpage or add unrelated requirements. For example, do not explain alcohol insurance, every rental rule, or the full application process unless the caller asks about it.",
   "Keep ordinary answers to one to four clear spoken sentences, but use more when the caller requests detail. Never use markdown, bullets, raw URLs, or symbols. Say the website as Ruth Obenchain R C dot com.",
@@ -227,6 +230,15 @@ function priorAnswer(history: HistoryItem[] = []): string {
   return [...history].reverse().find((item) => item?.role === "assistant" && item.content)?.content || "";
 }
 
+function repeatConversationReply(question: string, history: HistoryItem[] = []): string {
+  const text = String(question || "").replace(/[.!?]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+  const asksToRepeat = /^(?:please )?(?:repeat|repeat that|say that again|could you repeat(?: that)?|can you repeat(?: that)?|what did you say)(?: (?:please|you were cutting out|i (?:did not|didn't|could not|couldn't) (?:hear|catch)(?: that)?))?$/.test(text)
+    || /\b(?:repeat|say that again)\b.*\b(?:cutting out|did not hear|didn't hear|could not hear|couldn't hear|did not catch|didn't catch)\b/.test(text);
+  if (!asksToRepeat) return "";
+  const previous = priorAnswer(history);
+  return previous || "I’m sorry—I do not have a previous answer to repeat. Please ask the question again.";
+}
+
 function isReferentialSmsRequest(question: string): boolean {
   const text = String(question || "");
   return /\b(send|share|forward|text|message)\b.{0,80}\b(that|it|this|the link|that link|this link)\b/i.test(text)
@@ -251,16 +263,19 @@ interface AnswerOptions {
 }
 async function requestAnswerModel({ key, models, question, history, detailLevel, siteContext, liveContext, fetcher = fetch }: AnswerModelRequest): Promise<string> {
   const limits = responseLimits(question, detailLevel);
+  const completionTokenBudget = limits.maxTokens + 512;
   let lastError;
   for (const model of [...new Set(models.filter(Boolean))]) {
     try {
       const response = await fetcher("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model, temperature: 0.1, max_tokens: limits.maxTokens, messages: [{ role: "system", content: `${RULES}\n\nCURRENT PUBLIC RORC WEBSITE CONTEXT:\n${siteContext}${liveContext ? `\n\n${liveContext}` : ""}\n\nQUESTION-SPECIFIC RESPONSE MODE: ${responseModeInstruction(question, detailLevel)}` }, ...history.slice(-8), { role: "user", content: question }] }),
+        body: JSON.stringify({ model, temperature: 0.1, reasoning_effort: "low", max_completion_tokens: completionTokenBudget, messages: [{ role: "system", content: `${RULES}\n\nCURRENT PUBLIC RORC WEBSITE CONTEXT:\n${siteContext}${liveContext ? `\n\n${liveContext}` : ""}\n\nQUESTION-SPECIFIC RESPONSE MODE: ${responseModeInstruction(question, detailLevel)}` }, ...history.slice(-8), { role: "user", content: question }] }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data?.error?.message || "AI response failed");
+      const finishReason = data?.choices?.[0]?.finish_reason;
+      if (finishReason && finishReason !== "stop") throw new Error(`AI response was incomplete (${finishReason}).`);
       const reply = trimAnswerForQuestion(data?.choices?.[0]?.message?.content, question, detailLevel);
       if (reply) return reply;
       throw new Error("AI response was empty");
@@ -694,6 +709,15 @@ wss.on("connection", (socket: WebSocketType) => {
       speech(ws, "No problem. What else can I help you with?");
       return;
     }
+    const repeatedReply = repeatConversationReply(question, ws.history);
+    if (repeatedReply) {
+      ws.history.push({ role: "user", content: question }, { role: "assistant", content: repeatedReply });
+      ws.history = ws.history.slice(-10);
+      ws.finalOutcome = "answered";
+      speech(ws, repeatedReply);
+      await track(ws, { type: "contextual_reply", metadata: { kind: "repeat" } });
+      return;
+    }
     ws.processing = true;
     try {
       const route = await routeIntent(ws, question);
@@ -767,6 +791,7 @@ module.exports.trimAnswerForQuestion = trimAnswerForQuestion;
 module.exports.isSmsRequest = isSmsRequest;
 module.exports.smsDestination = smsDestination;
 module.exports.smsMessageFor = smsMessageFor;
+module.exports.repeatConversationReply = repeatConversationReply;
 module.exports.isReferentialSmsRequest = isReferentialSmsRequest;
 module.exports.normalizeFormAnswer = normalizeFormAnswer;
 module.exports.spokenEmail = spokenEmail;

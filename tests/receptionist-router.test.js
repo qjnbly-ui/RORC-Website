@@ -31,6 +31,9 @@ test("strict router request uses the required JSON schema", async () => {
   });
   assert.equal(result.intent, "simple_question");
   assert.equal(payload.model, "openai/gpt-oss-20b");
+  assert.equal(payload.reasoning_effort, "low");
+  assert.equal(payload.max_completion_tokens, 640);
+  assert.equal(payload.max_tokens, undefined);
   assert.equal(payload.response_format.type, "json_schema");
   assert.equal(payload.response_format.json_schema.strict, true);
   assert.equal(payload.response_format.json_schema.schema.additionalProperties, false);
@@ -40,6 +43,19 @@ test("strict router request uses the required JSON schema", async () => {
 
 test("invalid structured output is rejected", () => {
   assert.throws(() => router.validateIntentResult({ intent: "unknown", confidence: 1 }), /unknown intent/);
+});
+
+test("router rejects an explicitly truncated structured completion", async () => {
+  await assert.rejects(
+    router.classifyIntent("When is the gym busiest?", [], {
+      apiKey: "test-key",
+      fetch: async () => ({
+        ok: true,
+        json: async () => ({ choices: [{ finish_reason: "length", message: { content: '{"intent":"simple_question"' } }] }),
+      }),
+    }),
+    /incomplete \(length\)/
+  );
 });
 
 test("low-confidence actions fall back narrowly and require clarification when ambiguous", () => {

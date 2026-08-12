@@ -67,6 +67,16 @@ test("referential texts preserve membership signup intent from conversation hist
   assert.match(message.body, /^RORC Membership Signup/);
 });
 
+test("repeat requests replay the prior answer instead of inventing new facility facts", () => {
+  const history = [
+    { role: "user", content: "When is the busiest time?" },
+    { role: "assistant", content: "The busiest recorded period is Sunday at 6 PM." },
+  ];
+  assert.equal(receptionist.repeatConversationReply("Repeat. Cutting out.", history), history[1].content);
+  assert.equal(receptionist.repeatConversationReply("Could you repeat that?", history), history[1].content);
+  assert.equal(receptionist.repeatConversationReply("What's up?", history), "");
+});
+
 test("live transfer requires an explicit approved ConversationRelay handoff", () => {
   assert.deepEqual(transfer.handoffData('{"reasonCode":"approved-rorc-transfer","summary":"Rental help"}'), {
     reasonCode: "approved-rorc-transfer",

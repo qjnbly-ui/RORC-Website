@@ -74,7 +74,10 @@ export function usefulProviderFallback(route: Partial<IntentResult>, snapshot: L
     if (event) return event;
   }
   const activity = facilityActivity(snapshot);
-  if (activity && hasLiveNumber(activity.roomTemperatureF)) {
+  if (["busiest_time", "quietest_time", "activity_trends"].includes(String(route.live_fact || "none"))) {
+    return "RORC does not have enough recent check-in history to identify a reliable busy-time pattern right now.";
+  }
+  if (["facility", "both"].includes(route.live_data || "none") && activity && hasLiveNumber(activity.roomTemperatureF)) {
     const count = hasLiveNumber(activity.occupancyCount) ? Number(activity.occupancyCount) : null;
     const stale = snapshot.facility?.freshness === "stale";
     return `The latest${stale ? " recorded" : ""} RORC facility reading is ${Math.round(Number(activity.roomTemperatureF))} degrees Fahrenheit${count === null ? "" : stale ? `, and showed ${count} ${count === 1 ? "person" : "people"} signed in` : `, with ${count} ${count === 1 ? "person" : "people"} currently signed in`}.`;
