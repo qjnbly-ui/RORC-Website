@@ -27,6 +27,7 @@ function cleanupOperations(now = new Date()) {
   const lockoutCutoff = new Date(now.getTime() - 30 * 86400000).toISOString();
   return [
     { path: `rorc_receptionist_form_drafts?expires_at=lt.${encodeURIComponent(nowIso)}`, method: "DELETE" },
+    { path: `rorc_receptionist_review_items?expires_at=lt.${encodeURIComponent(nowIso)}`, method: "DELETE" },
     { path: `rorc_receptionist_events?utterance_text=not.is.null&utterance_expires_at=lt.${encodeURIComponent(nowIso)}`, method: "PATCH", body: { utterance_text: null, utterance_expires_at: null } },
     { path: `rorc_receptionist_events?created_at=lt.${encodeURIComponent(metadataCutoff)}`, method: "DELETE" },
     { path: `rorc_receptionist_calls?started_at=lt.${encodeURIComponent(metadataCutoff)}`, method: "DELETE" },

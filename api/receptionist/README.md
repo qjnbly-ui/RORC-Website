@@ -50,9 +50,15 @@ The receptionist validates Twilio webhooks and answers from indexed public RORC 
 
 It screens requests for Quentin, asks what the call concerns when needed, and requires clear confirmation before transferring. For account questions, it matches the caller's number to one RORC member account and verifies the existing four-digit account PIN through keypad entry. Three failed entries within 15 minutes lock that caller's account checks for 30 minutes across calls. When a caller explicitly requests a text/link or chooses guided form help after being told a link will be sent, that request is recorded as voice consent and the receptionist sends without asking for a second confirmation. It then says what it sent. START, STOP, and HELP remain supported by text. Account information is read-only and the receptionist does not trigger heater controls.
 
-Call analytics use an HMAC caller identifier rather than a stored phone number. Top-level wording used by the router is retained for seven days, while structured call metadata is retained for 180 days. PIN digits, DTMF input, guided-form answers, passwords, signatures, and payment details are never written to receptionist analytics. Account Managers can review aggregate reliability and recent routing issues in the RORC App. The daily cleanup endpoint removes expired drafts and stale analytics; it is authenticated by `CRON_SECRET`.
+Call analytics use an HMAC caller identifier rather than a stored phone number. Top-level wording used by the router is retained for seven days, while structured call metadata is retained for 180 days. PIN digits, DTMF input, guided-form answers, passwords, signatures, and payment details are never written to receptionist analytics. Low-confidence, fallback, clarification, unresolved, and failed turns enter an Account Manager-only review queue with the caller wording and receptionist response; those review items also expire after seven days. Ordinary successful answers are not copied into the queue. The daily cleanup endpoint removes expired drafts, review items, and stale analytics; it is authenticated by `CRON_SECRET`.
 
 Public website knowledge is rebuilt deterministically on every Vercel deployment through the `vercel-build` script. Run `npm run check:receptionist-knowledge` to detect a stale committed artifact and `npm run eval:receptionist` for the opt-in live Groq intent evaluation.
+
+## Controlled improvement reviews
+
+The **AI Receptionist** page lets an Account Manager dismiss a flagged turn as correct or record the issue and the behavior that should have occurred. A correction changes no production prompt, workflow, or model automatically. The manager can separately opt in to a persistent regression case after sanitizing the reusable caller wording and adding an expected intent, required answer phrases, or forbidden answer phrases.
+
+Run `npm run sync:receptionist-feedback-evals` with server-side Supabase access to refresh `tests/fixtures/receptionist-feedback-evals.json` from approved cases. Commit that reviewed fixture, then run `npm run eval:receptionist-feedback` with `GROQ_API_KEY` before releasing a related receptionist change. Call records include the prompt, router model, answer model, and knowledge versions so before-and-after results can be attributed to the correct release.
 
 ## Safe changes and rollout
 

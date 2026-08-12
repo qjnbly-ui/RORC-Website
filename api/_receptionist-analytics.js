@@ -63,7 +63,15 @@ function errorCode(error) {
   return providerCode || (status ? `http_${status}` : "internal_error");
 }
 
-async function startCall({ callSid, phone, recognized = false, knowledgeVersion = "" }) {
+async function startCall({
+  callSid,
+  phone,
+  recognized = false,
+  knowledgeVersion = "",
+  promptVersion = "",
+  routerModel = "",
+  answerModel = "",
+}) {
   const key = callerKey(phone);
   if (!configured() || !callSid || !key) return null;
   await rest("rorc_receptionist_calls?on_conflict=call_sid", {
@@ -74,10 +82,41 @@ async function startCall({ callSid, phone, recognized = false, knowledgeVersion 
       caller_key: key,
       caller_recognized: Boolean(recognized),
       knowledge_version: String(knowledgeVersion || "").slice(0, 80) || null,
+      prompt_version: String(promptVersion || "").slice(0, 80) || null,
+      router_model: String(routerModel || "").slice(0, 120) || null,
+      answer_model: String(answerModel || "").slice(0, 120) || null,
       started_at: new Date().toISOString(),
     }),
   });
   return key;
+}
+
+async function recordReviewItem(callSid, item = {}) {
+  if (!SERVICE_KEY || !callSid) return null;
+  const reasons = [...new Set((Array.isArray(item.reasons) ? item.reasons : [])
+    .map((value) => String(value || "").slice(0, 80))
+    .filter(Boolean))];
+  const utterance = String(item.utterance || "").trim().slice(0, 800);
+  const response = String(item.response || "").trim().slice(0, 2400);
+  if (!reasons.length || !utterance || !response) return null;
+  const rows = await rest("rorc_receptionist_review_items", {
+    method: "POST",
+    headers: headers("return=representation"),
+    body: JSON.stringify({
+      call_sid: String(callSid).slice(0, 80),
+      caller_utterance: utterance,
+      assistant_response: response,
+      review_reasons: reasons,
+      intent: INTENTS.has(item.intent) ? item.intent : null,
+      confidence: Number.isFinite(item.confidence) ? Math.max(0, Math.min(1, item.confidence)) : null,
+      route_source: ["model", "fallback"].includes(item.routeSource) ? item.routeSource : null,
+      knowledge_version: String(item.knowledgeVersion || "").slice(0, 80) || null,
+      prompt_version: String(item.promptVersion || "").slice(0, 80) || null,
+      router_model: String(item.routerModel || "").slice(0, 120) || null,
+      answer_model: String(item.answerModel || "").slice(0, 120) || null,
+    }),
+  });
+  return rows?.[0] || null;
 }
 
 async function updateCall(callSid, patch = {}) {
@@ -173,6 +212,7 @@ module.exports = {
   pinStatus,
   recordEvent,
   recordPinAttempt,
+  recordReviewItem,
   rest,
   safeMetadata,
   startCall,

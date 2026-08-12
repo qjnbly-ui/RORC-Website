@@ -2504,15 +2504,157 @@ async function fetchReceptionistAnalytics(range = "30d") {
   return body;
 }
 
+async function fetchReceptionistReviews() {
+  const token = currentAuthSession?.access_token || "";
+  const response = await fetch("/api/receptionist-reviews", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw createHttpError(body.error || "Could not load receptionist reviews.", response.status);
+  return body;
+}
+
+const receptionistIntentOptions = [
+  ["", "No intent assertion"],
+  ["simple_question", "Simple question"],
+  ["detailed_explanation", "Detailed explanation"],
+  ["send_information", "Send information"],
+  ["start_form", "Start form"],
+  ["check_account", "Check account"],
+  ["request_person", "Request person"]
+];
+
+function renderReceptionistReviewCard(review) {
+  const reasonLabels = (review.reasons || []).map(receptionistMetricLabel).join(" · ");
+  return `
+    <form class="receptionist-review-card" data-receptionist-review-id="${escapeAttribute(review.id)}">
+      <header>
+        <div>
+          <strong>${escapeHtml(receptionistMetricLabel(review.intent || "Review"))}</strong>
+          <small>${escapeHtml(reasonLabels || "Flagged turn")} · ${escapeHtml(formatDateTime(review.createdAt))}</small>
+        </div>
+        <span class="receptionist-confidence">${review.confidence === null ? "No score" : `Confidence ${Number(review.confidence).toFixed(2)}`}</span>
+      </header>
+      <div class="receptionist-review-exchange">
+        <p><span>Caller</span>${escapeHtml(review.callerUtterance)}</p>
+        <p><span>Receptionist</span>${escapeHtml(review.assistantResponse)}</p>
+      </div>
+      <details class="receptionist-review-details">
+        <summary>Correct this turn</summary>
+        <div class="receptionist-review-form-grid">
+          <label>Issue
+            <select data-review-category required>
+              <option value="">Choose an issue</option>
+              <option value="wrong_information">Wrong information</option>
+              <option value="wrong_action">Wrong action or routing</option>
+              <option value="confusing">Confusing answer</option>
+              <option value="unresolved">Unresolved request</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>What should the receptionist have done?
+            <textarea data-review-expected rows="4" maxlength="2400" required></textarea>
+          </label>
+          <label class="receptionist-eval-toggle">
+            <input data-review-save-eval type="checkbox" />
+            Add a sanitized regression test
+          </label>
+          <div class="receptionist-eval-fields" data-review-eval-fields hidden>
+            <p>Remove names, phone numbers, account details, and other personal information before saving.</p>
+            <label>Reusable caller wording
+              <textarea data-review-eval-utterance rows="2" maxlength="800">${escapeHtml(review.callerUtterance)}</textarea>
+            </label>
+            <label>Expected routing
+              <select data-review-expected-intent>
+                ${receptionistIntentOptions.map(([value, label]) => `<option value="${value}" ${value === review.intent ? "selected" : ""}>${label}</option>`).join("")}
+              </select>
+            </label>
+            <label>Required answer phrases <small>One per line</small>
+              <textarea data-review-required-phrases rows="3" maxlength="2000"></textarea>
+            </label>
+            <label>Forbidden answer phrases <small>One per line</small>
+              <textarea data-review-forbidden-phrases rows="3" maxlength="2000"></textarea>
+            </label>
+          </div>
+          <p class="receptionist-review-result" data-review-result aria-live="polite"></p>
+          <div class="receptionist-review-actions">
+            <button type="button" data-review-correct>Mark answer correct</button>
+            <button type="submit">Save correction</button>
+          </div>
+        </div>
+      </details>
+    </form>
+  `;
+}
+
+async function saveReceptionistReview(form, markCorrect = false) {
+  const id = String(form?.dataset?.receptionistReviewId || "");
+  const result = form?.querySelector("[data-review-result]");
+  const submitButtons = [...(form?.querySelectorAll("button") || [])];
+  const saveAsEval = !markCorrect && Boolean(form.querySelector("[data-review-save-eval]")?.checked);
+  const payload = markCorrect ? {
+    id,
+    status: "dismissed",
+    issueCategory: "correct",
+    expectedBehavior: ""
+  } : {
+    id,
+    status: "corrected",
+    issueCategory: String(form.querySelector("[data-review-category]")?.value || ""),
+    expectedBehavior: String(form.querySelector("[data-review-expected]")?.value || "").trim(),
+    saveAsEval,
+    evalUtterance: String(form.querySelector("[data-review-eval-utterance]")?.value || "").trim(),
+    expectedIntent: String(form.querySelector("[data-review-expected-intent]")?.value || ""),
+    requiredPhrases: String(form.querySelector("[data-review-required-phrases]")?.value || ""),
+    forbiddenPhrases: String(form.querySelector("[data-review-forbidden-phrases]")?.value || "")
+  };
+  if (result) result.textContent = markCorrect ? "Marking correct…" : "Saving correction…";
+  submitButtons.forEach((button) => { button.disabled = true; });
+  try {
+    const token = currentAuthSession?.access_token || "";
+    const response = await fetch("/api/receptionist-reviews", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw createHttpError(body.error || "Could not save this review.", response.status);
+    await renderReceptionistAnalyticsPage();
+  } catch (error) {
+    if (result) result.textContent = error.message || "Could not save this review.";
+    submitButtons.forEach((button) => { button.disabled = false; });
+  }
+}
+
+function bindReceptionistReviewControls() {
+  document.querySelectorAll("[data-receptionist-review-id]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      saveReceptionistReview(form, false);
+    });
+    form.querySelector("[data-review-correct]")?.addEventListener("click", () => saveReceptionistReview(form, true));
+    form.querySelector("[data-review-save-eval]")?.addEventListener("change", (event) => {
+      const fields = form.querySelector("[data-review-eval-fields]");
+      if (fields) fields.hidden = !event.target.checked;
+    });
+  });
+}
+
 async function renderReceptionistAnalyticsPage() {
   if (!view) return;
   view.innerHTML = `<section class="empty-state"><p>Loading receptionist analytics…</p></section>`;
   try {
-    const data = await fetchReceptionistAnalytics(receptionistAnalyticsRange);
+    const [data, reviewData] = await Promise.all([
+      fetchReceptionistAnalytics(receptionistAnalyticsRange),
+      fetchReceptionistReviews()
+    ]);
     const summary = data.summary || {};
     const activity = data.activity || {};
     const latency = data.latency || {};
     const issues = Array.isArray(data.recentIssues) ? data.recentIssues : [];
+    const reviews = Array.isArray(reviewData.reviews) ? reviewData.reviews : [];
+    const pendingReviews = reviews.filter((review) => review.status === "pending");
+    const evalCases = Array.isArray(reviewData.evalCases) ? reviewData.evalCases : [];
     view.innerHTML = `
       <section class="receptionist-analytics-shell">
         <header class="receptionist-analytics-header">
@@ -2559,6 +2701,21 @@ async function renderReceptionistAnalyticsPage() {
             </div>
           </article>
         </div>
+        <article class="receptionist-review-queue">
+          <header>
+            <div>
+              <h3>Improvement review queue</h3>
+              <p>Correct flagged turns here. Only sanitized, explicitly approved examples become persistent regression tests.</p>
+            </div>
+            <div class="receptionist-review-counts">
+              <span><strong>${pendingReviews.length}</strong> pending</span>
+              <span><strong>${evalCases.filter((item) => item.enabled).length}</strong> test cases</span>
+            </div>
+          </header>
+          ${pendingReviews.length
+            ? `<div class="receptionist-review-list">${pendingReviews.map(renderReceptionistReviewCard).join("")}</div>`
+            : `<p class="receptionist-empty">No flagged turns need review.</p>`}
+        </article>
         <article class="receptionist-issues-card">
           <h3>Recent routing issues</h3>
           ${issues.length ? `<div class="receptionist-issues-list">${issues.map((issue) => `
@@ -2575,6 +2732,7 @@ async function renderReceptionistAnalyticsPage() {
       receptionistAnalyticsRange = event.target.value;
       renderReceptionistAnalyticsPage();
     });
+    bindReceptionistReviewControls();
   } catch (error) {
     renderRouteLoadError(routes.receptionistAnalytics, error);
   }

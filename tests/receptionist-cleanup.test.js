@@ -13,13 +13,14 @@ test("cleanup authorization requires the exact cron bearer token", () => {
   else process.env.CRON_SECRET = prior;
 });
 
-test("cleanup covers draft expiry, seven-day wording removal, metadata retention, and stale lockouts", () => {
+test("cleanup covers draft and review expiry, seven-day wording removal, metadata retention, and stale lockouts", () => {
   const { cleanupOperations } = require("../api/cleanup-receptionist-data");
   const operations = cleanupOperations(new Date("2026-08-07T12:00:00Z"));
-  assert.equal(operations.length, 5);
+  assert.equal(operations.length, 6);
   assert.match(operations[0].path, /form_drafts\?expires_at=lt\./);
-  assert.equal(operations[1].method, "PATCH");
-  assert.deepEqual(operations[1].body, { utterance_text: null, utterance_expires_at: null });
-  assert.match(decodeURIComponent(operations[2].path), /2026-02-08T12:00:00.000Z/);
-  assert.match(decodeURIComponent(operations[4].path), /2026-07-08T12:00:00.000Z/);
+  assert.match(operations[1].path, /review_items\?expires_at=lt\./);
+  assert.equal(operations[2].method, "PATCH");
+  assert.deepEqual(operations[2].body, { utterance_text: null, utterance_expires_at: null });
+  assert.match(decodeURIComponent(operations[3].path), /2026-02-08T12:00:00.000Z/);
+  assert.match(decodeURIComponent(operations[5].path), /2026-07-08T12:00:00.000Z/);
 });

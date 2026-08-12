@@ -29,6 +29,12 @@ test("human fallback is reserved for unresolved answers", () => {
   assert.equal(receptionist.replyNeedsHuman("I cannot confirm that from the website information."), true);
 });
 
+test("only risky or unresolved turns enter the review queue", () => {
+  assert.deepEqual(receptionist.reviewReasons({ source: "model", confidence: 0.9 }), []);
+  assert.deepEqual(receptionist.reviewReasons({ source: "fallback", confidence: 0.4 }), ["router_fallback", "low_confidence"]);
+  assert.deepEqual(receptionist.reviewReasons({ source: "model", confidence: 0.9 }, true), ["unresolved_answer"]);
+});
+
 test("natural requests to send information are recognized as SMS requests", () => {
   assert.equal(receptionist.isSmsRequest("Can you send me that link?"), true);
   assert.equal(receptionist.isSmsRequest("Please share the rental page with me."), true);

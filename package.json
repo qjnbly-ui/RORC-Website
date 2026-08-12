@@ -9,6 +9,8 @@
     "check:receptionist-knowledge": "node scripts/build-receptionist-knowledge.js --check",
     "vercel-build": "npm run build:receptionist-ts && npm run build:receptionist-knowledge && npm run build:supabase-client && npm run build:twilio-voice",
     "eval:receptionist": "node scripts/eval-receptionist-intents.js",
+    "eval:receptionist-feedback": "node scripts/eval-receptionist-feedback.js",
+    "sync:receptionist-feedback-evals": "node scripts/sync-receptionist-feedback-evals.js",
     "smoke:receptionist": "node scripts/smoke-receptionist.js",
     "test": "npm run build:receptionist-ts && node --test tests/*.test.js",
     "test:receptionist-coverage": "npm run build:receptionist-ts && node --test --experimental-test-coverage --test-coverage-include='.build/receptionist/**/*.js' --test-coverage-exclude='.build/receptionist/conversation-server.js' --test-coverage-lines=80 --test-coverage-branches=50 --test-coverage-functions=70 tests/receptionist*.test.js",

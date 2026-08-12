@@ -13,6 +13,7 @@ const {
   pinStatus,
   recordEvent,
   recordPinAttempt,
+  recordReviewItem,
   startCall,
   updateCall,
 } = require("../../api/_receptionist-analytics");
@@ -39,6 +40,11 @@ interface KnowledgePage { title: string; route: string; text: string; index: num
 const siteKnowledge = require("../../api/rorc-site-knowledge.json") as { contentHash?: string; generatedAt?: string; pages: KnowledgePage[] };
 
 const KNOWLEDGE_VERSION = String(siteKnowledge.contentHash || siteKnowledge.generatedAt || "unknown").slice(0, 80);
+const PROMPT_VERSION = "rorc-receptionist-2026-08-12-review-v1";
+const ROUTER_MODEL = String(process.env.GROQ_RECEPTIONIST_ROUTER_MODEL || "openai/gpt-oss-20b");
+const ANSWER_MODEL = String(process.env.GROQ_RECEPTIONIST_MODEL || "openai/gpt-oss-120b");
+const ANSWER_FALLBACK_MODEL = String(process.env.GROQ_RECEPTIONIST_FALLBACK_MODEL || ROUTER_MODEL);
+const ANSWER_MODEL_VERSION = `${ANSWER_MODEL}|fallback:${ANSWER_FALLBACK_MODEL}`.slice(0, 120);
 
 const RULES = [
   "You are the warm AI receptionist for the Ruth Obenchain Recreation Center, commonly called RORC, in Bly, Oregon.",
@@ -282,8 +288,8 @@ async function answer(question: string, history: HistoryItem[], detailLevel: Det
     return await requestAnswerModel({
       key,
       models: [
-        String(process.env.GROQ_RECEPTIONIST_MODEL || "openai/gpt-oss-120b"),
-        String(process.env.GROQ_RECEPTIONIST_FALLBACK_MODEL || process.env.GROQ_RECEPTIONIST_ROUTER_MODEL || "openai/gpt-oss-20b"),
+        ANSWER_MODEL,
+        ANSWER_FALLBACK_MODEL,
       ],
       question,
       history,
@@ -309,6 +315,44 @@ async function track(ws: ReceptionistSocket, event: Record<string, unknown>): Pr
     return await recordEvent(ws.callSid, event);
   } catch (error) {
     console.error("RORC receptionist analytics failed", error);
+    return null;
+  }
+}
+
+function reviewReasons(route: Partial<IntentResult> = {}, unresolved = false): string[] {
+  const reasons = [];
+  if (route.source === "fallback") reasons.push("router_fallback");
+  if (Number.isFinite(route.confidence) && Number(route.confidence) < 0.65) reasons.push("low_confidence");
+  if (route.needsClarification) reasons.push("needs_clarification");
+  if (unresolved) reasons.push("unresolved_answer");
+  return [...new Set(reasons)];
+}
+
+async function queueReview(
+  ws: ReceptionistSocket,
+  question: string,
+  response: string,
+  route: Partial<IntentResult> = {},
+  reasons: string[] = reviewReasons(route),
+): Promise<unknown> {
+  if (!reasons.length) return null;
+  try {
+    await ws.analyticsReady;
+    if (!ws.callerKey) return null;
+    return await recordReviewItem(ws.callSid, {
+      utterance: question,
+      response,
+      reasons,
+      intent: route.intent,
+      confidence: route.confidence,
+      routeSource: route.source,
+      knowledgeVersion: KNOWLEDGE_VERSION,
+      promptVersion: PROMPT_VERSION,
+      routerModel: ROUTER_MODEL,
+      answerModel: ANSWER_MODEL_VERSION,
+    });
+  } catch (error) {
+    console.error("RORC receptionist review queue failed", error);
     return null;
   }
 }
@@ -534,7 +578,14 @@ wss.on("connection", (socket: WebSocketType) => {
       ws.callSid = String(message.callSid || "");
       ws.fromNumber = String(message.from || "");
       ws.callerReady = getCallerAccount(ws.fromNumber).then((caller: any) => { ws.caller = caller; return caller; }).catch(() => null);
-      ws.analyticsReady = startCall({ callSid: ws.callSid, phone: ws.fromNumber, knowledgeVersion: KNOWLEDGE_VERSION })
+      ws.analyticsReady = startCall({
+        callSid: ws.callSid,
+        phone: ws.fromNumber,
+        knowledgeVersion: KNOWLEDGE_VERSION,
+        promptVersion: PROMPT_VERSION,
+        routerModel: ROUTER_MODEL,
+        answerModel: ANSWER_MODEL_VERSION,
+      })
         .then(async (key: string | null) => {
           ws.callerKey = key || "";
           const caller = await ws.callerReady;
@@ -647,37 +698,47 @@ wss.on("connection", (socket: WebSocketType) => {
     try {
       const route = await routeIntent(ws, question);
       if (route.needsClarification) {
-        speech(ws, "I want to make sure I take the right action. Are you asking for information, a text message, help with a form, private account information, or a person?");
+        const clarification = "I want to make sure I take the right action. Are you asking for information, a text message, help with a form, private account information, or a person?";
+        speech(ws, clarification);
+        await queueReview(ws, question, clarification, route);
         return;
       }
       if (route.intent === "check_account") {
         await beginAccountCheck(ws);
+        await queueReview(ws, question, ws.activeSpeech, route);
         return;
       }
       if (route.intent === "send_information") {
         await sendRequestedSms(ws, question);
         ws.finalOutcome = "sms_sent";
+        await queueReview(ws, question, ws.activeSpeech, route);
         return;
       }
       if (route.intent === "start_form") {
         await handleFormIntent(ws, route);
+        await queueReview(ws, question, ws.activeSpeech, route);
         return;
       }
       if (route.intent === "request_person") {
         await handlePersonIntent(ws, question);
+        await queueReview(ws, question, ws.activeSpeech, route);
         return;
       }
       const reply = await answerAndRemember(ws, question, route.intent === "detailed_explanation" ? "detailed" : "brief", route);
-      if (replyNeedsHuman(reply)) {
+      const unresolved = replyNeedsHuman(reply);
+      if (unresolved) {
         ws.transferOffered = true;
         ws.transferSummary = `The website receptionist could not fully resolve: ${question.slice(0, 160)}`;
         await track(ws, { type: "transfer_offered", metadata: { screened: false, reason: "unresolved_answer" } });
         speech(ws, `${reply} If you need personal help with that, I can try connecting you with Quentin. Would you like me to do that?`);
       } else speech(ws, reply);
+      await queueReview(ws, question, reply, route, reviewReasons(route, unresolved));
     } catch (error) {
       console.error("RORC receptionist response failed", error);
       await track(ws, { type: "request_error", success: false, error });
-      speech(ws, "I can still help with RORC hours, memberships, rentals, events, and current gym information. Please say the part you want me to answer first.");
+      const fallback = "I can still help with RORC hours, memberships, rentals, events, and current gym information. Please say the part you want me to answer first.";
+      speech(ws, fallback);
+      await queueReview(ws, question, fallback, {}, ["request_error"]);
     } finally { ws.processing = false; }
   });
   ws.on("close", () => {
@@ -699,6 +760,7 @@ module.exports.answer = answer;
 module.exports.isPersonRequest = isPersonRequest;
 module.exports.hasTransferReason = hasTransferReason;
 module.exports.replyNeedsHuman = replyNeedsHuman;
+module.exports.reviewReasons = reviewReasons;
 module.exports.wantsDetailedAnswer = wantsDetailedAnswer;
 module.exports.responseLimits = responseLimits;
 module.exports.trimAnswerForQuestion = trimAnswerForQuestion;
