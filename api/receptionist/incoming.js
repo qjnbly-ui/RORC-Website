@@ -30,7 +30,7 @@ module.exports = async function handler(req, res) {
   const greeting = configuredGreeting || rotatingGreeting(firstName);
   const base = publicHttpUrl(req).replace(/\/api\/receptionist\/incoming(?:\?.*)?$/, "");
   const response = new twilio.twiml.VoiceResponse();
-  response.connect({ action: `${base}/api/receptionist/transfer`, method: "POST" }).conversationRelay({
+  response.connect({ action: `${base}/api/receptionist/transfer?relayRetry=0`, method: "POST" }).conversationRelay({
     url: publicWebSocketUrl(req),
     welcomeGreeting: greeting || DEFAULT_GREETING,
     welcomeGreetingInterruptible: "none",

@@ -5,6 +5,12 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      staging_url:
+        description: Vercel preview URL to exercise after the local checks
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,6 +19,8 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      RORC_RUN_SOCKET_TEST: "1"
 
     steps:
       - name: Check out repository
@@ -27,8 +35,14 @@ jobs:
       - name: Install exact dependencies
         run: npm ci
 
+      - name: Enforce strict TypeScript contracts
+        run: npm run typecheck
+
       - name: Run automated tests
         run: npm test
+
+      - name: Enforce receptionist core coverage
+        run: npm run test:receptionist-coverage
 
       - name: Build production assets
         run: npm run vercel-build
@@ -45,3 +59,10 @@ jobs:
           node --check "RORC App/resource-coordinator.js"
           node --check "RORC App/sw.js"
           node --check scripts/rorc-supabase-client.js
+
+      - name: Smoke test the selected staging deployment
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          RORC_SMOKE_BASE_URL: ${{ inputs.staging_url }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+        run: npm run smoke:receptionist

@@ -9,6 +9,12 @@
   { "phrase": "Are there any events this weekend?", "intent": "simple_question" },
   { "phrase": "Can kids use the facility?", "intent": "simple_question" },
   { "phrase": "Does RORC have an open gym night?", "intent": "simple_question" },
+  { "phrase": "What is the current temperature inside the gym?", "intent": "simple_question", "liveData": "facility", "liveFact": "temperature" },
+  { "phrase": "How warm is it in there right now?", "intent": "simple_question", "liveData": "facility", "liveFact": "temperature" },
+  { "phrase": "When does the gym tend to be the most crowded?", "intent": "simple_question", "liveData": "facility", "liveFact": "busiest_time" },
+  { "phrase": "What is usually the quietest time to work out?", "intent": "simple_question", "liveData": "facility", "liveFact": "quietest_time" },
+  { "phrase": "Is anybody using the gym at the moment?", "intent": "simple_question", "liveData": "facility", "liveFact": "occupancy" },
+  { "phrase": "How many visits have there been this week?", "intent": "simple_question", "liveData": "facility", "liveFact": "checkins" },
 
   { "phrase": "Explain all the rental requirements step by step.", "intent": "detailed_explanation" },
   { "phrase": "Walk me through every membership option and compare them.", "intent": "detailed_explanation" },

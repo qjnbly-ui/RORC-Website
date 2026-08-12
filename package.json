@@ -1,13 +1,17 @@
 {
   "scripts": {
+    "build:receptionist-ts": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "build:receptionist-knowledge": "node scripts/build-receptionist-knowledge.js",
     "build:supabase-client": "node scripts/build-supabase-client.js",
     "build:twilio-voice": "node scripts/build-twilio-voice.js",
     "check:app-assets": "node scripts/build-supabase-client.js --check && node scripts/build-twilio-voice.js --check",
     "check:receptionist-knowledge": "node scripts/build-receptionist-knowledge.js --check",
-    "vercel-build": "npm run build:receptionist-knowledge && npm run build:supabase-client && npm run build:twilio-voice",
+    "vercel-build": "npm run build:receptionist-ts && npm run build:receptionist-knowledge && npm run build:supabase-client && npm run build:twilio-voice",
     "eval:receptionist": "node scripts/eval-receptionist-intents.js",
-    "test": "node --test tests/*.test.js",
+    "smoke:receptionist": "node scripts/smoke-receptionist.js",
+    "test": "npm run build:receptionist-ts && node --test tests/*.test.js",
+    "test:receptionist-coverage": "npm run build:receptionist-ts && node --test --experimental-test-coverage --test-coverage-include='.build/receptionist/**/*.js' --test-coverage-exclude='.build/receptionist/conversation-server.js' --test-coverage-lines=80 --test-coverage-branches=50 --test-coverage-functions=70 tests/receptionist*.test.js",
     "rorc:create-auth-users": "node scripts/create-supabase-auth-users.js"
   },
   "dependencies": {
@@ -20,5 +24,11 @@
   },
   "engines": {
     "node": "22.x"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.2.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^7.0.2"
   }
 }

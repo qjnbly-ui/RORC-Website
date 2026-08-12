@@ -31,35 +31,44 @@ module.exports = async (req, res) => {
     const now = new Date();
     const range = getFacilityRanges(now);
     const trendStart = addFacilityDays(range.tomorrowStart, -(HEATMAP_WEEKS * 7));
+    const unavailable = [];
     const [occupancyRows, todayCount, weekCount, monthCount, members, trendRows, roomClimate] = await Promise.all([
-      supabaseRest("timesheet_entries?select=id&signed_out_at=is.null&limit=10000"),
-      countRows("timesheet_entries", {
+      resilient("occupancy", supabaseRest("timesheet_entries?select=id&signed_out_at=is.null&limit=10000"), null, unavailable),
+      resilient("today_checkins", countRows("timesheet_entries", {
         signed_in_at: [`gte.${range.todayStart.toISOString()}`, `lt.${range.tomorrowStart.toISOString()}`]
-      }),
-      countRows("timesheet_entries", {
+      }), null, unavailable),
+      resilient("week_checkins", countRows("timesheet_entries", {
         signed_in_at: [`gte.${range.weekStart.toISOString()}`, `lt.${range.tomorrowStart.toISOString()}`]
-      }),
-      countRows("timesheet_entries", {
+      }), null, unavailable),
+      resilient("month_checkins", countRows("timesheet_entries", {
         signed_in_at: [`gte.${range.monthStart.toISOString()}`, `lt.${range.nextMonthStart.toISOString()}`]
-      }),
-      supabaseRest("account_member_profiles?select=account_member_id,account_id,account_type&limit=10000"),
-      supabaseRest(`timesheet_entries?select=signed_in_at&signed_in_at=gte.${encodeURIComponent(trendStart.toISOString())}&order=signed_in_at.desc&limit=10000`),
+      }), null, unavailable),
+      resilient("membership", supabaseRest("account_member_profiles?select=account_member_id,account_id,account_type&limit=10000"), null, unavailable),
+      resilient("activity_trends", supabaseRest(`timesheet_entries?select=signed_in_at&signed_in_at=gte.${encodeURIComponent(trendStart.toISOString())}&order=signed_in_at.desc&limit=10000`), null, unavailable),
       loadRoomClimate()
     ]);
+    if (roomClimate.temperatureF === null && !unavailable.includes("room_climate")) unavailable.push("room_climate");
 
-    const membership = summarizeMembership(members || []);
-    const occupancyCount = Array.isArray(occupancyRows) ? occupancyRows.length : 0;
-    const weeklyTrends = buildWeeklyTrendHeatmap(trendRows || []);
+    const membership = Array.isArray(members) ? summarizeMembership(members) : {
+      activeMembers: null,
+      activeMemberAccounts: null,
+      openGymUsers: null,
+      totalAccountHolders: null
+    };
+    const occupancyCount = Array.isArray(occupancyRows) ? occupancyRows.length : null;
+    const weeklyTrends = Array.isArray(trendRows) ? buildWeeklyTrendHeatmap(trendRows) : null;
 
     return res.status(200).json({
       success: true,
+      partial: unavailable.length > 0,
+      unavailable,
       activity: {
         occupancyCount,
-        gymOccupied: occupancyCount > 0 ? "Yes" : "No",
+        gymOccupied: occupancyCount === null ? "Unknown" : occupancyCount > 0 ? "Yes" : "No",
         checkinsToday: todayCount,
         checkinsThisWeek: weekCount,
         checkinsThisMonth: monthCount,
-        avgPerDayThisMonth: averagePerDay(monthCount, range.dayOfMonth),
+        avgPerDayThisMonth: monthCount === null ? null : averagePerDay(monthCount, range.dayOfMonth),
         lastUpdated: formatFacilityTimestamp(now),
         roomTemperatureF: roomClimate.temperatureF,
         roomHumidity: roomClimate.humidity,
@@ -75,6 +84,16 @@ module.exports = async (req, res) => {
     });
   }
 };
+
+async function resilient(name, promise, fallback, unavailable) {
+  try {
+    return await promise;
+  } catch (error) {
+    unavailable.push(name);
+    console.warn(`Facility activity ${name} unavailable:`, error?.message || error);
+    return fallback;
+  }
+}
 
 async function loadRoomClimate() {
   const fallback = { temperatureF: null, humidity: null, updatedAt: null };

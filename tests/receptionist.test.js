@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const receptionist = require("../api/receptionist/conversation");
+const transfer = require("../api/receptionist/transfer");
 
 test("membership questions retrieve membership website content", () => {
   const context = receptionist.websiteContext("How much does a weight room membership cost?");
@@ -58,4 +59,13 @@ test("referential texts preserve membership signup intent from conversation hist
     { role: "assistant", content: "You can start a new RORC membership online." },
   ]);
   assert.match(message.body, /^RORC Membership Signup/);
+});
+
+test("live transfer requires an explicit approved ConversationRelay handoff", () => {
+  assert.deepEqual(transfer.handoffData('{"reasonCode":"approved-rorc-transfer","summary":"Rental help"}'), {
+    reasonCode: "approved-rorc-transfer",
+    summary: "Rental help",
+  });
+  assert.deepEqual(transfer.handoffData("malformed"), {});
+  assert.notEqual(transfer.handoffData("malformed").reasonCode, "approved-rorc-transfer");
 });

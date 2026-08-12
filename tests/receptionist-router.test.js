@@ -24,6 +24,7 @@ test("strict router request uses the required JSON schema", async () => {
         json: async () => ({ choices: [{ message: { content: JSON.stringify({
           intent: "simple_question", confidence: 0.98, topic: "rental availability",
           detail_level: "brief", form_id: "none", form_action: "none", person_name: "",
+          live_data: "events", live_fact: "rental_availability",
         }) } }] }),
       };
     },
@@ -33,6 +34,8 @@ test("strict router request uses the required JSON schema", async () => {
   assert.equal(payload.response_format.type, "json_schema");
   assert.equal(payload.response_format.json_schema.strict, true);
   assert.equal(payload.response_format.json_schema.schema.additionalProperties, false);
+  assert.equal(result.live_data, "events");
+  assert.equal(result.live_fact, "rental_availability");
 });
 
 test("invalid structured output is rejected", () => {
