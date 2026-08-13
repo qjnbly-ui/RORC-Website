@@ -1,14 +1,17 @@
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// Email notification via Resend (optional — RESEND_API_KEY + RORC_NOTIFY_EMAIL must be set to send)
-// RESEND_API_KEY    — API key from resend.com
-// RORC_NOTIFY_EMAIL — admin address to receive notifications (e.g. info@rorcoregon.com)
-// RESEND_FROM_EMAIL — verified Resend sender (defaults to "RORC App <no-reply@ruthobenchainrc.com>")
+// Rental request notifications.
+// RESEND_API_KEY             — API key from resend.com
+// RORC_NOTIFY_EMAIL          — existing admin email recipient
+// RORC_RENTAL_NOTIFY_PHONE   — admin SMS recipient
+// RESEND_FROM_EMAIL          — verified Resend sender (defaults to "RORC App <no-reply@ruthobenchainrc.com>")
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RORC_NOTIFY_EMAIL = process.env.RORC_NOTIFY_EMAIL;
+const RORC_NOTIFY_PHONE = String(process.env.RORC_RENTAL_NOTIFY_PHONE || "+15418916772").trim();
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@ruthobenchainrc.com>";
 const { sendResendEmail } = require("./_resend");
+const { sendSms } = require("./_rorc-sms");
 
 const VALID_EVENT_TYPES = ["Birthday Party", "Private Party", "Meeting", "Memorial Service", "Other"];
 const VALID_ALCOHOL_VALUES = ["Yes", "No"];
@@ -113,16 +116,12 @@ module.exports = async (req, res) => {
     const rows = await response.json();
     const savedRecord = rows[0];
 
-    // Wait for the notification attempt so serverless runtimes do not drop it after the response.
-    try {
-      await sendNotificationEmail({
-        ...savedRecord,
-        addon_cleaning_maintenance: body.addonCleaningMaintenance === true,
-        addon_ac: body.addonAc === true
-      });
-    } catch (err) {
-      console.error("Rental notification email failed:", err);
-    }
+    // Wait for both attempts so serverless runtimes do not drop either notification.
+    await sendRentalNotifications({
+      ...savedRecord,
+      addon_cleaning_maintenance: body.addonCleaningMaintenance === true,
+      addon_ac: body.addonAc === true
+    });
 
     return res.status(200).json({ success: true, id: savedRecord?.id, bookingNumber: savedRecord?.booking_number || "" });
   } catch (err) {
@@ -539,6 +538,20 @@ function str(value) {
   return String(value || "").trim();
 }
 
+async function sendRentalNotifications(record) {
+  const attempts = await Promise.allSettled([
+    sendNotificationEmail(record),
+    sendNotificationSms(record)
+  ]);
+  ["email", "text"].forEach((channel, index) => {
+    const attempt = attempts[index];
+    if (attempt.status === "rejected") {
+      console.error(`Rental notification ${channel} failed:`, attempt.reason);
+    }
+  });
+  return attempts;
+}
+
 async function sendNotificationEmail(record) {
   if (!RESEND_API_KEY) {
     console.warn("Rental notification email skipped: RESEND_API_KEY is not configured.");
@@ -607,6 +620,31 @@ async function sendNotificationEmail(record) {
 
   console.info(`Rental notification email sent to ${RORC_NOTIFY_EMAIL}.`, responseBody?.id ? `Resend id: ${responseBody.id}` : "");
   return responseBody;
+}
+
+async function sendNotificationSms(record) {
+  if (!RORC_NOTIFY_PHONE) {
+    console.warn("Rental notification text skipped: RORC_RENTAL_NOTIFY_PHONE is not configured.");
+    return null;
+  }
+
+  const booking = record?.booking_number ? ` ${record.booking_number}` : "";
+  const eventName = str(record?.event_name || record?.event_type || "Event");
+  const eventDate = str(record?.event_date || "date TBD");
+  const rentalTime = record?.event_start_time && record?.event_end_time
+    ? `, ${record.event_start_time}-${record.event_end_time}`
+    : "";
+  const contact = str(record?.contact_name || "Unknown contact");
+  const contactPhone = str(record?.contact_phone || "");
+  const message = [
+    `RORC: New rental request${booking}: ${eventName} on ${eventDate}${rentalTime}.`,
+    `Contact: ${contact}${contactPhone ? ` ${contactPhone}` : ""}.`,
+    "Review it in the RORC App under Rentals."
+  ].join(" ");
+
+  const response = await sendSms(RORC_NOTIFY_PHONE, message);
+  console.info(`Rental notification text sent to ${RORC_NOTIFY_PHONE}.`, response?.sid ? `Twilio SID: ${response.sid}` : "");
+  return response;
 }
 
 function esc(value) {

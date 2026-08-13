@@ -28,7 +28,7 @@ module.exports = async (req, res) => {
       if (bookedOnly) {
         // Return full-day blocks plus partial time blocks for public rental availability.
         // Rental requests are the authority for rental access time; events are only the calendar mirror.
-        path = `events?select=start_at,end_at,event_type,all_day,rental_requests(event_date,event_start_time,event_end_time,rental_type)&event_type=in.(${RENTAL_BLOCKING_TYPES.join(",")})&status=eq.confirmed&order=start_at.asc`;
+        path = `events?select=start_at,end_at,event_type,all_day,rental_requests(event_date,event_start_time,event_end_time,rental_type,is_private_event)&event_type=in.(${RENTAL_BLOCKING_TYPES.join(",")})&status=eq.confirmed&order=start_at.asc`;
         const [eventRows, rentalRows, calendarSettings] = await Promise.all([
           supabaseRest(path),
           loadConfirmedRentalRows(),
@@ -48,9 +48,9 @@ module.exports = async (req, res) => {
       }
 
       if (isAdmin) {
-        path = "events?select=*,rental_requests(event_date,event_start_time,event_end_time,rental_type)&order=start_at.asc&limit=500";
+        path = "events?select=*,rental_requests(event_date,event_start_time,event_end_time,rental_type,is_private_event)&order=start_at.asc&limit=500";
       } else {
-        path = "events?select=*&is_public=eq.true&status=eq.confirmed&order=start_at.asc&limit=200";
+        path = "events?select=*,rental_requests(event_date,event_start_time,event_end_time,rental_type,is_private_event)&is_public=eq.true&status=eq.confirmed&order=start_at.asc&limit=200";
       }
 
       const [rows, calendarSettings, facilityBlocks, pendingRequests] = await Promise.all([
@@ -247,6 +247,7 @@ function mapEvent(row) {
     rentalRequestId:  row.rental_request_id,
     rentalAccessStartAt,
     rentalAccessEndAt,
+    isPrivateEvent:   rentalTiming ? rentalTiming.is_private_event !== false : null,
     createdBy:        row.created_by,
     detailOnly,
     isRecurring:      Boolean(seriesMatch),
@@ -516,13 +517,13 @@ async function loadCalendarSettings() {
 async function loadFacilityBlocks() {
   const [eventRows, rentalRows] = await Promise.all([
     supabaseRest(
-      `events?select=start_at,end_at,event_type,all_day,rental_requests(event_date,event_start_time,event_end_time,rental_type)&event_type=in.(${RENTAL_BLOCKING_TYPES.join(",")})&status=eq.confirmed&order=start_at.asc&limit=500`
+      `events?select=start_at,end_at,event_type,all_day,rental_requests(event_date,event_start_time,event_end_time,rental_type,is_private_event)&event_type=in.(${RENTAL_BLOCKING_TYPES.join(",")})&status=eq.confirmed&order=start_at.asc&limit=500`
     ),
     loadConfirmedRentalRows()
   ]);
   const rows = [
     ...eventRows.filter(isStandaloneAvailabilityEvent),
-    ...rentalRows.flatMap(rentalRowToAvailabilityRows)
+    ...rentalRows.flatMap((row) => rentalRowToAvailabilityRows(row, { forFacilityHours: true }))
   ];
   return rows.map((row) => {
     const rentalTiming = row.rental_requests || null;
@@ -537,11 +538,14 @@ async function loadFacilityBlocks() {
 
 async function loadConfirmedRentalRows() {
   return supabaseRest(
-    "rental_requests?select=event_date,event_start_time,event_end_time,rental_type,addon_early_setup,addon_early_day_rental,addon_late_cleanup,addon_late_day_rental&rental_status=eq.confirmed&order=event_date.asc&limit=500"
+    "rental_requests?select=event_date,event_start_time,event_end_time,rental_type,is_private_event,addon_early_setup,addon_early_day_rental,addon_late_cleanup,addon_late_day_rental&rental_status=eq.confirmed&order=event_date.asc&limit=500"
   );
 }
 
-function rentalRowToAvailabilityRows(row) {
+function rentalRowToAvailabilityRows(row, options = {}) {
+  // Public/non-private rentals remain visible on the calendar, but the facility
+  // stays open during them and their access windows must not be subtracted.
+  if (options.forFacilityHours && row?.is_private_event === false) return [];
   return rentalAvailabilityBlocks(row).map((block) => ({
     event_type: "rental",
     all_day: false,

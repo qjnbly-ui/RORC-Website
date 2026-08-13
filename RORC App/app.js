@@ -10638,6 +10638,7 @@ function facilityHoursForDate(dateIso) {
 function blockingEventIntervalForDate(ev, dateIso) {
   if (!["rental", "maintenance"].includes(normalizeEventTypeForUi(ev.eventType))) return null;
   if (String(ev.status || "confirmed") !== "confirmed") return null;
+  if (ev.eventType === "rental" && ev.isPrivateEvent === false) return null;
   const blockStartAt = ev.eventType === "rental" && ev.rentalAccessStartAt ? ev.rentalAccessStartAt : ev.startAt;
   const blockEndAt = ev.eventType === "rental" && ev.rentalAccessEndAt ? ev.rentalAccessEndAt : ev.endAt;
   if (calendarTimestampDateKey(blockStartAt, ev.allDay) !== dateIso) return null;
