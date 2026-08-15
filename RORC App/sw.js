@@ -1,4 +1,4 @@
-const CACHE_VERSION = "rorc-app-v80";
+const CACHE_VERSION = "rorc-app-v81";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const NAVIGATION_CACHE = `${CACHE_VERSION}-navigation`;
 const OFFLINE_PAGE = "./index.html";
@@ -6,7 +6,7 @@ const APP_SHELL = [
   OFFLINE_PAGE,
   "./app.css?v=20260812-receptionist-review-queue",
   "./resource-coordinator.js?v=20260808-reliable-sync",
-  "./app.js?v=20260813-public-rental-hours",
+  "./app.js?v=20260815-thermostat-shutdown-lock",
   "./vendor/supabase.min.js?v=2.112.2",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",
