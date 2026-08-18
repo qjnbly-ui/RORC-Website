@@ -34,6 +34,12 @@ test("text preferences are visible to staff and enforced by both announcement di
   assert.match(appCss, /@media \(max-width: 520px\)[\s\S]*?\.sms-preferences-row/);
 });
 
+test("scheduled announcements use an authenticated atomic database claim", () => {
+  assert.match(scheduledSender, /requireCronAuthorization/);
+  assert.match(scheduledSender, /rpc\/claim_scheduled_member_message/);
+  assert.doesNotMatch(scheduledSender, /status=eq\.scheduled/);
+});
+
 test("immediate and scheduled emails use the same structured formatter", () => {
   for (const source of [immediateSender, scheduledSender]) {
     assert.match(source, /renderAnnouncementMessageHtml/);

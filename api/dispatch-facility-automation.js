@@ -5,11 +5,10 @@ const SUPABASE_URL = String(
   process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co"
 ).replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+const { isCronAuthorized } = require("./_automation-security");
 
 function authorized(req) {
-  const secret = String(process.env.CRON_SECRET || "").trim();
-  const authorization = String(req.headers?.authorization || req.headers?.Authorization || "");
-  return Boolean(secret && authorization === `Bearer ${secret}`);
+  return isCronAuthorized(req);
 }
 
 function requestOrigin(req) {
@@ -88,7 +87,7 @@ function visitDurationMinutes(payload) {
   return Math.max(0, Math.round((signedOutAt - signedInAt) / 60000));
 }
 
-async function invokeSequence(handler, { origin, body }) {
+async function invokeSequence(handler, { origin, body, automationHooks }) {
   const url = new URL(origin);
   const response = {
     statusCode: 200,
@@ -102,7 +101,15 @@ async function invokeSequence(handler, { origin, body }) {
       return this;
     }
   };
-  await handler({ method: "POST", headers: { host: url.host }, body }, response);
+  await handler({
+    method: "POST",
+    headers: {
+      host: url.host,
+      authorization: `Bearer ${String(process.env.CRON_SECRET || "").trim()}`
+    },
+    body,
+    automationHooks
+  }, response);
   if (response.statusCode >= 400 || response.responseBody?.success === false) {
     const rawError = response.responseBody?.error;
     const message = typeof rawError === "string"
@@ -112,6 +119,7 @@ async function invokeSequence(handler, { origin, body }) {
     error.completedSteps = Array.isArray(response.responseBody?.completedSteps)
       ? response.responseBody.completedSteps
       : [];
+    error.inFlightStep = response.responseBody?.inFlightStep || null;
     throw error;
   }
   return response.responseBody || { success: true };
@@ -178,10 +186,19 @@ async function dispatchFacilityAutomation({
   try {
     const memberName = String(payload.member_name || payload.guest_name || "Unknown").trim() || "Unknown";
     const completedSteps = Array.isArray(payload.completed_steps) ? payload.completed_steps : [];
+    const automationHooks = {
+      beforeStep: async (step, steps) => updateAutomationJob(job.id, {
+        payload: { ...payload, completed_steps: steps, in_flight_step: step }
+      }, fetcher),
+      afterStep: async (_step, steps) => updateAutomationJob(job.id, {
+        payload: { ...payload, completed_steps: steps, in_flight_step: null }
+      }, fetcher)
+    };
     const sequenceResult = expectedOccupied
       ? await executeOn({
         origin,
-        body: { memberName, ...(completedSteps.length ? { completedSteps } : {}) }
+        body: { memberName, ...(completedSteps.length ? { completedSteps } : {}) },
+        automationHooks
       })
       : await executeOff({
         origin,
@@ -189,12 +206,17 @@ async function dispatchFacilityAutomation({
           memberName,
           visitDurationMinutes: visitDurationMinutes(payload),
           ...(completedSteps.length ? { completedSteps } : {})
-        }
+        },
+        automationHooks
       });
 
+    const finalSteps = Array.isArray(sequenceResult?.completedSteps)
+      ? sequenceResult.completedSteps.map(String)
+      : completedSteps;
     await updateAutomationJob(job.id, {
       job_status: "completed",
-      last_error: null
+      last_error: null,
+      payload: { ...payload, completed_steps: finalSteps, in_flight_step: null }
     }, fetcher);
     return {
       claimedCount: 1,
@@ -205,7 +227,8 @@ async function dispatchFacilityAutomation({
     };
   } catch (error) {
     const attempts = Number(job.attempts || 0);
-    const retry = attempts < 3;
+    const inFlightStep = String(error?.inFlightStep || "").trim();
+    const retry = !inFlightStep && attempts < 3;
     const completedSteps = Array.isArray(error?.completedSteps) ? error.completedSteps : [];
     await updateAutomationJob(job.id, {
       job_status: retry ? "pending" : "failed",
@@ -213,9 +236,11 @@ async function dispatchFacilityAutomation({
         ? new Date(now.getTime() + (Math.max(1, attempts) * 60000)).toISOString()
         : job.run_after,
       last_error: error.message || "Facility automation sequence failed.",
-      ...(completedSteps.length
-        ? { payload: { ...payload, completed_steps: completedSteps } }
-        : {})
+      payload: {
+        ...payload,
+        completed_steps: completedSteps,
+        in_flight_step: inFlightStep || null
+      }
     }, fetcher);
     return {
       claimedCount: 1,

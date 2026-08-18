@@ -2164,3 +2164,11 @@ comment on table app_private.facility_occupancy_state is
 
 comment on function public.claim_facility_automation_job() is
   'Atomically claims the newest due facility occupancy transition for the service-role worker.';
+
+-- Legacy queue producers are intentionally retired. Heater and rental actions
+-- are performed by their API workflows; facility occupancy has its own queue.
+drop trigger if exists trg_enqueue_heater_insert_automation on public.heater_use_entries;
+drop trigger if exists trg_enqueue_heater_end_automation on public.heater_use_entries;
+drop function if exists public.enqueue_heater_automation();
+drop trigger if exists trg_enqueue_timesheet_insert_automation on public.timesheet_entries;
+drop function if exists public.enqueue_timesheet_insert_automation();

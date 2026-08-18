@@ -1,6 +1,3 @@
-const STEP_1_URL = "https://api-v2.voicemonkey.io/announcement?token=1f3e0ed4c447604419dfed7d277cda79_90cb39a4dfc7ff4c222a54e3e93f4e80&device=stage-only-announcement&text=Welcome%20to%20the%20Ruth%20Oben%20Chain%20Recreation%20center.&chime=soundbank%3A%2F%2Fsoundlibrary%2Falarms%2Fbeeps_and_bloops%2Fintro_02&voice=Joanna";
-const STEP_2_URL = "https://api-v2.voicemonkey.io/trigger?token=1f3e0ed4c447604419dfed7d277cda79_90cb39a4dfc7ff4c222a54e3e93f4e80&device=all-lights-on";
-const HALF_LIGHTS_STEP_2_URL = "https://api-v2.voicemonkey.io/trigger?token=1f3e0ed4c447604419dfed7d277cda79_90cb39a4dfc7ff4c222a54e3e93f4e80&device=half-the-lights-on";
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
@@ -11,6 +8,8 @@ const { setEcobeeFanHold } = require("./_ecobee-client");
 const { hasActiveThermostatRuntime } = require("./_thermostat-runtime-state");
 const { parseSmsDestinations } = require("./_sms-destinations");
 const ECOBEE_AC_THERMOSTAT_ID = process.env.ECOBEE_AC_THERMOSTAT_ID || "";
+const { requireCronAuthorization, resolveVoiceMonkeyUrl } = require("./_automation-security");
+const { runAutomationStep } = require("./_automation-step");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -19,6 +18,7 @@ module.exports = async (req, res) => {
       error: "Method not allowed"
     });
   }
+  if (!requireCronAuthorization(req, res)) return;
 
   const completedSteps = new Set(
     Array.isArray(req.body?.completedSteps) ? req.body.completedSteps.map(String) : []
@@ -30,35 +30,35 @@ module.exports = async (req, res) => {
     if (settings.enabled === false) {
       return res.status(200).json({ success: true, skipped: true });
     }
-    const step1Url = String(settings.step1_url || STEP_1_URL);
     const halfLightsEnabled = settings.half_lights_enabled !== false;
     const halfLightsStart = String(settings.half_lights_start_time || "07:00").trim() || "07:00";
     const halfLightsEnd = String(settings.half_lights_end_time || "18:00").trim() || "18:00";
     const useHalfLights = halfLightsEnabled && isNowInLosAngelesWindow(halfLightsStart, halfLightsEnd);
-    const step2Url = String(
-      useHalfLights
-        ? (settings.half_lights_step2_url || HALF_LIGHTS_STEP_2_URL)
-        : (settings.step2_url || STEP_2_URL)
-    );
     const warnings = [];
     let fanAutomationSkipped = "";
 
     if (settings.step1_enabled !== false && !completedSteps.has("announcement")) {
-      const step1 = await fetch(step1Url, { method: "GET" });
-      if (!step1.ok) {
-        const text = await step1.text();
-        throw new Error(`Step 1 failed: ${step1.status} ${text}`);
-      }
-      completedSteps.add("announcement");
+      const step1Url = resolveVoiceMonkeyUrl({
+        settingValue: settings.step1_url,
+        environmentName: "GYM_LIGHTS_ON_ANNOUNCEMENT_URL",
+        label: "Gym opening announcement URL"
+      });
+      await runAutomationStep({ req, completedSteps, step: "announcement", action: async () => {
+        const step1 = await fetch(step1Url, { method: "GET" });
+        if (!step1.ok) throw new Error(`Step 1 failed: ${step1.status} ${await step1.text()}`);
+      }});
     }
 
     if (settings.step2_enabled !== false && !completedSteps.has("lights")) {
-      const step2 = await fetch(step2Url, { method: "GET" });
-      if (!step2.ok) {
-        const text = await step2.text();
-        throw new Error(`Step 2 failed: ${step2.status} ${text}`);
-      }
-      completedSteps.add("lights");
+      const step2Url = resolveVoiceMonkeyUrl({
+        settingValue: useHalfLights ? settings.half_lights_step2_url : settings.step2_url,
+        environmentName: useHalfLights ? "GYM_LIGHTS_ON_HALF_URL" : "GYM_LIGHTS_ON_FULL_URL",
+        label: useHalfLights ? "Half-lights opening URL" : "Full-lights opening URL"
+      });
+      await runAutomationStep({ req, completedSteps, step: "lights", action: async () => {
+        const step2 = await fetch(step2Url, { method: "GET" });
+        if (!step2.ok) throw new Error(`Step 2 failed: ${step2.status} ${await step2.text()}`);
+      }});
     }
 
     if (settings.sms_enabled !== false && !completedSteps.has("sms")) {
@@ -71,7 +71,10 @@ module.exports = async (req, res) => {
       const auth = Buffer
         .from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`)
         .toString("base64");
-      await Promise.all(smsDestinations.map(async (smsTo) => {
+      for (const [index, smsTo] of smsDestinations.entries()) {
+        const recipientStep = `sms:${index}`;
+        if (completedSteps.has("sms") || completedSteps.has(recipientStep)) continue;
+        await runAutomationStep({ req, completedSteps, step: recipientStep, action: async () => {
         const params = new URLSearchParams({
           To: smsTo,
           From: TWILIO_FROM_NUMBER,
@@ -92,37 +95,39 @@ module.exports = async (req, res) => {
         if (!step3.ok) {
           throw new Error(`Step 3 failed for ${smsTo}: ${step3Body?.message || "Twilio SMS request failed."}`);
         }
-      }));
+        }});
+      }
       completedSteps.add("sms");
     }
 
     if (settings.ac_fan_enabled !== false && !completedSteps.has("ac_fan")) {
-      let acRuntimeActive = null;
-      try {
-        acRuntimeActive = await hasActiveThermostatRuntime({
-          supabaseUrl: SUPABASE_URL,
-          serviceRoleKey: SERVICE_ROLE_KEY,
-          systemType: "ac"
-        });
-      } catch (error) {
-        fanAutomationSkipped = "priority_check_failed";
-        warnings.push(`AC fan on skipped: ${error.message || "Could not verify AC runtime."}`);
-      }
-
-      if (acRuntimeActive) {
-        fanAutomationSkipped = "active_ac";
-      } else if (acRuntimeActive === false) {
+      await runAutomationStep({ req, completedSteps, step: "ac_fan", action: async () => {
+        let acRuntimeActive = null;
         try {
-          await setEcobeeFanHold({
-            thermostatId: String(settings.ac_thermostat_id || ECOBEE_AC_THERMOSTAT_ID).trim(),
-            fan: "on",
-            holdType: "indefinite"
+          acRuntimeActive = await hasActiveThermostatRuntime({
+            supabaseUrl: SUPABASE_URL,
+            serviceRoleKey: SERVICE_ROLE_KEY,
+            systemType: "ac"
           });
         } catch (error) {
-          warnings.push(`AC fan on failed: ${error.message || "Ecobee request failed."}`);
+          fanAutomationSkipped = "priority_check_failed";
+          warnings.push(`AC fan on skipped: ${error.message || "Could not verify AC runtime."}`);
         }
-      }
-      completedSteps.add("ac_fan");
+
+        if (acRuntimeActive) {
+          fanAutomationSkipped = "active_ac";
+        } else if (acRuntimeActive === false) {
+          try {
+            await setEcobeeFanHold({
+              thermostatId: String(settings.ac_thermostat_id || ECOBEE_AC_THERMOSTAT_ID).trim(),
+              fan: "on",
+              holdType: "indefinite"
+            });
+          } catch (error) {
+            warnings.push(`AC fan on failed: ${error.message || "Ecobee request failed."}`);
+          }
+        }
+      }});
     }
 
     return res.status(200).json({
@@ -135,7 +140,8 @@ module.exports = async (req, res) => {
     return res.status(500).json({
       success: false,
       error: error.message || "Sequence failed",
-      completedSteps: [...completedSteps]
+      completedSteps: [...completedSteps],
+      inFlightStep: error.inFlightStep || null
     });
   }
 };

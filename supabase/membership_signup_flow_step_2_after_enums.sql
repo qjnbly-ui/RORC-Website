@@ -200,6 +200,10 @@ begin
 end;
 $$;
 
+-- Superseded by the authoritative facility occupancy transition queue.
+drop trigger if exists trg_enqueue_timesheet_insert_automation on public.timesheet_entries;
+drop function if exists public.enqueue_timesheet_insert_automation();
+
 drop policy if exists timesheet_entries_member_insert on public.timesheet_entries;
 create policy timesheet_entries_member_insert on public.timesheet_entries
 for insert with check (
