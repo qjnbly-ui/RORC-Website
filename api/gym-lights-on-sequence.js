@@ -3,8 +3,13 @@ const STEP_2_URL = "https://api-v2.voicemonkey.io/trigger?token=1f3e0ed4c4476044
 const HALF_LIGHTS_STEP_2_URL = "https://api-v2.voicemonkey.io/trigger?token=1f3e0ed4c447604419dfed7d277cda79_90cb39a4dfc7ff4c222a54e3e93f4e80&device=half-the-lights-on";
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "+15416526065";
+const GYM_OPEN_TO_NUMBER = "+15418916772";
 const { setEcobeeFanHold } = require("./_ecobee-client");
 const { hasActiveThermostatRuntime } = require("./_thermostat-runtime-state");
+const { parseSmsDestinations } = require("./_sms-destinations");
 const ECOBEE_AC_THERMOSTAT_ID = process.env.ECOBEE_AC_THERMOSTAT_ID || "";
 
 module.exports = async (req, res) => {
@@ -14,6 +19,10 @@ module.exports = async (req, res) => {
       error: "Method not allowed"
     });
   }
+
+  const completedSteps = new Set(
+    Array.isArray(req.body?.completedSteps) ? req.body.completedSteps.map(String) : []
+  );
 
   try {
     const memberName = String(req.body?.memberName || "Unknown").trim() || "Unknown";
@@ -34,39 +43,60 @@ module.exports = async (req, res) => {
     const warnings = [];
     let fanAutomationSkipped = "";
 
-    if (settings.step1_enabled !== false) {
+    if (settings.step1_enabled !== false && !completedSteps.has("announcement")) {
       const step1 = await fetch(step1Url, { method: "GET" });
       if (!step1.ok) {
         const text = await step1.text();
         throw new Error(`Step 1 failed: ${step1.status} ${text}`);
       }
+      completedSteps.add("announcement");
     }
 
-    if (settings.step2_enabled !== false) {
+    if (settings.step2_enabled !== false && !completedSteps.has("lights")) {
       const step2 = await fetch(step2Url, { method: "GET" });
       if (!step2.ok) {
         const text = await step2.text();
         throw new Error(`Step 2 failed: ${step2.status} ${text}`);
       }
+      completedSteps.add("lights");
     }
 
-    if (settings.sms_enabled !== false) {
-      const origin = `https://${req.headers.host}`;
-      const step3 = await fetch(`${origin}/api/send-gym-open-text`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ memberName, to: settings.sms_to || "" })
-      });
-
-      const step3Body = await step3.json().catch(() => ({}));
-      if (!step3.ok || step3Body.success === false) {
-        throw new Error(step3Body.error || "Step 3 failed.");
+    if (settings.sms_enabled !== false && !completedSteps.has("sms")) {
+      if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
+        throw new Error("Step 3 failed: Twilio credentials are not configured.");
       }
+
+      const smsDestinations = parseSmsDestinations(settings.sms_to, GYM_OPEN_TO_NUMBER);
+      const smsBody = `GYM LIGHTS ON\nMember Entered: ${memberName}`;
+      const auth = Buffer
+        .from(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`)
+        .toString("base64");
+      await Promise.all(smsDestinations.map(async (smsTo) => {
+        const params = new URLSearchParams({
+          To: smsTo,
+          From: TWILIO_FROM_NUMBER,
+          Body: smsBody
+        });
+        const step3 = await fetch(
+          `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Basic ${auth}`,
+              "Content-Type": "application/x-www-form-urlencoded"
+            },
+            body: params.toString()
+          }
+        );
+        const step3Body = await step3.json().catch(() => ({}));
+        if (!step3.ok) {
+          throw new Error(`Step 3 failed for ${smsTo}: ${step3Body?.message || "Twilio SMS request failed."}`);
+        }
+      }));
+      completedSteps.add("sms");
     }
 
-    if (settings.ac_fan_enabled !== false) {
+    if (settings.ac_fan_enabled !== false && !completedSteps.has("ac_fan")) {
       let acRuntimeActive = null;
       try {
         acRuntimeActive = await hasActiveThermostatRuntime({
@@ -92,17 +122,20 @@ module.exports = async (req, res) => {
           warnings.push(`AC fan on failed: ${error.message || "Ecobee request failed."}`);
         }
       }
+      completedSteps.add("ac_fan");
     }
 
     return res.status(200).json({
       success: true,
+      completedSteps: [...completedSteps],
       fanAutomationSkipped: fanAutomationSkipped || null,
       warnings
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
-      error: error.message || "Sequence failed"
+      error: error.message || "Sequence failed",
+      completedSteps: [...completedSteps]
     });
   }
 };

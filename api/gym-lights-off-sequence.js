@@ -19,6 +19,10 @@ module.exports = async (req, res) => {
     });
   }
 
+  const completedSteps = new Set(
+    Array.isArray(req.body?.completedSteps) ? req.body.completedSteps.map(String) : []
+  );
+
   try {
     const memberName = String(req.body?.memberName || "Unknown").trim() || "Unknown";
     const visitDurationMinutes = Number(req.body?.visitDurationMinutes || 0);
@@ -31,23 +35,25 @@ module.exports = async (req, res) => {
     const warnings = [];
     let fanAutomationSkipped = "";
 
-    if (settings.step1_enabled !== false) {
+    if (settings.step1_enabled !== false && !completedSteps.has("announcement")) {
       const step1 = await fetch(step1Url, { method: "GET" });
       if (!step1.ok) {
         const text = await step1.text();
         throw new Error(`Step 1 failed: ${step1.status} ${text}`);
       }
+      completedSteps.add("announcement");
     }
 
-    if (settings.step2_enabled !== false) {
+    if (settings.step2_enabled !== false && !completedSteps.has("lights")) {
       const step2 = await fetch(step2Url, { method: "GET" });
       if (!step2.ok) {
         const text = await step2.text();
         throw new Error(`Step 2 failed: ${step2.status} ${text}`);
       }
+      completedSteps.add("lights");
     }
 
-    if (settings.sms_enabled !== false) {
+    if (settings.sms_enabled !== false && !completedSteps.has("sms")) {
       if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
         throw new Error("Step 3 failed: Twilio credentials are not configured.");
       }
@@ -79,9 +85,10 @@ module.exports = async (req, res) => {
           throw new Error(`Step 3 failed for ${smsTo}: ${step3Body?.message || "Twilio SMS request failed."}`);
         }
       }));
+      completedSteps.add("sms");
     }
 
-    if (settings.ac_fan_enabled !== false) {
+    if (settings.ac_fan_enabled !== false && !completedSteps.has("ac_fan")) {
       let acRuntimeActive = null;
       try {
         acRuntimeActive = await hasActiveThermostatRuntime({
@@ -105,17 +112,20 @@ module.exports = async (req, res) => {
           warnings.push(`AC fan off failed: ${error.message || "Ecobee request failed."}`);
         }
       }
+      completedSteps.add("ac_fan");
     }
 
     return res.status(200).json({
       success: true,
+      completedSteps: [...completedSteps],
       fanAutomationSkipped: fanAutomationSkipped || null,
       warnings
     });
   } catch (error) {
     return res.status(500).json({
       success: false,
-      error: error.message || "Sequence failed"
+      error: error.message || "Sequence failed",
+      completedSteps: [...completedSteps]
     });
   }
 };
