@@ -167,6 +167,55 @@ test("a failed sequence is left pending for a bounded retry", async () => {
   assert.match(patches[0].last_error, /temporary outage/);
 });
 
+test("a retry checkpoints completed stages and resumes without repeating them", async () => {
+  const now = new Date("2026-08-09T20:00:00.000Z");
+  const job = {
+    id: "partial-job",
+    kind: "voice_monkey_sign_in",
+    attempts: 1,
+    run_after: "2026-08-09T19:59:00.000Z",
+    payload: { transition_version: 16, member_name: "Partial Member" }
+  };
+  const first = facilityFetcher({
+    job,
+    snapshot: { is_occupied: true, transition_version: 16 }
+  });
+  const partialError = new Error("Step 3 failed");
+  partialError.completedSteps = ["announcement", "lights"];
+
+  await dispatchFacilityAutomation({
+    origin: "https://example.test",
+    fetcher: first.fetcher,
+    now,
+    executeOn: async () => { throw partialError; }
+  });
+
+  assert.deepEqual(first.patches[0].payload.completed_steps, ["announcement", "lights"]);
+
+  const retryCalls = [];
+  const second = facilityFetcher({
+    job: { ...job, attempts: 2, payload: first.patches[0].payload },
+    snapshot: { is_occupied: true, transition_version: 16 }
+  });
+  const result = await dispatchFacilityAutomation({
+    origin: "https://example.test",
+    fetcher: second.fetcher,
+    executeOn: async (options) => {
+      retryCalls.push(options);
+      return { success: true };
+    }
+  });
+
+  assert.equal(result.completedCount, 1);
+  assert.deepEqual(retryCalls[0].body.completedSteps, ["announcement", "lights"]);
+});
+
+test("gym opening sends SMS directly instead of calling the deployment recursively", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "..", "api", "gym-lights-on-sequence.js"), "utf8");
+  assert.match(source, /api\.twilio\.com/);
+  assert.doesNotMatch(source, /\/api\/send-gym-open-text/);
+});
+
 test("database transition logic serializes kiosks and the browser no longer drives sequences", () => {
   const migration = fs.readFileSync(
     path.resolve(__dirname, "..", "supabase", "migrations", "20260809222121_serialize_facility_occupancy_automation.sql"),

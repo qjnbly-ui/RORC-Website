@@ -104,7 +104,15 @@ async function invokeSequence(handler, { origin, body }) {
   };
   await handler({ method: "POST", headers: { host: url.host }, body }, response);
   if (response.statusCode >= 400 || response.responseBody?.success === false) {
-    throw new Error(response.responseBody?.error || "Facility automation sequence failed.");
+    const rawError = response.responseBody?.error;
+    const message = typeof rawError === "string"
+      ? rawError
+      : rawError?.message || "Facility automation sequence failed.";
+    const error = new Error(message);
+    error.completedSteps = Array.isArray(response.responseBody?.completedSteps)
+      ? response.responseBody.completedSteps
+      : [];
+    throw error;
   }
   return response.responseBody || { success: true };
 }
@@ -169,13 +177,18 @@ async function dispatchFacilityAutomation({
 
   try {
     const memberName = String(payload.member_name || payload.guest_name || "Unknown").trim() || "Unknown";
+    const completedSteps = Array.isArray(payload.completed_steps) ? payload.completed_steps : [];
     const sequenceResult = expectedOccupied
-      ? await executeOn({ origin, body: { memberName } })
+      ? await executeOn({
+        origin,
+        body: { memberName, ...(completedSteps.length ? { completedSteps } : {}) }
+      })
       : await executeOff({
         origin,
         body: {
           memberName,
-          visitDurationMinutes: visitDurationMinutes(payload)
+          visitDurationMinutes: visitDurationMinutes(payload),
+          ...(completedSteps.length ? { completedSteps } : {})
         }
       });
 
@@ -193,12 +206,16 @@ async function dispatchFacilityAutomation({
   } catch (error) {
     const attempts = Number(job.attempts || 0);
     const retry = attempts < 3;
+    const completedSteps = Array.isArray(error?.completedSteps) ? error.completedSteps : [];
     await updateAutomationJob(job.id, {
       job_status: retry ? "pending" : "failed",
       run_after: retry
         ? new Date(now.getTime() + (Math.max(1, attempts) * 60000)).toISOString()
         : job.run_after,
-      last_error: error.message || "Facility automation sequence failed."
+      last_error: error.message || "Facility automation sequence failed.",
+      ...(completedSteps.length
+        ? { payload: { ...payload, completed_steps: completedSteps } }
+        : {})
     }, fetcher);
     return {
       claimedCount: 1,
