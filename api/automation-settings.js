@@ -31,7 +31,12 @@ module.exports = async (req, res) => {
       const automationOnly = Object.fromEntries(
         Object.entries(settings).filter(([id]) => id !== "account_type_permissions")
       );
-      const payload = Object.entries(automationOnly).map(([id, config]) => ({ id, config }));
+      const currentRows = await supabaseRest("automation_settings?select=id,config");
+      const currentById = new Map((currentRows || []).map((row) => [row.id, row.config || {}]));
+      const payload = Object.entries(automationOnly).map(([id, config]) => ({
+        id,
+        config: preserveProtectedAutomationFields(id, config, currentById.get(id) || {})
+      }));
 
       if (payload.length) {
         const response = await fetch(`${SUPABASE_URL}/rest/v1/automation_settings`, {
@@ -87,6 +92,14 @@ module.exports = async (req, res) => {
     return res.status(500).json({ success: false, error: error.message || "Server error" });
   }
 };
+
+function preserveProtectedAutomationFields(id, nextConfig, currentConfig) {
+  const merged = { ...(nextConfig || {}) };
+  if (id === "gym_lights_on" && currentConfig.manual_half_lights_off_url) {
+    merged.manual_half_lights_off_url = currentConfig.manual_half_lights_off_url;
+  }
+  return merged;
+}
 
 function bearerToken(req) {
   const header = req.headers.authorization || req.headers.Authorization || "";

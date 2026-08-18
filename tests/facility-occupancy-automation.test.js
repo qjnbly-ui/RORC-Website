@@ -74,11 +74,19 @@ test("the current first-in transition runs once and completes its claimed job", 
   });
 
   assert.equal(result.completedCount, 1);
-  assert.deepEqual(calls, [{
-    origin: "https://example.test",
-    body: { memberName: "Alex Member" }
+  assert.equal(calls[0].origin, "https://example.test");
+  assert.deepEqual(calls[0].body, { memberName: "Alex Member" });
+  assert.equal(typeof calls[0].automationHooks.beforeStep, "function");
+  assert.deepEqual(patches, [{
+    job_status: "completed",
+    last_error: null,
+    payload: {
+      transition_version: 8,
+      member_name: "Alex Member",
+      completed_steps: [],
+      in_flight_step: null
+    }
   }]);
-  assert.deepEqual(patches, [{ job_status: "completed", last_error: null }]);
 });
 
 test("a stale kiosk transition is canceled without touching facility equipment", async () => {
@@ -210,10 +218,62 @@ test("a retry checkpoints completed stages and resumes without repeating them", 
   assert.deepEqual(retryCalls[0].body.completedSteps, ["announcement", "lights"]);
 });
 
+test("an ambiguous external action is failed instead of automatically repeated", async () => {
+  const { fetcher, patches } = facilityFetcher({
+    job: {
+      id: "ambiguous-job",
+      kind: "voice_monkey_sign_in",
+      attempts: 1,
+      payload: { transition_version: 17, member_name: "Safe Member" }
+    },
+    snapshot: { is_occupied: true, transition_version: 17 }
+  });
+  const error = new Error("provider response was lost");
+  error.inFlightStep = "announcement";
+  error.completedSteps = [];
+
+  const result = await dispatchFacilityAutomation({
+    origin: "https://example.test",
+    fetcher,
+    executeOn: async () => { throw error; }
+  });
+
+  assert.equal(result.results[0].status, "failed");
+  assert.equal(patches[0].job_status, "failed");
+  assert.equal(patches[0].payload.in_flight_step, "announcement");
+});
+
 test("gym opening sends SMS directly instead of calling the deployment recursively", () => {
   const source = fs.readFileSync(path.resolve(__dirname, "..", "api", "gym-lights-on-sequence.js"), "utf8");
   assert.match(source, /api\.twilio\.com/);
   assert.doesNotMatch(source, /\/api\/send-gym-open-text/);
+});
+
+test("automation hardening removes source secrets and protects physical endpoints", () => {
+  const files = [
+    "gym-lights-on-sequence.js",
+    "gym-lights-off-sequence.js",
+    "gym-lights-mode.js"
+  ].map((name) => fs.readFileSync(path.resolve(__dirname, "..", "api", name), "utf8"));
+  assert.ok(files.slice(0, 2).every((source) => /requireCronAuthorization/.test(source)));
+  assert.match(files[2], /requireFacilityOperator/);
+  assert.ok(files.every((source) => !/token=[a-f0-9]{20,}/i.test(source)));
+  assert.equal(fs.existsSync(path.resolve(__dirname, "..", "api", "send-gym-open-text.js")), false);
+  const settingsApi = fs.readFileSync(path.resolve(__dirname, "..", "api", "automation-settings.js"), "utf8");
+  assert.match(settingsApi, /preserveProtectedAutomationFields/);
+  assert.match(settingsApi, /manual_half_lights_off_url/);
+});
+
+test("queue migration atomically claims scheduled work and retires dead producers", () => {
+  const migration = fs.readFileSync(
+    path.resolve(__dirname, "..", "supabase", "migrations", "20260818151010_harden_automation_queues.sql"),
+    "utf8"
+  );
+  assert.match(migration, /claim_scheduled_member_message[\s\S]*for update skip locked/i);
+  assert.match(migration, /manual review[\s\S]*in_flight_step/i);
+  assert.match(migration, /drop trigger if exists trg_enqueue_heater_insert_automation/i);
+  assert.match(migration, /drop trigger if exists trg_enqueue_rental_request_notification/i);
+  assert.match(migration, /drop trigger if exists trg_enqueue_timesheet_insert_automation/i);
 });
 
 test("database transition logic serializes kiosks and the browser no longer drives sequences", () => {

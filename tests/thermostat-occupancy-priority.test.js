@@ -35,9 +35,11 @@ async function runSequence({ sequence, acRuntimeActive, runtimeError = null }) {
   const oldFetch = global.fetch;
   const oldServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const oldThermostatId = process.env.ECOBEE_AC_THERMOSTAT_ID;
+  const oldCronSecret = process.env.CRON_SECRET;
 
   process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-key";
   process.env.ECOBEE_AC_THERMOSTAT_ID = "ac-thermostat";
+  process.env.CRON_SECRET = "test-cron-secret";
   global.fetch = async (url) => {
     assert.match(String(url), /automation_settings/);
     return {
@@ -72,7 +74,7 @@ async function runSequence({ sequence, acRuntimeActive, runtimeError = null }) {
     const handler = require(sequencePath);
     const req = {
       method: "POST",
-      headers: { host: "example.test" },
+      headers: { host: "example.test", authorization: "Bearer test-cron-secret" },
       body: { memberName: "Test Member", visitDurationMinutes: 30 }
     };
     const res = responseRecorder();
@@ -84,6 +86,8 @@ async function runSequence({ sequence, acRuntimeActive, runtimeError = null }) {
     else process.env.SUPABASE_SERVICE_ROLE_KEY = oldServiceKey;
     if (oldThermostatId === undefined) delete process.env.ECOBEE_AC_THERMOSTAT_ID;
     else process.env.ECOBEE_AC_THERMOSTAT_ID = oldThermostatId;
+    if (oldCronSecret === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = oldCronSecret;
     delete require.cache[sequencePath];
     delete require.cache[ecobeeClientPath];
     delete require.cache[runtimeStatePath];

@@ -5,10 +5,10 @@ const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || "+15416526065";
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "RORC App <no-reply@ruthobenchainrc.com>";
-const CRON_SECRET = process.env.CRON_SECRET || "";
 const { announcementMessageToPlainText, renderAnnouncementMessageHtml } = require("./_announcement-formatting");
 const { optedOutPhoneSet } = require("./_rorc-sms");
 const { sendResendBatchEmails } = require("./_resend");
+const { requireCronAuthorization } = require("./_automation-security");
 
 module.exports = async (req, res) => {
   if (!["GET", "POST"].includes(req.method)) {
@@ -19,17 +19,13 @@ module.exports = async (req, res) => {
     return res.status(500).json({ success: false, error: "Service role key is not configured" });
   }
 
-  if (CRON_SECRET && bearerToken(req) !== CRON_SECRET) {
-    return res.status(401).json({ success: false, error: "Unauthorized" });
-  }
+  if (!requireCronAuthorization(req, res)) return;
 
   try {
-    const due = await supabaseRest(
-      `scheduled_member_messages?select=*&status=eq.scheduled&scheduled_for=lte.${encodeURIComponent(new Date().toISOString())}&order=scheduled_for.asc&limit=20`
-    );
     const results = [];
-
-    for (const job of due || []) {
+    for (let count = 0; count < 20; count += 1) {
+      const job = await claimScheduledMessage();
+      if (!job) break;
       results.push(await dispatchScheduledMessage(job));
     }
 
@@ -51,11 +47,6 @@ async function dispatchScheduledMessage(job) {
   const plainMessage = announcementMessageToPlainText(job?.message);
 
   try {
-    await updateScheduledJob(jobId, {
-      status: "processing",
-      last_error: null
-    });
-
     const members = await loadMembers(memberIds);
     const sendText = Boolean(channels.text);
     const sendEmail = Boolean(channels.email);
@@ -182,6 +173,16 @@ async function dispatchScheduledMessage(job) {
       error: error.message || "Scheduled dispatch failed"
     };
   }
+}
+
+async function claimScheduledMessage() {
+  const rows = await supabaseRest("rpc/claim_scheduled_member_message", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}"
+  });
+  if (!Array.isArray(rows)) throw new Error("Scheduled-message claim returned an invalid response.");
+  return rows[0] || null;
 }
 
 async function updateScheduledJob(id, patch) {
@@ -381,17 +382,13 @@ function normalizePhone(value) {
   return "";
 }
 
-function bearerToken(req) {
-  const header = req.headers.authorization || req.headers.Authorization || "";
-  const match = String(header).match(/^Bearer\s+(.+)$/i);
-  return match ? match[1].trim() : "";
-}
-
-async function supabaseRest(path) {
+async function supabaseRest(path, options = {}) {
   const response = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...options,
     headers: {
       apikey: SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SERVICE_ROLE_KEY}`
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      ...(options.headers || {})
     }
   });
 
@@ -402,3 +399,6 @@ async function supabaseRest(path) {
 
   return response.json();
 }
+
+module.exports.claimScheduledMessage = claimScheduledMessage;
+module.exports.dispatchScheduledMessage = dispatchScheduledMessage;

@@ -153,3 +153,8 @@ create trigger trg_enqueue_rental_request_notification
 after insert on public.rental_requests
 for each row
 execute function public.enqueue_rental_request_notification();
+
+-- Rental notifications are sent by api/rental-request.js. Do not also create
+-- an unconsumed automation job.
+drop trigger if exists trg_enqueue_rental_request_notification on public.rental_requests;
+drop function if exists public.enqueue_rental_request_notification();
