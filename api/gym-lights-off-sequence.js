@@ -44,8 +44,6 @@ module.exports = async (req, res) => {
           voice: settings.step1_voice,
           chime: settings.step1_chime,
           characterDisplay: settings.step1_character_display,
-          legacySettingValue: settings.step1_url,
-          legacyEnvironmentName: "GYM_LIGHTS_OFF_ANNOUNCEMENT_URL",
           label: "Gym closing announcement"
         });
       }});
@@ -56,8 +54,6 @@ module.exports = async (req, res) => {
         await triggerVoiceMonkey({
           v3Device: settings.step2_v3_device,
           v3EnvironmentName: "GYM_LIGHTS_OFF_TRIGGER_DEVICE",
-          legacySettingValue: settings.step2_url,
-          legacyEnvironmentName: "GYM_LIGHTS_OFF_TRIGGER_URL",
           label: "Gym closing trigger"
         });
       }});

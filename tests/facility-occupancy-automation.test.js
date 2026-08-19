@@ -261,8 +261,18 @@ test("automation hardening removes source secrets and protects physical endpoint
   assert.equal(fs.existsSync(path.resolve(__dirname, "..", "api", "send-gym-open-text.js")), false);
   const settingsApi = fs.readFileSync(path.resolve(__dirname, "..", "api", "automation-settings.js"), "utf8");
   assert.match(settingsApi, /preserveProtectedAutomationFields/);
-  assert.match(settingsApi, /manual_half_lights_off_url/);
+  assert.doesNotMatch(settingsApi, /manual_half_lights_off_url/);
   assert.match(settingsApi, /manual_half_lights_off_v3_device/);
+});
+
+test("Voice Monkey automation is v3-only and no longer exposes legacy webhook settings", () => {
+  const voiceMonkey = fs.readFileSync(path.resolve(__dirname, "..", "api", "_voice-monkey.js"), "utf8");
+  const automationSettings = fs.readFileSync(path.resolve(__dirname, "..", "RORC App", "app.js"), "utf8");
+  const activeSources = [voiceMonkey, automationSettings];
+
+  assert.ok(activeSources.every((source) => !/api-v2\.voicemonkey\.io|Secret Webhooks|step1_url|step2_url/.test(source)));
+  assert.match(voiceMonkey, /api-v3\.voicemonkey\.io/);
+  assert.match(voiceMonkey, /Authorization: `Bearer \$\{voiceMonkeyToken\(\)\}`/);
 });
 
 test("kiosk writes immediately drain the durable queue instead of waiting for cron", () => {

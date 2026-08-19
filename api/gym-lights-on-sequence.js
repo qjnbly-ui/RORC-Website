@@ -47,8 +47,6 @@ module.exports = async (req, res) => {
           voice: settings.step1_voice,
           chime: settings.step1_chime,
           characterDisplay: settings.step1_character_display,
-          legacySettingValue: settings.step1_url,
-          legacyEnvironmentName: "GYM_LIGHTS_ON_ANNOUNCEMENT_URL",
           label: "Gym opening announcement"
         });
       }});
@@ -59,8 +57,6 @@ module.exports = async (req, res) => {
         await triggerVoiceMonkey({
           v3Device: useHalfLights ? settings.half_lights_step2_v3_device : settings.step2_v3_device,
           v3EnvironmentName: useHalfLights ? "GYM_LIGHTS_ON_HALF_DEVICE" : "GYM_LIGHTS_ON_FULL_DEVICE",
-          legacySettingValue: useHalfLights ? settings.half_lights_step2_url : settings.step2_url,
-          legacyEnvironmentName: useHalfLights ? "GYM_LIGHTS_ON_HALF_URL" : "GYM_LIGHTS_ON_FULL_URL",
           label: useHalfLights ? "Half-lights opening trigger" : "Full-lights opening trigger"
         });
       }});

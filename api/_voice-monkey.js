@@ -1,12 +1,4 @@
-const { resolveVoiceMonkeyUrl } = require("./_automation-security");
-
 const VOICE_MONKEY_V3_ORIGIN = "https://api-v3.voicemonkey.io";
-
-function voiceMonkeyApiVersion() {
-  const value = String(process.env.VOICEMONKEY_API_VERSION || "v2").trim().toLowerCase();
-  if (value === "v2" || value === "v3") return value;
-  throw new Error("VOICEMONKEY_API_VERSION must be either v2 or v3.");
-}
 
 function resolveVoiceMonkeyDevice({ settingValue, environmentName, label }) {
   const raw = String(process.env[environmentName] || settingValue || "").trim();
@@ -56,28 +48,15 @@ async function callVoiceMonkeyV3(path, payload, fetcher = fetch, {
 async function triggerVoiceMonkey({
   v3Device,
   v3EnvironmentName,
-  legacySettingValue,
-  legacyEnvironmentName,
   label,
   fetcher = fetch
 }) {
-  if (voiceMonkeyApiVersion() === "v3") {
-    const device = resolveVoiceMonkeyDevice({
-      settingValue: v3Device,
-      environmentName: v3EnvironmentName,
-      label: `${label} v3 device`
-    });
-    return callVoiceMonkeyV3("/trigger", { device }, fetcher);
-  }
-
-  const url = resolveVoiceMonkeyUrl({
-    settingValue: legacySettingValue,
-    environmentName: legacyEnvironmentName,
-    label
+  const device = resolveVoiceMonkeyDevice({
+    settingValue: v3Device,
+    environmentName: v3EnvironmentName,
+    label: `${label} v3 device`
   });
-  const response = await fetcher(url, { method: "GET" });
-  if (!response.ok) throw new Error(`${label} failed: ${response.status} ${await response.text()}`);
-  return { success: true };
+  return callVoiceMonkeyV3("/trigger", { device }, fetcher);
 }
 
 async function announceVoiceMonkey({
@@ -87,36 +66,23 @@ async function announceVoiceMonkey({
   voice,
   chime,
   characterDisplay,
-  legacySettingValue,
-  legacyEnvironmentName,
   label,
   fetcher = fetch
 }) {
-  if (voiceMonkeyApiVersion() === "v3") {
-    const device = resolveVoiceMonkeyDevice({
-      settingValue: v3Device,
-      environmentName: v3EnvironmentName,
-      label: `${label} v3 device`
-    });
-    const normalizedSpeech = String(speech || "").trim();
-    if (!normalizedSpeech) throw new Error(`${label} speech is not configured.`);
-    const payload = { device, speech: normalizedSpeech };
-    if (String(voice || "").trim()) payload.voice = String(voice).trim();
-    if (String(chime || "").trim()) payload.chime = String(chime).trim();
-    if (String(characterDisplay || "").trim()) {
-      payload.character_display = String(characterDisplay).trim();
-    }
-    return callVoiceMonkeyV3("/announce", payload, fetcher);
-  }
-
-  const url = resolveVoiceMonkeyUrl({
-    settingValue: legacySettingValue,
-    environmentName: legacyEnvironmentName,
-    label
+  const device = resolveVoiceMonkeyDevice({
+    settingValue: v3Device,
+    environmentName: v3EnvironmentName,
+    label: `${label} v3 device`
   });
-  const response = await fetcher(url, { method: "GET" });
-  if (!response.ok) throw new Error(`${label} failed: ${response.status} ${await response.text()}`);
-  return { success: true };
+  const normalizedSpeech = String(speech || "").trim();
+  if (!normalizedSpeech) throw new Error(`${label} speech is not configured.`);
+  const payload = { device, speech: normalizedSpeech };
+  if (String(voice || "").trim()) payload.voice = String(voice).trim();
+  if (String(chime || "").trim()) payload.chime = String(chime).trim();
+  if (String(characterDisplay || "").trim()) {
+    payload.character_display = String(characterDisplay).trim();
+  }
+  return callVoiceMonkeyV3("/announce", payload, fetcher);
 }
 
 module.exports = {
@@ -124,6 +90,5 @@ module.exports = {
   announceVoiceMonkey,
   callVoiceMonkeyV3,
   resolveVoiceMonkeyDevice,
-  triggerVoiceMonkey,
-  voiceMonkeyApiVersion
+  triggerVoiceMonkey
 };

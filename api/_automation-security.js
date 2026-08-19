@@ -26,22 +26,6 @@ function requireCronAuthorization(req, res) {
   return true;
 }
 
-function resolveVoiceMonkeyUrl({ settingValue, environmentName, label }) {
-  const raw = String(process.env[environmentName] || settingValue || "").trim();
-  if (!raw) throw new Error(`${label} is not configured.`);
-
-  let url;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new Error(`${label} is not a valid URL.`);
-  }
-  if (url.protocol !== "https:" || url.hostname !== "api-v2.voicemonkey.io") {
-    throw new Error(`${label} must use the approved VoiceMonkey HTTPS endpoint.`);
-  }
-  return url.toString();
-}
-
 async function requireFacilityOperator(req, fetcher = fetch) {
   if (!SERVICE_ROLE_KEY) {
     const error = new Error("Supabase service access is not configured");
@@ -86,6 +70,5 @@ module.exports = {
   bearerToken,
   isCronAuthorized,
   requireCronAuthorization,
-  requireFacilityOperator,
-  resolveVoiceMonkeyUrl
+  requireFacilityOperator
 };
