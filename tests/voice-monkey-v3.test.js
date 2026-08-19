@@ -9,6 +9,7 @@ const {
   voiceMonkeyApiVersion
 } = require("../api/_voice-monkey");
 const { flushFacilityAutomation } = require("../api/timesheet-entries");
+const { requireSignedInAccountMember } = require("../api/request-facility-automation-dispatch");
 
 function preserveEnvironment(names) {
   const prior = Object.fromEntries(names.map((name) => [name, process.env[name]]));
@@ -170,4 +171,29 @@ test("a failed immediate drain leaves the cron fallback available", async () => 
   } finally {
     console.error = originalError;
   }
+});
+
+test("member-side dispatch requires a real Supabase user linked to an account member", async () => {
+  const calls = [];
+  const member = await requireSignedInAccountMember({
+    headers: { authorization: "Bearer member-session" }
+  }, async (url, options) => {
+    calls.push({ url, options });
+    if (url.endsWith("/auth/v1/user")) {
+      return { ok: true, json: async () => ({ id: "auth-user-1" }) };
+    }
+    return { ok: true, json: async () => ([{ id: "member-1" }]) };
+  }, { serviceRoleKey: "test-service-role" });
+  assert.equal(member.id, "member-1");
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].options.headers.Authorization, "Bearer member-session");
+});
+
+test("direct Supabase sign-in and sign-out paths wake the durable queue", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const source = fs.readFileSync(path.resolve(__dirname, "..", "RORC App", "app.js"), "utf8");
+  assert.match(source, /requestImmediateFacilityAutomation/);
+  assert.match(source, /request-facility-automation-dispatch/);
+  assert.ok((source.match(/await requestImmediateFacilityAutomation\(\);/g) || []).length >= 3);
 });
