@@ -1543,7 +1543,7 @@ async function renderAutomationSettingsPage() {
       <header class="feedback-hero automation-hero">
         <p class="eyebrow">Admin</p>
         <h2>Bot Settings</h2>
-        <p>Control automations, alert routing, fallback webhooks, and account access policy from one place.</p>
+        <p>Control automations, alert recipients, and account access policy from one place.</p>
       </header>
 
       <form id="automationSettingsForm" class="feedback-form automation-form" autocomplete="off">
@@ -1580,8 +1580,22 @@ async function renderAutomationSettingsPage() {
               <span>Stage 3 SMS</span>
             </label>
             <label>
-              <span>SMS destination</span>
-              <input id="gymLightsOnSmsTo" type="text" placeholder="+1541..., +1541..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+              <span>SMS recipients</span>
+              <input id="gymLightsOnSmsRecipients" class="member-picker-value" type="hidden" />
+              <button
+                id="gymLightsOnSmsRecipientsPicker"
+                class="member-picker-button multi-member-picker-button"
+                data-member-multi-picker="gymLightsOnSmsRecipients"
+                data-member-picker-source="adminSmsRecipients"
+                data-member-picker-placeholder="Select admin contacts"
+                data-member-picker-title="Opening SMS Recipients"
+                type="button"
+              >
+                <span class="member-picker-selected">
+                  <span class="member-picker-placeholder">Select admin contacts</span>
+                </span>
+                <span class="member-picker-plus" aria-hidden="true">+</span>
+              </button>
             </label>
             <label class="automation-toggle">
               <input id="gymLightsOnAcFanEnabled" type="checkbox" />
@@ -1609,8 +1623,22 @@ async function renderAutomationSettingsPage() {
               <span>Stage 3 SMS</span>
             </label>
             <label>
-              <span>SMS destination</span>
-              <input id="gymLightsOffSmsTo" type="text" placeholder="+1541..., +1541..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
+              <span>SMS recipients</span>
+              <input id="gymLightsOffSmsRecipients" class="member-picker-value" type="hidden" />
+              <button
+                id="gymLightsOffSmsRecipientsPicker"
+                class="member-picker-button multi-member-picker-button"
+                data-member-multi-picker="gymLightsOffSmsRecipients"
+                data-member-picker-source="adminSmsRecipients"
+                data-member-picker-placeholder="Select admin contacts"
+                data-member-picker-title="Closing SMS Recipients"
+                type="button"
+              >
+                <span class="member-picker-selected">
+                  <span class="member-picker-placeholder">Select admin contacts</span>
+                </span>
+                <span class="member-picker-plus" aria-hidden="true">+</span>
+              </button>
             </label>
             <label class="automation-toggle">
               <input id="gymLightsOffAcFanEnabled" type="checkbox" />
@@ -1657,6 +1685,8 @@ async function renderAutomationSettingsPage() {
     </section>
   `;
 
+  await ensureResource("directory");
+  if (appState.currentRoute !== "message") return;
   await bindAutomationSettingsActions({ silentInitialLoad: true });
   revealReadyContent(root);
 }
@@ -7015,14 +7045,20 @@ function applyAutomationSettingsToForm(settings) {
   setValue("gymLightsOnHalfLightsStartTime", settings.gym_lights_on?.half_lights_start_time || "07:00");
   setValue("gymLightsOnHalfLightsEndTime", settings.gym_lights_on?.half_lights_end_time || "18:00");
   setChecked("gymLightsOnSmsEnabled", settings.gym_lights_on?.sms_enabled !== false);
-  setValue("gymLightsOnSmsTo", settings.gym_lights_on?.sms_to);
+  setMultiMemberPickerValue(
+    "gymLightsOnSmsRecipients",
+    automationSmsRecipientMemberIds(settings.gym_lights_on?.sms_to)
+  );
   setChecked("gymLightsOnAcFanEnabled", settings.gym_lights_on?.ac_fan_enabled !== false);
 
   setChecked("gymLightsOffEnabled", settings.gym_lights_off?.enabled);
   setChecked("gymLightsOffStep1Enabled", settings.gym_lights_off?.step1_enabled !== false);
   setChecked("gymLightsOffStep2Enabled", settings.gym_lights_off?.step2_enabled !== false);
   setChecked("gymLightsOffSmsEnabled", settings.gym_lights_off?.sms_enabled !== false);
-  setValue("gymLightsOffSmsTo", settings.gym_lights_off?.sms_to);
+  setMultiMemberPickerValue(
+    "gymLightsOffSmsRecipients",
+    automationSmsRecipientMemberIds(settings.gym_lights_off?.sms_to)
+  );
   setChecked("gymLightsOffAcFanEnabled", settings.gym_lights_off?.ac_fan_enabled !== false);
 
   setChecked("heaterOnEnabled", settings.heater_on?.enabled);
@@ -7031,6 +7067,29 @@ function applyAutomationSettingsToForm(settings) {
   setChecked("thermostatAcEnabled", settings.thermostat_system_access?.ac_enabled !== false);
 
   applyAccountTypePoliciesToForm(settings.account_type_permissions || accountTypePolicies || {});
+}
+
+function automationSmsRecipientMemberIds(destinations) {
+  const configuredPhones = new Set(
+    String(destinations || "")
+      .split(",")
+      .map((value) => normalizeCommunicationsPhone(value))
+      .filter(Boolean)
+  );
+
+  return memberPickerOptions("adminSmsRecipients")
+    .filter((member) => configuredPhones.has(normalizeCommunicationsPhone(member.phoneNumber || member.phone_number)))
+    .map((member) => member.id);
+}
+
+function automationSmsDestinations(inputId) {
+  const input = document.getElementById(inputId);
+  const destinations = selectedMemberIdsFromInput(input)
+    .map((memberId) => findMember(memberId))
+    .map((member) => normalizeCommunicationsPhone(member?.phoneNumber || member?.phone_number))
+    .filter(Boolean);
+
+  return [...new Set(destinations)].join(", ");
 }
 
 function policyFieldKey(accountType) {
@@ -7079,7 +7138,7 @@ function collectAutomationSettingsFromForm() {
       half_lights_start_time: getValue("gymLightsOnHalfLightsStartTime"),
       half_lights_end_time: getValue("gymLightsOnHalfLightsEndTime"),
       sms_enabled: isChecked("gymLightsOnSmsEnabled"),
-      sms_to: getValue("gymLightsOnSmsTo"),
+      sms_to: automationSmsDestinations("gymLightsOnSmsRecipients"),
       ac_fan_enabled: isChecked("gymLightsOnAcFanEnabled")
     },
     gym_lights_off: {
@@ -7087,7 +7146,7 @@ function collectAutomationSettingsFromForm() {
       step1_enabled: isChecked("gymLightsOffStep1Enabled"),
       step2_enabled: isChecked("gymLightsOffStep2Enabled"),
       sms_enabled: isChecked("gymLightsOffSmsEnabled"),
-      sms_to: getValue("gymLightsOffSmsTo"),
+      sms_to: automationSmsDestinations("gymLightsOffSmsRecipients"),
       ac_fan_enabled: isChecked("gymLightsOffAcFanEnabled")
     },
     heater_on: {
@@ -7158,7 +7217,7 @@ function refreshAutomationSectionStates() {
       "gymLightsOnHalfLightsStartTime",
       "gymLightsOnHalfLightsEndTime",
       "gymLightsOnSmsEnabled",
-      "gymLightsOnSmsTo",
+      "gymLightsOnSmsRecipientsPicker",
       "gymLightsOnAcFanEnabled"
     ]
   });
@@ -7169,7 +7228,7 @@ function refreshAutomationSectionStates() {
       "gymLightsOffStep1Enabled",
       "gymLightsOffStep2Enabled",
       "gymLightsOffSmsEnabled",
-      "gymLightsOffSmsTo",
+      "gymLightsOffSmsRecipientsPicker",
       "gymLightsOffAcFanEnabled"
     ]
   });
@@ -13623,6 +13682,7 @@ function routeResourceNames(routeName = appState.currentRoute) {
   if (routeName === "notificationsEmail") return ["messageHistory"];
   if (routeName === "masterLogs") return [masterLogsResourceName()];
   if (routeName === "access") return ["doorAccess"];
+  if (routeName === "message") return ["directory"];
   return [];
 }
 
@@ -14278,6 +14338,14 @@ function memberPickerOptions(source) {
   const sortOnly = (members) => [...members].filter(hideFromNormalPickers).sort(sortMembers);
   const kioskOrManager = isAccountManager(appUserSession) || isKioskAccount(appUserSession);
 
+  if (source === "adminSmsRecipients") {
+    return sortOnly(globalMemberDirectory.length ? globalMemberDirectory : accountMembers)
+      .filter((member) => (
+        canonicalAccountType(member.accountType) === "Account Manager"
+        && Boolean(normalizeCommunicationsPhone(member.phoneNumber || member.phone_number))
+      ));
+  }
+
   if ((source === "memberSignIn" || source === "heaterResponsible") && kioskOrManager) {
     return sortOnly(globalMemberDirectory.length ? globalMemberDirectory : accountMembers);
   }
@@ -14485,16 +14553,21 @@ function openMultiMemberPicker(button) {
   const title = button.dataset.memberPickerTitle || "Names";
   const options = memberPickerOptions(source);
   const selectedMemberIds = new Set(selectedMemberIdsFromInput(input));
-  const useContactMenu = inputId === "messageMembers";
+  const isAdminSmsMenu = source === "adminSmsRecipients";
+  const useContactMenu = inputId === "messageMembers" || isAdminSmsMenu;
+  const contactMenuKicker = isAdminSmsMenu ? "Automation alerts" : "Announcement audience";
+  const contactMenuHelper = isAdminSmsMenu
+    ? "Choose one or more Account Manager contacts with a saved phone number."
+    : "Choose one or more members. Membership colors match the rest of the RORC app.";
 
   const overlay = document.createElement("div");
   overlay.className = "member-picker-overlay";
   overlay.innerHTML = `
     <section class="member-picker-dialog ${useContactMenu ? "member-picker-contact-dialog" : ""}" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
       <header class="member-picker-header">
-        ${useContactMenu ? `<p class="page-kicker">Announcement audience</p>` : ""}
+        ${useContactMenu ? `<p class="page-kicker">${escapeHtml(contactMenuKicker)}</p>` : ""}
         <h2>${escapeHtml(title)}</h2>
-        ${useContactMenu ? `<p class="member-picker-helper">Choose one or more members. Membership colors match the rest of the RORC app.</p>` : ""}
+        ${useContactMenu ? `<p class="member-picker-helper">${escapeHtml(contactMenuHelper)}</p>` : ""}
       </header>
       <div class="member-picker-search-wrap">
         <label>
