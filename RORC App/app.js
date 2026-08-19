@@ -13211,6 +13211,24 @@ async function signOutPrivilegedTimesheetEntry(entryId, signOutGuestsForMemberId
   }
 }
 
+async function requestImmediateFacilityAutomation() {
+  const token = currentAuthSession?.access_token || "";
+  if (!token) return;
+
+  try {
+    const response = await fetch("/api/request-facility-automation-dispatch", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || `Immediate automation dispatch failed (${response.status}).`);
+    }
+  } catch (error) {
+    console.warn("Immediate facility automation dispatch failed; cron fallback remains active.", error);
+  }
+}
+
 async function fetchMemberNotifications() {
   const token = currentAuthSession?.access_token || "";
   if (!token) return [];
@@ -15698,6 +15716,8 @@ async function signOutTimesheetEntry(entryId) {
           throw guestSignOutResult.error;
         }
       }
+
+      await requestImmediateFacilityAutomation();
     }
 
     markLocalTimesheetSignedOut(entryId, signedOutAt, linkedGuestMemberId);
@@ -18333,6 +18353,7 @@ async function saveMemberSignIn() {
       }
 
       createdEntries = data || [];
+      await requestImmediateFacilityAutomation();
     }
 
     upsertLocalTimesheetEntries(createdEntries);
@@ -18449,6 +18470,7 @@ async function saveGuestSignIn() {
       }
 
       createdEntries = data || [];
+      await requestImmediateFacilityAutomation();
     }
 
     upsertLocalTimesheetEntries(createdEntries);
