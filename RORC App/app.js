@@ -14370,6 +14370,25 @@ function setMultiMemberPickerValue(inputId, memberIds) {
   `;
 }
 
+function bindMemberPickerCompletion({ doneButton, searchInput, close, hasSelection }) {
+  const complete = (event) => {
+    event?.preventDefault();
+    searchInput?.blur();
+    close();
+  };
+
+  // Mobile Safari can consume the first tap only to dismiss the search
+  // keyboard. Complete on pointer-down so the visible Done button responds to
+  // that first tap, while retaining click as the keyboard/accessibility path.
+  doneButton?.addEventListener("pointerdown", complete);
+  doneButton?.addEventListener("click", complete);
+  searchInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && hasSelection()) {
+      complete(event);
+    }
+  });
+}
+
 function openMemberPicker(button) {
   const inputId = button.dataset.memberPicker;
   const input = document.getElementById(inputId);
@@ -14388,7 +14407,7 @@ function openMemberPicker(button) {
       <div class="member-picker-search-wrap">
         <label>
           <span>Search</span>
-          <input class="member-picker-search" type="search" autocomplete="off" />
+          <input class="member-picker-search" type="search" autocomplete="off" enterkeyhint="done" />
         </label>
       </div>
       <div class="member-picker-list" role="radiogroup">
@@ -14438,7 +14457,12 @@ function openMemberPicker(button) {
     });
   });
 
-  doneButton?.addEventListener("click", close);
+  bindMemberPickerCompletion({
+    doneButton,
+    searchInput,
+    close,
+    hasSelection: () => Boolean(selectedMemberId)
+  });
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) {
       close();
@@ -14475,7 +14499,7 @@ function openMultiMemberPicker(button) {
       <div class="member-picker-search-wrap">
         <label>
           <span class="${useContactMenu ? "sr-only" : ""}">Search</span>
-          <input class="member-picker-search" type="search" autocomplete="off" ${useContactMenu ? `placeholder="Search name, phone, or membership"` : ""} />
+          <input class="member-picker-search" type="search" autocomplete="off" enterkeyhint="done" ${useContactMenu ? `placeholder="Search name, phone, or membership"` : ""} />
         </label>
       </div>
       <div class="member-picker-list" role="group">
@@ -14534,7 +14558,12 @@ function openMultiMemberPicker(button) {
     });
   });
 
-  doneButton?.addEventListener("click", close);
+  bindMemberPickerCompletion({
+    doneButton,
+    searchInput,
+    close,
+    hasSelection: () => selectedMemberIds.size > 0
+  });
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) {
       close();

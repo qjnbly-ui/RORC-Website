@@ -5721,6 +5721,7 @@ textarea:focus-visible,
   color: var(--accent);
   font-size: 1.3rem;
   font-weight: 800;
+  touch-action: manipulation;
 }
 
 .member-picker-contact-dialog {
