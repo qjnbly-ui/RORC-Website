@@ -8,8 +8,9 @@ const { resumeEcobeeProgram } = require("./_ecobee-client");
 const { hasActiveThermostatRuntime } = require("./_thermostat-runtime-state");
 const { parseSmsDestinations } = require("./_sms-destinations");
 const ECOBEE_AC_THERMOSTAT_ID = process.env.ECOBEE_AC_THERMOSTAT_ID || "";
-const { requireCronAuthorization, resolveVoiceMonkeyUrl } = require("./_automation-security");
+const { requireCronAuthorization } = require("./_automation-security");
 const { runAutomationStep } = require("./_automation-step");
+const { announceVoiceMonkey, triggerVoiceMonkey } = require("./_voice-monkey");
 
 module.exports = async (req, res) => {
   if (req.method !== "POST") {
@@ -35,18 +36,30 @@ module.exports = async (req, res) => {
     let fanAutomationSkipped = "";
 
     if (settings.step1_enabled !== false && !completedSteps.has("announcement")) {
-      const step1Url = resolveVoiceMonkeyUrl({ settingValue: settings.step1_url, environmentName: "GYM_LIGHTS_OFF_ANNOUNCEMENT_URL", label: "Gym closing announcement URL" });
       await runAutomationStep({ req, completedSteps, step: "announcement", action: async () => {
-        const step1 = await fetch(step1Url, { method: "GET" });
-        if (!step1.ok) throw new Error(`Step 1 failed: ${step1.status} ${await step1.text()}`);
+        await announceVoiceMonkey({
+          v3Device: settings.step1_v3_device,
+          v3EnvironmentName: "GYM_LIGHTS_OFF_ANNOUNCEMENT_DEVICE",
+          speech: settings.step1_speech,
+          voice: settings.step1_voice,
+          chime: settings.step1_chime,
+          characterDisplay: settings.step1_character_display,
+          legacySettingValue: settings.step1_url,
+          legacyEnvironmentName: "GYM_LIGHTS_OFF_ANNOUNCEMENT_URL",
+          label: "Gym closing announcement"
+        });
       }});
     }
 
     if (settings.step2_enabled !== false && !completedSteps.has("lights")) {
-      const step2Url = resolveVoiceMonkeyUrl({ settingValue: settings.step2_url, environmentName: "GYM_LIGHTS_OFF_TRIGGER_URL", label: "Gym closing trigger URL" });
       await runAutomationStep({ req, completedSteps, step: "lights", action: async () => {
-        const step2 = await fetch(step2Url, { method: "GET" });
-        if (!step2.ok) throw new Error(`Step 2 failed: ${step2.status} ${await step2.text()}`);
+        await triggerVoiceMonkey({
+          v3Device: settings.step2_v3_device,
+          v3EnvironmentName: "GYM_LIGHTS_OFF_TRIGGER_DEVICE",
+          legacySettingValue: settings.step2_url,
+          legacyEnvironmentName: "GYM_LIGHTS_OFF_TRIGGER_URL",
+          label: "Gym closing trigger"
+        });
       }});
     }
 
