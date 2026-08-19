@@ -33,8 +33,6 @@ module.exports = async (req, res) => {
       await triggerVoiceMonkey({
         v3Device: mode === "half" ? settings.manual_half_lights_off_v3_device : settings.step2_v3_device,
         v3EnvironmentName: mode === "half" ? "GYM_LIGHTS_MANUAL_HALF_OFF_DEVICE" : "GYM_LIGHTS_ON_FULL_DEVICE",
-        legacySettingValue: mode === "half" ? settings.manual_half_lights_off_url : settings.step2_url,
-        legacyEnvironmentName: mode === "half" ? "GYM_LIGHTS_MANUAL_HALF_OFF_URL" : "GYM_LIGHTS_ON_FULL_URL",
         label: mode === "half" ? "Manual half-lights trigger" : "Manual full-lights trigger"
       });
 

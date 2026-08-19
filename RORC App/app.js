@@ -1640,39 +1640,6 @@ async function renderAutomationSettingsPage() {
           </article>
         </section>
 
-        <div class="automation-advanced">
-          <button id="toggleAutomationAdvanced" class="auth-secondary" type="button">Show Secret Webhooks</button>
-          <p class="automation-note">Sensitive endpoints are masked and stored as secure settings.</p>
-          <div id="automationAdvancedFields" class="automation-grid" hidden>
-            <article class="automation-card">
-              <h3>Gym Lights On Webhooks</h3>
-              <label>
-                <span>Step 1 URL</span>
-                <input id="gymLightsOnStep1Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
-              </label>
-              <label>
-                <span>Step 2 URL</span>
-                <input id="gymLightsOnStep2Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
-              </label>
-              <label>
-                <span>Half Lights Step 2 URL</span>
-                <input id="gymLightsOnHalfLightsStep2Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
-              </label>
-            </article>
-            <article class="automation-card">
-              <h3>Gym Lights Off Webhooks</h3>
-              <label>
-                <span>Step 1 URL</span>
-                <input id="gymLightsOffStep1Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
-              </label>
-              <label>
-                <span>Step 2 URL</span>
-                <input id="gymLightsOffStep2Url" type="password" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" />
-              </label>
-            </article>
-          </div>
-        </div>
-
         <div class="feedback-actions">
           <button id="automationSettingsSave" type="submit">Save Settings</button>
           <p id="automationSettingsResult" class="feedback-result" aria-live="polite"></p>
@@ -7048,9 +7015,6 @@ function applyAutomationSettingsToForm(settings) {
   setValue("gymLightsOnHalfLightsStartTime", settings.gym_lights_on?.half_lights_start_time || "07:00");
   setValue("gymLightsOnHalfLightsEndTime", settings.gym_lights_on?.half_lights_end_time || "18:00");
   setChecked("gymLightsOnSmsEnabled", settings.gym_lights_on?.sms_enabled !== false);
-  setValue("gymLightsOnStep1Url", settings.gym_lights_on?.step1_url);
-  setValue("gymLightsOnStep2Url", settings.gym_lights_on?.step2_url);
-  setValue("gymLightsOnHalfLightsStep2Url", settings.gym_lights_on?.half_lights_step2_url);
   setValue("gymLightsOnSmsTo", settings.gym_lights_on?.sms_to);
   setChecked("gymLightsOnAcFanEnabled", settings.gym_lights_on?.ac_fan_enabled !== false);
 
@@ -7058,8 +7022,6 @@ function applyAutomationSettingsToForm(settings) {
   setChecked("gymLightsOffStep1Enabled", settings.gym_lights_off?.step1_enabled !== false);
   setChecked("gymLightsOffStep2Enabled", settings.gym_lights_off?.step2_enabled !== false);
   setChecked("gymLightsOffSmsEnabled", settings.gym_lights_off?.sms_enabled !== false);
-  setValue("gymLightsOffStep1Url", settings.gym_lights_off?.step1_url);
-  setValue("gymLightsOffStep2Url", settings.gym_lights_off?.step2_url);
   setValue("gymLightsOffSmsTo", settings.gym_lights_off?.sms_to);
   setChecked("gymLightsOffAcFanEnabled", settings.gym_lights_off?.ac_fan_enabled !== false);
 
@@ -7117,9 +7079,6 @@ function collectAutomationSettingsFromForm() {
       half_lights_start_time: getValue("gymLightsOnHalfLightsStartTime"),
       half_lights_end_time: getValue("gymLightsOnHalfLightsEndTime"),
       sms_enabled: isChecked("gymLightsOnSmsEnabled"),
-      step1_url: getValue("gymLightsOnStep1Url"),
-      step2_url: getValue("gymLightsOnStep2Url"),
-      half_lights_step2_url: getValue("gymLightsOnHalfLightsStep2Url"),
       sms_to: getValue("gymLightsOnSmsTo"),
       ac_fan_enabled: isChecked("gymLightsOnAcFanEnabled")
     },
@@ -7128,8 +7087,6 @@ function collectAutomationSettingsFromForm() {
       step1_enabled: isChecked("gymLightsOffStep1Enabled"),
       step2_enabled: isChecked("gymLightsOffStep2Enabled"),
       sms_enabled: isChecked("gymLightsOffSmsEnabled"),
-      step1_url: getValue("gymLightsOffStep1Url"),
-      step2_url: getValue("gymLightsOffStep2Url"),
       sms_to: getValue("gymLightsOffSmsTo"),
       ac_fan_enabled: isChecked("gymLightsOffAcFanEnabled")
     },
@@ -7222,8 +7179,6 @@ async function bindAutomationSettingsActions({ silentInitialLoad = false } = {})
   const form = document.getElementById("automationSettingsForm");
   const saveButton = document.getElementById("automationSettingsSave");
   if (!form || !saveButton) return;
-  const advancedToggle = document.getElementById("toggleAutomationAdvanced");
-  const advancedFields = document.getElementById("automationAdvancedFields");
 
   try {
     if (!silentInitialLoad) automationResult("Loading settings...");
@@ -7239,13 +7194,6 @@ async function bindAutomationSettingsActions({ silentInitialLoad = false } = {})
 
   document.getElementById("gymLightsOnEnabled")?.addEventListener("change", refreshAutomationSectionStates);
   document.getElementById("gymLightsOffEnabled")?.addEventListener("change", refreshAutomationSectionStates);
-
-  advancedToggle?.addEventListener("click", () => {
-    if (!advancedFields) return;
-    const nextHidden = !advancedFields.hidden;
-    advancedFields.hidden = nextHidden;
-    advancedToggle.textContent = nextHidden ? "Show Secret Webhooks" : "Hide Secret Webhooks";
-  });
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();

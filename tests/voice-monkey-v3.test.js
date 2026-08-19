@@ -5,8 +5,7 @@ const {
   VOICE_MONKEY_V3_ORIGIN,
   announceVoiceMonkey,
   callVoiceMonkeyV3,
-  triggerVoiceMonkey,
-  voiceMonkeyApiVersion
+  triggerVoiceMonkey
 } = require("../api/_voice-monkey");
 const { flushFacilityAutomation } = require("../api/timesheet-entries");
 const { requireSignedInAccountMember } = require("../api/request-facility-automation-dispatch");
@@ -20,8 +19,7 @@ function preserveEnvironment(names) {
 }
 
 test("v3 routine triggers keep the API token out of the URL and request body", async () => {
-  const restore = preserveEnvironment(["VOICEMONKEY_API_VERSION", "VOICEMONKEY_API_TOKEN"]);
-  process.env.VOICEMONKEY_API_VERSION = "v3";
+  const restore = preserveEnvironment(["VOICEMONKEY_API_TOKEN"]);
   process.env.VOICEMONKEY_API_TOKEN = "secret-production-token";
   const calls = [];
   try {
@@ -46,8 +44,7 @@ test("v3 routine triggers keep the API token out of the URL and request body", a
 });
 
 test("v3 announcements use the new announce endpoint and speech field", async () => {
-  const restore = preserveEnvironment(["VOICEMONKEY_API_VERSION", "VOICEMONKEY_API_TOKEN"]);
-  process.env.VOICEMONKEY_API_VERSION = "v3";
+  const restore = preserveEnvironment(["VOICEMONKEY_API_TOKEN"]);
   process.env.VOICEMONKEY_API_TOKEN = "secret-production-token";
   let request;
   try {
@@ -122,29 +119,6 @@ test("v3 does not retry an ambiguous Alexa failure", async () => {
     restore();
   }
   assert.equal(attempt, 1);
-});
-
-test("v2 remains the default during the staged cutover", async () => {
-  const restore = preserveEnvironment(["VOICEMONKEY_API_VERSION", "VOICEMONKEY_API_TOKEN"]);
-  delete process.env.VOICEMONKEY_API_VERSION;
-  delete process.env.VOICEMONKEY_API_TOKEN;
-  const calls = [];
-  try {
-    assert.equal(voiceMonkeyApiVersion(), "v2");
-    await triggerVoiceMonkey({
-      legacySettingValue: "https://api-v2.voicemonkey.io/trigger?token=redacted&device=legacy",
-      legacyEnvironmentName: "MISSING_V2_TRIGGER_URL",
-      label: "Legacy lights",
-      fetcher: async (url, options) => {
-        calls.push({ url, options });
-        return { ok: true };
-      }
-    });
-  } finally {
-    restore();
-  }
-  assert.equal(calls[0].options.method, "GET");
-  assert.match(calls[0].url, /^https:\/\/api-v2\.voicemonkey\.io\/trigger/);
 });
 
 test("the kiosk immediately drains the durable automation queue", async () => {

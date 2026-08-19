@@ -112,9 +112,6 @@ function preserveProtectedAutomationFields(id, nextConfig, currentConfig) {
       }
     });
   }
-  if (id === "gym_lights_on" && currentConfig.manual_half_lights_off_url) {
-    merged.manual_half_lights_off_url = currentConfig.manual_half_lights_off_url;
-  }
   return merged;
 }
 

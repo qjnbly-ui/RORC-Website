@@ -116,8 +116,8 @@ test("service worker caches only versioned static assets and performs one update
 
   assert.ok(version > 66);
   assert.doesNotMatch(html, /20260808-text-preferences/);
-  assert.match(html, /app\.css\?v=20260812-receptionist-review-queue/);
-  assert.match(html, /app\.js\?v=20260818-member-automation-dispatch/);
+  assert.match(html, /app\.css\?v=20260819-remove-v2-webhooks/);
+  assert.match(html, /app\.js\?v=20260819-remove-v2-webhooks/);
   assert.doesNotMatch(source, /app\.config\.js|twilio-voice\.min\.js/);
   versionedAssets.forEach((asset) => assert.match(source, new RegExp(asset.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
   assert.match(source, /url\.pathname\.startsWith\("\/api\/"\)/);

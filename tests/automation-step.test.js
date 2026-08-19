@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 
 const { runAutomationStep } = require("../api/_automation-step");
-const { isCronAuthorized, resolveVoiceMonkeyUrl } = require("../api/_automation-security");
+const { isCronAuthorized } = require("../api/_automation-security");
 
 test("automation steps checkpoint before and after an external action", async () => {
   const events = [];
@@ -31,17 +31,12 @@ test("a failed external step is marked in-flight for no-repeat handling", async 
   assert.deepEqual(error.completedSteps, ["lights"]);
 });
 
-test("cron authorization fails closed and webhook URLs are allowlisted", () => {
+test("cron authorization fails closed", () => {
   const prior = process.env.CRON_SECRET;
   delete process.env.CRON_SECRET;
   assert.equal(isCronAuthorized({ headers: {} }), false);
   process.env.CRON_SECRET = "secret";
   assert.equal(isCronAuthorized({ headers: { authorization: "Bearer secret" } }), true);
-  assert.throws(() => resolveVoiceMonkeyUrl({
-    settingValue: "https://example.com/hook",
-    environmentName: "MISSING_AUTOMATION_TEST_URL",
-    label: "Test URL"
-  }), /approved VoiceMonkey/);
   if (prior === undefined) delete process.env.CRON_SECRET;
   else process.env.CRON_SECRET = prior;
 });
