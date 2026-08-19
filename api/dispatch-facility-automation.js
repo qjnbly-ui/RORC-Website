@@ -284,4 +284,5 @@ module.exports.authorized = authorized;
 module.exports.claimFacilityAutomationJob = claimFacilityAutomationJob;
 module.exports.dispatchFacilityAutomation = dispatchFacilityAutomation;
 module.exports.loadFacilityAutomationSnapshot = loadFacilityAutomationSnapshot;
+module.exports.requestOrigin = requestOrigin;
 module.exports.visitDurationMinutes = visitDurationMinutes;

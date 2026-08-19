@@ -95,6 +95,23 @@ module.exports = async (req, res) => {
 
 function preserveProtectedAutomationFields(id, nextConfig, currentConfig) {
   const merged = { ...(nextConfig || {}) };
+  if (["gym_lights_on", "gym_lights_off"].includes(id)) {
+    const protectedFields = [
+      "step1_v3_device",
+      "step1_speech",
+      "step1_voice",
+      "step1_chime",
+      "step1_character_display",
+      "step2_v3_device",
+      "half_lights_step2_v3_device",
+      "manual_half_lights_off_v3_device"
+    ];
+    protectedFields.forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(currentConfig, field)) {
+        merged[field] = currentConfig[field];
+      }
+    });
+  }
   if (id === "gym_lights_on" && currentConfig.manual_half_lights_off_url) {
     merged.manual_half_lights_off_url = currentConfig.manual_half_lights_off_url;
   }

@@ -1,7 +1,8 @@
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SETTINGS_ID = "gym_lights_manual_mode";
-const { requireFacilityOperator, resolveVoiceMonkeyUrl } = require("./_automation-security");
+const { requireFacilityOperator } = require("./_automation-security");
+const { triggerVoiceMonkey } = require("./_voice-monkey");
 
 module.exports = async (req, res) => {
   if (!SERVICE_ROLE_KEY) {
@@ -29,15 +30,13 @@ module.exports = async (req, res) => {
       }
 
       const settings = await getAutomationConfig("gym_lights_on");
-      const fullLightsUrl = resolveVoiceMonkeyUrl({ settingValue: settings.step2_url, environmentName: "GYM_LIGHTS_ON_FULL_URL", label: "Full-lights control URL" });
-      const halfLightsOffUrl = resolveVoiceMonkeyUrl({ settingValue: settings.manual_half_lights_off_url, environmentName: "GYM_LIGHTS_MANUAL_HALF_OFF_URL", label: "Manual half-lights control URL" });
-      const targetUrl = mode === "half" ? halfLightsOffUrl : fullLightsUrl;
-
-      const triggerResponse = await fetch(targetUrl, { method: "GET" });
-      if (!triggerResponse.ok) {
-        const text = await triggerResponse.text();
-        throw new Error(`Lights trigger failed: ${triggerResponse.status} ${text}`);
-      }
+      await triggerVoiceMonkey({
+        v3Device: mode === "half" ? settings.manual_half_lights_off_v3_device : settings.step2_v3_device,
+        v3EnvironmentName: mode === "half" ? "GYM_LIGHTS_MANUAL_HALF_OFF_DEVICE" : "GYM_LIGHTS_ON_FULL_DEVICE",
+        legacySettingValue: mode === "half" ? settings.manual_half_lights_off_url : settings.step2_url,
+        legacyEnvironmentName: mode === "half" ? "GYM_LIGHTS_MANUAL_HALF_OFF_URL" : "GYM_LIGHTS_ON_FULL_URL",
+        label: mode === "half" ? "Manual half-lights trigger" : "Manual full-lights trigger"
+      });
 
       await saveAutomationConfig(SETTINGS_ID, {
         mode,

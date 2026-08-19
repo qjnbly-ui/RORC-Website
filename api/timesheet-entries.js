@@ -4,6 +4,10 @@ const FACILITY_TIME_ZONE = "America/Los_Angeles";
 const OPEN_TIMESHEET_LIMIT = 100;
 const SIGN_IN_GUEST_LIMIT = 100;
 const SIGN_IN_GUEST_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+const {
+  dispatchFacilityAutomation,
+  requestOrigin
+} = require("./dispatch-facility-automation");
 const TIMESHEET_READ_COLUMNS = [
   "id",
   "member_id",
@@ -64,7 +68,9 @@ module.exports = async (req, res) => {
         throw httpError(response.status, `Could not create timesheet entry: ${response.status} ${text}`);
       }
 
-      return res.status(200).json({ success: true, entries: await response.json() });
+      const createdEntries = await response.json();
+      const automation = await flushFacilityAutomation(req);
+      return res.status(200).json({ success: true, entries: createdEntries, automation });
     }
 
     if (req.method === "PATCH") {
@@ -92,7 +98,8 @@ module.exports = async (req, res) => {
         );
       }
 
-      return res.status(200).json({ success: true });
+      const automation = await flushFacilityAutomation(req);
+      return res.status(200).json({ success: true, automation });
     }
 
     return res.status(405).json({ success: false, error: "Method not allowed" });
@@ -101,6 +108,21 @@ module.exports = async (req, res) => {
     return res.status(status).json({ success: false, error: error.message || "Server error" });
   }
 };
+
+async function flushFacilityAutomation(req, dispatcher = dispatchFacilityAutomation) {
+  try {
+    return await dispatcher({ origin: requestOrigin(req) });
+  } catch (error) {
+    console.error("Immediate facility automation dispatch failed; cron fallback remains active.", error);
+    return {
+      claimedCount: 0,
+      completedCount: 0,
+      canceledCount: 0,
+      failedCount: 1,
+      deferredToCron: true
+    };
+  }
+}
 
 function requestedTimesheetView(req) {
   const rawView = Array.isArray(req?.query?.view) ? req.query.view[0] : req?.query?.view;
@@ -424,3 +446,5 @@ function httpError(statusCode, message) {
   error.statusCode = statusCode;
   return error;
 }
+
+module.exports.flushFacilityAutomation = flushFacilityAutomation;

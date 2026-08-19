@@ -262,6 +262,14 @@ test("automation hardening removes source secrets and protects physical endpoint
   const settingsApi = fs.readFileSync(path.resolve(__dirname, "..", "api", "automation-settings.js"), "utf8");
   assert.match(settingsApi, /preserveProtectedAutomationFields/);
   assert.match(settingsApi, /manual_half_lights_off_url/);
+  assert.match(settingsApi, /manual_half_lights_off_v3_device/);
+});
+
+test("kiosk writes immediately drain the durable queue instead of waiting for cron", () => {
+  const source = fs.readFileSync(path.resolve(__dirname, "..", "api", "timesheet-entries.js"), "utf8");
+  assert.match(source, /flushFacilityAutomation\(req\)/);
+  assert.match(source, /dispatchFacilityAutomation/);
+  assert.match(source, /cron fallback remains active/i);
 });
 
 test("queue migration atomically claims scheduled work and retires dead producers", () => {
