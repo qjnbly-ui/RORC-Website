@@ -1,6 +1,10 @@
 (function() {
   const LOGIN_PATH = "/membership-login/";
   const STRIPE_FALLBACK_PORTAL = "https://payments.ruthobenchainrc.com/p/login/eVaeWh2tN0vxgSs288";
+  const N3XRA_PORTAL_ACCOUNT = Object.freeze({
+    email: "qjnbly@hotmail.com",
+    accountNumber: "1"
+  });
   const ACCOUNT_TYPE_OPTIONS = [
     "Account Manager",
     "Kiosk Account",
@@ -66,6 +70,23 @@
 
   function canUseAccountAdminTools(profile = currentProfile) {
     return isAccountManager(profile);
+  }
+
+  function canOpenN3xraPortal(profile = currentProfile, session = currentSession) {
+    const signedInEmail = String(session?.user?.email || "").trim().toLowerCase();
+    const profileEmail = String(profile?.email_address || "").trim().toLowerCase();
+    const accountNumber = String(profile?.account_number || "").trim().replace(/^#/, "");
+
+    return isAccountManager(profile)
+      && signedInEmail === N3XRA_PORTAL_ACCOUNT.email
+      && profileEmail === N3XRA_PORTAL_ACCOUNT.email
+      && accountNumber === N3XRA_PORTAL_ACCOUNT.accountNumber;
+  }
+
+  function configureN3xraPortalButton() {
+    const portalButton = byId("openN3xraPortalBtn");
+    if (!portalButton) return;
+    portalButton.hidden = !canOpenN3xraPortal();
   }
 
   function isRentalAccount(profile) {
@@ -1321,6 +1342,7 @@
       revealPrivateAppCard();
       hydrateAccountForm();
       configureBillingButton();
+      configureN3xraPortalButton();
       bindAccountInvite();
       bindAccountInfoModal();
       bindPasswordModal();
