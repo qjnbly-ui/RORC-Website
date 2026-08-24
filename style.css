@@ -385,6 +385,18 @@ a { color: inherit; }
   transition: 0.15s ease;
 }
 
+.n3xra-button-connector {
+  letter-spacing: 0.06em;
+}
+
+.n3xra-wordmark {
+  font-family: var(--font-body);
+  font-size: 0.96em;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  white-space: nowrap;
+}
+
 [hidden] {
   display: none !important;
 }

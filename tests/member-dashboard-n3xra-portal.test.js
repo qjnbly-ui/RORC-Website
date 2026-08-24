@@ -13,6 +13,7 @@ test("member dashboard includes the Ruth Obenchain N3XRA portal shortcut", () =>
     dashboardHtml,
     /href="https:\/\/ruth-obenchain-recreation-center\.portal\.n3xra\.com\/"/
   );
+  assert.match(dashboardHtml, /Manage Website[\s\S]*?<span class="n3xra-wordmark">N3XRA<\/span>/);
   assert.match(dashboardHtml, /id="openN3xraPortalBtn"[\s\S]*?hidden/);
 });
 
