@@ -28,6 +28,10 @@
       text-align: center;
     }
 
+    .holiday-banner[hidden] {
+      display: none;
+    }
+
     /* Visually hidden heading for accessibility */
     .rorc-visually-hidden {
       position: absolute;
@@ -1008,7 +1012,27 @@
       </div>
     </div>
   </div>
-  <p class="holiday-banner" role="status">Happy Labor Day</p>
+  <p class="holiday-banner" id="laborDayBanner" role="status" hidden>Happy Labor Day</p>
+  <script>
+    (() => {
+      const laborDayBanner = document.getElementById("laborDayBanner");
+      const facilityDate = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/Los_Angeles",
+        month: "numeric",
+        day: "numeric",
+        weekday: "long"
+      }).formatToParts(new Date()).reduce((date, part) => {
+        date[part.type] = part.value;
+        return date;
+      }, {});
+
+      const isLaborDay = facilityDate.month === "9"
+        && Number(facilityDate.day) <= 7
+        && facilityDate.weekday === "Monday";
+
+      laborDayBanner.hidden = !isLaborDay;
+    })();
+  </script>
   <!-- ===== RORC · Cinematic Community Section (No Photo Background) ===== -->
   <section class="rorc-section" aria-labelledby="rorc-title">
     <div class="rorc-inner">
