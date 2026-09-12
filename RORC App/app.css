@@ -9687,3 +9687,52 @@ textarea:focus-visible,
     padding-right: 10px;
   }
 }
+
+/* Keep audience shortcuts compact so the member list stays usable on phones. */
+.member-picker-quick-selection {
+  margin-top: 14px;
+  min-width: 0;
+}
+.member-picker-quick-selection p {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+.member-picker-quick-selection p span {
+  color: var(--muted);
+  font-weight: 400;
+}
+.member-picker-quick-buttons {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 3px 3px 8px;
+}
+.member-picker-quick-button {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 8px;
+  min-height: 44px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #444;
+  border-radius: 10px;
+  background: #202020;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.member-picker-quick-button .status-dot { flex-shrink: 0; }
+.member-picker-quick-button small { color: var(--muted); white-space: nowrap; }
+.member-picker-quick-button.is-selected { border-color: var(--accent); background: #302323; }
+.member-picker-quick-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.member-picker-contact-dialog > .member-picker-search-wrap { min-width: 0; }
+.member-picker-contact-dialog > .member-picker-list { min-height: 0; }

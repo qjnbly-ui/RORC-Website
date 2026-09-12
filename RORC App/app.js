@@ -14441,14 +14441,15 @@ function setMultiMemberPickerValue(inputId, memberIds) {
 function bindMemberPickerCompletion({ doneButton, searchInput, close, hasSelection }) {
   const complete = (event) => {
     event?.preventDefault();
+    event?.stopPropagation();
     searchInput?.blur();
     close();
   };
 
-  // Mobile Safari can consume the first tap only to dismiss the search
-  // keyboard. Complete on pointer-down so the visible Done button responds to
-  // that first tap, while retaining click as the keyboard/accessibility path.
-  doneButton?.addEventListener("pointerdown", complete);
+  // Keep the focused search field from blurring and moving the button mid-tap.
+  // Leave the overlay in place until click so the release cannot hit navigation
+  // underneath it. Click also handles keyboard and accessibility activation.
+  doneButton?.addEventListener("pointerdown", (event) => event.preventDefault());
   doneButton?.addEventListener("click", complete);
   searchInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && hasSelection()) {
@@ -14546,6 +14547,16 @@ function openMemberPicker(button) {
   document.addEventListener("keydown", handleKeydown);
 }
 
+function memberPickerAccountTypeGroups(options) {
+  const groups = new Map();
+  options.forEach((member) => {
+    const type = canonicalAccountType(member.accountType) || "Other";
+    if (!groups.has(type)) groups.set(type, []);
+    groups.get(type).push(member.id);
+  });
+  return [...groups].map(([type, memberIds]) => ({ type, memberIds }));
+}
+
 function openMultiMemberPicker(button) {
   const inputId = button.dataset.memberMultiPicker;
   const input = document.getElementById(inputId);
@@ -14553,6 +14564,7 @@ function openMultiMemberPicker(button) {
   const title = button.dataset.memberPickerTitle || "Names";
   const options = memberPickerOptions(source);
   const selectedMemberIds = new Set(selectedMemberIdsFromInput(input));
+  const accountTypeGroups = inputId === "messageMembers" ? memberPickerAccountTypeGroups(options) : [];
   const isAdminSmsMenu = source === "adminSmsRecipients";
   const useContactMenu = inputId === "messageMembers" || isAdminSmsMenu;
   const contactMenuKicker = isAdminSmsMenu ? "Automation alerts" : "Announcement audience";
@@ -14574,6 +14586,20 @@ function openMultiMemberPicker(button) {
           <span class="${useContactMenu ? "sr-only" : ""}">Search</span>
           <input class="member-picker-search" type="search" autocomplete="off" enterkeyhint="done" ${useContactMenu ? `placeholder="Search name, phone, or membership"` : ""} />
         </label>
+        ${accountTypeGroups.length ? `
+          <div class="member-picker-quick-selection" role="group" aria-label="Add by account type">
+            <p>Add by account type <span>Scroll for more →</span></p>
+            <div class="member-picker-quick-buttons">
+              ${accountTypeGroups.map((group, index) => `
+                <button type="button" class="member-picker-quick-button" data-member-picker-account-type="${index}" aria-label="${escapeHtml(`Select all ${group.type} members`)}">
+                  <span class="status-dot ${accountTypeTone(group.type)}" aria-hidden="true"></span>
+                  <span>${escapeHtml(group.type)}</span>
+                  <small data-quick-selection-count></small>
+                </button>
+              `).join("")}
+            </div>
+          </div>
+        ` : ""}
       </div>
       <div class="member-picker-list" role="group">
         ${options.map((member) => renderMemberPickerOption(member, selectedMemberIds.has(member.id), "checkbox", useContactMenu ? "contact" : "default")).join("")}
@@ -14593,6 +14619,17 @@ function openMultiMemberPicker(button) {
   const selectionCount = overlay.querySelector(".member-picker-selection-count");
   const optionButtons = [...overlay.querySelectorAll("[data-member-picker-option]")];
 
+  const quickButtons = [...overlay.querySelectorAll("[data-member-picker-account-type]")];
+
+  const syncQuickSelections = () => {
+    quickButtons.forEach((quickButton, index) => {
+      const group = accountTypeGroups[index];
+      const count = group.memberIds.filter((id) => selectedMemberIds.has(id)).length;
+      quickButton.querySelector("[data-quick-selection-count]").textContent = `${count}/${group.memberIds.length}`;
+      quickButton.classList.toggle("is-selected", count === group.memberIds.length);
+    });
+  };
+
   const close = () => {
     overlay.remove();
     document.body.classList.remove("picker-open");
@@ -14605,9 +14642,21 @@ function openMultiMemberPicker(button) {
       option.classList.toggle("is-selected", isSelected);
       option.setAttribute("aria-checked", String(isSelected));
     });
+    syncQuickSelections();
     if (selectionCount) selectionCount.textContent = `${selectedMemberIds.size} selected`;
     setMultiMemberPickerValue(inputId, [...selectedMemberIds]);
   };
+
+  syncQuickSelections();
+  quickButtons.forEach((quickButton, index) => {
+    quickButton.addEventListener("click", () => {
+      accountTypeGroups[index].memberIds.forEach((id) => selectedMemberIds.add(id));
+      // Show the whole audience again so newly added members can be reviewed.
+      searchInput.value = "";
+      optionButtons.forEach((option) => { option.hidden = false; });
+      syncSelection();
+    });
+  });
 
   optionButtons.forEach((option) => {
     option.addEventListener("click", () => {

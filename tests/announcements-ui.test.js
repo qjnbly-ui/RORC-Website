@@ -144,3 +144,21 @@ test("announcements provide wide, intermediate, and compact responsive layouts",
   assert.match(appCss, /@media \(max-width: 980px\)[\s\S]*?\.announcement-composer-grid\s*\{[^}]*grid-template-columns:\s*1fr/s);
   assert.match(appCss, /@media \(max-width: 700px\)[\s\S]*?\.announcements-history-list > li/s);
 });
+
+test("audience shortcuts group only eligible picker options using canonical account types", () => {
+  const canonical = appJs.slice(appJs.indexOf("function canonicalAccountType("), appJs.indexOf("\nconst appState ="));
+  const grouping = appJs.slice(appJs.indexOf("function memberPickerAccountTypeGroups("), appJs.indexOf("\nfunction openMultiMemberPicker("));
+  const context = {};
+  vm.runInNewContext(canonical + grouping, context);
+  const groups = context.memberPickerAccountTypeGroups([
+    { id: "one", accountType: "Open Gym Only" },
+    { id: "two", accountType: " open gym only " },
+    { id: "three", accountType: "Billed Monthly" },
+    { id: "four", accountType: "Special Access Account" }
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(groups)), [
+    { type: "Open Gym Only", memberIds: ["one", "two"] },
+    { type: "Special Access Account", memberIds: ["three", "four"] }
+  ]);
+  assert.equal(context.memberPickerAccountTypeGroups([]).length, 0);
+});
