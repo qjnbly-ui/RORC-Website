@@ -40,9 +40,9 @@ test('creates exactly one $125 standalone invoice and reuses it on repeated requ
   assert.equal(f.row().status, 'invoiced');
 });
 
-test('rejects renewals, wrong amounts, check payments, and closed requests before contacting Stripe', async () => {
+test('rejects renewals, wrong amounts, unacknowledged pricing, and closed requests before contacting Stripe', async () => {
   for (const patch of [{ sponsorship_type: 'renewal' }, { amount_cents: 10000 },
-    { payment_method: 'mail_check' }, { price_acknowledged: false },
+    { price_acknowledged: false },
     { status: 'paid' }, { status: 'complete' }, { status: 'canceled' }]) {
     const f = fixture(patch);
     await assert.rejects(createSponsorInvoice(f.args));
@@ -171,4 +171,35 @@ test('confirming the preview requests sending and displays the recipient', async
   assert.equal(f.requests[0].mode, 'send');
   assert.equal(f.requests[0].id, 'sponsor-1');
   assert.match(f.result.textContent, /Invoice sent to sponsor@example.test/);
+});
+
+
+test('a sponsor who originally chose check can be invoiced and emailed without duplicate invoices', async () => {
+  const f = fixture({ payment_method: 'mail_check' });
+  const draft = await createSponsorInvoice(f.args);
+  const sent = await createSponsorInvoice({ ...f.args, mode: 'send' });
+  await createSponsorInvoice({ ...f.args, mode: 'send' });
+  assert.equal(draft.id, sent.id);
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.sends.length, 1);
+  assert.equal(f.lines()[0].amount, 12500);
+  assert.equal(f.row().payment_method, 'mail_check');
+  assert.equal(f.row().status, 'invoiced');
+});
+
+test('the banner card offers invoice actions for the original check preference', () => {
+  const fs = require('node:fs');
+  const vm = require('node:vm');
+  const source = fs.readFileSync(require.resolve('../RORC App/app.js'), 'utf8');
+  const context = vm.createContext({
+    escapeHtml: String, escapeAttribute: String, formatShortDateTime: () => 'Today',
+    sponsorStatusClass: () => 'pending', sponsorStatusLabel: String,
+    formatCurrency: () => '$125.00', emailHref: () => 'mailto:test@example.test'
+  });
+  vm.runInContext(source.slice(source.indexOf('function renderSponsorSubmissionCard('), source.indexOf('function buildSponsorInvoiceConfirmationDetailHtml(')), context);
+  const card = context.renderSponsorSubmissionCard({ id: 'test', sponsorshipType: 'new', amountCents: 12500,
+    paymentMethod: 'mail_check', priceAcknowledged: true, status: 'in_review' });
+  assert.match(card, /data-sponsor-send-invoice="test"/);
+  assert.match(card, /data-sponsor-invoice="test"/);
+  assert.match(card, /Originally selected: Mail a check/);
 });

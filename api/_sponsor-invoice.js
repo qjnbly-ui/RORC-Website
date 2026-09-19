@@ -10,8 +10,8 @@ async function createSponsorInvoice({ id, supabaseRest, supabaseWrite, stripe = 
   if (row.sponsorship_type !== "new" || Number(row.amount_cents) !== 12500) {
     throw fail(400, "This invoice option is for a $125 first-year banner only.");
   }
-  if (!row.price_acknowledged || row.payment_method !== "stripe_invoice") {
-    throw fail(400, "The sponsor must select Stripe invoice and acknowledge pricing.");
+  if (!row.price_acknowledged) {
+    throw fail(400, "The sponsor must acknowledge pricing before an invoice can be created.");
   }
   if (["paid", "complete", "canceled"].includes(row.status) && !row.stripe_invoice_id) {
     throw fail(409, "This request is already paid, complete, or canceled.");

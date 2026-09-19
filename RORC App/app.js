@@ -2158,7 +2158,7 @@ function renderSponsorSubmissionList() {
 
 function renderSponsorSubmissionCard(submission) {
   const files = Array.isArray(submission.logoFiles) ? submission.logoFiles : [];
-  const invoiceEligible = submission.sponsorshipType === "new" && submission.amountCents === 12500 && submission.paymentMethod === "stripe_invoice" && submission.priceAcknowledged && !["paid", "complete", "canceled"].includes(submission.status);
+  const invoiceEligible = submission.sponsorshipType === "new" && submission.amountCents === 12500 && submission.priceAcknowledged && !["paid", "complete", "canceled"].includes(submission.status);
   const id = escapeAttribute(submission.id);
   return `
     <li class="sponsor-workspace" data-sponsor-submission-id="${id}">
@@ -2193,7 +2193,7 @@ function renderSponsorSubmissionCard(submission) {
             <button class="sponsor-text-button" data-sponsor-copy="${id}" type="button">Copy contact</button>
           </section>
           <section><h4>Progress</h4><label class="sponsor-status-control"><span>Submission status</span><select data-sponsor-status="${id}">${["submitted", "in_review", "invoiced", "paid", "complete", "canceled"].map((status) => `<option value="${status}" ${submission.status === status ? "selected" : ""}>${escapeHtml(sponsorStatusLabel(status))}</option>`).join("")}</select></label></section>
-          <section><h4>Payment</h4><div class="sponsor-payment-total"><strong>${escapeHtml(formatCurrency(submission.amountCents || 0))}</strong><span>${submission.paymentMethod === "stripe_invoice" ? "Stripe invoice" : "Mail a check"}</span></div>
+          <section><h4>Payment</h4><div class="sponsor-payment-total"><strong>${escapeHtml(formatCurrency(submission.amountCents || 0))}</strong><span>Originally selected: ${submission.paymentMethod === "stripe_invoice" ? "Stripe invoice" : "Mail a check"}</span></div>
             <p class="sponsor-payment-note">${submission.sponsorshipType === "new" ? "First year · One-time order" : "Banner renewal"}<br>No automatic renewal</p>
             <p class="sponsor-payment-note">${submission.priceAcknowledged ? "Pricing acknowledged" : "Pricing not acknowledged"}</p>
             ${submission.stripeInvoiceSentAt ? `<p class="sponsor-sent-note">Invoice sent ${escapeHtml(formatShortDateTime(submission.stripeInvoiceSentAt))}</p>` : ""}
