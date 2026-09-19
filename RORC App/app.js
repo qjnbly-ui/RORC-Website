@@ -2117,9 +2117,9 @@ function renderSponsorSubmissionList() {
     <section class="live-record-page sponsor-review-page">
       <header class="account-page-heading">
         <div>
-          <p class="eyebrow">Admin Review</p>
+          <p class="eyebrow">Banner workspace</p>
           <h2>Sponsor Banners</h2>
-          <p>Review banner sponsor submissions, files, payment preference, and processing status.</p>
+          <p>Everything you need to design a banner and manage its sponsorship.</p>
         </div>
       </header>
       <p id="sponsorSubmissionResult" class="auth-message" aria-live="polite"></p>
@@ -2140,10 +2140,10 @@ function renderSponsorSubmissionList() {
         </div>
       </div>
       ${filtered.length ? `
-        <div class="detail-card">
-          <ol class="record-list heater-record-list sponsor-submission-list">
+        <div>
+          <ul class="sponsor-submission-list">
             ${filtered.map(renderSponsorSubmissionCard).join("")}
-          </ol>
+          </ul>
         </div>
       ` : `
         <section class="empty-state">
@@ -2158,74 +2158,55 @@ function renderSponsorSubmissionList() {
 
 function renderSponsorSubmissionCard(submission) {
   const files = Array.isArray(submission.logoFiles) ? submission.logoFiles : [];
-  const typeLabel = submission.sponsorshipType === "renewal" ? "Renewal" : "New Sponsorship";
-  const paymentLabel = submission.paymentMethod === "stripe_invoice" ? "Stripe invoice" : "Mail a check";
-  const statusClass = sponsorStatusClass(submission.status);
-
+  const invoiceEligible = submission.sponsorshipType === "new" && submission.amountCents === 12500 && submission.paymentMethod === "stripe_invoice" && submission.priceAcknowledged && !["paid", "complete", "canceled"].includes(submission.status);
+  const id = escapeAttribute(submission.id);
   return `
-    <li data-sponsor-submission-id="${escapeAttribute(submission.id)}">
-      <strong class="heater-record-event">${escapeHtml(submission.businessName || "Unnamed sponsor")}</strong>
-      <span class="heater-record-meta">
-        ${escapeHtml(typeLabel)} · ${escapeHtml(formatCurrency(submission.amountCents || 0))} · ${escapeHtml(formatShortDateTime(submission.createdAt))}
-      </span>
-      <button class="heater-state-action is-${escapeAttribute(statusClass)}" type="button" disabled>${escapeHtml(sponsorStatusLabel(submission.status))}</button>
-      <div class="heater-record-message sponsor-submission-detail">
-        <div>
-          <b>Contact</b>
-          <span>${escapeHtml(submission.contactName || "No contact")} · ${escapeHtml(submission.emailAddress || "No email")} · ${escapeHtml(submission.phoneNumber || "No phone")}</span>
+    <li class="sponsor-workspace" data-sponsor-submission-id="${id}">
+      <header class="sponsor-workspace-heading">
+        <div><p class="sponsor-kicker">${submission.sponsorshipType === "renewal" ? "Renewal" : "New banner"} · ${escapeHtml(formatShortDateTime(submission.createdAt))}</p>
+        <h3>${escapeHtml(submission.businessName || "Unnamed sponsor")}</h3></div>
+        <span class="sponsor-status-badge is-${escapeAttribute(sponsorStatusClass(submission.status))}">${escapeHtml(sponsorStatusLabel(submission.status))}</span>
+      </header>
+      <div class="sponsor-workspace-body">
+        <div class="sponsor-creative">
+          <section class="sponsor-artwork-section" aria-label="Submitted artwork">
+            <div class="sponsor-section-heading"><h4>Artwork & attachments</h4><span>${files.length} ${files.length === 1 ? "file" : "files"}</span></div>
+            ${files.length ? `<div class="sponsor-artwork-list">${files.map((file) => {
+              const isImage = /^image\/(png|jpeg|webp|svg\+xml)$/i.test(file.contentType || "") || /\.(png|jpe?g|webp|svg)$/i.test(file.name || "");
+              const label = escapeHtml(file.name || "Uploaded file");
+              const visual = isImage && file.signedUrl
+                ? `<div class="sponsor-image-stage"><img src="${escapeAttribute(file.signedUrl)}" alt="${escapeAttribute(file.name || "Sponsor artwork")}" loading="lazy" decoding="async" data-sponsor-image><span class="sponsor-image-error" hidden>Preview unavailable. Open the original file below.</span></div>`
+                : `<div class="sponsor-file-placeholder"><strong>${/pdf/i.test(file.contentType || file.name || "") ? "PDF" : "FILE"}</strong><span>Open the original to view this attachment</span></div>`;
+              return `<figure class="sponsor-artwork">${visual}<figcaption><span>${label}</span>${file.signedUrl ? `<a href="${escapeAttribute(file.signedUrl)}" target="_blank" rel="noopener">Open original ↗</a>` : `<span>Link unavailable — refresh the page</span>`}</figcaption></figure>`;
+            }).join("")}</div>` : `<div class="sponsor-no-artwork"><strong>No artwork attached</strong><p>Use the banner text below, or contact the sponsor for a logo or image.</p></div>`}
+          </section>
+          <section class="sponsor-design-brief" aria-label="Banner design brief">
+            <div class="sponsor-section-heading"><h4>Design brief</h4><button type="button" class="sponsor-text-button" data-sponsor-brief="${id}">Copy brief</button></div>
+            <div class="sponsor-brief-field"><h5>Text for the banner</h5><p class="${submission.bannerText ? "sponsor-banner-copy" : "sponsor-empty-copy"}">${escapeHtml(submission.bannerText || "No banner text provided.")}</p></div>
+            <div class="sponsor-brief-field"><h5>Design requests</h5><p class="${submission.designRequests ? "" : "sponsor-empty-copy"}">${escapeHtml(submission.designRequests || "No additional design requests.")}</p></div>
+          </section>
         </div>
-        <div>
-          <b>Payment</b>
-          <span>${escapeHtml(paymentLabel)} · ${submission.priceAcknowledged ? "Pricing acknowledged" : "Pricing not acknowledged"}</span>
-        </div>
-        ${submission.bannerText ? `
-          <div>
-            <b>Banner Text</b>
-            <span>${escapeHtml(submission.bannerText)}</span>
-          </div>
-        ` : ""}
-        ${submission.designRequests ? `
-          <div>
-            <b>Design Requests</b>
-            <span>${escapeHtml(submission.designRequests)}</span>
-          </div>
-        ` : ""}
-        <div>
-          <b>Files</b>
-          ${files.length ? `
-            <div class="sponsor-file-list">
-              ${files.map((file) => `
-                ${file.signedUrl ? `
-                  <a href="${escapeAttribute(file.signedUrl)}" target="_blank" rel="noopener">
-                    ${escapeHtml(file.name || "Uploaded file")}
-                  </a>
-                ` : `
-                  <span>${escapeHtml(file.name || "Uploaded file")} (link unavailable)</span>
-                `}
-              `).join("")}
+        <aside class="sponsor-management" aria-label="Sponsor contact and management">
+          <section><h4>Contact</h4><strong>${escapeHtml(submission.contactName || "No contact name")}</strong>
+            ${submission.emailAddress ? `<a class="sponsor-contact-link" href="${escapeAttribute(emailHref(submission.emailAddress, "RORC Banner Sponsorship"))}">${escapeHtml(submission.emailAddress)}</a>` : "<p>No email provided</p>"}
+            ${submission.phoneNumber ? `<a class="sponsor-contact-link" href="${escapeAttribute(phoneHref(submission.phoneNumber, "tel"))}">${escapeHtml(submission.phoneNumber)}</a>` : ""}
+            <button class="sponsor-text-button" data-sponsor-copy="${id}" type="button">Copy contact</button>
+          </section>
+          <section><h4>Progress</h4><label class="sponsor-status-control"><span>Submission status</span><select data-sponsor-status="${id}">${["submitted", "in_review", "invoiced", "paid", "complete", "canceled"].map((status) => `<option value="${status}" ${submission.status === status ? "selected" : ""}>${escapeHtml(sponsorStatusLabel(status))}</option>`).join("")}</select></label></section>
+          <section><h4>Payment</h4><div class="sponsor-payment-total"><strong>${escapeHtml(formatCurrency(submission.amountCents || 0))}</strong><span>${submission.paymentMethod === "stripe_invoice" ? "Stripe invoice" : "Mail a check"}</span></div>
+            <p class="sponsor-payment-note">${submission.sponsorshipType === "new" ? "First year · One-time order" : "Banner renewal"}<br>No automatic renewal</p>
+            <p class="sponsor-payment-note">${submission.priceAcknowledged ? "Pricing acknowledged" : "Pricing not acknowledged"}</p>
+            ${submission.stripeInvoiceSentAt ? `<p class="sponsor-sent-note">Invoice sent ${escapeHtml(formatShortDateTime(submission.stripeInvoiceSentAt))}</p>` : ""}
+            <div class="sponsor-billing-actions">
+              ${invoiceEligible && !submission.stripeInvoiceSentAt && submission.stripeInvoiceStatus !== "paid" ? `<button class="rental-btn" data-sponsor-send-invoice="${id}" type="button">Review & send invoice</button>` : ""}
+              ${submission.stripeInvoiceUrl ? `<a class="rental-btn rental-btn-ghost" href="${escapeAttribute(submission.stripeInvoiceUrl)}" target="_blank" rel="noopener">Open invoice ↗</a>` : ""}
+              ${invoiceEligible ? `<button class="sponsor-text-button" data-sponsor-invoice="${id}" type="button">${submission.stripeInvoiceId ? "Refresh payment status" : "Create without sending"}</button>` : ""}
             </div>
-          ` : "<span>No files uploaded.</span>"}
-        </div>
+          </section>
+          <details class="sponsor-more-actions"><summary>More actions</summary><button class="sponsor-text-button sponsor-delete-button" data-sponsor-delete="${id}" type="button">Delete submission</button></details>
+        </aside>
       </div>
-      ${submission.stripeInvoiceSentAt ? `<p class="heater-record-meta">Invoice sent · ${escapeHtml(formatShortDateTime(submission.stripeInvoiceSentAt))}</p>` : ""}
-      <div class="sponsor-submission-actions">
-        ${submission.stripeInvoiceUrl ? `<a class="rental-btn rental-btn-ghost" href="${escapeAttribute(submission.stripeInvoiceUrl)}" target="_blank" rel="noopener">Open Invoice</a>` : ""}
-        ${submission.sponsorshipType === "new" && submission.amountCents === 12500 && submission.paymentMethod === "stripe_invoice" && submission.priceAcknowledged && !["paid", "complete", "canceled"].includes(submission.status) ? `<button class="rental-btn rental-btn-ghost" data-sponsor-invoice="${escapeAttribute(submission.id)}" type="button">${submission.stripeInvoiceId ? "Refresh Invoice" : "Create $125 Invoice"}</button>${!submission.stripeInvoiceSentAt && submission.stripeInvoiceStatus !== "paid" ? `<button class="rental-btn" data-sponsor-send-invoice="${escapeAttribute(submission.id)}" type="button">Send Invoice</button>` : ""}<span>First year · One-time order · No automatic renewal</span>` : ""}
-        <label>
-          <span>Status</span>
-          <select data-sponsor-status="${escapeAttribute(submission.id)}">
-            ${["submitted", "in_review", "invoiced", "paid", "complete", "canceled"].map((status) => `
-              <option value="${escapeAttribute(status)}" ${submission.status === status ? "selected" : ""}>${escapeHtml(sponsorStatusLabel(status))}</option>
-            `).join("")}
-          </select>
-        </label>
-        <a class="rental-btn rental-btn-ghost" href="${escapeAttribute(emailHref(submission.emailAddress, "RORC Banner Sponsorship"))}">Email</a>
-        ${submission.phoneNumber ? `<a class="rental-btn rental-btn-ghost" href="${escapeAttribute(phoneHref(submission.phoneNumber, "tel"))}">Call</a>` : ""}
-        <button class="rental-btn rental-btn-ghost" data-sponsor-copy="${escapeAttribute(submission.id)}" type="button">Copy Contact</button>
-        <button class="rental-btn rental-btn-decline" data-sponsor-delete="${escapeAttribute(submission.id)}" type="button">Delete</button>
-      </div>
-    </li>
-  `;
+    </li>`;
 }
 
 function buildSponsorInvoiceConfirmationDetailHtml(submission) {
@@ -2281,6 +2262,33 @@ async function createSponsorBannerInvoice(id, button, mode = "create") {
 }
 
 function bindSponsorSubmissionActions() {
+  document.querySelectorAll("[data-sponsor-image]").forEach((image) => {
+    const showFallback = () => {
+      image.hidden = true;
+      image.nextElementSibling.hidden = false;
+    };
+    image.addEventListener("error", showFallback, { once: true });
+    if (image.complete && !image.naturalWidth) showFallback();
+  });
+  document.querySelectorAll("[data-sponsor-brief]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const result = document.getElementById("sponsorSubmissionResult");
+      const submission = sponsorSubmissions.find((item) => item.id === button.dataset.sponsorBrief);
+      if (!submission) return;
+      try {
+        await navigator.clipboard.writeText([
+          submission.businessName,
+          "Banner text:", submission.bannerText || "Not provided",
+          "Design requests:", submission.designRequests || "None provided",
+          "Attachments:", ...(submission.logoFiles || []).map((file) => file.name)
+        ].join("\n"));
+        button.textContent = "Brief copied";
+        result.textContent = "Banner design brief copied.";
+      } catch {
+        result.textContent = "Could not copy the brief. Select and copy the text below.";
+      }
+    });
+  });
   document.querySelectorAll("[data-sponsor-send-invoice]").forEach((button) => {
     button.addEventListener("click", () => createSponsorBannerInvoice(button.dataset.sponsorSendInvoice, button, "send"));
   });
