@@ -38,7 +38,7 @@ module.exports = async (req, res) => {
       if (!id) return res.status(400).json({ success: false, error: "Missing submission ID." });
 
       if (action === "invoice") {
-        const invoice = await createSponsorInvoice({ id, supabaseRest, supabaseWrite });
+        const invoice = await createSponsorInvoice({ id, supabaseRest, supabaseWrite, mode: req.body?.mode === "send" ? "send" : "create" });
         return res.status(200).json({ success: true, invoice });
       }
 
@@ -108,6 +108,7 @@ function mapSponsorSubmission(row) {
     paymentMethod: row.payment_method || "",
     priceAcknowledged: Boolean(row.price_acknowledged),
     logoFiles: Array.isArray(row.logo_files) ? row.logo_files : [],
+    stripeInvoiceSentAt: row.stripe_invoice_sent_at || "",
     stripeInvoiceId: row.stripe_invoice_id || "",
     stripeInvoiceUrl: row.stripe_invoice_url || "",
     stripeInvoiceStatus: row.stripe_invoice_status || "",

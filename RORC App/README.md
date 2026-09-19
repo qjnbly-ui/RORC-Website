@@ -61,9 +61,9 @@ Open `index.html` directly, or run any local static server from the repo root.
 
 ### One-time sponsor banner invoices
 
-Apply `supabase/migrations/20260919185046_sponsor_one_time_invoices.sql` before deploying the updated app and API. It adds invoice references to the existing sponsor table and preserves its account-manager access policies.
+Apply `supabase/migrations/20260919185046_sponsor_one_time_invoices.sql` and `supabase/migrations/20260919190916_sponsor_invoice_sending.sql` before deploying the updated app and API. It adds invoice references to the existing sponsor table and preserves its account-manager access policies.
 
-In Sponsor Banners, eligible new $125 requests with Stripe selected offer **Create $125 Invoice**. This creates a standalone first-year invoice with no subscription or automatic renewal. **Open Invoice** provides the payment page to view or share; creation does not send an email. **Refresh Invoice** recovers or refreshes the existing invoice. The existing Stripe paid webhook updates the sponsor status after payment.
+In Sponsor Banners, eligible new $125 requests with Stripe selected offer **Create $125 Invoice**. This creates a standalone first-year invoice with no subscription or automatic renewal. **Open Invoice** provides the payment page to view or share; creation does not send an email. **Send Invoice** opens the same review-and-confirm dialog used for rental invoices, showing the sponsor email, $125 first-year charge, and no-renewal terms. Confirming emails the invoice through Stripe and records its sent date. Existing invoices are reused. **Refresh Invoice** recovers or refreshes the existing invoice. The existing Stripe paid webhook updates the sponsor status after payment.
 
 Requests paid by check and $100 renewals retain their current workflow. Uncertain invoice creation attempts older than 23 hours require checking Stripe before retrying, to avoid creating a duplicate after Stripe's idempotency window expires.
 

@@ -9,11 +9,13 @@ function fixture(overrides = {}) {
   let invoice;
   let lines = [];
   const calls = [];
+  const sends = [];
   const stripe = {
     customers: { create: async () => ({ id: 'cus_test' }) },
     invoices: {
-      create: async (payload) => { calls.push(payload); invoice = { id: 'in_test', customer: 'cus_test', status: 'draft', total: 0 }; return { ...invoice }; },
+      create: async (payload) => { calls.push(payload); invoice = { id: 'in_test', customer: 'cus_test', status: 'draft', total: 0, currency: 'usd', customer_email: row.email_address }; return { ...invoice }; },
       retrieve: async () => ({ ...invoice }),
+      sendInvoice: async (id, payload, options) => { sends.push({ id, options }); return { ...invoice }; },
       listLineItems: async () => ({ data: lines }),
       finalizeInvoice: async () => { invoice.status = 'open'; invoice.hosted_invoice_url = 'https://invoice.stripe.com/test'; return { ...invoice }; }
     },
@@ -21,7 +23,7 @@ function fixture(overrides = {}) {
   };
   const args = { id: row.id, stripe, supabaseRest: async () => [{ ...row }],
     supabaseWrite: async (path, method, patch) => { row = { ...row, ...patch }; return [row]; } };
-  return { args, calls, row: () => row, lines: () => lines };
+  return { args, calls, sends, row: () => row, lines: () => lines };
 }
 
 test('creates exactly one $125 standalone invoice and reuses it on repeated requests', async () => {
@@ -83,4 +85,90 @@ test('paid webhook updates only the matching sponsor invoice without changing co
   assert.match(updates[0].path, /stripe_invoice_id=eq.in_test/);
   assert.match(updates[0].path, /status=not.in.\(complete,canceled\)/);
   assert.equal(updates[0].payload.status, 'paid');
+});
+
+
+test('sending creates a single invoice, emails it once, and records the sent date', async () => {
+  const f = fixture();
+  const first = await createSponsorInvoice({ ...f.args, mode: 'send' });
+  const second = await createSponsorInvoice({ ...f.args, mode: 'send' });
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.sends.length, 1);
+  assert.equal(first.id, second.id);
+  assert.ok(first.sentAt);
+  assert.equal(second.alreadySent, true);
+  assert.equal(f.row().stripe_invoice_sent_at, first.sentAt);
+});
+
+test('creation and refresh do not email; sending reuses the prepared invoice', async () => {
+  const f = fixture();
+  await createSponsorInvoice(f.args);
+  await createSponsorInvoice(f.args);
+  assert.equal(f.sends.length, 0);
+  await createSponsorInvoice({ ...f.args, mode: 'send' });
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.sends[0].id, 'in_test');
+});
+
+test('failed email send can be retried without creating another invoice', async () => {
+  const f = fixture();
+  const send = f.args.stripe.invoices.sendInvoice;
+  f.args.stripe.invoices.sendInvoice = async () => { throw new Error('Email unavailable'); };
+  await assert.rejects(createSponsorInvoice({ ...f.args, mode: 'send' }), /Email unavailable/);
+  assert.equal(f.row().stripe_invoice_sent_at, undefined);
+  f.args.stripe.invoices.sendInvoice = send;
+  await createSponsorInvoice({ ...f.args, mode: 'send' });
+  assert.equal(f.calls.length, 1);
+  assert.equal(f.sends.length, 1);
+});
+
+test('does not send paid, changed-amount, or mismatched-recipient invoices', async () => {
+  for (const patch of [{ status: 'paid' }, { total: 13000 }, { customer_email: 'different@example.test' }]) {
+    const f = fixture();
+    await createSponsorInvoice(f.args);
+    const retrieve = f.args.stripe.invoices.retrieve;
+    f.args.stripe.invoices.retrieve = async () => ({ ...await retrieve(), ...patch });
+    await assert.rejects(createSponsorInvoice({ ...f.args, mode: 'send' }));
+    assert.equal(f.sends.length, 0);
+  }
+});
+
+function uiFixture(confirmed) {
+  const fs = require('node:fs');
+  const vm = require('node:vm');
+  const source = fs.readFileSync(require.resolve('../RORC App/app.js'), 'utf8');
+  const result = { textContent: '' };
+  const requests = [];
+  const dialogs = [];
+  const submission = { id: 'sponsor-1', businessName: '<Test Sponsor>', emailAddress: 'sponsor@example.test' };
+  const context = vm.createContext({
+    sponsorSubmissions: [submission], document: { getElementById: () => result },
+    escapeHtml: (s) => String(s).replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
+    openLinkedDeleteDialog: async (options) => { dialogs.push(options); return confirmed; },
+    postSponsorSubmissionAction: async (payload) => { requests.push(payload); return { invoice: { sentAt: 'today' } }; },
+    fetchSponsorSubmissions: async () => [submission], updateSponsorSubmissionsBadge: () => {}, renderSponsorSubmissionList: () => {}
+  });
+  vm.runInContext(source.slice(source.indexOf('function buildSponsorInvoiceConfirmationDetailHtml('), source.indexOf('function bindSponsorSubmissionActions()')), context);
+  return { context, requests, dialogs, result };
+}
+
+test('canceling the rental-style banner preview makes no invoice or email request', async () => {
+  const f = uiFixture(false);
+  const button = { disabled: false };
+  await f.context.createSponsorBannerInvoice('sponsor-1', button, 'send');
+  assert.equal(f.requests.length, 0);
+  assert.equal(button.disabled, false);
+  assert.match(f.dialogs[0].detailHtml, /sponsor@example.test/);
+  assert.match(f.dialogs[0].detailHtml, /\$125.00/);
+  assert.match(f.dialogs[0].detailHtml, /No automatic renewal/);
+  assert.match(f.dialogs[0].detailHtml, /&lt;Test Sponsor&gt;/);
+});
+
+test('confirming the preview requests sending and displays the recipient', async () => {
+  const f = uiFixture(true);
+  await f.context.createSponsorBannerInvoice('sponsor-1', { disabled: false }, 'send');
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests[0].mode, 'send');
+  assert.equal(f.requests[0].id, 'sponsor-1');
+  assert.match(f.result.textContent, /Invoice sent to sponsor@example.test/);
 });

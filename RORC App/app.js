@@ -2207,9 +2207,10 @@ function renderSponsorSubmissionCard(submission) {
           ` : "<span>No files uploaded.</span>"}
         </div>
       </div>
+      ${submission.stripeInvoiceSentAt ? `<p class="heater-record-meta">Invoice sent · ${escapeHtml(formatShortDateTime(submission.stripeInvoiceSentAt))}</p>` : ""}
       <div class="sponsor-submission-actions">
         ${submission.stripeInvoiceUrl ? `<a class="rental-btn rental-btn-ghost" href="${escapeAttribute(submission.stripeInvoiceUrl)}" target="_blank" rel="noopener">Open Invoice</a>` : ""}
-        ${submission.sponsorshipType === "new" && submission.amountCents === 12500 && submission.paymentMethod === "stripe_invoice" && submission.priceAcknowledged && !["paid", "complete", "canceled"].includes(submission.status) ? `<button class="rental-btn rental-btn-ghost" data-sponsor-invoice="${escapeAttribute(submission.id)}" type="button">${submission.stripeInvoiceId ? "Refresh Invoice" : "Create $125 Invoice"}</button><span>First year · One-time order · No automatic renewal</span>` : ""}
+        ${submission.sponsorshipType === "new" && submission.amountCents === 12500 && submission.paymentMethod === "stripe_invoice" && submission.priceAcknowledged && !["paid", "complete", "canceled"].includes(submission.status) ? `<button class="rental-btn rental-btn-ghost" data-sponsor-invoice="${escapeAttribute(submission.id)}" type="button">${submission.stripeInvoiceId ? "Refresh Invoice" : "Create $125 Invoice"}</button>${!submission.stripeInvoiceSentAt && submission.stripeInvoiceStatus !== "paid" ? `<button class="rental-btn" data-sponsor-send-invoice="${escapeAttribute(submission.id)}" type="button">Send Invoice</button>` : ""}<span>First year · One-time order · No automatic renewal</span>` : ""}
         <label>
           <span>Status</span>
           <select data-sponsor-status="${escapeAttribute(submission.id)}">
@@ -2227,23 +2228,62 @@ function renderSponsorSubmissionCard(submission) {
   `;
 }
 
-async function createSponsorBannerInvoice(id, button) {
+function buildSponsorInvoiceConfirmationDetailHtml(submission) {
+  return `
+    <div class="stripe-invoice-preview">
+      <div class="stripe-invoice-preview-head"><span>Stripe Invoice Preview</span><strong>$125.00</strong></div>
+      <div class="stripe-invoice-preview-meta">
+        <span><small>Billed to</small><strong>${escapeHtml(submission.businessName)}</strong><em>${escapeHtml(submission.emailAddress)}</em></span>
+        <span><small>Payment terms</small><strong>${submission.stripeInvoiceId ? "Existing invoice due date applies" : "Due in 30 days"}</strong></span>
+      </div>
+      <ul class="stripe-invoice-confirm-lines">
+        <li><span><strong>Sponsor banner — first year</strong><small>One-time order · No automatic renewal</small></span><b>$125.00</b></li>
+      </ul>
+      <div class="stripe-invoice-preview-total"><span>Total</span><strong>$125.00</strong></div>
+    </div>`;
+}
+
+async function createSponsorBannerInvoice(id, button, mode = "create") {
+  const submission = sponsorSubmissions.find((item) => item.id === id);
+  if (!submission || button.disabled) return;
   button.disabled = true;
   const result = document.getElementById("sponsorSubmissionResult");
   try {
-    await postSponsorSubmissionAction({ id, action: "invoice" });
-    sponsorSubmissions = await fetchSponsorSubmissions();
-    sponsorSubmissionsPendingCount = sponsorSubmissions.filter((item) => item.status === "submitted").length;
-    updateSponsorSubmissionsBadge();
-    renderSponsorSubmissionList();
-    document.getElementById("sponsorSubmissionResult").textContent = "One-time invoice ready. Open Invoice to view and share the payment link. No email has been sent.";
+    if (mode === "send") {
+      const confirmed = await openLinkedDeleteDialog({
+        title: "Send Stripe Invoice?",
+        message: "Review the banner invoice below. Stripe will email it to the sponsor shown. The request stays invoiced until payment is received.",
+        detailHtml: buildSponsorInvoiceConfirmationDetailHtml(submission),
+        confirmLabel: "Send Invoice",
+        cancelLabel: "Cancel"
+      });
+      if (!confirmed) return;
+    }
+    result.textContent = mode === "send" ? "Sending Stripe invoice..." : "Preparing invoice...";
+    const body = await postSponsorSubmissionAction({ id, action: "invoice", mode });
+    const message = mode === "send"
+      ? (body.invoice?.alreadySent ? "This invoice was already sent. Open Invoice to view it." : `Invoice sent to ${submission.emailAddress}.`)
+      : "One-time invoice ready. Open Invoice to view it, or Send Invoice to email it from here.";
+    try {
+      sponsorSubmissions = await fetchSponsorSubmissions();
+      sponsorSubmissionsPendingCount = sponsorSubmissions.filter((item) => item.status === "submitted").length;
+      updateSponsorSubmissionsBadge();
+      renderSponsorSubmissionList();
+      document.getElementById("sponsorSubmissionResult").textContent = message;
+    } catch {
+      result.textContent = `${message} Refresh this page to update the list.`;
+    }
   } catch (error) {
-    result.textContent = error.message || "Could not create invoice.";
+    result.textContent = error.message || "Could not prepare or send invoice. Try again to reuse the same invoice.";
+  } finally {
     button.disabled = false;
   }
 }
 
 function bindSponsorSubmissionActions() {
+  document.querySelectorAll("[data-sponsor-send-invoice]").forEach((button) => {
+    button.addEventListener("click", () => createSponsorBannerInvoice(button.dataset.sponsorSendInvoice, button, "send"));
+  });
   document.querySelectorAll("[data-sponsor-invoice]").forEach((button) => {
     button.addEventListener("click", () => createSponsorBannerInvoice(button.dataset.sponsorInvoice, button));
   });

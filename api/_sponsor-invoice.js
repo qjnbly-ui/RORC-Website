@@ -1,7 +1,7 @@
 const Stripe = require("stripe");
 
 // A standalone invoice: no subscription, recurring price, or automatic renewal.
-async function createSponsorInvoice({ id, supabaseRest, supabaseWrite, stripe = null }) {
+async function createSponsorInvoice({ id, supabaseRest, supabaseWrite, stripe = null, mode = "create" }) {
   if (!stripe && !process.env.STRIPE_SECRET_KEY) throw fail(503, "Stripe is not configured.");
   stripe ||= Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: "2026-02-25.clover" });
   const path = `sponsor_banner_submissions?id=eq.${encodeURIComponent(id)}`;
@@ -15,6 +15,9 @@ async function createSponsorInvoice({ id, supabaseRest, supabaseWrite, stripe = 
   }
   if (["paid", "complete", "canceled"].includes(row.status) && !row.stripe_invoice_id) {
     throw fail(409, "This request is already paid, complete, or canceled.");
+  }
+  if (mode === "send" && ["paid", "complete", "canceled"].includes(row.status)) {
+    throw fail(409, "Paid, complete, or canceled requests cannot be emailed.");
   }
   const key = `sponsor-${id}`;
   const metadata = { rorc_sponsor_submission_id: id };
@@ -63,12 +66,28 @@ async function createSponsorInvoice({ id, supabaseRest, supabaseWrite, stripe = 
   if (!["open", "paid"].includes(invoice.status)) {
     throw fail(409, `Existing invoice is ${invoice.status}. Review it in Stripe; no duplicate was created.`);
   }
+  let sentAt = row.stripe_invoice_sent_at || null;
+  const alreadySent = Boolean(sentAt);
+  if (mode === "send") {
+    if (invoice.status !== "open" || invoice.total !== 12500 || invoice.currency !== "usd") {
+      throw fail(409, "Only an open $125 USD banner invoice can be sent. Refresh and review the invoice.");
+    }
+    if (String(invoice.customer_email || "").toLowerCase() !== String(row.email_address || "").toLowerCase()) {
+      throw fail(409, "The invoice email does not match the sponsor. Review the recipient in Stripe before sending.");
+    }
+    if (!sentAt) {
+      // Retried clicks reuse the same send request and the same invoice.
+      invoice = await stripe.invoices.sendInvoice(invoice.id, {}, { idempotencyKey: `${key}-send` });
+      sentAt = new Date().toISOString();
+    }
+  }
   await supabaseWrite(path, "PATCH", {
+    ...(sentAt ? { stripe_invoice_sent_at: sentAt } : {}),
     stripe_invoice_id: invoice.id, stripe_invoice_url: invoice.hosted_invoice_url,
     stripe_invoice_status: invoice.status,
     ...(!["complete", "canceled"].includes(row.status) ? { status: invoice.status === "paid" ? "paid" : "invoiced" } : {})
   });
-  return { id: invoice.id, url: invoice.hosted_invoice_url, status: invoice.status };
+  return { id: invoice.id, url: invoice.hosted_invoice_url, status: invoice.status, sentAt, alreadySent };
 }
 
 function fail(statusCode, message) { return Object.assign(new Error(message), { statusCode }); }
