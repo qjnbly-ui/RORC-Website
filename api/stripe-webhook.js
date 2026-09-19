@@ -115,6 +115,13 @@ async function handleSubscriptionChanged(subscription, { syncPlan }) {
 
 async function handleInvoicePaid(invoice) {
   if (!invoice?.id) return;
+  if (invoice.metadata?.rorc_sponsor_submission_id && invoice.total === 12500) {
+    await updateSupabaseRows(
+      `sponsor_banner_submissions?id=eq.${encodeURIComponent(invoice.metadata.rorc_sponsor_submission_id)}&stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}&status=not.in.(complete,canceled)`,
+      { status: "paid", stripe_invoice_status: "paid", stripe_invoice_url: invoice.hosted_invoice_url || null }
+    );
+    return;
+  }
   const rows = await supabaseRest(
     `billing_line_items?select=*&stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}`
   ).catch(() => []);

@@ -1,3 +1,4 @@
+const { createSponsorInvoice } = require("./_sponsor-invoice");
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const BUCKET_NAME = "sponsor-submissions";
@@ -35,6 +36,11 @@ module.exports = async (req, res) => {
       const id = str(req.body?.id);
       const action = str(req.body?.action).toLowerCase();
       if (!id) return res.status(400).json({ success: false, error: "Missing submission ID." });
+
+      if (action === "invoice") {
+        const invoice = await createSponsorInvoice({ id, supabaseRest, supabaseWrite });
+        return res.status(200).json({ success: true, invoice });
+      }
 
       if (action === "status") {
         const status = str(req.body?.status).toLowerCase();
@@ -102,6 +108,9 @@ function mapSponsorSubmission(row) {
     paymentMethod: row.payment_method || "",
     priceAcknowledged: Boolean(row.price_acknowledged),
     logoFiles: Array.isArray(row.logo_files) ? row.logo_files : [],
+    stripeInvoiceId: row.stripe_invoice_id || "",
+    stripeInvoiceUrl: row.stripe_invoice_url || "",
+    stripeInvoiceStatus: row.stripe_invoice_status || "",
     status: row.status || "submitted"
   };
 }

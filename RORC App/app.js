@@ -2208,6 +2208,8 @@ function renderSponsorSubmissionCard(submission) {
         </div>
       </div>
       <div class="sponsor-submission-actions">
+        ${submission.stripeInvoiceUrl ? `<a class="rental-btn rental-btn-ghost" href="${escapeAttribute(submission.stripeInvoiceUrl)}" target="_blank" rel="noopener">Open Invoice</a>` : ""}
+        ${submission.sponsorshipType === "new" && submission.amountCents === 12500 && submission.paymentMethod === "stripe_invoice" && submission.priceAcknowledged && !["paid", "complete", "canceled"].includes(submission.status) ? `<button class="rental-btn rental-btn-ghost" data-sponsor-invoice="${escapeAttribute(submission.id)}" type="button">${submission.stripeInvoiceId ? "Refresh Invoice" : "Create $125 Invoice"}</button><span>First year · One-time order · No automatic renewal</span>` : ""}
         <label>
           <span>Status</span>
           <select data-sponsor-status="${escapeAttribute(submission.id)}">
@@ -2225,7 +2227,26 @@ function renderSponsorSubmissionCard(submission) {
   `;
 }
 
+async function createSponsorBannerInvoice(id, button) {
+  button.disabled = true;
+  const result = document.getElementById("sponsorSubmissionResult");
+  try {
+    await postSponsorSubmissionAction({ id, action: "invoice" });
+    sponsorSubmissions = await fetchSponsorSubmissions();
+    sponsorSubmissionsPendingCount = sponsorSubmissions.filter((item) => item.status === "submitted").length;
+    updateSponsorSubmissionsBadge();
+    renderSponsorSubmissionList();
+    document.getElementById("sponsorSubmissionResult").textContent = "One-time invoice ready. Open Invoice to view and share the payment link. No email has been sent.";
+  } catch (error) {
+    result.textContent = error.message || "Could not create invoice.";
+    button.disabled = false;
+  }
+}
+
 function bindSponsorSubmissionActions() {
+  document.querySelectorAll("[data-sponsor-invoice]").forEach((button) => {
+    button.addEventListener("click", () => createSponsorBannerInvoice(button.dataset.sponsorInvoice, button));
+  });
   document.querySelectorAll("[data-sponsor-submission-filter]").forEach((button) => {
     button.addEventListener("click", () => {
       appState.sponsorSubmissionsFilter = button.dataset.sponsorSubmissionFilter || "active";
