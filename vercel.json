@@ -87,5 +87,10 @@
       "path": "/api/cleanup-receptionist-data",
       "schedule": "20 10 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "api/closure-credits.js": {
+      "maxDuration": 60
+    }
+  }
 }

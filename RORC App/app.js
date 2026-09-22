@@ -356,6 +356,7 @@ const accountManagerOnlyRoutes = new Set([
   "notificationsEmail",
   "masterLogs",
   "billingPrices",
+  "closureCredits",
   "messageCompose",
   "contracts",
   "adminNotes",
@@ -401,7 +402,7 @@ const drawerLayouts = {
     // Before building another admin reminder/task feature, review the existing adminNotes route,
     // /api/admin-notes endpoint, and public.admin_notes table so the same feature is not duplicated.
     { title: "Facility & Scheduling", routes: ["rentalReviews", "calendar"] },
-    { title: "Reports & Billing", routes: ["masterLogs", "billingPrices"] },
+    { title: "Reports & Billing", routes: ["masterLogs", "billingPrices", "closureCredits"] },
     { title: "App & Automation", routes: ["message", "advertisementBanners"] },
     { title: "Help", routes: ["feedback", "about", "share"] }
   ],
@@ -530,6 +531,15 @@ const routes = {
     title: "Reports & Logs",
     template: "feedbackTemplate",
     afterRender: renderMasterLogsRoute
+  },
+  closureCredits: {
+    title: "Closure Credits",
+    template: "feedbackTemplate",
+    afterRender: () => window.RORC_CLOSURE_CREDITS.mount({
+      root: document.getElementById("feedbackContent"),
+      token: () => currentAuthSession?.access_token || "",
+      confirm: openLinkedDeleteDialog
+    })
   },
   billingPrices: {
     title: "Pricing",

@@ -1,0 +1,34 @@
+.closure-credits-page { max-width: 1050px; margin: 0 auto; padding-bottom: 24px; }
+.closure-card { margin-bottom: 18px; padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel-bg); }
+.closure-card h2, .closure-card h3 { margin: 6px 0 12px; }
+.closure-card p { line-height: 1.55; }
+.closure-muted { color: var(--muted); }
+.closure-card label { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.closure-card input:not([type=checkbox]) { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--field-bg); color: var(--text); font: inherit; color-scheme: dark; box-sizing: border-box; }
+.closure-card button { border: 1px solid transparent; border-radius: 8px; padding: 12px 16px; background: var(--accent); color: white; font: inherit; cursor: pointer; min-height: 44px; }
+.closure-card button:disabled { opacity: .45; cursor: default; }
+.closure-card button.closure-secondary { background: var(--field-bg); border-color: var(--line); }
+.closure-card :is(button,input,a,summary):focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.closure-fields, .closure-actions, .closure-summary, .closure-heading { display: flex; flex-wrap: wrap; gap: 14px; }
+.closure-fields label { flex: 1; min-width: 180px; }
+.closure-heading { justify-content: space-between; align-items: center; }
+.closure-summary { padding: 16px 0; }
+.closure-actions { margin: 14px 0; }
+.closure-card .closure-check { flex-direction: row; align-items: flex-start; line-height: 1.5; margin: 20px 0; }
+.closure-check input { flex-shrink: 0; width: 20px; height: 20px; margin-top: 3px; accent-color: var(--accent); }
+.closure-badge { display: inline-block; padding: 4px 9px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); font-size: 13px; }
+.closure-account { padding: 20px 0; border-top: 1px solid var(--line); }
+.closure-account a { color: var(--text); margin-left: 10px; text-underline-offset: 3px; }
+.closure-account summary { cursor: pointer; padding: 10px 0; }
+.closure-error { padding: 12px 16px; background: #341b1b; border: 1px solid #7c3434; border-radius: 8px; margin-bottom: 16px; }
+.closure-error-text { color: #ffb2af; }
+.closure-status:empty { display: none; }
+.closure-table-wrap { overflow-x: auto; }
+.closure-card table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14px; }
+.closure-card th, .closure-card td { padding: 12px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.closure-card td small { display: block; color: var(--muted); margin-top: 5px; }
+.closure-exclude { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; }
+.closure-exclude label { flex: 1; min-width: 180px; margin-bottom: 0; }
+.closure-history { width: 100%; text-align: left; margin: 8px 0; }
+.closure-history span { display: block; color: var(--muted); margin-top: 8px; }
+@media (max-width: 600px) { .closure-card { padding: 16px; } .closure-fields { display: block; } .closure-summary { flex-direction: column; gap: 8px; } }

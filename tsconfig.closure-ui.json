@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "preserve",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "strict": true,
+    "skipLibCheck": true,
+    "types": [],
+    "rootDir": "src/closure-credits-ui",
+    "outDir": "RORC App"
+  },
+  "include": [
+    "src/closure-credits-ui/closure-credits.ts"
+  ]
+}

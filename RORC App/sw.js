@@ -1,4 +1,4 @@
-const CACHE_VERSION = "rorc-app-v90";
+const CACHE_VERSION = "rorc-app-v91";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const NAVIGATION_CACHE = `${CACHE_VERSION}-navigation`;
 const OFFLINE_PAGE = "./index.html";
@@ -6,7 +6,9 @@ const APP_SHELL = [
   OFFLINE_PAGE,
   "./app.css?v=20260919-banner-workspace",
   "./resource-coordinator.js?v=20260808-reliable-sync",
-  "./app.js?v=20260919-banner-payment-choice",
+  "./closure-credits.css?v=20260921-closure-credits",
+  "./closure-credits.js?v=20260921-closure-credits",
+  "./app.js?v=20260921-closure-credits",
   "./vendor/supabase.min.js?v=2.112.2",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",
