@@ -9721,3 +9721,5 @@ textarea:focus-visible,
 .member-picker-quick-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .member-picker-contact-dialog > .member-picker-search-wrap { min-width: 0; }
 .member-picker-contact-dialog > .member-picker-list { min-height: 0; }
+
+.cal-recurring-preview { max-height: 10rem; overflow-y: auto; overflow-wrap: anywhere; font-size: .85rem; line-height: 1.5; }

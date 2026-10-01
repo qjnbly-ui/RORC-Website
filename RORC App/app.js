@@ -11388,23 +11388,27 @@ function renderCalendarView(root) {
               </label>
             </div>
             <div class="cal-recurring-days" role="group" aria-label="Recurring days">
-              <label><input type="checkbox" data-rec-day="0" />S</label>
-              <label><input type="checkbox" data-rec-day="1" />M</label>
-              <label><input type="checkbox" data-rec-day="2" />T</label>
-              <label><input type="checkbox" data-rec-day="3" />W</label>
-              <label><input type="checkbox" data-rec-day="4" />T</label>
-              <label><input type="checkbox" data-rec-day="5" />F</label>
-              <label><input type="checkbox" data-rec-day="6" />S</label>
+              <label><input type="checkbox" data-rec-day="0" />Sun</label>
+              <label><input type="checkbox" data-rec-day="1" />Mon</label>
+              <label><input type="checkbox" data-rec-day="2" />Tue</label>
+              <label><input type="checkbox" data-rec-day="3" />Wed</label>
+              <label><input type="checkbox" data-rec-day="4" />Thu</label>
+              <label><input type="checkbox" data-rec-day="5" />Fri</label>
+              <label><input type="checkbox" data-rec-day="6" />Sat</label>
             </div>
             <fieldset class="cal-recurring-ends">
               <legend>Ends</legend>
-              <label><input type="radio" name="calRecurringEndsMode" value="never" checked /> Never</label>
+
               <label><input type="radio" name="calRecurringEndsMode" value="on" /> On</label>
               <input id="calRecurringEndDate" class="rorc-input" type="date" disabled />
-              <label><input type="radio" name="calRecurringEndsMode" value="after" /> After</label>
+              <label><input type="radio" name="calRecurringEndsMode" value="after" checked /> After</label>
               <input id="calRecurringCount" class="rorc-input" type="number" min="1" max="240" value="12" disabled />
             </fieldset>
-            <p class="cal-recurring-note">Creates separate events for each date so each one can be edited/deleted independently.</p>
+            <label class="cal-field-label">Excluded dates or breaks
+              <textarea id="calRecurringExclusions" class="rorc-input" rows="3" placeholder="2026-12-21 to 2027-01-01"></textarea>
+            </label>
+            <p class="cal-recurring-note">Use full dates (YYYY-MM-DD), one per line, or inclusive ranges separated by “to”. Confirm weekdays and access times before saving.</p>
+            <div id="calRecurringPreview" class="cal-recurring-preview" role="status" aria-live="polite"></div>
           </div>
         </div>
 
@@ -11601,6 +11605,8 @@ function bindCalendarEvents(root) {
   root.querySelectorAll("input[name='calRecurringEndsMode']").forEach((radio) => {
     radio.addEventListener("change", () => syncRecurringVisibility(root));
   });
+  root.querySelector("#calRecurringFields")?.addEventListener("input", () => updateCalendarRecurringPreview(root));
+  root.querySelector("#calEvDate")?.addEventListener("input", () => updateCalendarRecurringPreview(root));
   if (canManageCalendar) {
     bindCalendarRentalContactAutocomplete(root);
   }
@@ -11830,6 +11836,7 @@ function openCalendarModal(root, event, prefillDate) {
   root.querySelector("#calEvDetailOnly").checked = event ? Boolean(event.detailOnly) : false;
   root.querySelector("#calEvDesc").value    = event ? (event.description || "") : "";
   root.querySelector("#calEvRecurring").checked = false;
+  root.querySelector("#calRecurringExclusions").value = "";
   root.querySelector("#calRecurringEvery").value = "1";
   root.querySelector("#calRecurringUnit").value = "week";
   root.querySelector("input[name='calRecurringEndsMode'][value='after']").checked = true;
@@ -11899,6 +11906,7 @@ function syncRecurringVisibility(root) {
   if (daysWrap) daysWrap.style.display = recurringUnit === "week" && allowed && recurringToggle.checked ? "flex" : "none";
   if (endDateInput) endDateInput.disabled = endsMode !== "on";
   if (countInput) countInput.disabled = endsMode !== "after";
+  updateCalendarRecurringPreview(root);
 }
 
 function buildRecurringDateList(seedDate, selectedDays, maxOccurrences) {
@@ -11950,76 +11958,86 @@ function addYearsLocal(date, years) {
   return next;
 }
 
-function buildRecurringDateSeries({
-  seedDate,
-  selectedDays,
-  every = 1,
-  unit = "week",
-  endMode = "never",
-  endDate = "",
-  occurrences = 12
-}) {
-  const seed = new Date(`${seedDate}T12:00:00`);
-  if (Number.isNaN(seed.getTime())) return [];
-  const safeEvery = Math.max(1, Number(every) || 1);
-  const targetDays = new Set((selectedDays || []).map(Number).filter((d) => d >= 0 && d <= 6));
-  const maxCount = Math.max(1, Number(occurrences) || 1);
-  const endDateObj = endDate ? new Date(`${endDate}T12:00:00`) : null;
-  const hasEndDate = endDateObj && !Number.isNaN(endDateObj.getTime());
-  const hardLimit = endMode === "never" ? 120 : 220;
-  const out = [];
-
-  if (unit === "day") {
-    let cursor = new Date(seed);
-    for (let i = 0; i < hardLimit; i += 1) {
-      if (endMode === "on" && hasEndDate && cursor > endDateObj) break;
-      out.push(cursor.toISOString().slice(0, 10));
-      if (endMode === "after" && out.length >= maxCount) break;
-      cursor = addDaysLocal(cursor, safeEvery);
+function parseRecurringExclusions(value) {
+  const ranges = String(value || "").split(/[\n,]+/).map((v) => v.trim()).filter(Boolean);
+  return ranges.map((entry) => {
+    const match = entry.match(/^(\d{4}-\d{2}-\d{2})(?:\s+to\s+(\d{4}-\d{2}-\d{2}))?$/);
+    const valid = (date) => date && Number.isFinite(Date.parse(`${date}T12:00:00Z`)) && new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) === date;
+    if (!match || !valid(match[1]) || (match[2] && !valid(match[2])) || (match[2] && match[2] < match[1])) {
+      throw new Error(`Invalid exclusion: ${entry}. Use YYYY-MM-DD or YYYY-MM-DD to YYYY-MM-DD.`);
     }
-    return out;
-  }
+    return [match[1], match[2] || match[1]];
+  });
+}
 
-  if (unit === "month") {
-    let cursor = new Date(seed);
-    for (let i = 0; i < hardLimit; i += 1) {
-      if (endMode === "on" && hasEndDate && cursor > endDateObj) break;
-      out.push(cursor.toISOString().slice(0, 10));
-      if (endMode === "after" && out.length >= maxCount) break;
-      cursor = addMonthsLocal(cursor, safeEvery);
-    }
-    return out;
+function buildRecurringDateSeries({ seedDate, selectedDays, every = 1, unit = "week", endMode = "after", endDate = "", occurrences = 12, exclusions = "" }) {
+  const seed = new Date(`${seedDate}T12:00:00Z`);
+  if (!Number.isFinite(seed.getTime()) || seed.toISOString().slice(0, 10) !== seedDate) throw new Error("Choose a valid start date.");
+  const interval = Number(every);
+  if (!Number.isInteger(interval) || interval < 1 || interval > 24) throw new Error("Repeat interval must be between 1 and 24.");
+  if (!["day", "week", "month", "year"].includes(unit)) throw new Error("Choose a repeat unit.");
+  if (!["on", "after"].includes(endMode)) throw new Error("Choose an end date or number of occurrences.");
+  if (endMode === "on" && (!/^\d{4}-\d{2}-\d{2}$/.test(endDate) || endDate < seedDate || new Date(`${endDate}T12:00:00Z`).toISOString().slice(0, 10) !== endDate)) throw new Error("End date must be valid and on or after the start date.");
+  const count = Number(occurrences);
+  if (endMode === "after" && (!Number.isInteger(count) || count < 1 || count > 240)) throw new Error("Choose 1–240 occurrences.");
+  const days = new Set((selectedDays || []).map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6));
+  if (unit === "week" && !days.size) throw new Error("Select at least one recurring day.");
+  const excluded = parseRecurringExclusions(exclusions);
+  const dates = [];
+  for (let offset = 0; offset <= 366 * 10; offset += 1) {
+    const cursor = new Date(seed); cursor.setUTCDate(seed.getUTCDate() + offset);
+    const key = cursor.toISOString().slice(0, 10);
+    if (endMode === "on" && key > endDate) return dates;
+    const months = (cursor.getUTCFullYear() - seed.getUTCFullYear()) * 12 + cursor.getUTCMonth() - seed.getUTCMonth();
+    const lastDay = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 0)).getUTCDate();
+    const match = unit === "day" ? offset % interval === 0
+      : unit === "week" ? Math.floor(offset / 7) % interval === 0 && days.has(cursor.getUTCDay())
+      : unit === "month" ? months % interval === 0 && cursor.getUTCDate() === Math.min(seed.getUTCDate(), lastDay)
+      : (cursor.getUTCFullYear() - seed.getUTCFullYear()) % interval === 0 && cursor.getUTCMonth() === seed.getUTCMonth() && cursor.getUTCDate() === Math.min(seed.getUTCDate(), lastDay);
+    if (!match || excluded.some(([start, end]) => key >= start && key <= end)) continue;
+    dates.push(key);
+    if (dates.length > 240) throw new Error("Schedule exceeds 240 occurrences. Choose a shorter date range.");
+    if (endMode === "after" && dates.length === count) return dates;
   }
+  throw new Error("Schedule exceeds the 10-year preview range. Choose a shorter date range.");
+}
 
-  if (unit === "year") {
-    let cursor = new Date(seed);
-    for (let i = 0; i < hardLimit; i += 1) {
-      if (endMode === "on" && hasEndDate && cursor > endDateObj) break;
-      out.push(cursor.toISOString().slice(0, 10));
-      if (endMode === "after" && out.length >= maxCount) break;
-      cursor = addYearsLocal(cursor, safeEvery);
-    }
-    return out;
-  }
+function calendarRecurringOptions(root) {
+  return {
+    seedDate: root.querySelector("#calEvDate").value,
+    selectedDays: [...root.querySelectorAll("[data-rec-day]:checked")].map((input) => Number(input.dataset.recDay)),
+    every: Number(root.querySelector("#calRecurringEvery").value),
+    unit: root.querySelector("#calRecurringUnit").value,
+    endMode: root.querySelector("input[name='calRecurringEndsMode']:checked")?.value,
+    endDate: root.querySelector("#calRecurringEndDate").value,
+    occurrences: Number(root.querySelector("#calRecurringCount").value),
+    exclusions: root.querySelector("#calRecurringExclusions").value
+  };
+}
 
-  const selected = targetDays.size ? targetDays : new Set([seed.getDay()]);
-  let cursor = new Date(seed);
-  let guard = 0;
-  while (guard < 900) {
-    guard += 1;
-    const diffDays = Math.floor((cursor - seed) / 86400000);
-    const weekIndex = Math.floor(diffDays / 7);
-    const inCycle = weekIndex % safeEvery === 0;
-    const isMatchDay = selected.has(cursor.getDay());
-    if (inCycle && isMatchDay && cursor >= seed) {
-      if (endMode === "on" && hasEndDate && cursor > endDateObj) break;
-      out.push(cursor.toISOString().slice(0, 10));
-      if (endMode === "after" && out.length >= maxCount) break;
-      if (endMode === "never" && out.length >= hardLimit) break;
-    }
-    cursor = addDaysLocal(cursor, 1);
-  }
-  return out;
+function updateCalendarRecurringPreview(root) {
+  const preview = root.querySelector("#calRecurringPreview");
+  if (!preview) return;
+  try {
+    const dates = buildRecurringDateSeries(calendarRecurringOptions(root));
+    preview.textContent = dates.length ? `${dates.length} occurrences: ${dates.join(", ")}. Each rental keeps its own booking and billing reference.` : "No occurrences remain. Adjust the dates or exclusions.";
+  } catch (error) { preview.textContent = error.message; }
+}
+
+async function preflightRecurringRentals(root, dates) {
+  const response = await fetch("/api/events?booked=true");
+  const body = await response.json();
+  if (!response.ok || !body.success) throw new Error("Could not check availability. No recurring bookings were saved.");
+  const windows = dates.flatMap((date) => {
+    const rental = collectCalendarRentalPayload(root, { title: "Preview", date, start: normalizeTimeFieldValue(root.querySelector("#calEvStart").value), end: normalizeTimeFieldValue(root.querySelector("#calEvEnd").value), allDay: root.querySelector("#calEvAllDay").checked });
+    const blocks = [{ date, start: rental.event_start_time, end: rental.event_end_time }];
+    const adjacent = (delta) => { const d = new Date(`${date}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + delta); return d.toISOString().slice(0, 10); };
+    if (rental.addon_early_day_rental || rental.addon_early_setup) blocks.push({ date: adjacent(-1), start: rental.addon_early_day_rental ? "07:00" : "18:00", end: "21:00" });
+    if (rental.addon_late_day_rental || rental.addon_late_cleanup) blocks.push({ date: adjacent(1), start: "07:00", end: rental.addon_late_day_rental ? "21:00" : "09:00" });
+    return blocks;
+  });
+  const conflicts = windows.filter((window, index) => (body.dates || []).includes(window.date) || [...(body.blocks || []), ...windows.slice(0, index)].some((block) => block.date === window.date && window.start < block.end && block.start < window.end));
+  if (conflicts.length) throw new Error(`Conflicting rental access on ${[...new Set(conflicts.map((v) => v.date))].join(", ")}. No recurring bookings were saved.`);
 }
 
 function uidSeriesToken() {
@@ -12667,15 +12685,7 @@ async function submitMemberCalendarRequest(root, options) {
     const requestBodies = [];
 
     if (options.recurringEnabled && !options.evId) {
-      const dateList = buildRecurringDateSeries({
-        seedDate: options.date,
-        selectedDays: options.recurringDays,
-        every: options.recurringEvery,
-        unit: options.recurringUnit,
-        endMode: options.recurringEndMode,
-        endDate: options.recurringEndDate,
-        occurrences: options.recurringCount
-      });
+      const dateList = buildRecurringDateSeries(calendarRecurringOptions(root));
       if (!dateList.length) throw new Error("Could not create recurrence from current settings.");
       dateList.forEach((dateKey) => {
         requestBodies.push({
@@ -12772,6 +12782,7 @@ async function saveCalendarEvent(root) {
   if (!date)  { showCalError(errEl, "Date is required.");  return; }
   if (!allDay && !start) { showCalError(errEl, "Valid start time is required."); return; }
   if (!allDay && !end) { showCalError(errEl, "Valid end time is required."); return; }
+  if (!allDay && end <= start) { showCalError(errEl, "End time must be after start time."); return; }
   if (recurringEnabled && recurringUnit === "week" && !recurringDays.length) { showCalError(errEl, "Select at least one recurring day."); return; }
   if (recurringEnabled && recurringEndMode === "on" && !recurringEndDate) { showCalError(errEl, "Select an end date."); return; }
   if (modal.dataset.rentalRequestId && normalizeEventTypeForUi(type) !== "rental") {
@@ -12865,22 +12876,15 @@ async function saveCalendarEvent(root) {
     }
 
     if (recurringEnabled && !evId) {
-      const dateList = buildRecurringDateSeries({
-        seedDate: date,
-        selectedDays: recurringDays,
-        every: recurringEvery,
-        unit: recurringUnit,
-        endMode: recurringEndMode,
-        endDate: recurringEndDate,
-        occurrences: recurringCount
-      });
+      const dateList = buildRecurringDateSeries(calendarRecurringOptions(root));
       if (!dateList.length) throw new Error("Could not create recurrence from current settings.");
+      if (isRentalEvent) await preflightRecurringRentals(root, dateList);
       const seriesId = uidSeriesToken();
       const seriesBaseCreatedBy = calendarOwnerIdFromCreatedBy(createdByCore)
         ? `${createdByCore}:series:${seriesId}`
         : `series:${seriesId}`;
       const seriesCreatedBy = detailOnly ? `${seriesBaseCreatedBy}:detail` : seriesBaseCreatedBy;
-      const concurrency = 8;
+      const concurrency = 1;
       for (let i = 0; i < dateList.length; i += concurrency) {
         const chunk = dateList.slice(i, i + concurrency);
         const results = await Promise.all(chunk.map(async (dateKey) => {
