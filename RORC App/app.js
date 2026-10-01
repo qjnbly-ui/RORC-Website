@@ -11368,6 +11368,10 @@ function renderCalendarView(root) {
         <label class="cal-field-label">Description (optional)
           <textarea id="calEvDesc" class="rorc-input" rows="3" placeholder="Any notes…"></textarea>
         </label>
+        <label id="calSeriesEditScopeField" class="cal-field-label" hidden>Apply booking changes to
+          <select id="calSeriesEditScope" class="rorc-input"><option value="this">This occurrence</option><option value="following">This and following occurrences</option><option value="all">Entire series</option></select>
+          <small>Series edits change title and access/public times. Dates can change for one occurrence. Finalized bookings require billing review.</small>
+        </label>
         <div class="cal-recurring-box">
           <label class="cal-field-label cal-field-check">
             <input id="calEvRecurring" type="checkbox" />
@@ -11804,9 +11808,13 @@ function openCalendarModal(root, event, prefillDate) {
   const requesterInfo = root.querySelector("#calRequesterInfo");
 
   errEl.hidden = true;
+  modal.dataset.recurringOperationId = "";
+  modal.dataset.recurringOperationCommand = "";
   modal.dataset.evId = event ? event.id : "";
   modal.dataset.rentalRequestId = event?.rentalRequestId || "";
   modal.dataset.seriesId = event ? parseSeriesToken(event.createdBy) : "";
+  root.querySelector("#calSeriesEditScopeField").hidden = !(canManageCalendar && event?.rentalRequestId && modal.dataset.seriesId);
+  root.querySelector("#calSeriesEditScope").value = "this";
   modal.dataset.createdBy = event?.createdBy || "admin";
   modal.dataset.rentalLoaded = "";
   modal.dataset.originalStart = event ? facilityTimeInputValue(event.startAt) : "";
@@ -12040,6 +12048,19 @@ async function preflightRecurringRentals(root, dates) {
   if (conflicts.length) throw new Error(`Conflicting rental access on ${[...new Set(conflicts.map((v) => v.date))].join(", ")}. No recurring bookings were saved.`);
 }
 
+async function postRecurringRentalOperation(root, command) {
+  const modal = root.querySelector("#calEventModal");
+  const fingerprint = JSON.stringify(command);
+  if (modal.dataset.recurringOperationCommand !== fingerprint) {
+    modal.dataset.recurringOperationCommand = fingerprint;
+    modal.dataset.recurringOperationId = crypto.randomUUID();
+  }
+  const response = await fetch("/api/recurring-rentals", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentAuthSession?.access_token || ""}` }, body: JSON.stringify({ ...command, operationId: modal.dataset.recurringOperationId }) });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok || !result.success) throw new Error(result.error || "Booking operation failed. Retry with the same settings.");
+  return result;
+}
+
 function uidSeriesToken() {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -12068,15 +12089,16 @@ function isSameOrAfterFacilityDate(aIso, bIso) {
   return calendarTimestampDateKey(aIso) >= calendarTimestampDateKey(bIso);
 }
 
-async function openRecurringDeleteScopeDialog() {
+async function openRecurringDeleteScopeDialog({ rental = false } = {}) {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.className = "member-delete-confirm-overlay";
     overlay.style.position = "fixed";
     overlay.style.zIndex = "1200";
     overlay.innerHTML = `
-      <section class="member-delete-confirm-dialog" role="dialog" aria-modal="true" aria-label="Delete recurring event">
-        <h3>Delete recurring event</h3>
+      <section class="member-delete-confirm-dialog" role="dialog" aria-modal="true" aria-label="${rental ? "Cancel recurring bookings" : "Delete recurring event"}">
+        <h3>${rental ? "Cancel recurring bookings" : "Delete recurring event"}</h3>
+        ${rental ? "<p>Booking records, payments and invoices are retained for staff review.</p>" : ""}
         <div class="recurring-delete-options">
           <label><input type="radio" name="recurringDeleteScope" value="this" checked /> This event</label>
           <label><input type="radio" name="recurringDeleteScope" value="following" /> This and following events</label>
@@ -12839,6 +12861,27 @@ async function saveCalendarEvent(root) {
     const basePayload = { title, event_type: type, start_at: startAt, end_at: endAt, all_day: allDay, is_public: isPublic, description: desc || null, created_by: createdBy };
     const payload = evId ? { ...basePayload, id: evId } : { ...basePayload };
 
+    if (isRentalEvent && recurringEnabled) {
+      const dates = buildRecurringDateSeries(calendarRecurringOptions(root));
+      if (!dates.length) throw new Error("No occurrences remain. Adjust dates or exclusions.");
+      const rentals = dates.map((dateKey) => collectCalendarRentalPayload(root, { title, date: dateKey, start, end, allDay, existingRentalId: "", rentalLoaded: true }));
+      await postRecurringRentalOperation(root, { action: "create", rentals, isPublic });
+      modal.hidden = true;
+      await refreshCalendarPageAfterMutation();
+      return;
+    }
+    if (isRentalEvent && modal.dataset.rentalRequestId && modal.dataset.seriesId) {
+      if (modal.dataset.rentalLoaded !== "true") throw new Error("Wait for booking details to load before changing the series.");
+      const scope = root.querySelector("#calSeriesEditScope").value;
+      const rental = collectCalendarRentalPayload(root, { title, date, start, end, allDay, existingRentalId: modal.dataset.rentalRequestId, rentalLoaded: true });
+      const patch = { event_name: title, event_start_time: rental.event_start_time, event_end_time: rental.event_end_time, public_event_start_time: rental.public_event_start_time || null, public_event_end_time: rental.public_event_end_time || null };
+      if (scope === "this") patch.event_date = date;
+      await postRecurringRentalOperation(root, { action: "update", scope, rentalRequestId: modal.dataset.rentalRequestId, patch });
+      modal.hidden = true;
+      await refreshCalendarPageAfterMutation();
+      return;
+    }
+
     if (isRentalEvent && !recurringEnabled) {
       const existingRentalId = modal.dataset.rentalRequestId || "";
       const rentalDefaults = {
@@ -13011,7 +13054,7 @@ async function deleteCalendarEvent(root) {
 
   let recurringScope = "this";
   if (seriesId) {
-    const pickedScope = await openRecurringDeleteScopeDialog();
+    const pickedScope = await openRecurringDeleteScopeDialog({ rental: Boolean(rentalRequestId) });
     if (!pickedScope) return;
     recurringScope = pickedScope;
   } else {
@@ -13022,6 +13065,15 @@ async function deleteCalendarEvent(root) {
       cancelLabel: "Cancel"
     });
     if (!deleteEventConfirmed) return;
+  }
+
+  if (rentalRequestId && seriesId) {
+    try {
+      await postRecurringRentalOperation(root, { action: "cancel", scope: recurringScope, rentalRequestId });
+      modal.hidden = true;
+      await refreshCalendarPageAfterMutation();
+    } catch (error) { showCalError(errEl, error.message); }
+    return;
   }
 
   let deleteRentalToo = false;

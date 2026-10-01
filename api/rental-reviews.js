@@ -340,7 +340,9 @@ async function createOrUpdateCalendarEvent(record, options = {}) {
     || null;
   const calendarPublicOverride = options.calendarPublicOverride || {};
 
-  const createdByBase = record.claimed_member_id
+  const createdByBase = record.recurring_series_id
+    ? `${record.claimed_member_id ? `member:${record.claimed_member_id}:` : ""}series:${record.recurring_series_id}:rental:${record.id}`
+    : record.claimed_member_id
     ? `member:${record.claimed_member_id}:rental:${record.id}`
     : calendarCreatedByBase(existingMainEvent?.created_by);
   const mainPayload = {
@@ -1443,6 +1445,16 @@ async function reviewRentalChangeRequest({ changeRequestId, action, reviewNotes,
   const request = await loadRentalChangeRequestById(changeRequestId);
   if (!request) throw httpError(404, "Renter request not found");
   if (request.status !== "pending") throw httpError(409, "This renter request has already been reviewed");
+  if (request.recurring_operation_id) {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/apply_recurring_rental_operation`, {
+      method: "POST", headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ actor_id: manager.id, operation_id: crypto.randomUUID(), command: { action: String(action), scope: "this", changeRequestId, reviewNotes: str(reviewNotes) } })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw httpError(result.code === "23P01" || result.code === "55000" ? 409 : 400, result.message || "Could not review recurring request");
+    return { ...result, automationWarnings: [] };
+  }
+
 
   const now = new Date().toISOString();
   const normalizedAction = String(action || "").trim();
@@ -1652,3 +1664,5 @@ function httpError(statusCode, message) {
   error.statusCode = statusCode;
   return error;
 }
+
+module.exports.buildRentalRecord = buildRentalRecord;

@@ -206,6 +206,7 @@ function mapMember(member) {
 function mapRental(row, changeRequests = []) {
   return {
     id: row.id,
+    recurringSeriesId: row.recurring_series_id || null,
     bookingNumber: row.booking_number || "",
     rentalStatus: row.rental_status || "",
     contactName: row.contact_name || "",
@@ -255,6 +256,7 @@ function mapChangeRequest(row) {
     requestType: row.request_type,
     status: row.status,
     requestedPayload: row.requested_payload || {},
+    recurringOperationId: row.recurring_operation_id || null,
     requesterSnapshot: row.requester_snapshot || {},
     reviewNotes: row.review_notes || "",
     reviewedAt: row.reviewed_at || "",

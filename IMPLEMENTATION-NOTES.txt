@@ -13,22 +13,29 @@ Implemented first slice:
 - Rental preflight checks authoritative public availability including adjacent setup/cleanup days and internal overlaps. Requests fail closed when availability cannot be loaded.
 - Sequential staff creation reduces simultaneous writes. Each occurrence retains its existing distinct rental_request_id. Existing billing finalization and grouped invoice code are unchanged.
 
-NOT COMPLETE / release blockers:
-- Client preflight is advisory: concurrent writes can still race. Add server-side serialized conflict checking and an atomic or resumable/idempotent batch endpoint before release.
-- Existing sequential series save can partially succeed. Safe retry/resume and compensation require a server operation record.
-- Existing events GET limits are 500/200; series edit/cancel must query complete series server-side rather than only loaded events.
-- Individual edits and existing series delete scopes remain as before; series edit is not implemented.
-- Existing rental deletion cascades billing items. Series cancellation must use status/review workflows and preserve posted invoice history rather than delete charged records.
-- No automatic monthly billing policy changed. Verify pending review, finalization, and grouped invoice dedup with end-to-end fixtures before release.
-- Browser verification used offline form/helper harness at desktop and 390px. Authenticated full booking flow was not exercised.
+Phase 1 follow-up implementation:
+- One service-only RPC atomically creates rental rows and calendar mirrors, with actor-scoped immutable command replay and durable operation results.
+- Transaction advisory locks serialize all confirmed rental and standalone blocking calendar writes. Checks include rental access, setup/cleanup, maintenance, and internal batch overlaps.
+- Occurrence/following/all updates and status cancellations query full series on the server. Setup/cleanup mirrors retain IDs and follow date edits.
+- Cancellation keeps booking rows and billing history. Finalized financial/schedule edits require staff billing review. Legacy deletion of recurring or billed rentals is blocked.
+- Renter changes create a service-controlled request group under existing pending review semantics. Manager review applies/rejects the group atomically; ownership is rechecked before approval.
+- Existing pricing helper normalizes creation and estimates. Monthly invoice policy and Stripe logic remain unchanged.
+- Tests: full suite 205 passed / 1 skipped, typecheck, app assets, receptionist knowledge, Node syntax and diff checks.
+- Isolated PostgreSQL tests verify simultaneous duplicate retries, competing overlaps, batch rollback, maintenance/setup access, scope edits, ownership, approval, billed-edit rollback, retained payments/invoices, RPC privileges and actual HTTP handler with mocked authenticated identities.
+- Browser exercised real calendar save/cancel functions through the real HTTP handler into the isolated fixture DB: exclusion-aware creation, entire-series edit, and cancellation retained all four records. UI preview was inspected at desktop and mobile.
+
+Release boundary:
+- Candidate migrations are unapplied to production. Review production schema compatibility and migration with existing confirmed bookings before authorizing release.
+- Existing payment/finalization and grouped invoice tests pass, but no live payment or invoice was run.
+- SMS implementation is the next phase. User wants actual data changes; reuse the verified transaction endpoint after existing account authentication and exact confirmation, retaining manager approval for renters.
 
 SMS phase plan (no handler change):
-1. Keep api/receptionist/sms.js as signature-verified ingress and staff inbox audit; preserve START/STOP/HELP before AI routing. YES cannot simultaneously mean opt-in and booking confirmation.
-2. Decide authenticated account binding: propose expiring sign-in verification link; a phone number alone and voice PIN flow are insufficient proof without explicit account verification.
-3. Persist Twilio MessageSid unique ingress keys, conversation/account scope, expiring structured drafts and confirmation operation IDs. Model may propose only allowlisted actions, never arbitrary DB writes.
-4. Use shared recurrence validation and server batch preview. Return dates, access hours, exclusions, conflicts, affected occurrences, cost estimate and approval status before explicit confirmation. Missing start date/time or conflicting weekday exclusions must trigger clarification.
-5. Submit confirmed renter changes through existing pending manager review; managers use authenticated approved server path. Revalidate account scope, latest availability and billing references on confirmation. No SMS billing/charging capability in this phase.
-6. Reject expired or replayed confirmations; opt-out cancels pending drafts, HELP offers support; unresolved identity, conflicts or billing effects escalate to staff inbox. A booking command “cancel” must not bypass required carrier opt-out handling.
-7. Mock signature/identity, STOP/HELP, unrelated-account access, duplicate MessageSid, timeout, confirmation replay, competing reservations and escalation tests. Keep Twilio configuration and live sends out of this change.
+- Keep api/receptionist/sms.js as signature-verified ingress and staff inbox audit; preserve START/STOP/HELP before AI routing. YES cannot simultaneously mean opt-in and booking confirmation.
+- Decide authenticated account binding: propose expiring sign-in verification link; a phone number alone and voice PIN flow are insufficient proof without explicit account verification.
+- Persist Twilio MessageSid unique ingress keys, conversation/account scope, expiring structured drafts and confirmation operation IDs. Model may propose only allowlisted actions, never arbitrary DB writes.
+- Use shared recurrence validation and server batch preview. Return dates, access hours, exclusions, conflicts, affected occurrences, cost estimate and approval status before explicit confirmation. Missing start date/time or conflicting weekday exclusions must trigger clarification.
+- Submit confirmed renter changes through existing pending manager review; managers use authenticated approved server path. Revalidate account scope, latest availability and billing references on confirmation. No SMS billing/charging capability in this phase.
+- Reject expired or replayed confirmations; opt-out cancels pending drafts, HELP offers support; unresolved identity, conflicts or billing effects escalate to staff inbox. A booking command “cancel” must not bypass required carrier opt-out handling.
+- Mock signature/identity, STOP/HELP, unrelated-account access, duplicate MessageSid, timeout, confirmation replay, competing reservations and escalation tests. Keep Twilio configuration and live sends out of this change.
 
 Margaret example remains unbooked: missing start date/time; 2026 Nov 23/25 are Mon/Wed rather than requested Tue/Thu. Reject abbreviated exclusions, ask for full verified dates and access times. Old PE times are not confirmed.

@@ -1078,6 +1078,7 @@
       <div class="rorc-password-dialog" role="dialog" aria-modal="true" aria-label="Request booking change">
         <button type="button" class="rorc-password-close" data-close>Close</button>
         <h2 class="rorc-card-title">Request Booking Change</h2>
+        ${booking.recurringSeriesId ? `<label class="rorc-auth-label"><span>Apply to</span><select id="bookingChangeScope" class="rorc-auth-input"><option value="this">This occurrence</option><option value="following">This and following occurrences</option><option value="all">Entire series</option></select></label><p class="rorc-card-text">Recurring requests change title and access/public times. Every selected occurrence requires RORC approval; billing history is retained.</p>` : ""}
         <div class="rorc-password-form">
           <section class="rental-change-section">
             <h3 class="rental-change-section-title">Contact Information</h3>
@@ -1208,6 +1209,11 @@
       </div>
     `;
     document.body.appendChild(overlay);
+    if (booking.recurringSeriesId) {
+      const editable = new Set(["bookingChangeScope", "bookingChangeEventName", "bookingChangeDate", "bookingChangeStart", "bookingChangeEnd", "bookingChangePublicStart", "bookingChangePublicEnd", "bookingChangeMessage"]);
+      overlay.querySelectorAll("input,select,textarea").forEach((field) => { if (!editable.has(field.id)) field.disabled = true; });
+      byId("bookingChangeScope").addEventListener("change", () => { byId("bookingChangeDate").disabled = byId("bookingChangeScope").value !== "this"; });
+    }
     const close = () => overlay.remove();
     overlay.addEventListener("click", (event) => {
       if (event.target?.hasAttribute("data-close")) close();
@@ -1274,6 +1280,14 @@
   }
 
   async function submitRentalCancellationRequest(rentalRequestId) {
+    const booking = currentRentalBookings().find((item) => item.id === rentalRequestId);
+    if (booking?.recurringSeriesId) {
+      const scope = await chooseRecurringCancellationScope();
+      if (!scope) return;
+      await postRecurringDashboardRequest({ action: "request_cancel", scope, rentalRequestId, patch: {message: "Renter requested cancellation from dashboard."} }, booking);
+      await loadRentalBookings();
+      return;
+    }
     const confirmed = window.confirm("Submit a cancellation request for this booking?");
     if (!confirmed) return;
     await postRentalDashboardRequest({
@@ -1292,11 +1306,16 @@
     result.textContent = "Submitting request...";
     result.dataset.tone = "default";
     try {
-      await postRentalDashboardRequest({
-        rentalRequestId,
-        requestType: "update",
-        requestedPayload
-      });
+      const booking = currentRentalBookings().find((item) => item.id === rentalRequestId);
+      if (booking?.recurringSeriesId) {
+        const scope = byId("bookingChangeScope")?.value || "this";
+        const patch = Object.fromEntries(["event_name", "event_start_time", "event_end_time", "public_event_start_time", "public_event_end_time"].map((key) => [key, requestedPayload[key] || null]));
+        patch.message = requestedPayload.adminNotes || "";
+        if (scope === "this") patch.event_date = requestedPayload.event_date;
+        await postRecurringDashboardRequest({action: "request_update", scope, rentalRequestId, patch}, overlay);
+      } else {
+        await postRentalDashboardRequest({rentalRequestId, requestType: "update", requestedPayload});
+      }
       result.textContent = "Request submitted for RORC approval.";
       result.dataset.tone = "success";
       await loadRentalBookings();
@@ -1307,6 +1326,29 @@
       submit.disabled = false;
       submit.textContent = "Submit Request";
     }
+  }
+
+  async function chooseRecurringCancellationScope() {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "rorc-password-modal rental-change-modal";
+      overlay.innerHTML = `<div class="rorc-password-backdrop"></div><div class="rorc-password-dialog" role="dialog" aria-modal="true" aria-label="Request recurring cancellation"><h2>Request cancellation</h2><label class="rorc-auth-label">Apply to<select class="rorc-auth-input"><option value="this">This occurrence</option><option value="following">This and following occurrences</option><option value="all">Entire series</option></select></label><p>RORC approval is required. Existing payments and invoices are retained for staff review.</p><button class="rorc-btn" data-submit>Submit request</button><button class="rorc-btn" data-close>Keep bookings</button></div>`;
+      document.body.appendChild(overlay);
+      overlay.querySelector("[data-submit]").addEventListener("click", () => { const scope = overlay.querySelector("select").value; overlay.remove(); resolve(scope); });
+      overlay.querySelector("[data-close]").addEventListener("click", () => { overlay.remove(); resolve(null); });
+    });
+  }
+
+  async function postRecurringDashboardRequest(command, state) {
+    const fingerprint = JSON.stringify(command);
+    if (state._recurringCommand !== fingerprint) { state._recurringCommand = fingerprint; state._recurringOperationId = crypto.randomUUID(); }
+    const { data } = await supabaseClient.auth.getSession();
+    const token = data.session?.access_token || currentSession?.access_token || "";
+    if (!token) throw new Error("Sign in before changing bookings.");
+    const response = await fetch("/api/recurring-rentals", {method: "POST", headers: {Authorization: `Bearer ${token}`, "Content-Type": "application/json"}, body: JSON.stringify({...command, operationId: state._recurringOperationId})});
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.success) throw new Error(result.error || "Could not submit recurring request.");
+    return result;
   }
 
   async function postRentalDashboardRequest(payload) {
