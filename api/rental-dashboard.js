@@ -1,3 +1,4 @@
+const { accountMemberFilter } = require("./_account-scope");
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -12,7 +13,7 @@ module.exports = async (req, res) => {
   let member;
   try {
     const user = await getSupabaseUser(bearerToken(req));
-    member = await getAccountMember(user.id);
+    member = await getAccountMember(user.id, req);
     if (!member) throw httpError(403, "This session is not linked to a member.");
   } catch (error) {
     return res.status(Number(error.statusCode) || 401).json({ success: false, error: error.message || "Invalid session" });
@@ -75,7 +76,7 @@ module.exports = async (req, res) => {
 async function loadMemberRentals(member) {
   const email = normalizeEmail(member.email_address);
   const filters = [`claimed_member_id.eq.${encodeURIComponent(member.id)}`];
-  if (email) filters.push(`contact_email.eq.${encodeURIComponent(email)}`);
+  if (email) filters.push(`and(claimed_member_id.is.null,contact_email.eq.${encodeURIComponent(email)})`);
   return supabaseRest(
     `rental_requests?select=*&or=(${filters.join(",")})&order=event_date.asc&order=created_at.asc&limit=200`
   );
@@ -90,7 +91,7 @@ async function loadMemberRentalById(member, rentalRequestId) {
   const memberEmail = normalizeEmail(member.email_address);
   const rentalEmail = normalizeEmail(rental.contact_email);
   if (String(rental.claimed_member_id || "") === String(member.id)) return rental;
-  if (memberEmail && rentalEmail && memberEmail === rentalEmail) return rental;
+  if (!rental.claimed_member_id && memberEmail && rentalEmail && memberEmail === rentalEmail) return rental;
   return null;
 }
 
@@ -184,9 +185,9 @@ async function getSupabaseUser(token) {
   return response.json();
 }
 
-async function getAccountMember(authUserId) {
+async function getAccountMember(authUserId, req) {
   const rows = await supabaseRest(
-    `account_members?select=id,account_id,member_name,account_type,email_address,phone_number,is_billing_owner&auth_user_id=eq.${encodeURIComponent(authUserId)}&limit=1`
+    `account_members?select=id,account_id,member_name,account_type,email_address,phone_number,is_billing_owner&${await accountMemberFilter(authUserId, req, supabaseRest)}&limit=1`
   );
   return rows[0] || null;
 }

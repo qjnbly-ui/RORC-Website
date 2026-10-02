@@ -1,3 +1,4 @@
+const { accountMemberFilter } = require("./_account-scope");
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const FACILITY_TIME_ZONE = "America/Los_Angeles";
@@ -36,7 +37,7 @@ module.exports = async (req, res) => {
     }
 
     const user = await getSupabaseUser(token);
-    const member = await getAccountMemberByAuthUserId(user.id);
+    const member = await getAccountMemberByAuthUserId(user.id, req);
     if (!member) {
       return res.status(403).json({ success: false, error: "No linked member profile found." });
     }
@@ -168,8 +169,8 @@ async function getSupabaseUser(token) {
   return response.json();
 }
 
-async function getAccountMemberByAuthUserId(authUserId) {
-  const rows = await supabaseRest(`account_members?select=id,account_type&auth_user_id=eq.${encodeURIComponent(authUserId)}&limit=1`);
+async function getAccountMemberByAuthUserId(authUserId, req) {
+  const rows = await supabaseRest(`account_members?select=id,account_type&${await accountMemberFilter(authUserId, req, supabaseRest)}&limit=1`);
   return rows[0] || null;
 }
 

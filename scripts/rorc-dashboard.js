@@ -158,7 +158,7 @@
     }
 
     try {
-      const response = await fetch("/api/sync-stripe-membership", {
+      const response = await window.RORC_SUPABASE.scopedFetch("/api/sync-stripe-membership", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${currentSession.access_token}`,
@@ -224,6 +224,26 @@
     byId("newPassword")?.focus();
   }
 
+  function renderAccountSwitcher(result) {
+    const section = byId("accountSwitcher");
+    const selector = byId("activeAccount");
+    if (!section || !selector) return;
+    section.hidden = (result.accounts || []).length < 2;
+    selector.replaceChildren(...(result.accounts || []).map(account => {
+      const option = document.createElement("option");
+      option.value = account.account_member_id;
+      option.textContent = `${account.member_name} — Account ${account.account_number}`;
+      option.selected = option.value === result.profile?.account_member_id;
+      return option;
+    }));
+    selector.onchange = () => {
+      selector.disabled = true;
+      window.RORC_SUPABASE.chooseAccount(selector.value);
+      window.location.reload();
+    };
+    window.rorcIsPrimaryAccount = result.isPrimaryAccount;
+  }
+
   async function loadSessionAndProfile() {
     if (!window.RORC_SUPABASE) {
       throw new Error("Supabase is not configured on this page.");
@@ -256,6 +276,7 @@
     currentSession = result.session;
     currentProfile = result.profile;
     visibleProfiles = result.profiles || [];
+    renderAccountSwitcher(result);
 
     if (await syncStripeMembershipIfAllowed()) {
       const refreshed = await window.RORC_SUPABASE.getCurrentMemberProfile();
@@ -462,7 +483,7 @@
           return;
         }
 
-        const response = await fetch("/api/member-portal", {
+        const response = await window.RORC_SUPABASE.scopedFetch("/api/member-portal", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -543,7 +564,7 @@
           return;
         }
 
-        const response = await fetch("/api/account-invite", {
+        const response = await window.RORC_SUPABASE.scopedFetch("/api/account-invite", {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -588,6 +609,7 @@
     currentSession = result.session;
     currentProfile = result.profile;
     visibleProfiles = result.profiles || [];
+    renderAccountSwitcher(result);
     await loadCurrentAccountBilling();
     renderDashboard();
     hydrateAccountForm();
@@ -603,7 +625,7 @@
       return null;
     }
 
-    const response = await fetch(path, {
+    const response = await window.RORC_SUPABASE.scopedFetch(path, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -728,10 +750,9 @@
           });
         }
 
-        const { error } = await supabaseClient
-          .from("account_members")
-          .update(memberPatch)
-          .eq("id", currentProfile.account_member_id);
+        const { error } = canUseAdminTools || window.rorcIsPrimaryAccount
+          ? await supabaseClient.from("account_members").update(memberPatch).eq("id", currentProfile.account_member_id)
+          : await supabaseClient.rpc("update_my_account_contact", {phone, email});
 
         if (error) {
           throw error;
@@ -786,7 +807,10 @@
           metadataUpdate.email = email;
         }
 
-        const { error: authError } = await supabaseClient.auth.updateUser(metadataUpdate);
+        // Organization contact details must never replace the person's login.
+        const { error: authError } = window.rorcIsPrimaryAccount
+          ? await supabaseClient.auth.updateUser(metadataUpdate)
+          : {error: null};
         if (authError) {
           throw authError;
         }
@@ -893,7 +917,7 @@
     if (!card || !list || !currentSession) return;
 
     try {
-      const response = await fetch("/api/rental-dashboard", {
+      const response = await window.RORC_SUPABASE.scopedFetch("/api/rental-dashboard", {
         headers: { Authorization: `Bearer ${currentSession.access_token}` }
       });
       const body = await response.json().catch(() => ({}));
@@ -1345,7 +1369,7 @@
     const { data } = await supabaseClient.auth.getSession();
     const token = data.session?.access_token || currentSession?.access_token || "";
     if (!token) throw new Error("Sign in before changing bookings.");
-    const response = await fetch("/api/recurring-rentals", {method: "POST", headers: {Authorization: `Bearer ${token}`, "Content-Type": "application/json"}, body: JSON.stringify({...command, operationId: state._recurringOperationId})});
+    const response = await window.RORC_SUPABASE.scopedFetch("/api/recurring-rentals", {method: "POST", headers: {Authorization: `Bearer ${token}`, "Content-Type": "application/json"}, body: JSON.stringify({...command, operationId: state._recurringOperationId})});
     const result = await response.json().catch(() => ({}));
     if (!response.ok || !result.success) throw new Error(result.error || "Could not submit recurring request.");
     return result;
@@ -1358,7 +1382,7 @@
       window.location.href = LOGIN_PATH;
       return null;
     }
-    const response = await fetch("/api/rental-dashboard", {
+    const response = await window.RORC_SUPABASE.scopedFetch("/api/rental-dashboard", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,

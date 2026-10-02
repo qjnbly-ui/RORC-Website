@@ -1,3 +1,4 @@
+const { accountMemberFilter } = require("./_account-scope");
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -13,7 +14,7 @@ module.exports = async (req, res) => {
     }
 
     const user = await getSupabaseUser(token);
-    const member = await getAccountMemberByAuthUserId(user.id);
+    const member = await getAccountMemberByAuthUserId(user.id, req);
     if (!member?.id || !member?.account_id) {
       return res.status(404).json({ success: false, error: "Member profile not found." });
     }
@@ -90,8 +91,8 @@ async function getSupabaseUser(token) {
   return response.json();
 }
 
-async function getAccountMemberByAuthUserId(authUserId) {
-  const rows = await supabaseRest(`account_members?select=id,account_id&auth_user_id=eq.${encodeURIComponent(authUserId)}&limit=1`);
+async function getAccountMemberByAuthUserId(authUserId, req) {
+  const rows = await supabaseRest(`account_members?select=id,account_id&${await accountMemberFilter(authUserId, req, supabaseRest)}&limit=1`);
   return rows[0] || null;
 }
 

@@ -1,0 +1,62 @@
+// Synthetic local PostgreSQL only. Never accepts a remote database URL.
+const {spawnSync} = require('node:child_process');
+const fs=require('node:fs');const path=require('node:path');const assert=require('node:assert/strict');
+const container='rorc-recurring-test-01', database='rorc_account_fixture';
+function run(args,input=''){const result=spawnSync('docker',args,{input,encoding:'utf8'});if(result.status!==0)throw Error(result.stderr||result.stdout);return result.stdout.trim();}
+const sql=text=>run(['exec','-i',container,'psql','-U','postgres','-d',database,'-At','-v','ON_ERROR_STOP=1'],text);
+run(['exec',container,'dropdb','-U','postgres','--if-exists',database]);run(['exec',container,'createdb','-U','postgres',database]);
+sql(`do $$ begin if not exists(select 1 from pg_roles where rolname='anon') then create role anon; end if; if not exists(select 1 from pg_roles where rolname='authenticated') then create role authenticated; end if; if not exists(select 1 from pg_roles where rolname='service_role') then create role service_role bypassrls; end if; end $$;`);
+sql(fs.readFileSync(path.join(__dirname,'../tests/fixtures/recurring/schema.sql'),'utf8').replace('create role anon; create role authenticated; create role service_role;',''));
+sql(fs.readFileSync(path.join(__dirname,'../supabase/migrations/20261002002502_recurring_rental_operations.sql'),'utf8'));
+sql(`create table auth.users(id uuid primary key); insert into auth.users(id) select auth_user_id from account_members;
+alter table accounts add account_number text;
+alter table account_members add created_at timestamptz default now(), add is_billing_owner boolean default true, add phone_number text, add updated_at timestamptz default now();
+alter table billing_line_items add account_member_id uuid;
+create table account_billing(account_id uuid, stripe_customer_id text);
+create function public.is_admin() returns boolean language sql stable security definer set search_path='' as $$select exists(select 1 from public.account_members where auth_user_id=auth.uid() and account_type='Account Manager')$$;
+create policy account_billing_owner_read on account_billing for select using(false);
+create policy billing_line_items_member_read on billing_line_items for select using(false);
+insert into accounts values('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','Personal'),('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','Org A'),('cccccccc-cccc-4ccc-8ccc-cccccccccccc','Org B');
+update account_members set account_id = case member_name when 'Test Manager' then 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid when 'Test Renter' then 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid else 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'::uuid end;
+update account_members set account_type='Active Membership' where member_name='Test Renter';
+insert into account_billing select id,account_number from accounts;
+grant usage on schema auth to authenticated,anon;
+grant select on accounts,account_members,account_billing,billing_line_items to authenticated,anon;
+grant update on account_members to authenticated;
+`);
+const migration=fs.readdirSync(path.join(__dirname,'../supabase/migrations')).find(name=>name.endsWith('_linked_account_switching.sql'));
+sql(fs.readFileSync(path.join(__dirname,'../supabase/migrations',migration),'utf8'));
+sql(`alter table accounts enable row level security;alter table account_members enable row level security;alter table account_billing enable row level security;alter table billing_line_items enable row level security;
+create policy accounts_member_read on accounts for select using(id=current_account_id() or is_admin());
+create policy account_members_member_read on account_members for select using(auth_user_id=auth.uid() or account_id=current_account_id() or is_admin());
+create policy account_members_self_update on account_members for update using(auth_user_id=auth.uid()) with check(auth_user_id=auth.uid());
+create trigger protect_member before update on account_members for each row execute function protect_account_member_update();
+insert into member_account_access values('22222222-2222-4222-8222-222222222223','33333333-3333-4333-8333-333333333333',now());
+insert into member_account_access values('22222222-2222-4222-8222-222222222223','11111111-1111-4111-8111-111111111111',now());
+`);
+const user='22222222-2222-4222-8222-222222222223', own='22222222-2222-4222-8222-222222222222',linked='33333333-3333-4333-8333-333333333333';
+const query=(body,member='',login=user,role='authenticated')=>sql(`set request.jwt.claim.sub='${login}';set request.headers='${JSON.stringify(member?{'x-rorc-account-member':member}:{})}';set role ${role};${body}`).split('\n').filter(line=>line!=='SET').join('\n');
+assert.equal(query('select current_account_member_id();'),own);
+assert.equal(query('select current_account_member_id();',linked),linked);
+assert.equal(query('select account_number from accounts;',linked),'Org B');
+assert.equal(query('select stripe_customer_id from account_billing;',linked),'Org B');
+assert.equal(query('select count(*) from list_my_accounts();'),'2'); // Manager grants never impersonate managers.
+assert.equal(query('select current_account_member_id();','11111111-1111-4111-8111-111111111111'),'');
+assert.equal(query('select current_account_member_id();','garbage'),'');
+assert.equal(query('select current_account_member_id();',linked,'','anon'),'');
+assert.equal(query('select count(*) from member_account_access;'),'2');
+assert.throws(()=>query(`insert into member_account_access(auth_user_id,account_member_id) values('${user}','${own}');`),/permission denied/);
+query("select update_my_account_contact('555','organization@example.invalid');",linked);
+assert.equal(sql(`select email_address from account_members where id='${linked}';`),'organization@example.invalid');
+assert.equal(sql(`select auth_user_id from account_members where id='${linked}';`),'33333333-3333-4333-8333-333333333334');
+assert.throws(()=>query(`update account_members set account_type='Account Manager' where id='${own}';`),/contact fields/);
+sql(`delete from member_account_access where account_member_id='${linked}';`);
+assert.equal(query('select count(*) from accounts;',linked),'0');
+assert.throws(()=>query("select update_my_account_contact('changed','bad@example.invalid');",linked),/Account access required/);
+assert.equal(query('select current_account_member_id();'),own);
+// Claimed rentals remain isolated even when two accounts share an email.
+sql(`set request.jwt.claims='{"role":"service_role"}';update account_members set email_address='shared@example.invalid';
+insert into rental_requests(id,contact_name,contact_phone,contact_email,contact_address,event_type,event_name,event_date,event_start_time,event_end_time,estimated_attendance,rental_type,agreed_to_no_guarantee,agreed_to_guidelines,rental_status,claimed_member_id,claimed_account_id)
+values('dddddddd-dddd-4ddd-8ddd-dddddddddddd','Fixture','','shared@example.invalid','','Other','Fixture','2027-02-04','10:00','11:00',1,'hourly',true,true,'confirmed','${linked}','cccccccc-cccc-4ccc-8ccc-cccccccccccc');`);
+assert.throws(()=>sql(`set request.jwt.claims='{"role":"service_role"}';set role service_role;select apply_recurring_rental_operation('${own}','eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee','{"action":"request_cancel","scope":"this","rentalRequestId":"dddddddd-dddd-4ddd-8ddd-dddddddddddd","patch":{}}');`),/does not belong/);
+console.log('Account switching DB: original login, scoped billing, linked contact, manager denial, anonymous denial, self-grant denial and immediate revocation passed.');

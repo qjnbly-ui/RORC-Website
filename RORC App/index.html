@@ -13,7 +13,7 @@
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icons/favicon-32.png" sizes="32x32" type="image/png" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
-    <link rel="stylesheet" href="./app.css?v=20261002-sms-thread-controls" />
+    <link rel="stylesheet" href="./app.css?v=20261002-account-switching" />
   </head>
   <body>
     <section id="authGate" class="auth-gate" aria-live="polite">
@@ -224,6 +224,10 @@
           <span>Share</span>
         </button>
       </nav>
+      <div id="drawerAccountSwitcher" class="account-search" style="margin: 16px" hidden>
+        <label for="drawerActiveAccount">Account</label>
+        <select id="drawerActiveAccount" class="rorc-auth-input" aria-label="Active account"></select>
+      </div>
       <div class="drawer-footer">
         <span id="drawerAvatar" class="drawer-avatar">?</span>
         <span id="drawerUserEmail"></span>
@@ -591,12 +595,12 @@
     </template>
 
     <script src="./vendor/supabase.min.js?v=2.112.2" defer></script>
-    <script src="/scripts/rorc-supabase-client.js?v=20260808-realtime-stability" defer></script>
+    <script src="/scripts/rorc-supabase-client.js?v=20261002-account-switching" defer></script>
     <script src="/scripts/rorc-password-reveal.js?v=20260808" defer></script>
     <script src="./resource-coordinator.js?v=20260808-reliable-sync" defer></script>
     <link rel="stylesheet" href="./closure-credits.css?v=20260921-closure-credits">
     <script src="./closure-credits.js?v=20260921-closure-credits" defer></script>
     <script src="/scripts/rorc-recurring-dates.js?v=20261001" defer></script>
-    <script src="./app.js?v=20261002-sms-thread-controls" defer></script>
+    <script src="./app.js?v=20261002-account-switching" defer></script>
   </body>
 </html>

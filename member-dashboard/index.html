@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Member Dashboard | RORC</title>
   <link rel="stylesheet" href="../style.css" />
-<script src="/scripts/rorc-supabase-client.js" defer></script>
+<script src="/scripts/rorc-supabase-client.js?v=20261002-account-switching" defer></script>
 <script src="/scripts/rorc-auth-nav.js" defer></script>
 </head>
 <body>
@@ -47,6 +47,11 @@
     </section>
 
     <section class="rorc-card" style="max-width: 720px; margin: 0 auto;">
+      <div id="accountSwitcher" hidden>
+        <label class="rorc-auth-label" for="activeAccount">Account</label>
+        <select id="activeAccount" class="rorc-auth-input" aria-label="Active account"></select>
+        <p class="rorc-card-text">Bookings and billing below belong to the selected account.</p>
+      </div>
       <div id="memberDashboard" class="rorc-card-text">
         Loading member information...
       </div>
@@ -279,6 +284,6 @@
   </div>
 
   <script src="/scripts/rorc-password-reveal.js" defer></script>
-  <script src="/scripts/rorc-dashboard.js" defer></script>
+  <script src="/scripts/rorc-dashboard.js?v=20261002-account-switching" defer></script>
 </body>
 </html>

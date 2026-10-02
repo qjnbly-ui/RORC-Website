@@ -1,3 +1,4 @@
+const { accountMemberFilter } = require("./_account-scope");
 const { buildRentalRecord } = require('./rental-reviews');
 const URL = (process.env.SUPABASE_URL || 'https://aedvuofiodtsgijcxyqx.supabase.co').replace(/\/+$/, '');
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -59,7 +60,8 @@ module.exports = async function handler(req,res) {
   if (!token) return res.status(401).json({success:false,error:'Sign in before managing bookings.'});
   try {
     const user = await rest('auth/v1/user',token);
-    const members = await rest(`rest/v1/account_members?select=id,account_type&auth_user_id=eq.${encodeURIComponent(user.id)}&limit=1`,KEY);
+    const filter = await accountMemberFilter(user.id, req, path => rest(`rest/v1/${path}`, KEY));
+    const members = await rest(`rest/v1/account_members?select=id,account_type&${filter}&limit=1`,KEY);
     const member = members[0];
     if (!member) return res.status(403).json({success:false,error:'Member account required.'});
     if (!uuid(req.body?.operationId)) return res.status(400).json({success:false,error:'A unique operation ID is required.'});

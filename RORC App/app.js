@@ -17,6 +17,11 @@ const appAuthMessage = document.getElementById("appAuthMessage");
 const appLogoutButton = document.getElementById("appLogoutButton");
 const drawerAvatar = document.getElementById("drawerAvatar");
 const drawerUserEmail = document.getElementById("drawerUserEmail");
+let linkedAccountChoices = [];
+let selectedAccountIsPrimary = true;
+function accountScopedFetch(input, options) {
+  return window.RORC_SUPABASE?.scopedFetch ? window.RORC_SUPABASE.scopedFetch(input, options) : window.fetch(input, options);
+}
 const supabaseSettings = window.RORC_SUPABASE_CONFIG || {};
 const NAVIGATION_ICON_MARKUP = Object.freeze({
   accountInfo: `<rect x="3" y="4" width="18" height="16" rx="3"></rect><circle cx="9" cy="10" r="2.5"></circle><path d="M5.5 16c.8-2 2-3 3.5-3s2.7 1 3.5 3"></path><path d="M15 9h3"></path><path d="M15 13h3"></path>`,
@@ -1037,7 +1042,7 @@ async function inviteAccountUser(event) {
   setShareStatus("Creating account user...");
 
   try {
-    const response = await fetch("/api/account-invite", {
+    const response = await accountScopedFetch("/api/account-invite", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1260,7 +1265,7 @@ async function recordDoorAccessRequest(action) {
     throw new Error("Please sign in again before requesting door access.");
   }
 
-  const response = await fetch("/api/door-access", {
+  const response = await accountScopedFetch("/api/door-access", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -6085,7 +6090,7 @@ async function markNotificationsReadState(ids = [], read = true) {
   const token = currentAuthSession?.access_token || "";
   if (!token) return;
 
-  const response = await fetch("/api/member-notifications", {
+  const response = await accountScopedFetch("/api/member-notifications", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -6809,7 +6814,7 @@ async function triggerHeaterOnSequence(memberIds, options = {}) {
   const uniqueMemberIds = [...new Set(memberIds)];
   if (uniqueMemberIds.length === 0 && !options.silent) return;
 
-  const response = await fetch("/api/heater-on-sequence", {
+  const response = await accountScopedFetch("/api/heater-on-sequence", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -6862,7 +6867,7 @@ async function triggerHeaterOffSequence(memberIds = [], options = {}) {
   const token = currentAuthSession?.access_token || "";
   if (!token) return;
 
-  const response = await fetch("/api/heater-off-sequence", {
+  const response = await accountScopedFetch("/api/heater-off-sequence", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -6936,7 +6941,7 @@ async function verifyHeaterPin(memberId, pin) {
     throw new Error("You must be signed in to verify heater PIN.");
   }
 
-  const response = await fetch("/api/verify-heater-pin", {
+  const response = await accountScopedFetch("/api/verify-heater-pin", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -7823,6 +7828,23 @@ function updateNavigationVisibility() {
 }
 
 function updateDrawerIdentity() {
+  const section = document.getElementById("drawerAccountSwitcher");
+  const selector = document.getElementById("drawerActiveAccount");
+  if (section && selector) {
+    section.hidden = linkedAccountChoices.length < 2;
+    selector.replaceChildren(...linkedAccountChoices.map(account => {
+      const option = document.createElement("option");
+      option.value = account.account_member_id;
+      option.textContent = `${account.member_name} — Account ${account.account_number}`;
+      option.selected = option.value === appState.authMemberId;
+      return option;
+    }));
+    selector.onchange = () => {
+      selector.disabled = true;
+      window.RORC_SUPABASE.chooseAccount(selector.value);
+      window.location.reload();
+    };
+  }
   if (drawerAvatar) {
     drawerAvatar.textContent = initialForSession(appUserSession);
   }
@@ -11060,7 +11082,7 @@ async function reviewCalendarEventRequest(root, requestId, action) {
 
   try {
     const token = currentAuthSession?.access_token || "";
-    const response = await fetch("/api/calendar-event-requests", {
+    const response = await accountScopedFetch("/api/calendar-event-requests", {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ id: requestId, action })
@@ -11215,7 +11237,7 @@ async function submitMyEventsDeleteRequest(root, eventId) {
 
   try {
     const token = currentAuthSession?.access_token || "";
-    const response = await fetch("/api/calendar-event-requests", {
+    const response = await accountScopedFetch("/api/calendar-event-requests", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ requestType: "delete", targetEventId: eventId || event?.id })
@@ -12111,7 +12133,7 @@ async function postRecurringRentalOperation(root, command) {
     modal.dataset.recurringOperationCommand = fingerprint;
     modal.dataset.recurringOperationId = crypto.randomUUID();
   }
-  const response = await fetch("/api/recurring-rentals", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentAuthSession?.access_token || ""}` }, body: JSON.stringify({ ...command, operationId: modal.dataset.recurringOperationId }) });
+  const response = await accountScopedFetch("/api/recurring-rentals", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${currentAuthSession?.access_token || ""}` }, body: JSON.stringify({ ...command, operationId: modal.dataset.recurringOperationId }) });
   const result = await response.json().catch(() => ({}));
   if (!response.ok || !result.success) throw new Error(result.error || "Booking operation failed. Retry with the same settings.");
   return result;
@@ -12798,7 +12820,7 @@ async function submitMemberCalendarRequest(root, options) {
     }
 
     for (const requestBody of requestBodies) {
-      const response = await fetch("/api/calendar-event-requests", {
+      const response = await accountScopedFetch("/api/calendar-event-requests", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(requestBody)
@@ -13088,7 +13110,7 @@ async function deleteCalendarEvent(root) {
     try {
       const token = currentAuthSession?.access_token || "";
       if (!token) throw new Error("Please sign in again before submitting.");
-      const response = await fetch("/api/calendar-event-requests", {
+      const response = await accountScopedFetch("/api/calendar-event-requests", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ requestType: "delete", targetEventId: evId })
@@ -13431,7 +13453,7 @@ async function fetchMemberNotifications() {
   const token = currentAuthSession?.access_token || "";
   if (!token) return [];
 
-  const response = await fetch("/api/member-notifications", {
+  const response = await accountScopedFetch("/api/member-notifications", {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`
@@ -13574,7 +13596,7 @@ async function markOwnNotificationsRead() {
 
   if (!ids.length) return;
 
-  const response = await fetch("/api/member-notifications", {
+  const response = await accountScopedFetch("/api/member-notifications", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -13601,19 +13623,15 @@ async function loadIdentityResource() {
   const client = await createSupabaseClient();
   if (!client) throw new Error("App data is not available.");
 
-  const [profilesResult, permissionsResult] = await Promise.all([
-    client
-      .from("account_member_profiles")
-      .select("*")
-      .order("account_number", { ascending: true })
-      .order("member_name", { ascending: true }),
+  const [identity, permissionsResult] = await Promise.all([
+    window.RORC_SUPABASE.getCurrentMemberProfile(),
     client.from("account_type_permissions").select("*")
   ]);
-  if (profilesResult.error) throw profilesResult.error;
   if (permissionsResult.error) throw permissionsResult.error;
-
-  const profiles = profilesResult.data || [];
-  const currentProfile = findProfileForSession(currentAuthSession, profiles);
+  const profiles = identity.profiles;
+  const currentProfile = identity.profile;
+  linkedAccountChoices = identity.accounts || [];
+  selectedAccountIsPrimary = identity.isPrimaryAccount;
   if (!profiles.length || !currentProfile) {
     throw new Error("This signed-in user is not linked to a RORC member profile.");
   }
@@ -17078,7 +17096,7 @@ async function syncStripeMembershipForProfile(profile) {
   }
 
   try {
-    const response = await fetch("/api/sync-stripe-membership", {
+    const response = await accountScopedFetch("/api/sync-stripe-membership", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -17127,7 +17145,7 @@ async function openBillingPortalForMember(member, triggerButton) {
   }
 
   try {
-    const response = await fetch("/api/member-portal", {
+    const response = await accountScopedFetch("/api/member-portal", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -17196,10 +17214,9 @@ async function updateMemberContact(member, updates) {
     }
   }
 
-  const { error } = await client
-    .from("account_members")
-    .update(dbUpdates)
-    .eq("id", member.id);
+  const { error } = !canUseAdminTools && !selectedAccountIsPrimary && member.id === appUserSession.memberId
+    ? await client.rpc("update_my_account_contact", {phone: dbUpdates.phone_number ?? member.phoneNumber, email: dbUpdates.email_address ?? member.emailAddress})
+    : await client.from("account_members").update(dbUpdates).eq("id", member.id);
 
   if (error) {
     if (
@@ -17312,7 +17329,7 @@ async function updateMemberContact(member, updates) {
     }
   }
 
-  if (member.id === appUserSession.memberId) {
+  if (selectedAccountIsPrimary && member.id === appUserSession.memberId) {
     const metadata = currentAuthSession?.user?.user_metadata || {};
     const authUpdate = {
       data: {
@@ -17419,7 +17436,7 @@ async function updateAccountHeaterPin(accountId, heaterPin) {
     throw new Error("Missing session token.");
   }
 
-  const response = await fetch("/api/update-account-heater-pin", {
+  const response = await accountScopedFetch("/api/update-account-heater-pin", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

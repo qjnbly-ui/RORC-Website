@@ -1,3 +1,4 @@
+const { accountMemberFilter } = require("./_account-scope");
 const crypto = require("crypto");
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
@@ -29,7 +30,7 @@ module.exports = async (req, res) => {
     }
 
     const user = await getSupabaseUser(token);
-    const actor = await getAccountMemberByAuthUserId(user.id);
+    const actor = await getAccountMemberByAuthUserId(user.id, req);
     if (!actor) {
       return res.status(403).json({ success: false, error: "No linked member profile found." });
     }
@@ -206,8 +207,8 @@ async function getSupabaseUser(token) {
   return response.json();
 }
 
-async function getAccountMemberByAuthUserId(authUserId) {
-  const rows = await supabaseRest(`account_members?select=id,account_id,account_type,is_billing_owner&auth_user_id=eq.${encodeURIComponent(authUserId)}&limit=1`);
+async function getAccountMemberByAuthUserId(authUserId, req) {
+  const rows = await supabaseRest(`account_members?select=id,account_id,account_type,is_billing_owner&${await accountMemberFilter(authUserId, req, supabaseRest)}&limit=1`);
   return rows[0] || null;
 }
 

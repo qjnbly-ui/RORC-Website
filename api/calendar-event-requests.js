@@ -1,3 +1,4 @@
+const { accountMemberFilter } = require("./_account-scope");
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -147,7 +148,7 @@ async function authMember(req) {
   if (!token) throw httpError(401, "Missing session token");
 
   const user = await getSupabaseUser(token);
-  const member = await getAccountMember(user.id);
+  const member = await getAccountMember(user.id, req);
   if (!member) throw httpError(403, "This session is not linked to a member");
   return member;
 }
@@ -166,9 +167,9 @@ async function getSupabaseUser(token) {
   return response.json();
 }
 
-async function getAccountMember(authUserId) {
+async function getAccountMember(authUserId, req) {
   const rows = await supabaseRest(
-    `account_members?select=id,account_id,member_name,account_type,email_address,phone_number&auth_user_id=eq.${encodeURIComponent(authUserId)}&limit=1`
+    `account_members?select=id,account_id,member_name,account_type,email_address,phone_number&${await accountMemberFilter(authUserId, req, supabaseRest)}&limit=1`
   );
   return rows[0] || null;
 }

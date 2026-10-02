@@ -1,3 +1,4 @@
+const { accountMemberFilter } = require("./_account-scope");
 const { getSmsBookingSettings } = require('./_sms-booking-settings');
 const {rest,hash}=require('./_sms-booking-store');
 const {normalizePhone,hasConsent}=require('./_rorc-sms');
@@ -17,7 +18,7 @@ module.exports=async(req,res)=>{
   const response=await fetch(`${URL}/auth/v1/user`,{headers:{apikey:KEY,Authorization:`Bearer ${token}`}});
   if(!response.ok)throw fail('Sign in again to approve this change.',401);
   const user=await response.json();
-  const members=await rest(`account_members?select=id,account_id,account_type,member_name,email_address,phone_number&auth_user_id=eq.${encodeURIComponent(user.id)}&limit=1`);
+  const members=await rest(`account_members?select=id,account_id,account_type,member_name,email_address,phone_number&${await accountMemberFilter(user.id,req,rest)}&limit=1`);
   const member=members[0];if(!member)throw fail('Member account required.',403);
   const draftToken=String(req.body?.token || '');if(!/^[A-Za-z0-9_-]{43}$/.test(draftToken))throw fail('Invalid booking link.');
   const rows=await rest(`sms_booking_drafts?select=*&token_hash=eq.${hash(draftToken)}&limit=1`);
@@ -40,7 +41,7 @@ module.exports=async(req,res)=>{
    else{
     const matches=await rest(`rental_requests?select=*&booking_number=eq.${encodeURIComponent(intent.bookingNumber)}&limit=2`);
     const rental=matches[0];
-    if(matches.length!==1||!rental||(member.account_type!=='Account Manager'&&rental.claimed_member_id!==member.id&&(!member.email_address||String(rental.contact_email).toLowerCase()!==member.email_address.toLowerCase())))throw fail('Booking not found in your account. Staff can help resolve the booking number.',404);
+    if(matches.length!==1||!rental||(member.account_type!=='Account Manager'&&rental.claimed_member_id!==member.id&&(rental.claimed_member_id||!member.email_address||String(rental.contact_email).toLowerCase()!==member.email_address.toLowerCase())))throw fail('Booking not found in your account. Staff can help resolve the booking number.',404);
     const patch={};
     if(intent.action==='update'){
      if(intent.title)patch.event_name=intent.title;

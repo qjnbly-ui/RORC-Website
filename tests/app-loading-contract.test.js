@@ -58,7 +58,7 @@ test("startup hydration loads identity and active-route data without eager featu
   assert.doesNotMatch(hydrate, /refreshOwnedCalendarEventAvailability|calendar(?:Events|EventRequests|FacilityBlocks)/);
 });
 
-test("kiosk Currently Signed In startup is bounded to four browser data requests", () => {
+test("kiosk Currently Signed In startup is bounded to five browser data requests including account access", () => {
   const identity = topLevelFunctionSource("loadIdentityResource");
   const attendance = topLevelFunctionSource("loadAttendanceResource");
   const privilegedAttendance = topLevelFunctionSource("fetchPrivilegedTimesheetEntries");
@@ -66,8 +66,8 @@ test("kiosk Currently Signed In startup is bounded to four browser data requests
   const routeResources = topLevelFunctionSource("routeResourceNames");
   const registrations = topLevelFunctionSource("registerAppResources");
 
-  assert.equal(occurrences(identity, /\.from\(/g), 2);
-  assert.match(identity, /\.from\("account_member_profiles"\)/);
+  assert.equal(occurrences(identity, /\.from\(/g), 1);
+  assert.match(identity, /RORC_SUPABASE.getCurrentMemberProfile\(\)/);
   assert.match(identity, /\.from\("account_type_permissions"\)/);
   assert.doesNotMatch(identity, /\bfetch\s*\(/);
 
@@ -83,10 +83,10 @@ test("kiosk Currently Signed In startup is bounded to four browser data requests
   assert.equal(occurrences(directory, /\bfetch\s*\(/g), 1);
   assert.match(directory, /fetch\("\/api\/member-directory"/);
 
-  const browserDataRequestCount = occurrences(identity, /\.from\(/g)
+  const browserDataRequestCount = 2 + occurrences(identity, /\.from\(/g)
     + occurrences(privilegedAttendance, /\bfetch\s*\(/g)
     + occurrences(directory, /\bfetch\s*\(/g);
-  assert.equal(browserDataRequestCount, 4);
+  assert.equal(browserDataRequestCount, 5);
 });
 
 test("a failed directory refresh cannot replace previously loaded client data", () => {

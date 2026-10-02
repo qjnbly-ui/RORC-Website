@@ -8,6 +8,23 @@
   const SUPABASE_SDK_URL = "/RORC%20App/vendor/supabase.min.js?v=2.112.2";
   const initialAuthParams = readAuthParams();
 
+  let activeMemberId = "";
+  let activeUserId = "";
+  let accountChoices = [];
+
+  function scopedFetch(input, options = {}) {
+    const headers = new Headers(options.headers || (input instanceof Request ? input.headers : undefined));
+    const destination = new URL(input instanceof Request ? input.url : input, window.location.origin);
+    if (activeMemberId && (destination.origin === window.location.origin || destination.origin === SUPABASE_URL)) headers.set("x-rorc-account-member", activeMemberId);
+    return window.fetch(input, {...options, headers});
+  }
+
+  function chooseAccount(memberId) {
+    if (!accountChoices.some(choice => choice.account_member_id === memberId)) throw new Error("Account access required.");
+    activeMemberId = memberId;
+    try { window.localStorage.setItem(`rorc-account:${activeUserId}`, memberId); } catch (_) {}
+  }
+
   let libraryPromise = null;
   let clientPromise = null;
   let realtimeRecoveryTimer = null;
@@ -89,6 +106,7 @@
       };
 
       client = supabaseLibrary.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+        global: {fetch: scopedFetch},
         auth: {
           autoRefreshToken: true,
           detectSessionInUrl: true,
@@ -102,6 +120,7 @@
       });
 
       client.auth.onAuthStateChange((event, session) => {
+        if (event === "SIGNED_OUT") { activeMemberId = ""; activeUserId = ""; accountChoices = []; }
         lastAuthEvent = event;
         authEventSubscribers.forEach((subscriber) => subscriber(event, session));
       });
@@ -138,24 +157,6 @@
     return data || [];
   }
 
-  function findCurrentProfile(session, profiles) {
-    if (!session || !session.user || !Array.isArray(profiles)) {
-      return null;
-    }
-
-    const metadata = session.user.user_metadata || {};
-    const appMetadata = session.user.app_metadata || {};
-    const accountMemberId = metadata.rorc_account_member_id || appMetadata.rorc_account_member_id;
-    const email = String(session.user.email || "").trim().toLowerCase();
-
-    return (
-      profiles.find((profile) => profile.account_member_id === accountMemberId)
-      || profiles.find((profile) => String(profile.email_address || "").trim().toLowerCase() === email)
-      || profiles[0]
-      || null
-    );
-  }
-
   async function getCurrentMemberProfile() {
     const session = await getSession();
 
@@ -167,12 +168,22 @@
       };
     }
 
+    const client = await getClient();
+    const {data: choices, error} = await client.rpc("list_my_accounts");
+    if (error) throw error;
+    accountChoices = choices || [];
+    activeUserId = session.user.id;
+    let saved = "";
+    try { saved = window.localStorage.getItem(`rorc-account:${activeUserId}`) || ""; } catch (_) {}
+    const selected = accountChoices.find(choice => choice.account_member_id === saved) || accountChoices.find(choice => choice.is_primary) || accountChoices[0];
+    activeMemberId = selected?.account_member_id || "";
     const profiles = await getProfiles();
-
     return {
       session,
-      profile: findCurrentProfile(session, profiles),
-      profiles
+      profile: profiles.find(profile => profile.account_member_id === activeMemberId) || null,
+      profiles,
+      accounts: accountChoices,
+      isPrimaryAccount: Boolean(selected?.is_primary)
     };
   }
 
@@ -202,6 +213,8 @@
   }
 
   window.RORC_SUPABASE = {
+    chooseAccount,
+    scopedFetch,
     cleanAuthUrl,
     getClient,
     getCurrentMemberProfile,

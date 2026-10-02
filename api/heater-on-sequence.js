@@ -1,3 +1,4 @@
+const { accountMemberFilter } = require("./_account-scope");
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
@@ -27,7 +28,7 @@ async function handler(req, res) {
     }
 
     const user = await getSupabaseUser(token);
-    const sender = await getAccountMemberByAuthUserId(user.id);
+    const sender = await getAccountMemberByAuthUserId(user.id, req);
     if (!sender?.id) {
       return res.status(404).json({ success: false, error: "Member profile not found." });
     }
@@ -209,9 +210,9 @@ async function getSupabaseUser(token) {
   return response.json();
 }
 
-async function getAccountMemberByAuthUserId(authUserId) {
+async function getAccountMemberByAuthUserId(authUserId, req) {
   const rows = await supabaseRest(
-    `account_members?select=id,account_type&auth_user_id=eq.${encodeURIComponent(authUserId)}&limit=1`
+    `account_members?select=id,account_type&${await accountMemberFilter(authUserId, req, supabaseRest)}&limit=1`
   );
   return rows[0] || null;
 }

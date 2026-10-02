@@ -1,3 +1,4 @@
+const { accountMemberFilter } = require("./_account-scope");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
@@ -29,7 +30,7 @@ module.exports = async (req, res) => {
     }
 
     const user = await getSupabaseUser(token);
-    const member = await getAccountMember(user.id);
+    const member = await getAccountMember(user.id, req);
 
     if (!member) {
       return res.status(403).json({
@@ -98,14 +99,8 @@ async function getSupabaseUser(token) {
   return response.json();
 }
 
-async function getAccountMember(authUserId) {
-  const params = new URLSearchParams({
-    select: "id,account_id,account_type,is_billing_owner",
-    auth_user_id: `eq.${authUserId}`,
-    limit: "1"
-  });
-
-  const rows = await supabaseRest(`account_members?${params.toString()}`);
+async function getAccountMember(authUserId, req) {
+  const rows = await supabaseRest(`account_members?select=id,account_id,account_type,is_billing_owner&${await accountMemberFilter(authUserId, req, supabaseRest)}&limit=1`);
   return rows[0] || null;
 }
 

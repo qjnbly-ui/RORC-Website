@@ -33,7 +33,7 @@ test("app shell self-hosts Supabase, loads its coordinator first, and lazy-loads
   const html = read("RORC App/index.html");
   const appSource = read("RORC App/app.js");
   const supabaseSdk = html.indexOf("./vendor/supabase.min.js?v=2.112.2");
-  const supabaseWrapper = html.indexOf("/scripts/rorc-supabase-client.js?v=20260808-realtime-stability");
+  const supabaseWrapper = html.indexOf("/scripts/rorc-supabase-client.js?v=20261002-account-switching");
   const coordinator = html.indexOf("./resource-coordinator.js?v=20260808-reliable-sync");
   const app = html.indexOf("./app.js?v=");
 
