@@ -38,10 +38,18 @@ Reproduce local database verification
 - Stop the isolated fixture with docker stop rorc-recurring-test-01.
 
 Release boundaries and remaining decisions
-- Candidate migrations: 20261001231237_recurring_rental_operations.sql and 20261001233940_sms_booking_drafts.sql. Neither applied to production.
+- Candidate migrations: 20261002002502_recurring_rental_operations.sql and 20261002002516_sms_booking_drafts.sql. Neither applied to production.
 - Review production schema compatibility, existing overlaps/access-time data and lock behavior before migration. Full local Supabase schema/advisors were not available; PostgreSQL fixture checks are not a production migration approval.
 - Confirm desired SMS rollout and final renter new-application policy before enabling it. Current implementation deliberately retains existing account role approval rules.
 - Expired drafts remain private database audit records; choose retention policy before enabling SMS at scale. No cron/purge policy was invented.
 - No production deploy, main push, production migration or live Twilio test is authorized by this implementation handoff.
 
 Margaret remains unbooked. Missing explicit start date and access times; November 23/25, 2026 are Mon/Wed rather than Tue/Thu. Abbreviated/year-ambiguous exclusions must be clarified. Historic PE times are not reused.
+
+Production migration verification — October 1, 2026 (Pacific)
+- User authorized applying migrations and pushing GitHub main. Both migrations applied successfully through Supabase to the verified RORC project aedvuofiodtsgijcxyqx. Filenames now match recorded remote migration versions.
+- Preflight: zero invalid confirmed access times; zero overlapping rental pairs or standalone blocking event overlaps. Required schema and existing triggers inspected.
+- Before/after fingerprints of the seven rental records (excluding series metadata/update timestamps) and all 29 billing records match exactly. No customer bookings or payments created.
+- Verified RLS enabled, anonymous draft reads denied, authenticated direct operation/confirmation execution denied, service execution granted. Confirmed access-window helper works with all current rentals. New operation/draft tables remain empty.
+- Security advisors introduce only expected no-policy INFO entries for service-only tables. Existing security warnings predate these migrations and are outside this change.
+- Full tests/typecheck/assets/knowledge checks passed again before push. SMS remains off by default; this release did not alter production environment flags or Twilio settings.
