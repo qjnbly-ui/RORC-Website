@@ -1,4 +1,4 @@
-const CACHE_VERSION = "rorc-app-v91";
+const CACHE_VERSION = "rorc-app-v92";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const NAVIGATION_CACHE = `${CACHE_VERSION}-navigation`;
 const OFFLINE_PAGE = "./index.html";
@@ -8,7 +8,8 @@ const APP_SHELL = [
   "./resource-coordinator.js?v=20260808-reliable-sync",
   "./closure-credits.css?v=20260921-closure-credits",
   "./closure-credits.js?v=20260921-closure-credits",
-  "./app.js?v=20260921-closure-credits",
+  "/scripts/rorc-recurring-dates.js?v=20261001",
+  "./app.js?v=20261001-recurring-rentals",
   "./vendor/supabase.min.js?v=2.112.2",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",

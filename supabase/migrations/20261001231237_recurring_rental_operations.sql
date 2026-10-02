@@ -207,6 +207,14 @@ begin
       select array_agg(id order by event_date,id) into ids from public.rental_requests where id=target.id or
         (scope<>'this' and target.recurring_series_id is not null and recurring_series_id=target.recurring_series_id and (scope='all' or event_date>=target.event_date));
     end if;
+    if command ? 'expectedIds' and (select array_agg(v::uuid order by v::uuid) from jsonb_array_elements_text(command->'expectedIds') v)
+       is distinct from (select array_agg(v order by v) from unnest(ids) v) then
+      raise exception 'Selected bookings changed since preview; prepare a fresh request' using errcode='55000';
+    end if;
+    if command ? 'expectedVersions' and exists(select 1 from public.rental_requests v where v.id=any(ids)
+        and (command->'expectedVersions'->>v.id::text)::timestamptz is distinct from v.updated_at) then
+      raise exception 'Booking changed since preview; prepare a fresh request' using errcode='55000';
+    end if;
     if cardinality(ids)>240 then raise exception 'Series exceeds 240 bookings' using errcode='22023'; end if;
     if patch ? 'event_date' and cardinality(ids)>1 then raise exception 'Date changes apply to one occurrence only' using errcode='22023'; end if;
     if exists(select 1 from jsonb_object_keys(patch) k where k not in ('event_date','event_name','event_start_time','event_end_time','public_event_start_time','public_event_end_time','message')) then raise exception 'Unsupported booking edit' using errcode='22023'; end if;

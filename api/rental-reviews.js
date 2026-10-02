@@ -1666,3 +1666,5 @@ function httpError(statusCode, message) {
 }
 
 module.exports.buildRentalRecord = buildRentalRecord;
+
+module.exports.calculateRentalTotalCents = calculateRentalTotalCents;

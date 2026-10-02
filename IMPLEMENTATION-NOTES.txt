@@ -1,41 +1,47 @@
 RORC recurring booking / SMS handoff — 2026-10-01
 
-Verified existing local chat: RORC Calendar and AI Updates
-Thread: 01a0f9b0-3efd-7400-98ab-c1764e4050b6, host local.
-It only synced /Users/quentinnichols/Documents/Websites/RORC Website to main 871c5301657e14a9acb396ea6a4334a90719f028. No feature changes.
-This isolated clone preserves the original checkout unchanged.
+Source and identity
+- Isolated clone: task-3/rorc; branch feat/recurring-booking-sms; base 871c5301657e14a9acb396ea6a4334a90719f028.
+- Original /Users/quentinnichols/Documents/Websites/RORC Website remains unchanged.
+- Verified exact existing chat: RORC Calendar and AI Updates, thread 01a0f9b0-3efd-7400-98ab-c1764e4050b6, host local. Its work only synced the original checkout to main; no competing feature implementation or additional feature requirements were found.
 
-Implemented first slice:
-- Full weekday labels; explicit bounded end mode, maximum 240 occurrences.
-- Inclusive full-date exclusions and ranges, exact occurrence preview.
-- UTC calendar arithmetic keeps civil dates stable across DST and anchors monthly dates.
-- Both member calendar requests and staff series creation consume the same preview.
-- Rental preflight checks authoritative public availability including adjacent setup/cleanup days and internal overlaps. Requests fail closed when availability cannot be loaded.
-- Sequential staff creation reduces simultaneous writes. Each occurrence retains its existing distinct rental_request_id. Existing billing finalization and grouped invoice code are unchanged.
+Recurring rentals
+- Weekday labels, bounded end date/count, full-date/range exclusions, exact occurrence preview, maximum 240 occurrences and 10-year horizon. Shared civil-date generator preserves DST/month-end dates.
+- Service-only atomic creation/update/cancellation RPC with immutable actor-scoped operation replay. All confirmed rental and standalone blocking event writes serialize conflict checks, including adjacent setup/cleanup days and maintenance.
+- This/following/all selection is resolved on the server. Linked calendar event IDs and rental IDs are retained. Cancellation preserves billing rows, payments, invoice references and history. Finalized financial/schedule edits require billing review.
+- Renter series changes remain pending manager review. Manager approval/rejection applies the entire group atomically, with ownership and availability checked again.
+- Existing pricing helper is reused. Monthly billing policy, finalization and grouped Stripe invoice dedup remain unchanged. No charges/refunds or new billing schedule were introduced.
 
-Phase 1 follow-up implementation:
-- One service-only RPC atomically creates rental rows and calendar mirrors, with actor-scoped immutable command replay and durable operation results.
-- Transaction advisory locks serialize all confirmed rental and standalone blocking calendar writes. Checks include rental access, setup/cleanup, maintenance, and internal batch overlaps.
-- Occurrence/following/all updates and status cancellations query full series on the server. Setup/cleanup mirrors retain IDs and follow date edits.
-- Cancellation keeps booking rows and billing history. Finalized financial/schedule edits require staff billing review. Legacy deletion of recurring or billed rentals is blocked.
-- Renter changes create a service-controlled request group under existing pending review semantics. Manager review applies/rejects the group atomically; ownership is rechecked before approval.
-- Existing pricing helper normalizes creation and estimates. Monthly invoice policy and Stripe logic remain unchanged.
-- Tests: full suite 205 passed / 1 skipped, typecheck, app assets, receptionist knowledge, Node syntax and diff checks.
-- Isolated PostgreSQL tests verify simultaneous duplicate retries, competing overlaps, batch rollback, maintenance/setup access, scope edits, ownership, approval, billed-edit rollback, retained payments/invoices, RPC privileges and actual HTTP handler with mocked authenticated identities.
-- Browser exercised real calendar save/cancel functions through the real HTTP handler into the isolated fixture DB: exclusion-aware creation, entire-series edit, and cancellation retained all four records. UI preview was inspected at desktop and mobile.
+SMS AI management
+- Existing signature-verified SMS ingress and staff inbox are retained. RORC_SMS_BOOKING_AI_ENABLED=true explicitly enables the new flow; default remains off. No live Twilio or credential configuration was changed.
+- Existing Groq provider/model interprets only allowlisted create/update/cancel actions. Missing dates/times, ambiguous exclusions, school-calendar references, billing changes and other unsafe requests clarify or escalate to the staff inbox.
+- A Twilio MessageSid unique key prevents duplicate AI processing/replies. Expiring 20-minute approval links contain a random token in a fragment; only its SHA256 hash is stored. The database and RPCs are service-only under RLS.
+- The signed-in member phone must match the draft, then the draft binds to that member. The heater PIN and phone alone grant no booking privileges. No booking data is returned before real Supabase account authentication.
+- Manager create/update/cancel applies real data changes after exact approval. Renter update/cancel creates existing pending manager review requests. New rental applications from renters still require the existing application/staff workflow; the AI does not bypass that policy.
+- Server previews include exact selected dates/access hours, contacts, cost estimates and payment state. Availability checks run before preview and again atomically on approval. Saved row versions and selected IDs reject stale previews.
+- Confirmation is stored server-side; clients cannot replace the approved command. Concurrent confirmation retries return the same result. STOP cancels unused drafts and transactional consent checks prevent approval after opt-out. HELP and START/YES retain their existing meanings; YES is never booking approval.
+- No SMS billing, charging/refund capability, real outbound messages or real bookings were exercised.
 
-Release boundary:
-- Candidate migrations are unapplied to production. Review production schema compatibility and migration with existing confirmed bookings before authorizing release.
-- Existing payment/finalization and grouped invoice tests pass, but no live payment or invoice was run.
-- SMS implementation is the next phase. User wants actual data changes; reuse the verified transaction endpoint after existing account authentication and exact confirmation, retaining manager approval for renters.
+Verification
+- npm test: 213 tests; 212 passed, 1 skipped, 0 failed.
+- npm run typecheck, check:app-assets, check:receptionist-knowledge; Node syntax and git diff --check passed.
+- npm run test:recurring-db passed against isolated official postgres:17-alpine Docker fixture with no published ports. Checks: atomic batch rollback, concurrent duplicate operations/conflicts, maintenance/setup windows, scopes, ownership, grouped review, finalized-edit rollback, preserved paid invoice history, actual HTTP handler with mocked identities, SMS migration and private grants, preview conflicts/internal overlaps, concurrent SMS confirmation replay, expiry, STOP and stale row/selection rejection.
+- SMS unit tests cover structured interpretation/Margaret ambiguity, hashed token and duplicate SID, provider timeout escalation, signed ingress/forged signature, STOP/HELP/YES, disabled default, account/series privacy, required preview and preview conflict failure before binding.
+- Browser: actual recurring save/edit/cancel functions with actual HTTP handler and isolated database; exact preview/exclusion creation, entire-series edit, status cancellation retained rows. Actual SMS page/script/handler with mocked sign-in and isolated database; inspected 390px mobile and 1024px desktop, corrected mobile overflow, approved three exact dates (2027-06-01, 08, 10), excluded June 3. No payment charged.
+- Browser fixture does not verify a live Supabase sign-in or full production app shell. Live receptionist eval was not run: GROQ_API_KEY is absent from the isolated environment. No secrets were copied or expanded to run it.
+- Local fixture scripts refuse external network requests and remote database URLs. Test PostgreSQL container and preview servers were stopped after verification.
 
-SMS phase plan (no handler change):
-- Keep api/receptionist/sms.js as signature-verified ingress and staff inbox audit; preserve START/STOP/HELP before AI routing. YES cannot simultaneously mean opt-in and booking confirmation.
-- Decide authenticated account binding: propose expiring sign-in verification link; a phone number alone and voice PIN flow are insufficient proof without explicit account verification.
-- Persist Twilio MessageSid unique ingress keys, conversation/account scope, expiring structured drafts and confirmation operation IDs. Model may propose only allowlisted actions, never arbitrary DB writes.
-- Use shared recurrence validation and server batch preview. Return dates, access hours, exclusions, conflicts, affected occurrences, cost estimate and approval status before explicit confirmation. Missing start date/time or conflicting weekday exclusions must trigger clarification.
-- Submit confirmed renter changes through existing pending manager review; managers use authenticated approved server path. Revalidate account scope, latest availability and billing references on confirmation. No SMS billing/charging capability in this phase.
-- Reject expired or replayed confirmations; opt-out cancels pending drafts, HELP offers support; unresolved identity, conflicts or billing effects escalate to staff inbox. A booking command “cancel” must not bypass required carrier opt-out handling.
-- Mock signature/identity, STOP/HELP, unrelated-account access, duplicate MessageSid, timeout, confirmation replay, competing reservations and escalation tests. Keep Twilio configuration and live sends out of this change.
+Reproduce local database verification
+- Start only a disposable fixture: docker run -d --rm --name rorc-recurring-test-01 -e POSTGRES_PASSWORD=local-test-only postgres:17-alpine
+- Wait for local pg_isready, then npm run test:recurring-db. The script initializes roles and resets only rorc_fixture in that named container.
+- Optional loopback previews: npm run preview:recurring-fixture; node scripts/preview-sms-booking-fixture.js. Use fixtures only.
+- Stop the isolated fixture with docker stop rorc-recurring-test-01.
 
-Margaret example remains unbooked: missing start date/time; 2026 Nov 23/25 are Mon/Wed rather than requested Tue/Thu. Reject abbreviated exclusions, ask for full verified dates and access times. Old PE times are not confirmed.
+Release boundaries and remaining decisions
+- Candidate migrations: 20261001231237_recurring_rental_operations.sql and 20261001233940_sms_booking_drafts.sql. Neither applied to production.
+- Review production schema compatibility, existing overlaps/access-time data and lock behavior before migration. Full local Supabase schema/advisors were not available; PostgreSQL fixture checks are not a production migration approval.
+- Confirm desired SMS rollout and final renter new-application policy before enabling it. Current implementation deliberately retains existing account role approval rules.
+- Expired drafts remain private database audit records; choose retention policy before enabling SMS at scale. No cron/purge policy was invented.
+- No production deploy, main push, production migration or live Twilio test is authorized by this implementation handoff.
+
+Margaret remains unbooked. Missing explicit start date and access times; November 23/25, 2026 are Mon/Wed rather than Tue/Thu. Abbreviated/year-ambiguous exclusions must be clarified. Historic PE times are not reused.

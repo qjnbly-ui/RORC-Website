@@ -3,7 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
 const source = fs.readFileSync(require.resolve("../RORC App/app.js"), "utf8");
-const context = {};
+const context = {RORCRecurringDates: require("../scripts/rorc-recurring-dates")};
 vm.runInNewContext(source.slice(source.indexOf("function parseRecurringExclusions("), source.indexOf("function calendarRecurringOptions(")), context);
 const build = (options) => Array.from(context.buildRecurringDateSeries({seedDate: "2026-10-01", selectedDays: [2, 4], every: 1, unit: "week", endMode: "on", endDate: "2026-10-15", ...options}));
 test("weekday series previews exact dates and inclusive exclusions", () => {
