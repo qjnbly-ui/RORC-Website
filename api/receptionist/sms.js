@@ -11,8 +11,9 @@ module.exports = async function handler(req, res) {
   const from = String(req.body?.From || "").trim();
   const body = String(req.body?.Body || "").trim().toLowerCase();
   const response = new twilio.twiml.MessagingResponse();
-  await recordIncomingMessage(req.body || {}).catch((error) => {
+  const recorded = await recordIncomingMessage(req.body || {}).then(() => true).catch((error) => {
     console.error("Incoming staff message could not be saved.", error);
+    return false;
   });
   if (/^(start|unstop|yes|subscribe)$/i.test(body)) {
     await consent(from, "opt_in", "inbound_sms");
@@ -23,9 +24,9 @@ module.exports = async function handler(req, res) {
     response.message("RORC texts are disabled. Reply START to opt in again or HELP for help.");
   } else if (/^help$/i.test(body)) {
     response.message("RORC SMS help: text START to opt in or STOP to opt out. For support, call (541) 652-6065.");
-  } else if (await getSmsBookingSettings().then(settings => settings.enabled).catch(() => false)) {
-    const reply = await handleBookingSms(req.body || {}).catch((error) => { console.error("SMS booking preparation unavailable.", error); return ""; });
-    if (reply) response.message(reply);
+  } else if (recorded && await getSmsBookingSettings().then(settings => settings.enabled).catch(() => false)) {
+    const reply = await handleBookingSms(req.body || {}).catch((error) => { console.error("SMS assistant unavailable.", error); return ""; });
+    if (reply && await getSmsBookingSettings().then(settings => settings.enabled).catch(() => false)) response.message(reply);
   }
   return sendTwiML(res, response);
 };

@@ -2996,10 +2996,10 @@ function renderSmsPreferencesPanel() {
         <button id="smsPreferencesRefresh" class="communications-secondary-action" type="button">Refresh</button>
       </header>
       <aside class="sms-preferences-note" aria-labelledby="smsBookingAiTitle">
-        <strong id="smsBookingAiTitle">AI booking assistance</strong>
-        <span>Help people prepare bookings and changes by text, then ask them to sign in and approve the exact request. Renter changes still require manager review. Staff messages and STOP/HELP remain available when this is off.</span>
+        <strong id="smsBookingAiTitle">AI text assistant</strong>
+        <span>Answer RORC questions, share live facility and event information, help prepare membership, rental and sponsorship forms, and prepare booking changes by text. Booking changes require sign-in and approval; renter changes still require manager review. Staff messages and STOP/HELP remain available when this is off.</span>
         <label style="display:flex;align-items:center;gap:12px;min-height:44px;padding:12px 0;cursor:pointer">
-          <input id="smsBookingAiToggle" style="width:22px;height:22px;accent-color:#f33732" type="checkbox" role="switch" aria-label="AI booking assistance" ${communicationsState.bookingAi?.enabled ? "checked" : ""} ${!communicationsState.bookingAi || communicationsState.bookingAiSaving ? "disabled" : ""} />
+          <input id="smsBookingAiToggle" style="width:22px;height:22px;accent-color:#f33732" type="checkbox" role="switch" aria-label="AI text assistant" ${communicationsState.bookingAi?.enabled ? "checked" : ""} ${!communicationsState.bookingAi || communicationsState.bookingAiSaving ? "disabled" : ""} />
           <span>${communicationsState.bookingAi ? (communicationsState.bookingAi.enabled ? "On" : "Off") : "Loading setting…"}</span>
         </label>
         <span id="smsBookingAiStatus" role="status" aria-live="polite"></span>
@@ -3035,11 +3035,11 @@ async function saveSmsBookingAiSetting(event) {
   try {
     const response = await fetch("/api/sms-preferences", { method: "PATCH", headers: { ...communicationsAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ action: "set_booking_ai", enabled }) });
     const body = await response.json().catch(() => ({}));
-    if (!response.ok || !body.success) throw new Error(body.error || "Could not save AI booking assistance.");
+    if (!response.ok || !body.success) throw new Error(body.error || "Could not save AI text assistant.");
     communicationsState.bookingAi = body.bookingAi;
     toggle.checked = body.bookingAi.enabled;
     toggle.nextElementSibling.textContent = body.bookingAi.enabled ? "On" : "Off";
-    if (status) status.textContent = body.bookingAi.enabled ? "AI booking assistance is on." : "AI booking assistance is off. Unapproved AI drafts are paused.";
+    if (status) status.textContent = body.bookingAi.enabled ? "AI text assistant is on." : "AI text assistant is off. Unapproved AI drafts are paused.";
   } catch (error) {
     toggle.checked = previous;
     if (status) status.textContent = error.message || "Could not save this setting.";

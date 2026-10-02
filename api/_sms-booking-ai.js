@@ -6,7 +6,7 @@ const prompt = `Interpret RORC facility rental text messages. Return JSON only. 
 async function interpretSms(text, history=[], options={}) {
  const key=options.apiKey || process.env.GROQ_API_KEY;
  if(!key)throw new Error('SMS AI provider is unavailable.');
- const response=await (options.fetch || fetch)('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},signal:AbortSignal.timeout(12000),body:JSON.stringify({model:process.env.GROQ_RECEPTIONIST_ROUTER_MODEL || 'openai/gpt-oss-20b',temperature:0,reasoning_effort:'low',max_completion_tokens:1100,response_format:{type:'json_schema',json_schema:schema},messages:[{role:'system',content:prompt},...history.slice(-6),{role:'user',content:String(text).slice(0,1500)}]})});
+ const response=await (options.fetch || fetch)('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},signal:AbortSignal.timeout(8000),body:JSON.stringify({model:process.env.GROQ_RECEPTIONIST_ROUTER_MODEL || 'openai/gpt-oss-20b',temperature:0,reasoning_effort:'low',max_completion_tokens:1100,response_format:{type:'json_schema',json_schema:schema},messages:[{role:'system',content:prompt},...history.slice(-6),{role:'user',content:String(text).slice(0,1500)}]})});
  const body=await response.json();if(!response.ok)throw new Error('SMS interpretation could not complete.');
  return validateIntent(JSON.parse(body.choices?.[0]?.message?.content || '{}'));
 }

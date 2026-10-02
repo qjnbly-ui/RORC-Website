@@ -81,13 +81,14 @@ function validateIntentResult(value: unknown): IntentResult {
   };
 }
 
-interface ClassifyOptions { apiKey?: string; model?: string; fetch?: typeof fetch }
+interface ClassifyOptions { apiKey?: string; model?: string; fetch?: typeof fetch; timeoutMs?: number }
 async function classifyIntent(question: string, history: HistoryItem[] = [], options: ClassifyOptions = {}): Promise<IntentResult> {
   const key = String(options.apiKey || process.env.GROQ_API_KEY || "").trim();
   if (!key) throw new Error("GROQ_API_KEY is not configured.");
   const fetcher = options.fetch || fetch;
   const response = await fetcher("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
+    signal: AbortSignal.timeout(options.timeoutMs || 12000),
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: String(options.model || process.env.GROQ_RECEPTIONIST_ROUTER_MODEL || "openai/gpt-oss-20b"),

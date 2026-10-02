@@ -1,4 +1,4 @@
-const CACHE_VERSION = "rorc-app-v93";
+const CACHE_VERSION = "rorc-app-v94";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const NAVIGATION_CACHE = `${CACHE_VERSION}-navigation`;
 const OFFLINE_PAGE = "./index.html";
@@ -9,7 +9,7 @@ const APP_SHELL = [
   "./closure-credits.css?v=20260921-closure-credits",
   "./closure-credits.js?v=20260921-closure-credits",
   "/scripts/rorc-recurring-dates.js?v=20261001",
-  "./app.js?v=20261001-sms-app-setting",
+  "./app.js?v=20261002-sms-assistant",
   "./vendor/supabase.min.js?v=2.112.2",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",
