@@ -37,10 +37,11 @@ Required Vercel environment variables:
 - `RORC_RECEPTIONIST_SECURITY_SECRET` — a random secret of at least 32 characters used to HMAC caller numbers for persistent PIN security and analytics
 - `CRON_SECRET` — a random secret of at least 16 characters used by Vercel to authenticate cleanup jobs
 
+Voice selection is centralized as `RECEPTIONIST_VOICE` in `api/_receptionist.js`: Jessica (`cgSgspJ2msm6clMCkdW9`), a premade ElevenLabs conversational voice. The legacy `TWILIO_RECEPTIONIST_VOICE` environment variable no longer overrides this selection.
+
 Optional variables:
 
 - `RORC_RECEPTIONIST_GREETING`
-- `TWILIO_RECEPTIONIST_VOICE`
 - `GROQ_RECEPTIONIST_MODEL`
 - `GROQ_RECEPTIONIST_FALLBACK_MODEL` — defaults to the router model and is tried if the primary answer model is unavailable
 - `GROQ_RECEPTIONIST_ROUTER_MODEL` — defaults to `openai/gpt-oss-20b`

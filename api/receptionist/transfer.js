@@ -1,5 +1,5 @@
 const twilio = require("twilio");
-const { buildTwiML, publicHttpUrl, publicWebSocketUrl } = require("../_receptionist");
+const { RECEPTIONIST_VOICE, buildTwiML, publicHttpUrl, publicWebSocketUrl } = require("../_receptionist");
 const { sendTwiML, validateTwilioWebhook } = require("../_twilio-webhook");
 
 function handoffData(value) {
@@ -24,7 +24,7 @@ module.exports = function handler(req, res) {
         websocketUrl: publicWebSocketUrl(req),
         actionUrl: `${base}/api/receptionist/transfer?relayRetry=1`,
         greeting: "The call connection was restored. Please continue with your question.",
-        voice: String(process.env.TWILIO_RECEPTIONIST_VOICE || ""),
+        voice: RECEPTIONIST_VOICE,
       }));
     }
     const ended = new twilio.twiml.VoiceResponse();

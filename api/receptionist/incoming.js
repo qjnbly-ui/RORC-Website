@@ -1,5 +1,5 @@
 const twilio = require("twilio");
-const { DEFAULT_GREETING, publicHttpUrl, publicWebSocketUrl } = require("../_receptionist");
+const { DEFAULT_GREETING, RECEPTIONIST_VOICE, publicHttpUrl, publicWebSocketUrl } = require("../_receptionist");
 const { sendTwiML, validateTwilioWebhook } = require("../_twilio-webhook");
 const { getCallerAccount } = require("../_rorc-account-phone");
 
@@ -40,7 +40,7 @@ module.exports = async function handler(req, res) {
     language: "en-US",
     transcriptionProvider: "Deepgram",
     ttsProvider: "ElevenLabs",
-    voice: String(process.env.TWILIO_RECEPTIONIST_VOICE || ""),
+    voice: RECEPTIONIST_VOICE,
     interruptSensitivity: "low",
     speechTimeout: "1200",
     ignoreBackchannel: "true",
