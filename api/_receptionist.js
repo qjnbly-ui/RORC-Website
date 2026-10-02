@@ -1,7 +1,7 @@
 const DEFAULT_GREETING = "Thanks for calling the Ruth Obenchain Recreation Center. You're speaking with the RORC AI receptionist. How can I help you today?";
-// Jessica: ElevenLabs' premade American conversational voice.
+// Eric: ElevenLabs' premade American conversational voice.
 // Keep the selection here so new calls and reconnects use the same voice.
-const RECEPTIONIST_VOICE = "cgSgspJ2msm6clMCkdW9";
+const RECEPTIONIST_VOICE = "cjVigY5qzO86Huf0OWal";
 
 function escapeXml(value) {
   return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;").replace(/'/g, "&apos;");
