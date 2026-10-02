@@ -9,6 +9,7 @@ const result=data=>({ok:true,json:async()=>data});
 global.fetch=async(url,options={})=>{
  const parsed=new URL(url);
  if(parsed.pathname==='/auth/v1/user')return result({id:manager});
+ if(parsed.pathname==='/rest/v1/automation_settings')return result([{config:{enabled:true}}]);
  if(parsed.pathname==='/rest/v1/account_members')return result([{id:manager,account_type:'Account Manager',phone_number:phone}]);
  if(parsed.pathname==='/rest/v1/rorc_receptionist_sms_consent')return result(JSON.parse(await sql(`select coalesce(json_agg(c),'[]') from rorc_receptionist_sms_consent c where phone_e164=${quote(phone)};`)));
  if(parsed.pathname==='/rest/v1/sms_booking_drafts'){

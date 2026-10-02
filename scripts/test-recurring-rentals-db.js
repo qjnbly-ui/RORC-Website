@@ -25,6 +25,11 @@ function create(dates,start='10:00',end='11:00',extra={}) {return commandFromBod
   await sql(`create table public.rorc_receptionist_sms_consent(phone_e164 text primary key,consent_status text); grant all on public.rorc_receptionist_sms_consent to service_role;`);
   const smsMigration=fs.readdirSync(path.join(__dirname,'../supabase/migrations')).find(v=>v.endsWith('_sms_booking_drafts.sql'));
   await sql(fs.readFileSync(path.join(__dirname,'../supabase/migrations',smsMigration),'utf8'));
+  await sql(`create table automation_settings(id text primary key,config jsonb not null);grant all on automation_settings to service_role;`);
+  const settingMigration=fs.readdirSync(path.join(__dirname,'../supabase/migrations')).find(v=>v.endsWith('_sms_booking_app_setting.sql'));
+  await sql(fs.readFileSync(path.join(__dirname,'../supabase/migrations',settingMigration),'utf8'));
+  assert.equal(await sql("select config->>'enabled' from automation_settings where id='sms_booking_ai';"),'false');
+  await sql("update automation_settings set config='{\"enabled\":true}'::jsonb where id='sms_booking_ai';");
   const preview=async(command,excluded=[])=>JSON.parse((await sql(`set role service_role;select preview_rental_access(${q(command.rentals)},array[${excluded.map(v=>`'${v}'::uuid`).join(',')}]::uuid[]);`)).split('\n').at(-1));
   assert.equal((await preview(create(['2026-10-06','2026-10-08']))).available,true);
   await assert.rejects(preview(create(['2026-10-06','2026-10-07'],'10:00','11:00',{addon_late_day_rental:true})),/overlap/);
@@ -102,6 +107,8 @@ function create(dates,start='10:00',end='11:00',extra={}) {return commandFromBod
   await sql(`insert into rorc_receptionist_sms_consent values('${phone}','opt_in'); insert into sms_booking_drafts(id,message_sid,phone_e164,message_body,status,token_hash,verified_member_id,resolved_command,expires_at) values('${smsId}','SM${'a'.repeat(32)}','${phone}','Synthetic fixture','ready','${smsHash}','${manager}',${q(smsCommand)},now()+interval '20 minutes');`);
   const confirm=async(actor=manager,token=smsHash)=>JSON.parse((await sql(`set request.jwt.claims='{"role":"service_role"}';set role service_role;select confirm_sms_booking_draft('${actor}','${token}');`)).split('\n').at(-1));
   await assert.rejects(confirm(renter),/Verified draft/);
+  await sql("update automation_settings set config='{\"enabled\":false}'::jsonb where id='sms_booking_ai';");await assert.rejects(confirm(),/paused/);
+  await sql("update automation_settings set config='{\"enabled\":true}'::jsonb where id='sms_booking_ai';");
   const smsResults=await Promise.all([confirm(),confirm()]);assert.deepEqual(smsResults[0],smsResults[1]);assert.equal(smsResults[0].rentalIds.length,2);
   assert.equal(await sql(`select count(*) from rental_requests where recurring_series_id='${smsId}';`),'2');
   const snapshotTarget=smsResults[0].rentalIds[0];

@@ -138,6 +138,8 @@ const communicationsState = {
   preferenceSearch: "",
   preferencesLoading: false,
   preferencesLoadedAt: 0,
+  bookingAi: null,
+  bookingAiSaving: false,
   contactPickerOpen: false,
   contactPickerIndex: -1
 };
@@ -2898,6 +2900,7 @@ async function loadSmsPreferences({ force = false } = {}) {
       optedOut: Number(body.summary?.optedOut || 0),
       optedIn: Number(body.summary?.optedIn || 0)
     };
+    communicationsState.bookingAi = body.bookingAi || { enabled: false };
     communicationsState.preferencesLoadedAt = Date.now();
     return communicationsState.preferences;
   } finally {
@@ -2992,6 +2995,15 @@ function renderSmsPreferencesPanel() {
         </div>
         <button id="smsPreferencesRefresh" class="communications-secondary-action" type="button">Refresh</button>
       </header>
+      <aside class="sms-preferences-note" aria-labelledby="smsBookingAiTitle">
+        <strong id="smsBookingAiTitle">AI booking assistance</strong>
+        <span>Help people prepare bookings and changes by text, then ask them to sign in and approve the exact request. Renter changes still require manager review. Staff messages and STOP/HELP remain available when this is off.</span>
+        <label style="display:flex;align-items:center;gap:12px;min-height:44px;padding:12px 0;cursor:pointer">
+          <input id="smsBookingAiToggle" style="width:22px;height:22px;accent-color:#f33732" type="checkbox" role="switch" aria-label="AI booking assistance" ${communicationsState.bookingAi?.enabled ? "checked" : ""} ${!communicationsState.bookingAi || communicationsState.bookingAiSaving ? "disabled" : ""} />
+          <span>${communicationsState.bookingAi ? (communicationsState.bookingAi.enabled ? "On" : "Off") : "Loading setting…"}</span>
+        </label>
+        <span id="smsBookingAiStatus" role="status" aria-live="polite"></span>
+      </aside>
       <div class="sms-preferences-toolbar">
         <div class="sms-preference-filters" role="group" aria-label="Filter text preferences">
           <button class="${communicationsState.preferenceFilter === "opt_out" ? "is-active" : ""}" data-sms-preference-filter="opt_out" type="button">Opted out <span>${summary.optedOut}</span></button>
@@ -3012,7 +3024,33 @@ function renderSmsPreferencesPanel() {
   `;
 }
 
+async function saveSmsBookingAiSetting(event) {
+  const toggle = event.target;
+  const previous = communicationsState.bookingAi?.enabled === true;
+  const enabled = toggle.checked;
+  const status = document.getElementById("smsBookingAiStatus");
+  communicationsState.bookingAiSaving = true;
+  toggle.disabled = true;
+  if (status) status.textContent = "Saving…";
+  try {
+    const response = await fetch("/api/sms-preferences", { method: "PATCH", headers: { ...communicationsAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ action: "set_booking_ai", enabled }) });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok || !body.success) throw new Error(body.error || "Could not save AI booking assistance.");
+    communicationsState.bookingAi = body.bookingAi;
+    toggle.checked = body.bookingAi.enabled;
+    toggle.nextElementSibling.textContent = body.bookingAi.enabled ? "On" : "Off";
+    if (status) status.textContent = body.bookingAi.enabled ? "AI booking assistance is on." : "AI booking assistance is off. Unapproved AI drafts are paused.";
+  } catch (error) {
+    toggle.checked = previous;
+    if (status) status.textContent = error.message || "Could not save this setting.";
+  } finally {
+    communicationsState.bookingAiSaving = false;
+    toggle.disabled = !communicationsState.bookingAi;
+  }
+}
+
 function bindSmsPreferencesPanel() {
+  document.getElementById("smsBookingAiToggle")?.addEventListener("change", saveSmsBookingAiSetting);
   document.querySelectorAll("[data-sms-preference-filter]").forEach((button) => {
     button.addEventListener("click", () => {
       communicationsState.preferenceFilter = button.dataset.smsPreferenceFilter || "opt_out";
@@ -7623,6 +7661,8 @@ function clearLiveData() {
   communicationsState.preferenceSummary = { total: 0, optedOut: 0, optedIn: 0 };
   communicationsState.preferenceSearch = "";
   communicationsState.preferencesLoadedAt = 0;
+  communicationsState.bookingAi = null;
+  communicationsState.bookingAiSaving = false;
   pendingAdminEmailMemberId = "";
   updateCommunicationsBadge();
 }

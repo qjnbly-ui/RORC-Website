@@ -1,3 +1,4 @@
+const { getSmsBookingSettings } = require('./_sms-booking-settings');
 const {rest,hash}=require('./_sms-booking-store');
 const {normalizePhone,hasConsent}=require('./_rorc-sms');
 const {createCommand,validateIntent}=require('./_sms-booking-ai');
@@ -23,6 +24,7 @@ module.exports=async(req,res)=>{
   const draft=rows[0];if(!draft||normalizePhone(member.phone_number)!==draft.phone_e164||(draft.verified_member_id&&draft.verified_member_id!==member.id))throw fail('This link does not belong to your signed-in account. Contact staff if your phone number has changed.',403);
   if(!await hasConsent(draft.phone_e164))throw fail('Texts are opted out. Nothing can be changed from this link.',403);
   if(draft.status==='confirmed')return res.status(200).json({success:true,confirmed:true,result:draft.result});
+  if(!(await getSmsBookingSettings()).enabled)throw fail('AI booking assistance is paused. Contact RORC staff for help. Nothing has been changed.',409);
   if(draft.status!=='ready'||new Date(draft.expires_at).getTime()<=Date.now())throw fail('This booking link expired or was canceled. Text a new request.',409);
   if(req.body.action==='confirm'){
    if(!draft.resolved_command||draft.verified_member_id!==member.id)throw fail('Review the exact booking preview before confirming.',409);

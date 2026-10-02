@@ -53,3 +53,11 @@ Production migration verification — October 1, 2026 (Pacific)
 - Verified RLS enabled, anonymous draft reads denied, authenticated direct operation/confirmation execution denied, service execution granted. Confirmed access-window helper works with all current rentals. New operation/draft tables remain empty.
 - Security advisors introduce only expected no-policy INFO entries for service-only tables. Existing security warnings predate these migrations and are outside this change.
 - Full tests/typecheck/assets/knowledge checks passed again before push. SMS remains off by default; this release did not alter production environment flags or Twilio settings.
+
+App-controlled SMS setting — October 1, 2026 (Pacific)
+- Calls & Messages > Text Preferences now includes a manager-only AI booking assistance switch. Shared automation_settings.sms_booking_ai.config.enabled replaces the environment flag; no Vercel setting is needed.
+- GET/PATCH /api/sms-preferences uses existing real account-manager authorization. Boolean-only writes record the manager ID. The switch loads shared state, saves with disabled/busy feedback, and restores the previous state on errors.
+- SMS ingress reads the shared setting on every ordinary message, fails closed on storage errors, and keeps staff inbox/START/STOP/HELP independent of the AI setting. STOP attempts draft cancellation regardless of whether AI is on.
+- Draft preview and atomic confirmation check the shared switch. Disabling pauses unapproved drafts; consent and snapshot checks remain in place. Completed confirmation retries remain read-only/idempotent.
+- Migration 20261002005912_sms_booking_app_setting.sql applied successfully to verified RORC production database. The initial shared setting is OFF. No production activation, text, booking or payment was performed.
+- Verification: 216 tests; 215 passed and 1 skipped. Typecheck/assets/knowledge/syntax/diff checks passed. Isolated PostgreSQL confirms approval is rejected while paused. Browser used actual preferences renderer/save function and manager API with synthetic storage to switch on, persist across reload and switch off at 390px mobile. Security advisor counts unchanged.
