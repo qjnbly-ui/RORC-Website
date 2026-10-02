@@ -1,0 +1,41 @@
+// Uses only the named disposable local PostgreSQL container, never a remote URL.
+const {spawn}=require('node:child_process'),fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const container='rorc-recurring-test-01';
+function run(args,input=''){return new Promise((resolve,reject)=>{const child=spawn('docker',args);let out='',err='';child.stdout.on('data',v=>out+=v);child.stderr.on('data',v=>err+=v);child.on('error',reject);child.on('close',code=>code===0?resolve(out.trim()):reject(Error(err||out)));child.stdin.end(input);});}
+const sql=text=>run(['exec','-i',container,'psql','-U','postgres','-d','rorc_sms_controls_fixture','-At','-v','ON_ERROR_STOP=1'],text);
+const manager='11111111-1111-4111-8111-111111111111',thread='22222222-2222-4222-8222-222222222222';
+(async()=>{
+ await run(['exec',container,'dropdb','-U','postgres','--if-exists','rorc_sms_controls_fixture']);
+ await run(['exec',container,'createdb','-U','postgres','rorc_sms_controls_fixture']);
+ await sql(`do $$ begin if not exists(select 1 from pg_roles where rolname='service_role') then create role service_role bypassrls; end if; if not exists(select 1 from pg_roles where rolname='anon') then create role anon; end if; if not exists(select 1 from pg_roles where rolname='authenticated') then create role authenticated; end if; end $$;
+ create table public.account_members(id uuid primary key);
+ insert into account_members values('${manager}');
+ create function public.set_updated_at() returns trigger language plpgsql as $$begin new.updated_at=now();return new;end$$;
+ create table public.sms_booking_drafts(phone_e164 text,status text,intent jsonb);
+ grant all on public.sms_booking_drafts to service_role;`);
+ await sql(fs.readFileSync(path.join(__dirname,'../supabase/migrations/20260808053336_add_staff_communications.sql'),'utf8'));
+ await sql(`insert into staff_communication_threads(id,phone_e164) values('${thread}','+15415550100');
+ insert into staff_communication_messages(thread_id,twilio_message_sid,direction,body,from_e164,to_e164,created_by_member_id,message_at) values('${thread}','SMprevious','outbound','Fixture only','+15416526065','+15415550100','${manager}',now()-interval '5 minutes');`);
+ const migration=fs.readdirSync(path.join(__dirname,'../supabase/migrations')).find(name=>name.endsWith('_sms_conversation_controls.sql'));
+ await sql(fs.readFileSync(path.join(__dirname,'../supabase/migrations',migration),'utf8'));
+ assert.equal(await sql(`select ai_mode||':'||ai_resume_after_minutes||':'||(ai_paused_until>now()) from staff_communication_threads;`),'automatic:20:true');
+ assert.equal(await sql(`select has_function_privilege('anon','public.set_sms_conversation_ai(uuid,text,integer,boolean)','execute')||':'||has_function_privilege('authenticated','public.set_sms_conversation_ai(uuid,text,integer,boolean)','execute')||':'||has_function_privilege('service_role','public.set_sms_conversation_ai(uuid,text,integer,boolean)','execute');`),'false:false:true');
+ await assert.rejects(sql(`set role authenticated;select public.set_sms_conversation_ai('${thread}','automatic',15,true);`),/permission denied/);
+ await assert.rejects(sql(`set role service_role;select public.set_sms_conversation_ai('${thread}','bad',15,true);`),/Invalid/);
+ await assert.rejects(sql(`set role service_role;select public.set_sms_conversation_ai('${thread}','automatic',0,true);`),/Invalid/);
+ await sql(`insert into sms_booking_drafts values('+15415550100','staff','{"assistantState":{"handoff":true}}'),('+15415550100','ready','{"action":"cancel"}');set role service_role;select public.set_sms_conversation_ai('${thread}','automatic',15,true);`);
+ assert.equal(await sql(`select ai_mode||':'||ai_resume_after_minutes||':'||(ai_paused_until is null)||':'||ai_revision from staff_communication_threads;`),'automatic:15:true:1');
+ assert.equal(await sql(`select status from sms_booking_drafts where intent->>'action'='cancel';`),'ready');
+ assert.equal(await sql(`select status from sms_booking_drafts where intent ? 'assistantState';`),'canceled');
+ const record=`select * from public.record_staff_communication_message('+15415550100','SMhuman','outbound','Fixture only','queued','+15416526065','+15415550100','[]','${manager}');`;
+ await sql(`set role service_role;${record}`);
+ assert.equal(await sql(`select (ai_paused_until>now()+interval '14 minutes')||':'||(ai_paused_until<=now()+interval '15 minutes')||':'||ai_revision from staff_communication_threads;`),'true:true:2');
+ await sql(`set role service_role;${record}`);assert.equal(await sql('select ai_revision from staff_communication_threads;'),'2');
+ await sql(`set role service_role;select public.set_sms_conversation_ai('${thread}','never',60,false);`);
+ assert.equal(await sql(`select ai_mode||':'||(ai_paused_until is null)||':'||ai_revision from staff_communication_threads;`),'never:true:3');
+ await sql(`set role service_role;select public.set_sms_conversation_ai('${thread}','automatic',60,false);`);
+ assert.equal(await sql('select ai_revision from staff_communication_threads;'),'4');
+ await sql(`set role service_role;select * from public.record_staff_communication_message('+15415550100','SMautomated','outbound','Fixture AI','queued','+15416526065','+15415550100','[]',null);`);
+ assert.equal(await sql('select ai_revision from staff_communication_threads;'),'4');
+ console.log('PASS: migration/backfill, service-only controls, staff pause, configured duration, resume, draft preservation, policy revisions and duplicate-message behavior. Synthetic records only.');
+})().catch(error=>{console.error(error);process.exitCode=1;});

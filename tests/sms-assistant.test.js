@@ -55,7 +55,8 @@ test('storage redacts prefill tokens and suppresses stale answers or human conve
  const id='33333333-3333-4333-8333-333333333333',token='x'.repeat(43);
  global.fetch=async(url,options={})=>{
   let rows=[];url=String(url);
-  if(url.includes('consent?'))rows=[{consent_status:'opt_in'}];
+  if(url.includes('staff_communication_threads?'))rows=[{ai_mode:'automatic',ai_revision:0,ai_paused_until:human?new Date(Date.now()+60000).toISOString():null}];
+  else if(url.includes('consent?'))rows=[{consent_status:'opt_in'}];
   else if(url.includes('on_conflict'))rows=[{id}];
   else if(url.includes('select=id&phone'))rows=[{id:newer?'different':id}];
   else if(url.includes('staff_communication_messages?'))rows=human?[{id:'human'}]:[];
@@ -68,6 +69,6 @@ test('storage redacts prefill tokens and suppresses stale answers or human conve
   assert.match(await handleBookingSms(payload,{interpret}),new RegExp(token));
   assert.equal(JSON.stringify(saved).includes(token),false);assert.match(saved[0].reply_text,/private link/);
   saved=[];newer=true;assert.equal(await handleBookingSms(payload,{interpret}),'');assert.equal(saved[0].status,'canceled');
-  saved=[];newer=false;human=true;assert.equal(await handleBookingSms(payload,{interpret}),'');assert.equal(saved[0].status,'canceled');
+  saved=[];newer=false;human=true;assert.equal(await handleBookingSms(payload,{interpret}),'');assert.equal(saved.length,0);
  }finally{global.fetch=original;}
 });

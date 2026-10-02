@@ -13,6 +13,8 @@ async function handleBookingSms(payload,options={}) {
  const phone=normalizePhone(payload.From),sid=String(payload.MessageSid || payload.SmsMessageSid || '');
  if(!phone||!/^SM[a-zA-Z0-9]{32}$/.test(sid))throw new Error('Invalid SMS identity.');
  if(!await hasConsent(phone))return ''; // STOP/START/HELP remain the ingress authority.
+ const initialPolicy=await require('./_sms-conversation-settings').conversationAiSnapshot(phone);
+ if(!initialPolicy.allowed)return '';
  const reserved=await rest('sms_booking_drafts?on_conflict=message_sid',{method:'POST',headers:{Prefer:'resolution=ignore-duplicates,return=representation'},body:JSON.stringify({message_sid:sid,phone_e164:phone,message_body:String(payload.Body || '').slice(0,1500),status:'processing',expires_at:new Date(Date.now()+20*60*1000).toISOString()})});
  if(!reserved.length)return ''; // Retries cannot send or execute twice.
  const draft=reserved[0];
@@ -21,11 +23,12 @@ async function handleBookingSms(payload,options={}) {
   const previous=rows[0]?.intent || {};
   const history=rows.reverse().flatMap(row=>[{role:'user',content:row.message_body},{role:'assistant',content:String(row.reply_text || '')}]);
   const intent=await (options.interpret || interpretAssistant)(payload.Body || '',history,{...previous,phone});
-  // A newer text supersedes a slow answer; a staff reply pauses AI for 20 minutes.
+  // A newer text supersedes a slow answer; a staff reply pauses AI for its configured period.
   // These reads also fail closed when conversation state cannot be verified.
   const latest=await rest(`sms_booking_drafts?select=id&phone_e164=eq.${encodeURIComponent(phone)}&order=created_at.desc&limit=1`);
-  const manual=await rest(`staff_communication_messages?select=id&to_e164=eq.${encodeURIComponent(phone)}&direction=eq.outbound&message_at=gt.${encodeURIComponent(new Date(Date.now()-20*60*1000).toISOString())}&limit=1`);
-  if((latest[0]&&latest[0].id!==draft.id)||manual.length){
+  const currentPolicy=await require('./_sms-conversation-settings').conversationAiSnapshot(phone);
+  const allowed=currentPolicy.allowed&&String(currentPolicy.revision)===String(initialPolicy.revision);
+  if((latest[0]&&latest[0].id!==draft.id)||!allowed){
    await rest(`sms_booking_drafts?id=eq.${draft.id}&status=eq.processing`,{method:'PATCH',body:JSON.stringify({status:'canceled'})});
    return '';
   }
@@ -42,7 +45,8 @@ async function handleBookingSms(payload,options={}) {
   return `I prepared your ${intent.action} request. Review the exact bookings and approve after RORC sign-in: ${base}/sms-booking/#draft=${token} Link expires in 20 minutes. Nothing has changed yet. Reply STOP to opt out.`;
  } catch(error) {
   await rest(`sms_booking_drafts?id=eq.${draft.id}&status=eq.processing`,{method:'PATCH',body:JSON.stringify({status:'staff',reply_text:'AI unavailable; staff review required.'})}).catch(()=>{});
-  return await hasConsent(phone).catch(()=>false)?'I could not safely finish this request. Your text is in the staff inbox for help. Nothing has been changed.':'';
+  const policy=await require('./_sms-conversation-settings').conversationAiSnapshot(phone).catch(()=>({allowed:false}));
+  return policy.allowed&&String(policy.revision)===String(initialPolicy.revision)&&await hasConsent(phone).catch(()=>false)?'I could not safely finish this request. Your text is in the staff inbox for help. Nothing has been changed.':'';
  }
 }
 module.exports={rest,hash,handleBookingSms,cancelPhoneDrafts};

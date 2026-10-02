@@ -3236,6 +3236,59 @@ function selectedCommunicationThread() {
   return communicationsState.threads.find((thread) => thread.id === communicationsState.selectedThreadId) || null;
 }
 
+function renderConversationAiControls(thread) {
+  if (!thread) return "";
+  const never = thread.aiMode === "never";
+  const paused = thread.aiPausedUntil && new Date(thread.aiPausedUntil).getTime() > Date.now();
+  const state = never ? "AI excluded" : paused ? `Staff is replying · AI resumes ${formatShortTime(thread.aiPausedUntil)}` : "AI may reply";
+  const busy = communicationsState.aiSavingThreadId === thread.id;
+  const disabled = busy ? "disabled" : "";
+  return `<div class="communications-ai-controls">
+    <span class="communications-ai-state" role="status">${escapeHtml(state)}</span>
+    <label>Participation<select id="conversationAiMode" ${disabled}><option value="automatic" ${never ? "" : "selected"}>AI may reply</option><option value="never" ${never ? "selected" : ""}>Staff only</option></select></label>
+    <label>Resume after<select id="conversationAiResume" ${never || busy ? "disabled" : ""}>${[15,20,30,60,120,240,480,1440,10080].map(minutes => `<option value="${minutes}" ${minutes === thread.aiResumeAfterMinutes ? "selected" : ""}>${minutes < 60 ? `${minutes} min` : minutes < 1440 ? `${minutes / 60} hours` : minutes === 1440 ? "24 hours" : "7 days"}</option>`).join("")}</select></label>
+    ${paused && !never ? `<button id="conversationAiResumeNow" class="communications-secondary-action" type="button" ${disabled}>Resume now</button>` : ""}
+    <small id="conversationAiStatus" role="status" aria-live="polite"></small>
+  </div>`;
+}
+
+async function saveConversationAiSettings(resumeNow = false) {
+  const thread = selectedCommunicationThread();
+  if (!thread || communicationsState.aiSavingThreadId) return;
+  const mode = document.getElementById("conversationAiMode")?.value;
+  const resumeAfterMinutes = Number(document.getElementById("conversationAiResume")?.value);
+  communicationsState.aiSavingThreadId = thread.id;
+  const status = document.getElementById("conversationAiStatus");
+  const controls = document.querySelectorAll(".communications-ai-controls select, .communications-ai-controls button");
+  controls.forEach(control => { control.disabled = true; });
+  if (status) status.textContent = "Saving…";
+  try {
+    const result = await communicationsRequest("", { method: "PATCH", body: JSON.stringify({ action: "set_ai", threadId: thread.id, mode, resumeAfterMinutes, resumeNow }) });
+    Object.assign(thread, result.ai);
+    const currentThread = communicationsState.threads.find(item => item.id === thread.id);
+    if (currentThread) Object.assign(currentThread, result.ai);
+    if (communicationsState.selectedThreadId === thread.id) {
+      communicationsState.aiSavingThreadId = "";
+      renderCommunicationConversation();
+      const savedStatus = document.getElementById("conversationAiStatus");
+      if (savedStatus) savedStatus.textContent = resumeNow ? "AI resumed. It can reply to the next text when the global AI switch is on." : "Conversation settings saved.";
+    }
+  } catch (error) {
+    if (communicationsState.selectedThreadId === thread.id) {
+      const modeSelect = document.getElementById("conversationAiMode");
+      const resumeSelect = document.getElementById("conversationAiResume");
+      if (modeSelect) modeSelect.value = thread.aiMode;
+      if (resumeSelect) resumeSelect.value = String(thread.aiResumeAfterMinutes);
+      if (status) status.textContent = error.message || "Could not save conversation settings.";
+    }
+  } finally {
+    communicationsState.aiSavingThreadId = "";
+    controls.forEach(control => { control.disabled = false; });
+    const resumeSelect = document.getElementById("conversationAiResume");
+    if (resumeSelect) resumeSelect.disabled = selectedCommunicationThread()?.aiMode === "never";
+  }
+}
+
 function renderCommunicationConversation() {
   const container = document.getElementById("communicationsConversation");
   if (!container) return;
@@ -3262,6 +3315,7 @@ function renderCommunicationConversation() {
         <span aria-hidden="true">☎</span> Call
       </button>
     </header>
+    ${renderConversationAiControls(thread)}
     <div class="communications-message-list" id="communicationsMessageList" aria-live="polite">
       ${communicationsState.messages.length ? communicationsState.messages.map((message) => `
         <article class="communications-message is-${escapeAttribute(message.direction)}">
@@ -3289,6 +3343,9 @@ function renderCommunicationConversation() {
   messageBody?.addEventListener("input", () => {
     communicationsState.draftBody = messageBody.value;
   });
+  document.getElementById("conversationAiMode")?.addEventListener("change", () => saveConversationAiSettings());
+  document.getElementById("conversationAiResume")?.addEventListener("change", () => saveConversationAiSettings());
+  document.getElementById("conversationAiResumeNow")?.addEventListener("click", () => saveConversationAiSettings(true));
   document.getElementById("communicationsComposer")?.addEventListener("submit", sendCommunicationMessage);
   document.getElementById("communicationsCallContact")?.addEventListener("click", () => {
     communicationsState.callPhone = phone;
@@ -3315,7 +3372,7 @@ async function loadCommunicationMessages(threadId, markRead = false) {
   const body = await communicationsRequest(`?threadId=${encodeURIComponent(threadId)}`);
   if (communicationsState.selectedThreadId !== threadId) return;
   communicationsState.messages = Array.isArray(body.messages) ? body.messages : [];
-  renderCommunicationConversation();
+  if (communicationsState.aiSavingThreadId !== threadId) renderCommunicationConversation();
   if (markRead) {
     const thread = selectedCommunicationThread();
     if (thread?.unreadCount) {

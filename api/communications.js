@@ -5,6 +5,7 @@ const {
   requireAccountManager,
   sendStaffMessage
 } = require("./_staff-communications");
+const {updateConversationAi}=require('./_sms-conversation-settings');
 
 module.exports = async function handler(req, res) {
   res.setHeader("Cache-Control", "no-store, max-age=0");
@@ -23,6 +24,9 @@ module.exports = async function handler(req, res) {
     }
 
     if (req.method === "PATCH") {
+      if (req.body?.action === "set_ai") {
+        return res.status(200).json({success:true,ai:await updateConversationAi(req.body)});
+      }
       if (String(req.body?.action || "") !== "mark_read") {
         return res.status(400).json({ success: false, error: "Unsupported communications action." });
       }

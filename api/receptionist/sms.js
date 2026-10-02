@@ -26,7 +26,7 @@ module.exports = async function handler(req, res) {
     response.message("RORC SMS help: text START to opt in or STOP to opt out. For support, call (541) 652-6065.");
   } else if (recorded && await getSmsBookingSettings().then(settings => settings.enabled).catch(() => false)) {
     const reply = await handleBookingSms(req.body || {}).catch((error) => { console.error("SMS assistant unavailable.", error); return ""; });
-    if (reply && await getSmsBookingSettings().then(settings => settings.enabled).catch(() => false)) response.message(reply);
+    if (reply && await require('../_sms-conversation-settings').conversationAiAllowed(from) && await getSmsBookingSettings().then(settings => settings.enabled).catch(() => false)) response.message(reply);
   }
   return sendTwiML(res, response);
 };

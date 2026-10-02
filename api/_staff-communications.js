@@ -134,7 +134,7 @@ async function recordIncomingMessage(payload, fetcher = fetch) {
 async function listThreads(fetcher = fetch) {
   const [threads, members] = await Promise.all([
     serviceRest(
-      "staff_communication_threads?select=id,phone_e164,unread_count,last_message_preview,last_message_direction,last_message_at,created_at,updated_at&order=last_message_at.desc&limit=500",
+      "staff_communication_threads?select=id,phone_e164,unread_count,last_message_preview,last_message_direction,last_message_at,created_at,updated_at,ai_mode,ai_resume_after_minutes,ai_paused_until&order=last_message_at.desc&limit=500",
       {},
       fetcher
     ),
@@ -158,6 +158,9 @@ async function listThreads(fetcher = fetch) {
       preview: thread.last_message_preview || "",
       direction: thread.last_message_direction || "",
       lastMessageAt: thread.last_message_at,
+      aiMode: thread.ai_mode || "automatic",
+      aiResumeAfterMinutes: Number(thread.ai_resume_after_minutes || 20),
+      aiPausedUntil: thread.ai_paused_until || null,
       contact: member ? { id: member.id, name: member.member_name || "" } : null
     };
   });
@@ -264,6 +267,14 @@ function communicationsUrl(req, path) {
   return new URL(path, publicHttpUrl(req)).toString();
 }
 
+async function pauseThreadForStaffReply(phone,fetcher=fetch) {
+  const rows=await serviceRest(`staff_communication_threads?select=id,ai_resume_after_minutes&phone_e164=eq.${encodeURIComponent(normalizePhone(phone))}&limit=1`,{},fetcher);
+  if(!rows[0])return;
+  const minutes=Number(rows[0].ai_resume_after_minutes);
+  if(!Number.isInteger(minutes)||minutes<5||minutes>10080)throw httpError(500,'Could not verify the conversation resume setting.');
+  await serviceRest(`staff_communication_threads?id=eq.${encodeURIComponent(rows[0].id)}`,{method:'PATCH',headers:{'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify({ai_paused_until:new Date(Date.now()+minutes*60000).toISOString()})},fetcher);
+}
+
 async function sendStaffMessage({ to, body, managerId, req }, fetcher = fetch) {
   const recipient = normalizePhone(to);
   const messageBody = String(body || "").trim();
@@ -276,6 +287,7 @@ async function sendStaffMessage({ to, body, managerId, req }, fetcher = fetch) {
   if (await explicitSmsOptOut(recipient, fetcher)) {
     throw httpError(409, "This number opted out of RORC texts. They must reply START before another text can be sent.");
   }
+  await pauseThreadForStaffReply(recipient,fetcher);
   const client = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
   let sent;
   try {
@@ -332,6 +344,7 @@ module.exports = {
   listThreads,
   markThreadRead,
   parseInboundMedia,
+  pauseThreadForStaffReply,
   recordCommunicationMessage,
   recordIncomingMessage,
   requireAccountManager,
