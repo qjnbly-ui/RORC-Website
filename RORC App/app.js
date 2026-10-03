@@ -7827,6 +7827,87 @@ function updateNavigationVisibility() {
   renderDrawerSections(layoutKey);
 }
 
+function relatedFormDraftKey() {
+  return `rorc-account-form:${currentAuthSession?.user?.id || ""}`;
+}
+
+function addFormAccountSelector(host, kind, disabled = false) {
+  if (!host || host.querySelector("[data-related-account]") || linkedAccountChoices.length < 2) return;
+  const label = document.createElement("label");
+  label.className = kind === "calendar" ? "cal-field-label" : "related-account-field";
+  const caption = document.createElement("span");
+  caption.textContent = "Use account";
+  const selector = document.createElement("select");
+  selector.className = "rorc-input";
+  selector.dataset.relatedAccount = kind;
+  selector.setAttribute("aria-label", "Use account");
+  selector.disabled = disabled;
+  selector.replaceChildren(...linkedAccountChoices.map(account => {
+    const option = document.createElement("option");
+    option.value = account.account_member_id;
+    option.textContent = `${account.member_name} — Account ${account.account_number}`;
+    option.selected = option.value === appState.authMemberId;
+    return option;
+  }));
+  label.append(caption, selector);
+  host.prepend(label);
+  const saveButton = kind === "calendar" ? host.querySelector("#calModalSave") : host.closest("form")?.querySelector(".save-action");
+  if (saveButton && !disabled) {
+    selector.accountSaveObserver = new MutationObserver(() => { selector.disabled = saveButton.disabled; });
+    selector.accountSaveObserver.observe(saveButton, {attributes:true, attributeFilter:["disabled"]});
+  }
+  selector.onchange = () => {
+    try {
+      const draft = window.RORCAccountFormDraft.capture(host, kind, {userId:currentAuthSession.user.id, memberId:selector.value, route:appState.currentRoute});
+      sessionStorage.setItem(relatedFormDraftKey(), JSON.stringify(draft));
+      window.RORC_SUPABASE.chooseAccount(selector.value);
+      selector.disabled = true;
+      if (saveButton) saveButton.disabled = true;
+      const destination = new URL(window.location.href);
+      destination.searchParams.set("route", appState.currentRoute);
+      window.location.assign(destination.href);
+    } catch (error) {
+      selector.value = appState.authMemberId;
+      showDetailActionMessage("Could not switch accounts. Your form is unchanged.");
+    }
+  };
+}
+
+function restoreRelatedFormDraft() {
+  let draft;
+  try {
+    draft = window.RORCAccountFormDraft.validate(JSON.parse(sessionStorage.getItem(relatedFormDraftKey()) || "null"), {userId:currentAuthSession?.user?.id, memberId:appState.authMemberId, route:appState.currentRoute});
+    sessionStorage.removeItem(relatedFormDraftKey());
+  } catch (_) { return; }
+  if (!draft) return;
+  let host;
+  if (draft.kind === "calendar") {
+    const root = document.getElementById("feedbackContent");
+    if (!root?.querySelector("#calEventModal") || (!isAccountManager(appUserSession) && !canRequestCalendarEventChanges(appUserSession))) return;
+    openCalendarModal(root, null, "");
+    host = root.querySelector("#calEventModal");
+  } else {
+    host = document.querySelector(draft.kind === "heater" ? ".heater-use-screen" : draft.kind === "memberSignIn" ? ".member-sign-in-screen" : ".guest-sign-in-screen");
+  }
+  if (!host) return;
+  window.RORCAccountFormDraft.restore(host, draft);
+  if (draft.kind === "heater") {
+    setMemberPickerValue("heaterResponsibleMember", appState.authMemberId);
+    setMultiMemberPickerValue("heaterResponsibleMembers", []);
+    const pin = document.getElementById("heaterPin");
+    if (pin) pin.value = "";
+    updateHeaterTimerFields();
+  }
+  if (draft.kind === "memberSignIn") setMultiMemberPickerValue("memberNameSelect", [appState.authMemberId]);
+  if (draft.kind === "guestSignIn") setMemberPickerValue("guestMemberSelect", appState.authMemberId);
+  if (draft.kind === "calendar") {
+    const root = document.getElementById("feedbackContent");
+    syncCalendarRentalDetailsVisibility(root, false);
+    syncRecurringVisibility(root);
+    updateCalendarRecurringPreview(root);
+  }
+}
+
 function updateDrawerIdentity() {
   const section = document.getElementById("drawerAccountSwitcher");
   const selector = document.getElementById("drawerActiveAccount");
@@ -12014,6 +12095,10 @@ function openCalendarModal(root, event, prefillDate) {
   const saveBtn = root.querySelector("#calModalSave");
   if (saveBtn) saveBtn.textContent = canManageCalendar ? "Save Event" : "Submit Request";
   modal.hidden = false;
+  const previousAccountSelector = modal.querySelector("[data-related-account]");
+  previousAccountSelector?.accountSaveObserver?.disconnect();
+  previousAccountSelector?.closest("label")?.remove();
+  addFormAccountSelector(modal.querySelector(".cal-modal-inner"), "calendar", Boolean(event));
 }
 
 function syncRecurringVisibility(root) {
@@ -18106,6 +18191,7 @@ function bindHeaterRecordsActions() {
 }
 
 function populateHeaterForm() {
+  addFormAccountSelector(document.querySelector(".heater-form-card"), "heater");
   const heaterDate = document.getElementById("heaterDate");
 
   if (heaterDate) {
@@ -18178,9 +18264,11 @@ function populateHeaterForm() {
   updateHeaterGroupPayFields();
   updateHeaterTimerFields();
   updateThermostatSystemFields();
+  if (linkedAccountChoices.length > 1) setMemberPickerValue("heaterResponsibleMember", appState.authMemberId);
 }
 
 function populateMemberSignIn() {
+  addFormAccountSelector(document.querySelector(".member-sign-in-screen .form-card"), "memberSignIn");
   const input = document.getElementById("memberNameSelect");
   const dateTimeIn = document.getElementById("dateTimeIn");
 
@@ -18191,6 +18279,7 @@ function populateMemberSignIn() {
 }
 
 function populateGuestSignIn() {
+  addFormAccountSelector(document.querySelector(".guest-sign-in-screen .form-card"), "guestSignIn");
   const input = document.getElementById("guestMemberSelect");
   const dateTimeIn = document.getElementById("guestDateTimeIn");
 
@@ -19386,11 +19475,13 @@ function render(routeName) {
       .finally(() => {
         if (renderSequence === routeRenderSequence) {
           setRouteViewPending(false);
+          restoreRelatedFormDraft();
           resetScrollTop();
         }
       });
   } else {
     setRouteViewPending(false);
+    restoreRelatedFormDraft();
   }
 }
 

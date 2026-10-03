@@ -320,6 +320,9 @@
             </p>
 
             <form id="rental-form" class="rental-form" novalidate>
+              <div id="rental-account-field" class="rental-form-section" hidden>
+                <label class="rental-label"><span>Use account</span><select id="rental-account-select" class="rental-input" aria-label="Use account"></select></label>
+              </div>
 
               <!-- Section: Contact Information -->
               <div class="rental-form-section">
@@ -891,7 +894,7 @@
             return;
           }
           const script = document.createElement("script");
-          script.src = "/scripts/rorc-supabase-client.js";
+          script.src = "/scripts/rorc-supabase-client.js?v=20261003-related-form-accounts";
           script.onload = function () { resolve(window.RORC_SUPABASE || null); };
           script.onerror = function () { resolve(null); };
           document.head.appendChild(script);
@@ -903,6 +906,33 @@
         if (!helper || typeof helper.getCurrentMemberProfile !== "function") return;
         const state = await helper.getCurrentMemberProfile();
         rentalAuthToken = state && state.session ? state.session.access_token || "" : "";
+        const accountField = document.getElementById("rental-account-field");
+        const accountSelector = document.getElementById("rental-account-select");
+        if (accountSelector) {
+          accountField.hidden = (state.accounts || []).length < 2;
+          accountSelector.replaceChildren(...(state.accounts || []).map(function(account) {
+            const option = document.createElement("option");
+            option.value = account.account_member_id;
+            option.textContent = account.member_name + " — Account " + account.account_number;
+            option.selected = option.value === state.profile?.account_member_id;
+            return option;
+          }));
+          accountSelector.onchange = async function() {
+            accountSelector.disabled = true;
+            submitBtn.disabled = true;
+            try {
+              helper.chooseAccount(accountSelector.value);
+              await hydrateRentalMemberPricing();
+            } catch(error) {
+              rentalAuthToken = "";
+              showError("Could not load that account. Refresh before submitting.");
+              return;
+            } finally {
+              accountSelector.disabled = false;
+            }
+            submitBtn.disabled = false;
+          };
+        }
         const profile = state && state.profile ? state.profile : null;
         rentalSpecialAccessDiscount = canonicalAccountType(profile && (profile.account_type || profile.accountType)) === "Special Access Account";
         updateBaseDisplay();
@@ -1324,7 +1354,10 @@
         try {
           const headers = { "Content-Type": "application/json" };
           if (rentalAuthToken) headers.Authorization = "Bearer " + rentalAuthToken;
-          const res  = await fetch("/api/rental-request", {
+          const accountSelector = document.getElementById("rental-account-select");
+          if (accountSelector) accountSelector.disabled = true;
+          const request = rentalAuthToken && window.RORC_SUPABASE ? window.RORC_SUPABASE.scopedFetch : window.fetch.bind(window);
+          const res  = await request("/api/rental-request", {
             method: "POST",
             headers: headers,
             body: JSON.stringify(payload)
@@ -1335,6 +1368,7 @@
             const msg = (json.errors && json.errors.join(" ")) || json.error || "Submission failed. Please try again.";
             showError(msg);
             submitBtn.disabled = false;
+            document.getElementById("rental-account-select").disabled = false;
             submitBtn.textContent = "Submit Application";
             return;
           }
@@ -1347,6 +1381,7 @@
         } catch (err) {
           showError("Network error. Please check your connection and try again, or call RORC directly.");
           submitBtn.disabled = false;
+          document.getElementById("rental-account-select").disabled = false;
           submitBtn.textContent = "Submit Application";
         }
       });

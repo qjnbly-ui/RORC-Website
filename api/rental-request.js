@@ -1,3 +1,4 @@
+const { accountMemberFilter } = require("./_account-scope");
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -81,8 +82,13 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const specialAccessDiscount = await getVerifiedSpecialAccessDiscount(req);
+    const member = await getVerifiedRentalMember(req);
+    const specialAccessDiscount = canonicalAccountType(member?.account_type) === "Special Access Account";
     const record = buildRecord(body, { specialAccessDiscount });
+    if (member) {
+      record.claimed_member_id = member.id;
+      record.claimed_account_id = member.account_id;
+    }
     const facilityHoursError = await validateRentalInsideFacilityHours(record);
     if (facilityHoursError) {
       return res.status(409).json({ success: false, error: facilityHoursError });
@@ -126,7 +132,7 @@ module.exports = async (req, res) => {
     return res.status(200).json({ success: true, id: savedRecord?.id, bookingNumber: savedRecord?.booking_number || "" });
   } catch (err) {
     console.error("rental-request error:", err);
-    return res.status(500).json({ success: false, error: "Server error. Please try again or call RORC directly." });
+    return res.status(Number(err.status) || 500).json({ success: false, error: err.status ? err.message : "Server error. Please try again or call RORC directly." });
   }
 };
 
@@ -505,34 +511,21 @@ function canonicalAccountType(accountType) {
   return String(accountType || "").trim();
 }
 
-async function getVerifiedSpecialAccessDiscount(req) {
+async function getVerifiedRentalMember(req) {
   const token = bearerToken(req);
-  if (!token) return false;
-  try {
-    const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-      headers: {
-        apikey: SERVICE_ROLE_KEY,
-        Authorization: `Bearer ${token}`
-      }
-    });
-    if (!userRes.ok) return false;
-    const user = await userRes.json();
-    const authUserId = user?.id || "";
-    const email = String(user?.email || "").trim().toLowerCase();
-
-    if (authUserId) {
-      const rows = await supabaseRest(`account_members?select=id,account_type&auth_user_id=eq.${encodeURIComponent(authUserId)}&limit=1`);
-      if (canonicalAccountType(rows?.[0]?.account_type) === "Special Access Account") return true;
-    }
-    if (email) {
-      const rows = await supabaseRest(`account_member_profiles?select=account_member_id,account_type,email_address&email_address=eq.${encodeURIComponent(email)}&limit=1`);
-      if (canonicalAccountType(rows?.[0]?.account_type) === "Special Access Account") return true;
-    }
-  } catch (error) {
-    console.warn("Special Access discount verification skipped:", error?.message || error);
+  if (!token) {
+    if (req.headers?.['x-rorc-account-member']) throw Object.assign(new Error("Sign in to use a linked account."), {status:401});
+    return null;
   }
-  return false;
+  const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {headers:{apikey:SERVICE_ROLE_KEY,Authorization:`Bearer ${token}`}});
+  if (!userRes.ok) throw Object.assign(new Error("Sign in again before submitting this rental."), {status:401});
+  const user = await userRes.json();
+  const filter = await accountMemberFilter(user.id, req, supabaseRest);
+  const rows = await supabaseRest(`account_members?select=id,account_id,account_type&${filter}&limit=1`);
+  if (!rows[0]) throw Object.assign(new Error("An authorized rental account is required."), {status:403});
+  return rows[0];
 }
+
 
 function str(value) {
   return String(value || "").trim();
@@ -682,3 +675,5 @@ function buildEmailTemplate({ title, bodyHtml }) {
     </div>
   `;
 }
+
+module.exports.getVerifiedRentalMember = getVerifiedRentalMember;

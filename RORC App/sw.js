@@ -1,15 +1,16 @@
-const CACHE_VERSION = "rorc-app-v96";
+const CACHE_VERSION = "rorc-app-v97";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const NAVIGATION_CACHE = `${CACHE_VERSION}-navigation`;
 const OFFLINE_PAGE = "./index.html";
 const APP_SHELL = [
   OFFLINE_PAGE,
-  "./app.css?v=20261002-account-switching",
+  "./app.css?v=20261003-related-form-accounts",
   "./resource-coordinator.js?v=20260808-reliable-sync",
   "./closure-credits.css?v=20260921-closure-credits",
   "./closure-credits.js?v=20260921-closure-credits",
   "/scripts/rorc-recurring-dates.js?v=20261001",
-  "./app.js?v=20261002-account-switching",
+  "/scripts/rorc-account-form-draft.js?v=20261003-related-form-accounts",
+  "./app.js?v=20261003-related-form-accounts",
   "./vendor/supabase.min.js?v=2.112.2",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",
@@ -17,7 +18,7 @@ const APP_SHELL = [
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "/scripts/rorc-password-reveal.js?v=20260808",
-  "/scripts/rorc-supabase-client.js?v=20261002-account-switching",
+  "/scripts/rorc-supabase-client.js?v=20261003-related-form-accounts",
   "/Images/LOGOS/LOGO.png"
 ];
 
