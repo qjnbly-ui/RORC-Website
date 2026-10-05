@@ -8380,7 +8380,8 @@ function rentalDateKey() {
 }
 
 function isRentalNeedsAction(rental) {
-  return rental?.rentalStatus === "submitted" || rental?.rentalStatus === "pending_review";
+  return rental?.rentalStatus === "submitted" || rental?.rentalStatus === "pending_review"
+    || (rental?.changeRequests || []).some((request) => request.status === "pending");
 }
 
 function isRentalDeclined(rental) {
@@ -8862,7 +8863,14 @@ function updateRentalFromResponse(body) {
 function renderRentalPipeline(root) {
   revealReadyContent(root);
 
-  const all       = rentalAllRequests;
+  const all       = [...rentalAllRequests].sort((a, b) => {
+    const aPast = isRentalPast(a);
+    const bPast = isRentalPast(b);
+    if (aPast !== bPast) return aPast ? 1 : -1;
+    const byDate = String(a.eventDate || "9999-12-31").localeCompare(String(b.eventDate || "9999-12-31"));
+    return (aPast ? -byDate : byDate)
+      || String(a.eventStartTime || "").localeCompare(String(b.eventStartTime || ""));
+  });
   const action    = all.filter(isRentalNeedsAction);
   const archive   = all.filter((r) => !isRentalNeedsAction(r) && isRentalPast(r));
   const confirmed = all.filter((r) => r.rentalStatus === "confirmed" && !isRentalPast(r) && !isRentalSpecialAccess(r));
