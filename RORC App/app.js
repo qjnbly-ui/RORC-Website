@@ -16813,6 +16813,12 @@ function renderAccountDetail(memberId) {
   `;
 
   bindAccountDetailActions();
+  if (isMyAccount && linkedAccountChoices.length > 1) {
+    const overview = document.createElement("section");
+    overview.className = "linked-account-overview";
+    root.prepend(overview);
+    window.RORC_LINKED_ACCOUNTS?.mount(overview, currentAuthSession?.access_token);
+  }
 }
 
 function renderOverviewPanel(member, account) {

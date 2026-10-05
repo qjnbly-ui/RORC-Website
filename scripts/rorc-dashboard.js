@@ -229,6 +229,15 @@
     const selector = byId("activeAccount");
     if (!section || !selector) return;
     section.hidden = (result.accounts || []).length < 2;
+    let overview = byId("linkedAccountOverview");
+    if (!overview) {
+      overview = document.createElement("section");
+      overview.id = "linkedAccountOverview";
+      overview.className = "linked-account-overview";
+      section.before(overview);
+    }
+    overview.hidden = section.hidden;
+    if (!overview.hidden) window.RORC_LINKED_ACCOUNTS?.mount(overview, result.session?.access_token);
     selector.replaceChildren(...(result.accounts || []).map(account => {
       const option = document.createElement("option");
       option.value = account.account_member_id;

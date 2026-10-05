@@ -1,16 +1,18 @@
-const CACHE_VERSION = "rorc-app-v100";
+const CACHE_VERSION = "rorc-app-v101";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const NAVIGATION_CACHE = `${CACHE_VERSION}-navigation`;
 const OFFLINE_PAGE = "./index.html";
 const APP_SHELL = [
   OFFLINE_PAGE,
-  "./app.css?v=20261005-calendar-cancellations",
+  "/scripts/rorc-linked-accounts.js?v=20261005",
+  "/scripts/rorc-linked-accounts.css?v=20261005",
+  "./app.css?v=20261005-linked-overview",
   "./resource-coordinator.js?v=20260808-reliable-sync",
   "./closure-credits.css?v=20260921-closure-credits",
   "./closure-credits.js?v=20260921-closure-credits",
   "/scripts/rorc-recurring-dates.js?v=20261001",
   "/scripts/rorc-account-form-draft.js?v=20261003-related-form-accounts",
-  "./app.js?v=20261005-calendar-cancellations",
+  "./app.js?v=20261005-linked-overview",
   "./vendor/supabase.min.js?v=2.112.2",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",
