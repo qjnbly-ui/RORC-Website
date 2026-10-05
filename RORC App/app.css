@@ -7937,6 +7937,54 @@ textarea:focus-visible,
   padding-top: 12px;
 }
 
+/* Let the month use the available screen while keeping its toolbar compact. */
+.calendar-admin-page,
+.feedback-page:has(.cal-toolbar) {
+  max-width: none;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.calendar-admin-page .cal-grid {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-rows: 36px;
+  grid-auto-rows: minmax(84px, 1fr);
+  min-height: calc(var(--app-viewport-height) - var(--app-bar-height) - var(--bottom-nav-height) - var(--safe-bottom) - 104px);
+}
+
+.calendar-admin-page .cal-cell {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .feedback-page.calendar-admin-page:has(.cal-toolbar) {
+    padding: 8px 6px;
+    gap: 8px;
+  }
+
+  .calendar-admin-page .cal-grid {
+    grid-template-rows: 30px;
+    grid-auto-rows: minmax(76px, 1fr);
+    min-height: calc(var(--app-viewport-height) - var(--app-bar-height) - var(--bottom-nav-height) - var(--safe-bottom) - 86px);
+  }
+
+  .calendar-admin-page .cal-header {
+    padding: 6px 2px;
+  }
+
+  .calendar-admin-page .cal-cell {
+    padding: 6px 3px;
+  }
+
+  .calendar-admin-page .cal-day-mini-event {
+    gap: 3px;
+  }
+
+  .calendar-admin-page .cal-day-mini-title {
+    font-size: 10px;
+  }
+}
+
 .feedback-loading,
 .feedback-empty,
 .feedback-error {
@@ -9760,4 +9808,286 @@ textarea:focus-visible,
 @media (max-width: 640px) {
   .communications-ai-state { width: 100%; }
   .communications-ai-controls label { flex: 1 1 130px; min-width: 0; }
+}
+
+/* My Notifications: readable message cards at every screen size. */
+.user-notifications-page {
+  display: grid;
+  align-content: start;
+  gap: 20px;
+  width: 100%;
+  max-width: 1200px;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 8px 0 16px;
+}
+.user-notifications-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 24px;
+  background: var(--panel-bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.user-notifications-intro { min-width: 0; }
+.user-notifications-intro h2 {
+  margin: 0 0 6px;
+  font-size: clamp(1.15rem, 2vw, 1.45rem);
+  line-height: 1.3;
+}
+.user-notifications-intro p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.user-notifications-toolbar > button { flex-shrink: 0; }
+.user-notifications-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.user-notifications-filters {
+  display: inline-flex;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px;
+  background: var(--panel-bg);
+}
+.user-notifications-filter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.user-notifications-filter.is-active { background: var(--accent); color: #fff; }
+.user-notifications-filter span { font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.user-notifications-sort { margin: 0; color: var(--muted); font-size: 0.8rem; }
+.user-notifications-list { display: grid; gap: 12px; list-style: none; margin: 0; padding: 0; }
+.user-notification {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 20px;
+  padding: 22px 24px;
+  background: var(--panel-bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.user-notification.is-unread { border-left: 3px solid var(--accent); padding-left: 22px; }
+.user-notification-content { min-width: 0; }
+.user-notification-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; margin-bottom: 10px; color: var(--muted); font-size: 0.78rem; line-height: 1.5; overflow-wrap: anywhere; }
+.user-notification-status { font-weight: 800; }
+.is-unread .user-notification-status { color: #ff918d; }
+.user-notification h3 { margin: 0 0 10px; font-size: 1rem; line-height: 1.4; }
+.user-notification-open { display: block; padding: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-weight: 800; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.user-notification-open:hover { text-decoration: underline; text-underline-offset: 3px; }
+.user-notification-message { max-width: 85ch; margin: 0; color: #d1d4d9; font-size: 0.92rem; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.user-notification-toggle { font-size: 0.8rem; min-height: 40px; white-space: nowrap; }
+.user-notifications-empty { padding: 36px 24px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-bg); }
+.user-notifications-empty h2, .user-notifications-empty h3 { margin: 0 0 8px; font-size: 1.1rem; }
+.user-notifications-empty p { max-width: 60ch; margin: 0; color: var(--muted); line-height: 1.6; }
+.user-notifications-empty button { margin-top: 18px; }
+.user-notification-open:focus-visible, .user-notifications-filter:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+@media (max-width: 640px) {
+  .feedback-page:has(.user-notifications-page) { padding: 12px; }
+  .user-notifications-page { gap: 14px; padding: 0 0 12px; }
+  .user-notifications-toolbar { flex-direction: column; align-items: stretch; gap: 14px; padding: 18px 16px; }
+  .user-notifications-toolbar > button { align-self: flex-start; min-height: 44px; }
+  .user-notification { grid-template-columns: minmax(0, 1fr); gap: 16px; padding: 18px 16px; }
+  .user-notification.is-unread { padding-left: 14px; }
+  .user-notification-message { font-size: 0.9rem; }
+  .user-notification-toggle { justify-self: start; min-height: 44px; }
+  .user-notifications-sort { font-size: 0.72rem; }
+  .user-notifications-filter { padding: 0 12px; }
+  .user-notifications-empty { padding: 28px 18px; }
+}
+
+/* My Account: compact summary, accessible section controls, grouped details. */
+.my-account-page { min-width: 0; }
+.my-account-page .member-detail-shell { max-width: 1200px; min-width: 0; gap: 18px; }
+.my-account-page .detail-hero, .my-account-page .detail-card { background: var(--panel-bg); border-color: var(--line); border-radius: 6px; box-shadow: none; }
+.my-account-page .detail-hero { grid-template-columns: minmax(0, 1fr) auto; gap: 22px; justify-items: stretch; padding: 24px; text-align: left; }
+.my-account-page .detail-identity { display: block; min-width: 0; max-width: none; margin: 0; text-align: left; }
+.my-account-page .detail-identity h2 { font-size: clamp(1.35rem, 2.8vw, 1.8rem); line-height: 1.25; overflow-wrap: anywhere; margin-bottom: 6px; }
+.my-account-page .detail-identity .eyebrow { margin: 0 0 8px; font-size: 0.72rem; }
+.my-account-page .detail-identity p:not(.eyebrow) { font-size: 0.88rem; overflow-wrap: anywhere; }
+.my-account-page .detail-quick-actions { align-items: center; justify-content: flex-end; gap: 8px; }
+.my-account-page .detail-quick-actions button { min-height: 44px; border-radius: 4px; letter-spacing: 0; text-transform: none; padding: 0 14px; }
+.my-account-page .detail-stat-grid { grid-column: 1 / -1; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.my-account-page .detail-stat-grid article { background: #202020; border: 1px solid var(--line); border-radius: 4px; align-content: start; justify-items: start; gap: 10px; padding: 16px; text-align: left; }
+.my-account-page .detail-stat-grid span { font-size: 0.74rem; letter-spacing: 0; text-transform: none; line-height: 1.5; }
+.my-account-page .detail-stat-grid strong { font-size: 1.4rem; font-variant-numeric: tabular-nums; }
+.my-account-page .detail-tabs { display: flex; gap: 4px; min-width: 0; border-radius: 6px; overflow-x: auto; padding: 5px; scrollbar-width: thin; }
+.my-account-page .detail-tab { flex: 1 0 auto; border-radius: 4px; min-height: 44px; padding: 0 14px; white-space: nowrap; }
+.my-account-page .detail-tab:focus-visible, .my-account-page .detail-quick-actions button:focus-visible { outline: 2px solid var(--focus); outline-offset: -3px; }
+.my-account-page .my-account-overview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.my-account-page .detail-card { padding: 22px 24px; min-width: 0; }
+.my-account-page .detail-card h3 { font-size: 1rem; margin: 0 0 18px; }
+.my-account-page .definition-grid div { grid-template-columns: minmax(100px, 0.85fr) minmax(0, 1.15fr); gap: 18px; padding: 13px 0; align-items: baseline; }
+.my-account-page .definition-grid div:first-child { padding-top: 0; }
+.my-account-page .definition-grid div:last-child { padding-bottom: 0; }
+.my-account-page .definition-grid dt { font-size: 0.82rem; font-weight: 500; line-height: 1.5; }
+.my-account-page .definition-grid dd { font-size: 0.88rem; font-weight: 600; overflow-wrap: anywhere; }
+.my-account-page .my-account-notes { grid-column: 1 / -1; }
+.my-account-page .my-account-notes p { margin: 0; color: var(--muted); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.my-account-page .record-list li { min-width: 0; gap: 12px; }
+.my-account-page .record-list li > div { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 800px) {
+  .my-account-page .detail-hero { grid-template-columns: minmax(0, 1fr); }
+  .my-account-page .detail-quick-actions { justify-content: flex-start; }
+  .my-account-page .detail-stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .account-detail-page.my-account-page { padding: 12px; }
+  .my-account-page .member-detail-shell { gap: 14px; }
+  .my-account-page .detail-hero { padding: 18px 16px; gap: 18px; }
+  .my-account-page .detail-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .my-account-page .detail-stat-grid article { padding: 12px; gap: 6px; }
+  .my-account-page .detail-stat-grid article:last-child { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; }
+  .my-account-page .detail-tabs { grid-template-columns: none; }
+  .my-account-page .detail-tab { flex: 0 0 auto; padding: 0 14px; }
+  .my-account-page .my-account-overview { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .my-account-page .detail-card { padding: 20px 16px; }
+  .my-account-page .definition-grid div { grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr); gap: 12px; }
+}
+
+/* Keep the account summary quiet and consistent at every width. */
+.my-account-page .detail-identity { width: 100%; justify-self: stretch; }
+.my-account-page .detail-identity > div { width: 100%; }
+.my-account-page .detail-stat-grid { gap: 0; border-top: 1px solid var(--line); padding-top: 20px; }
+.my-account-page .detail-stat-grid article { background: transparent; border: 0; border-radius: 0; padding: 0 20px; gap: 8px; border-left: 1px solid var(--line); }
+.my-account-page .detail-stat-grid article:first-child { border-left: 0; padding-left: 0; }
+.my-account-page .detail-stat-grid span { font-family: Arial, sans-serif; font-size: 0.8rem; font-weight: 400; color: var(--muted); }
+.my-account-page .detail-stat-grid strong { font-family: Arial, sans-serif; font-size: 1.45rem; font-weight: 600; }
+.my-account-page .detail-identity .eyebrow { font-size: 0.65rem; letter-spacing: 0.08em; }
+.my-account-page .detail-identity p:not(.eyebrow) { font-family: Arial, sans-serif; }
+@media (max-width: 800px) {
+  .my-account-page .detail-stat-grid { grid-template-columns: minmax(0, 1fr); padding-top: 8px; }
+  .my-account-page .detail-stat-grid article,
+  .my-account-page .detail-stat-grid article:first-child,
+  .my-account-page .detail-stat-grid article:last-child { display: flex; align-items: center; justify-content: space-between; grid-column: auto; border-left: 0; border-bottom: 1px solid var(--line); padding: 12px 0; gap: 16px; }
+  .my-account-page .detail-stat-grid article:last-child { border-bottom: 0; padding-bottom: 0; }
+  .my-account-page .detail-stat-grid strong { font-size: 1.15rem; flex-shrink: 0; }
+  .my-account-page .detail-quick-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .my-account-page .detail-quick-actions button { padding: 0 10px; font-size: 0.78rem; }
+  .my-account-page .detail-hero { gap: 16px; }
+}
+
+/* Member directory: readable rows and a compact search header. */
+:is(#accountInfoContent, #otherUsersContent) { padding: 24px; min-width: 0; }
+:is(#accountInfoContent, #otherUsersContent) .account-page-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; max-width: 1200px; margin: 0 auto 22px; padding: 22px 24px; text-align: left; background: var(--panel-bg); border: 1px solid var(--line); border-radius: 6px; }
+:is(#accountInfoContent, #otherUsersContent) .account-page-heading h2 { font-size: 1.4rem; margin: 6px 0 10px; }
+:is(#accountInfoContent, #otherUsersContent) .account-page-heading p:not(.eyebrow) { margin: 0; max-width: 62ch; color: var(--muted); font-family: Arial, sans-serif; font-size: .9rem; line-height: 1.6; }
+:is(#accountInfoContent, #otherUsersContent) .account-summary-strip { justify-content: flex-start; gap: 16px; }
+:is(#accountInfoContent, #otherUsersContent) .account-summary-strip span { border: 0; border-radius: 0; padding: 0; background: none; font-family: Arial, sans-serif; font-size: .82rem; }
+:is(#accountInfoContent, #otherUsersContent) .account-summary-strip strong { display: block; font-size: 1.3rem; margin-bottom: 5px; }
+:is(#accountInfoContent, #otherUsersContent) .account-search { max-width: 1200px; text-align: left; margin-bottom: 22px; }
+:is(#accountInfoContent, #otherUsersContent) .account-search span { letter-spacing: 0; text-transform: none; }
+:is(#accountInfoContent, #otherUsersContent) .account-search input { text-align: left; border-radius: 4px; min-height: 48px; font-family: Arial, sans-serif; font-size: .95rem; }
+:is(#accountInfoContent, #otherUsersContent) .account-status-groups { max-width: 1200px; }
+:is(#accountInfoContent, #otherUsersContent) .status-panel { border-radius: 6px; }
+:is(#accountInfoContent, #otherUsersContent) .status-panel-header { padding: 16px 20px; }
+:is(#accountInfoContent, #otherUsersContent) .status-panel-header h3 { font-size: .95rem; }
+:is(#accountInfoContent, #otherUsersContent) .member-list-card { grid-template-columns: minmax(0, 1fr) minmax(130px, 200px) minmax(130px, 180px); min-height: 78px; gap: 20px; }
+:is(#accountInfoContent, #otherUsersContent) .member-list-card .status-dot { display: none; }
+:is(#accountInfoContent, #otherUsersContent) .member-list-main, :is(#accountInfoContent, #otherUsersContent) .member-list-meta, :is(#accountInfoContent, #otherUsersContent) .member-list-actions { min-width: 0; overflow-wrap: anywhere; }
+:is(#accountInfoContent, #otherUsersContent) .member-list-main strong { font-size: .95rem; }
+:is(#accountInfoContent, #otherUsersContent) .member-list-card small { font-family: Arial, sans-serif; font-size: .8rem; line-height: 1.5; }
+:is(#accountInfoContent, #otherUsersContent) .member-list-actions span { font-size: .82rem; }
+:is(#accountInfoContent, #otherUsersContent) .member-list-card:focus-visible { outline: 2px solid var(--focus); outline-offset: -3px; }
+:is(#accountInfoContent, #otherUsersContent) .directory-empty { max-width: 1200px; margin: 0 auto; padding: 24px; background: var(--panel-bg); border: 1px solid var(--line); border-radius: 6px; color: var(--muted); line-height: 1.6; }
+:is(#accountInfoContent, #otherUsersContent) .directory-empty[hidden] { display: none; }
+@media(max-width: 800px) {
+ :is(#accountInfoContent, #otherUsersContent) .account-page-heading { flex-direction: column; align-items: stretch; gap: 18px; }
+ :is(#accountInfoContent, #otherUsersContent) .account-summary-strip { gap: 24px; }
+}
+@media(max-width: 640px) {
+ :is(#accountInfoContent, #otherUsersContent) { padding: 12px; }
+ :is(#accountInfoContent, #otherUsersContent) .account-page-heading { padding: 18px 16px; margin-bottom: 18px; }
+ :is(#accountInfoContent, #otherUsersContent) .account-page-heading h2 { font-size: 1.2rem; }
+ :is(#accountInfoContent, #otherUsersContent) .member-list-card { grid-template-columns: minmax(0, 1fr) auto; padding: 16px; gap: 10px 14px; }
+ :is(#accountInfoContent, #otherUsersContent) .member-list-main { grid-column: 1 / -1; }
+ :is(#accountInfoContent, #otherUsersContent) .member-list-meta { justify-items: start; text-align: left; }
+ :is(#accountInfoContent, #otherUsersContent) .member-list-actions { justify-items: end; text-align: right; }
+ :is(#accountInfoContent, #otherUsersContent) .status-panel-header { padding: 14px 16px; }
+}
+@media(max-width: 640px) {
+ :is(#accountInfoContent, #otherUsersContent) .member-list-meta { grid-column: 1; grid-row: 2; }
+ :is(#accountInfoContent, #otherUsersContent) .member-list-actions { grid-column: 2; grid-row: 2; }
+}
+
+/* Preserve the directory's account-status indicators. */
+:is(#accountInfoContent, #otherUsersContent) .account-page-heading { padding: 0; background: none; border: 0; }
+:is(#accountInfoContent, #otherUsersContent) .account-summary-strip strong { display: inline; font-size: inherit; margin: 0 4px 0 0; }
+:is(#accountInfoContent, #otherUsersContent) .member-list-card { grid-template-columns: 18px minmax(0, 1fr) minmax(130px, 200px) minmax(130px, 180px); }
+:is(#accountInfoContent, #otherUsersContent) .member-list-card .status-dot { display: inline-block; }
+@media(max-width: 640px) {
+ :is(#accountInfoContent, #otherUsersContent) .member-list-card { grid-template-columns: 18px minmax(0, 1fr) auto; }
+ :is(#accountInfoContent, #otherUsersContent) .member-list-card .status-dot { grid-column: 1; grid-row: 1; align-self: start; margin-top: 3px; }
+ :is(#accountInfoContent, #otherUsersContent) .member-list-main { grid-column: 2 / -1; grid-row: 1; }
+ :is(#accountInfoContent, #otherUsersContent) .member-list-meta { grid-column: 2; grid-row: 2; }
+ :is(#accountInfoContent, #otherUsersContent) .member-list-actions { grid-column: 3; grid-row: 2; }
+}
+
+/* Restore the original directory summary badges. */
+:is(#accountInfoContent, #otherUsersContent) .account-page-heading { justify-content: center; }
+:is(#accountInfoContent, #otherUsersContent) .account-summary-strip { justify-content: center; flex-wrap: wrap; gap: 10px; }
+:is(#accountInfoContent, #otherUsersContent) .account-summary-strip span { background: #1b1b1b; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); padding: 9px 12px; font-family: inherit; font-size: .9rem; white-space: nowrap; }
+:is(#accountInfoContent, #otherUsersContent) .account-summary-strip strong { display: inline; color: var(--text); margin: 0; font-size: inherit; }
+@media(max-width: 640px) {
+ :is(#accountInfoContent, #otherUsersContent) .account-page-heading { align-items: center; }
+ :is(#accountInfoContent, #otherUsersContent) .account-summary-strip { gap: 8px; }
+ :is(#accountInfoContent, #otherUsersContent) .account-summary-strip span { font-size: .8rem; padding: 8px 10px; }
+}
+.app-shell:has(:is(#accountInfoContent, #otherUsersContent)) .app-header { min-width: 0; }
+.app-shell:has(:is(#accountInfoContent, #otherUsersContent)) #screenTitle { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+@media(max-width: 640px) {
+ .app-shell:has(:is(#accountInfoContent, #otherUsersContent)) #screenTitle { font-size: 1rem; line-height: 1.3; }
+}
+
+
+/* Feedback: one focused form with comfortable writing space. */
+.feedback-compose { max-width: 1000px; gap: 18px; }
+.feedback-compose .feedback-hero { background: none; border: 0; border-radius: 0; padding: 0; text-align: left; justify-items: start; }
+.feedback-compose .feedback-hero p { margin: 0; color: var(--muted); line-height: 1.6; font-family: Arial, sans-serif; }
+.feedback-compose .feedback-form { display: grid; grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr); gap: 22px; background: var(--panel-bg); border: 1px solid var(--line); border-radius: 6px; padding: 24px; }
+.feedback-compose .feedback-form label { min-width: 0; text-align: left; }
+.feedback-compose .feedback-form label > span { text-transform: none; letter-spacing: 0; font-size: .88rem; }
+.feedback-compose .feedback-form input, .feedback-compose .feedback-form select, .feedback-compose .feedback-form textarea { width: 100%; min-width: 0; border-radius: 4px; text-align: left; font-family: Arial, sans-serif; font-size: 1rem; }
+.feedback-compose .feedback-form input, .feedback-compose .feedback-form select { min-height: 48px; }
+.feedback-compose .feedback-message-field, .feedback-compose .feedback-actions { grid-column: 1 / -1; }
+.feedback-compose .feedback-form textarea { min-height: 220px; resize: vertical; line-height: 1.6; padding: 14px; }
+.feedback-compose .feedback-actions { justify-content: flex-start; text-align: left; gap: 16px; }
+.feedback-compose .feedback-actions button { min-height: 44px; border-radius: 4px; }
+@media(max-width: 640px) {
+ .feedback-page:has(.feedback-compose) { padding: 12px; }
+ .feedback-compose .feedback-form { grid-template-columns: minmax(0, 1fr); padding: 18px 16px; gap: 18px; }
+ .feedback-compose .feedback-actions { align-items: stretch; }
+ .feedback-compose .feedback-actions button { width: 100%; }
+}
+
+/* Account Reviews should not reserve a full screen for an empty queue. */
+.live-record-page:has(#contractReviewResult) { min-width: 0; }
+.live-record-page:has(#contractReviewResult) > .empty-state { min-height: 0; height: auto; padding: 24px 16px; margin: 0; }
+.live-record-page:has(#contractReviewResult) > .account-page-heading { min-height: 0; padding: 20px 16px; margin-bottom: 0; }
+.live-record-page:has(#contractReviewResult) > #contractReviewResult:empty { display: none; }
+.live-record-page:has(#contractReviewResult) .record-list li { min-width: 0; overflow-wrap: anywhere; }
+@media(max-width: 640px) {
+ .live-record-page:has(#contractReviewResult) .detail-card { padding: 16px; min-width: 0; }
+ .live-record-page:has(#contractReviewResult) .record-list li > div { min-width: 0; }
 }

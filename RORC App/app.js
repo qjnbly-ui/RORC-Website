@@ -475,7 +475,7 @@ const routes = {
     afterRender: populateHeaterForm
   },
   accountInfo: {
-    title: "Members & Accounts",
+    title: "Membership & Accounts — Admin View",
     template: "accountInfoTemplate",
     afterRender: renderAccountInfo
   },
@@ -1380,19 +1380,13 @@ function renderFeedbackPage() {
   if (!root) return;
 
   root.innerHTML = `
-    <section class="feedback-shell">
-      <header class="feedback-hero">
-        <p class="eyebrow">RORC App</p>
-        <h2>Feedback</h2>
-        <p>Share bugs, ideas, and requests. Your message will be emailed to the RORC app inbox.</p>
-      </header>
-
+    <section class="feedback-shell feedback-compose">
       <form id="feedbackForm" class="feedback-form">
         <input id="feedbackMemberName" type="hidden" value="${escapeAttribute(member?.memberName || "")}" />
         <input id="feedbackAccountNumber" type="hidden" value="${escapeAttribute(displayAccountNumberForMember(member))}" />
 
         <label>
-          <span>Type</span>
+          <span>Feedback type</span>
           <select id="feedbackType">
             <option value="Bug Report">Bug Report</option>
             <option value="Feature Request">Feature Request</option>
@@ -1406,9 +1400,9 @@ function renderFeedbackPage() {
           <input id="feedbackSubject" type="text" maxlength="120" />
         </label>
 
-        <label>
+        <label class="feedback-message-field">
           <span>Message</span>
-          <textarea id="feedbackMessage" rows="6" maxlength="4000" required></textarea>
+          <textarea id="feedbackMessage" rows="8" maxlength="4000" placeholder="Tell us what happened or what you’d like to improve…" required></textarea>
         </label>
 
         <div class="feedback-actions">
@@ -4014,13 +4008,15 @@ async function renderUserNotificationsPage() {
 
   const state = resourceState("notifications");
   if (!state.hasValue) {
-    root.innerHTML = `<section class="empty-state"><p>Loading notifications…</p></section>`;
+    root.innerHTML = `<section class="user-notifications-page"><div class="user-notifications-empty" role="status"><h2>Loading your notifications</h2><p>Checking for the latest messages and facility updates…</p></div></section>`;
   }
   try {
     await ensureResource("notifications");
   } catch (error) {
     if (!state.hasValue) {
-      root.innerHTML = `<section class="empty-state"><p>${escapeHtml(error.message || "Could not load notifications.")}</p></section>`;
+      if (appState.currentRoute !== "notifications") return;
+      root.innerHTML = `<section class="user-notifications-page"><div class="user-notifications-empty" role="alert"><h2>Notifications couldn’t load</h2><p>${escapeHtml(error.message || "Please try again.")}</p><button class="app-admin-btn app-admin-btn-secondary" data-notifications-retry type="button">Try again</button></div></section>`;
+      root.querySelector("[data-notifications-retry]")?.addEventListener("click", renderUserNotificationsPage);
       return;
     }
   }
@@ -4032,37 +4028,53 @@ async function renderUserNotificationsPage() {
   const unreadIds = records
     .filter((record) => record.recipientMemberId === appState.authMemberId && !record.readAt)
     .map((record) => record.id);
+  const filter = appState.userNotificationsFilter === "unread" ? "unread" : "all";
+  const visibleRecords = filter === "unread"
+    ? records.filter((record) => !record.readAt)
+    : records;
 
   root.innerHTML = `
-    <section class="live-record-page">
-      ${unreadIds.length ? `
-      <div class="detail-card">
-        <div class="form-actions">
-          <button class="save-action" data-notifications-mark-all-read type="button">Mark All Read</button>
+    <section class="user-notifications-page" aria-label="Your notifications">
+      <header class="user-notifications-toolbar">
+        <div class="user-notifications-intro">
+          <h2>${unreadIds.length ? `${unreadIds.length} unread ${unreadIds.length === 1 ? "notification" : "notifications"}` : "You’re all caught up"}</h2>
+          <p>Messages, account notices, and facility updates in one place.</p>
         </div>
+        ${unreadIds.length ? `<button class="app-admin-btn app-admin-btn-secondary" data-notifications-mark-all-read type="button">Mark all read</button>` : ""}
+      </header>
+      <div class="user-notifications-controls">
+        <div class="user-notifications-filters" role="group" aria-label="Filter notifications">
+          <button class="user-notifications-filter ${filter === "all" ? "is-active" : ""}" data-user-notifications-filter="all" aria-pressed="${filter === "all"}" type="button">All <span>${records.length}</span></button>
+          <button class="user-notifications-filter ${filter === "unread" ? "is-active" : ""}" data-user-notifications-filter="unread" aria-pressed="${filter === "unread"}" type="button">Unread <span>${records.filter((record) => !record.readAt).length}</span></button>
+        </div>
+        <p class="user-notifications-sort">Newest first</p>
       </div>
-      ` : ""}
-      ${records.length ? `
-      <div class="detail-card">
-        <ol class="record-list heater-record-list">
-          ${records.map((record) => `
-            <li data-notification-item="${escapeAttribute(record.id)}">
-              <strong class="heater-record-event">${escapeHtml(record.title)}</strong>
-              <span class="heater-record-meta">${escapeHtml(formatNotificationMeta(record))}</span>
-              <button class="heater-state-action is-paid" data-notification-toggle="${escapeAttribute(record.id)}" type="button">${record.readAt ? "Mark Unread" : "Mark Read"}</button>
-              <p class="heater-record-message">${escapeHtml(record.message || "")}</p>
-            </li>
-          `).join("")}
-        </ol>
-      </div>
-      ` : `
-      <section class="empty-state">
-        <p>No notifications yet.</p>
-      </section>
-      `}
+      ${visibleRecords.length ? `
+      <ul class="user-notifications-list">
+        ${visibleRecords.map((record) => `
+          <li class="user-notification ${record.readAt ? "is-read" : "is-unread"}" data-notification-item="${escapeAttribute(record.id)}">
+            <div class="user-notification-content">
+              <div class="user-notification-meta">
+                <span class="user-notification-status">${record.readAt ? "Read" : "Unread"}</span>
+                <span>${escapeHtml(formatNotificationMeta(record))}</span>
+              </div>
+              <h3><button class="user-notification-open" data-notification-open type="button">${escapeHtml(record.title || "Notification")}</button></h3>
+              <p class="user-notification-message">${escapeHtml(record.message || "")}</p>
+            </div>
+            ${record.recipientMemberId === appState.authMemberId ? `<button class="app-admin-btn app-admin-btn-secondary user-notification-toggle" data-notification-toggle="${escapeAttribute(record.id)}" type="button">${record.readAt ? "Mark unread" : "Mark read"}</button>` : ""}
+          </li>
+        `).join("")}
+      </ul>
+      ` : `<div class="user-notifications-empty" role="status"><h3>${filter === "unread" ? "No unread notifications" : "No notifications yet"}</h3><p>${filter === "unread" ? "You’ve read all your messages. Switch to All to revisit earlier updates." : "New messages and facility updates will appear here."}</p></div>`}
     </section>
   `;
 
+  root.querySelectorAll("[data-user-notifications-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      appState.userNotificationsFilter = button.dataset.userNotificationsFilter;
+      renderUserNotificationsPage();
+    });
+  });
   bindUserNotificationActions();
   bindMarkAllNotificationsRead();
   bindNotificationOpenActions();
@@ -6055,7 +6067,7 @@ function setScheduledMessageButtonsBusy(id, busy, label = "") {
 function bindNotificationOpenActions() {
   document.querySelectorAll("[data-notification-item]").forEach((row) => {
     row.addEventListener("click", (event) => {
-      if (event.target?.closest?.("button, a, input, select, textarea")) return;
+      if (event.target?.closest?.("button, a, input, select, textarea") && !event.target.closest("[data-notification-open]")) return;
       const notificationId = String(row.dataset.notificationItem || "").trim();
       if (!notificationId) return;
       const notification = notificationDispatchRecords.find((row) => row.id === notificationId)
@@ -16490,12 +16502,6 @@ function renderAccountInfo() {
 
   root.innerHTML = `
     <div class="account-page-heading">
-      <div>
-        <p class="eyebrow">Admin View</p>
-        <h2>Membership Accounts</h2>
-        <p>Search, review, and open member accounts. Details use a shared-account model: account data is shared, member data is per person.</p>
-        ${dataSourceNotice()}
-      </div>
       <div class="account-summary-strip">
         <span><strong>${members.length}</strong> members</span>
         <span><strong>${accounts.length}</strong> accounts</span>
@@ -16504,11 +16510,13 @@ function renderAccountInfo() {
     </div>
     <label class="account-search">
       <span>Search accounts</span>
-      <input id="accountSearch" type="search" placeholder="Name, account number, email, status" autocomplete="off" />
+      <input id="accountSearch" type="search" placeholder="Name, account number, email, phone, or status" autocomplete="off" />
     </label>
     <div id="accountStatusGroups" class="account-status-groups">
       ${groups.map(renderAccountStatusGroup).join("")}
     </div>
+    <p id="accountSearchEmpty" class="directory-empty" role="status" hidden>No members match your search. Try a different name or account number.</p>
+    ${members.length === 0 ? `<p class="directory-empty">No member accounts yet.</p>` : ""}
   `;
 
   bindAccountInfoActions();
@@ -16537,12 +16545,6 @@ function renderOtherUsers() {
 
   root.innerHTML = `
     <div class="account-page-heading">
-      <div>
-        <p class="eyebrow">Shared Account</p>
-        <h2>Account Members</h2>
-        <p>Review the other people attached to ${escapeHtml(account?.accountNumber || "your account")}. These users share the same account number, while each person keeps their own member record.</p>
-        ${dataSourceNotice()}
-      </div>
       <div class="account-summary-strip">
         <span><strong>${members.length}</strong> other users</span>
         <span><strong>${escapeHtml(account?.accountNumber || "N/A")}</strong> account</span>
@@ -16552,7 +16554,7 @@ function renderOtherUsers() {
 
     <label class="account-search">
       <span>Search users on my account</span>
-      <input id="otherUsersSearch" type="search" placeholder="Name, email, phone, status" autocomplete="off" />
+      <input id="otherUsersSearch" type="search" placeholder="Name, email, phone, or status" autocomplete="off" />
     </label>
     <div id="otherUsersStatusGroups" class="account-status-groups">
       ${groups.map(renderAccountStatusGroup).join("")}
@@ -16635,6 +16637,8 @@ function bindMemberDirectoryActions(searchId, returnRoute) {
         .some((card) => !card.hidden);
       panel.hidden = !hasVisibleRows;
     });
+    const empty = document.getElementById("accountSearchEmpty");
+    if (empty) empty.hidden = !query || [...document.querySelectorAll(".member-list-card")].some(card => !card.hidden);
   });
 }
 
@@ -16675,6 +16679,8 @@ function renderAccountDetail(memberId) {
   const member = findMember(memberId);
 
   if (!root) return;
+  const isMyAccount = appState.currentRoute === "myAccount";
+  root.classList.toggle("my-account-page", isMyAccount);
 
   if (!member) {
     root.innerHTML = `
@@ -16723,7 +16729,7 @@ function renderAccountDetail(memberId) {
     <div class="member-detail-shell">
       <header class="detail-hero">
         <div class="detail-identity">
-          <span class="status-dot status-dot-large ${accountTypeTone(member.accountType)}" aria-hidden="true"></span>
+          ${isMyAccount ? "" : `<span class="status-dot status-dot-large ${accountTypeTone(member.accountType)}" aria-hidden="true"></span>`}
           <div>
             <p class="eyebrow">${escapeHtml(member.accountType)}</p>
             <h2>${escapeHtml(member.memberName)}</h2>
@@ -16731,49 +16737,51 @@ function renderAccountDetail(memberId) {
           </div>
         </div>
         <div class="detail-quick-actions">
+          ${!isMyAccount ? `
           <button data-detail-action="phone" data-member-id="${escapeAttribute(member.id)}" type="button">Phone Call</button>
           <button data-detail-action="text" data-member-id="${escapeAttribute(member.id)}" type="button">Text Message</button>
           <button data-detail-action="email" data-member-id="${escapeAttribute(member.id)}" type="button">Email</button>
           ${isAccountManager(appUserSession) ? `<button data-detail-action="saveContact" data-member-id="${escapeAttribute(member.id)}" type="button">Save Contact</button>` : ""}
+          ` : ""}
           ${canManageBilling ? `<button data-detail-action="billing" data-member-id="${escapeAttribute(member.id)}" type="button">Manage Billing</button>` : ""}
-          ${canEditDetails ? `<button class="edit-chip" data-detail-action="edit" data-member-id="${escapeAttribute(member.id)}" type="button">Edit</button>` : ""}
+          ${canEditDetails ? `<button class="edit-chip" data-detail-action="edit" data-member-id="${escapeAttribute(member.id)}" type="button">${isMyAccount ? "Edit profile" : "Edit"}</button>` : ""}
         </div>
         <div class="detail-stat-grid">
           <article>
-            <span>Open Billing</span>
+            <span>${isMyAccount ? "Open balance" : "Open Billing"}</span>
             <strong>${formatCurrency(openBilling)}</strong>
           </article>
           <article>
-            <span>Sign-ins This Month</span>
+            <span>${isMyAccount ? "Sign-ins this month" : "Sign-ins This Month"}</span>
             <strong>${monthlySignIns}</strong>
           </article>
           <article>
-            <span>Guest Entries</span>
+            <span>${isMyAccount ? "Guest entries to pay" : "Guest Entries"}</span>
             <strong>${openGuestEntryCount}</strong>
           </article>
           <article>
-            <span>Heater Hours</span>
+            <span>${isMyAccount ? "Heater hours to pay" : "Heater Hours"}</span>
             <strong>${(openHeaterMinutes / 60).toFixed(1)}</strong>
           </article>
           <article>
-            <span>Door Access</span>
+            <span>${isMyAccount ? "Door access this month" : "Door Access"}</span>
             <strong>${doorAccessCount}</strong>
           </article>
         </div>
       </header>
 
       <nav class="detail-tabs" aria-label="Account detail sections">
-        <button class="detail-tab is-active" data-detail-panel="overview" type="button">Overview</button>
-        <button class="detail-tab" data-detail-panel="billing" type="button">Billing</button>
-        <button class="detail-tab" data-detail-panel="timesheet" type="button">Timesheet</button>
-        <button class="detail-tab" data-detail-panel="guests" type="button">Guest Entries</button>
-        <button class="detail-tab" data-detail-panel="heater" type="button">Heater Use</button>
-        <button class="detail-tab" data-detail-panel="doorAccess" type="button">Door Access</button>
+        <button class="detail-tab is-active" data-detail-panel="overview" aria-pressed="true" type="button">Overview</button>
+        <button class="detail-tab" data-detail-panel="billing" aria-pressed="false" type="button">Billing</button>
+        <button class="detail-tab" data-detail-panel="timesheet" aria-pressed="false" type="button">Timesheet</button>
+        <button class="detail-tab" data-detail-panel="guests" aria-pressed="false" type="button">Guest Entries</button>
+        <button class="detail-tab" data-detail-panel="heater" aria-pressed="false" type="button">Heater Use</button>
+        <button class="detail-tab" data-detail-panel="doorAccess" aria-pressed="false" type="button">Door Access</button>
       </nav>
 
       <div class="detail-panel-stack">
         <section class="detail-panel is-active" data-detail-panel-view="overview">
-          ${renderOverviewPanel(member, account)}
+          ${isMyAccount ? renderMyAccountOverviewPanel(member, account) : renderOverviewPanel(member, account)}
         </section>
         <section class="detail-panel" data-detail-panel-view="billing">
           ${renderBillingPanel(records.billing)}
@@ -16829,6 +16837,37 @@ function renderOverviewPanel(member, account) {
   `;
 }
 
+function renderMyAccountOverviewPanel(member, account) {
+  const sections = [
+    ["Contact details", [
+      ["Phone number", member.phoneNumber || "Not set"],
+      ["Email address", member.emailAddress || "Not set"]
+    ]],
+    ["Account details", [
+      ["Account number", displayAccountNumberForMember(member)],
+      ["Account type", member.accountType],
+      ["Billing owner", member.isBillingOwner ? "Yes" : "No"]
+    ]],
+    ["Facility access", [
+      ["Day pass guests", member.allowGuestEntry ? "Allowed" : "Not allowed"],
+      ["Heater use", member.allowHeaterUse ? "Allowed" : "Not allowed"],
+      ...(supportsMinorMemberFields ? [["Independent access", member.canAccessIndependently ? "Yes" : "No"]] : [])
+    ]]
+  ];
+  if (supportsMinorMemberFields) {
+    const age = ageFromDateOfBirth(member.dateOfBirth);
+    sections.push(["Personal details", [
+      ["Date of birth", member.dateOfBirth ? formatShortDate(member.dateOfBirth) : "Not set"],
+      ["Age", age === null || age === undefined ? "Not set" : String(age)],
+      ["Guardian", guardianNameForMember(member)]
+    ]]);
+  }
+  return `<div class="my-account-overview">
+    ${sections.map(([title, fields]) => `<section class="detail-card"><h3>${title}</h3>${renderDefinitionGrid(fields)}</section>`).join("")}
+    <section class="detail-card my-account-notes"><h3>Account notes</h3><p>${escapeHtml(account?.notesOnAccount || "No account notes.")}</p></section>
+  </div>`;
+}
+
 function renderDefinitionGrid(items) {
   return `
     <dl class="definition-grid">
@@ -16848,7 +16887,7 @@ function renderBillingPanel(items) {
   return `
     <div class="detail-card">
       <h3>Billing Line Items</h3>
-      <ol class="record-list">
+      <ul class="record-list">
         ${items.map((item) => `
           <li data-detail-log-type="billing" data-detail-log-id="${escapeAttribute(item.id)}" role="button" tabindex="0">
             <div>
@@ -16858,7 +16897,7 @@ function renderBillingPanel(items) {
             <b>${formatCurrency(item.amountCents)}</b>
           </li>
         `).join("")}
-      </ol>
+      </ul>
     </div>
   `;
 }
@@ -16869,7 +16908,7 @@ function renderTimesheetPanel(items) {
   return `
     <div class="detail-card">
       <h3>Timesheet History</h3>
-      <ol class="record-list">
+      <ul class="record-list">
         ${items.map((item) => `
           <li data-detail-log-type="timesheet" data-detail-log-id="${escapeAttribute(item.id)}" role="button" tabindex="0">
             <div>
@@ -16879,7 +16918,7 @@ function renderTimesheetPanel(items) {
             <b>${escapeHtml(item.memberOrGuest)}</b>
           </li>
         `).join("")}
-      </ol>
+      </ul>
     </div>
   `;
 }
@@ -16890,7 +16929,7 @@ function renderGuestPanel(items) {
   return `
     <div class="detail-card">
       <h3>Guest Entries</h3>
-      <ol class="record-list">
+      <ul class="record-list">
         ${items.map((item) => `
           <li data-detail-log-type="timesheet" data-detail-log-id="${escapeAttribute(item.id)}" role="button" tabindex="0">
             <div>
@@ -16900,7 +16939,7 @@ function renderGuestPanel(items) {
             <b>${item.dayPassOrOpenGym === "Open Gym" ? "Free" : "10 free/mo"}</b>
           </li>
         `).join("")}
-      </ol>
+      </ul>
     </div>
   `;
 }
@@ -16911,7 +16950,7 @@ function renderHeaterPanel(items) {
   return `
     <div class="detail-card">
       <h3>Thermostat Use</h3>
-      <ol class="record-list">
+      <ul class="record-list">
         ${items.map((item) => `
           <li data-detail-log-type="heater" data-detail-log-id="${escapeAttribute(item.id)}" role="button" tabindex="0">
             <div>
@@ -16921,7 +16960,7 @@ function renderHeaterPanel(items) {
             <b>${escapeHtml(heaterDisplayState(item))}</b>
           </li>
         `).join("")}
-      </ol>
+      </ul>
     </div>
   `;
 }
@@ -16932,7 +16971,7 @@ function renderDoorAccessPanel(items) {
   return `
     <div class="detail-card">
       <h3>Door Access</h3>
-      <ol class="record-list">
+      <ul class="record-list">
         ${items.map((item) => `
           <li data-detail-log-type="doorAccess" data-detail-log-id="${escapeAttribute(item.id)}" role="button" tabindex="0">
             <div>
@@ -16942,7 +16981,7 @@ function renderDoorAccessPanel(items) {
             <b>${escapeHtml(item.requestStatus || "sent")}</b>
           </li>
         `).join("")}
-      </ol>
+      </ul>
     </div>
   `;
 }
@@ -18018,6 +18057,7 @@ function bindAccountDetailActions() {
 
       document.querySelectorAll(".detail-tab").forEach((tab) => {
         tab.classList.toggle("is-active", tab === button);
+        tab.setAttribute("aria-pressed", String(tab === button));
       });
 
       document.querySelectorAll("[data-detail-panel-view]").forEach((panel) => {
