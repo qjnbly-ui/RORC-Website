@@ -17611,17 +17611,17 @@ async function moveMemberToAccountClientFallback(member, targetAccountNumber) {
   if (existingAccountResult.data?.id) {
     targetAccountId = existingAccountResult.data.id;
   } else {
-    const createResult = await client
+    const renameResult = await client
       .from("accounts")
-      .insert({ account_number: targetAccountNumber })
+      .update({ account_number: targetAccountNumber })
+      .eq("id", member.accountId)
       .select("id")
       .single();
 
-    if (createResult.error) {
-      throw createResult.error;
+    if (renameResult.error) {
+      throw renameResult.error;
     }
-
-    targetAccountId = createResult.data?.id || "";
+    return;
   }
 
   if (!targetAccountId) {
