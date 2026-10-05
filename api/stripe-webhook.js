@@ -26,7 +26,7 @@ module.exports = async (req, res) => {
     } else if (event.type === "customer.subscription.updated") {
       await handleSubscriptionChanged(event.data.object, { syncPlan: true });
     } else if (event.type === "customer.subscription.deleted") {
-      await handleSubscriptionChanged(event.data.object, { syncPlan: false });
+      await handleSubscriptionChanged(event.data.object, { syncPlan: true });
     } else if (event.type === "invoice.paid") {
       await handleInvoicePaid(event.data.object);
     } else if (event.type === "invoice.voided") {
@@ -89,28 +89,30 @@ async function handleCheckoutCompleted(session) {
   }
 }
 
-async function handleSubscriptionChanged(subscription, { syncPlan }) {
+async function handleSubscriptionChanged(subscription, { syncPlan, paymentReceived = false }) {
   const accountId = await resolveAccountIdForSubscription(subscription);
   if (!accountId) return;
+
+  const hasUnpaidBalance = subscription.status === "canceled"
+    ? await canceledMembershipHasDebt(accountId, subscription, paymentReceived)
+    : false;
+  const planSync = syncPlan ? await syncAccountMembershipPlan({
+    accountId, subscription, hasUnpaidBalance, supabaseRest, updateSupabaseRows
+  }) : null;
 
   await upsertAccountBilling({
     accountId,
     customerId: typeof subscription.customer === "string" ? subscription.customer : "",
     subscriptionId: subscription.id,
-    billingStatus: normalizeBillingStatus(subscription.status),
-    currentPeriodEnd: subscription.current_period_end
-      ? new Date(subscription.current_period_end * 1000).toISOString()
+    billingStatus: subscription.status === "canceled" && planSync?.synced
+      ? (hasUnpaidBalance ? "past_due" : "none") : normalizeBillingStatus(subscription.status),
+    stripeStatus: normalizeBillingStatus(subscription.status),
+    currentPeriodEnd: (subscription.current_period_end || subscription.items?.data?.[0]?.current_period_end)
+      ? new Date((subscription.current_period_end || subscription.items.data[0].current_period_end) * 1000).toISOString()
       : null
   });
 
-  if (syncPlan) {
-    await syncAccountMembershipPlan({
-      accountId,
-      subscription,
-      supabaseRest,
-      updateSupabaseRows
-    });
-  }
+
 }
 
 async function handleInvoicePaid(invoice) {
@@ -125,7 +127,10 @@ async function handleInvoicePaid(invoice) {
   const rows = await supabaseRest(
     `billing_line_items?select=*&stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}`
   ).catch(() => []);
-  if (!rows.length) return;
+  if (!rows.length) {
+    await syncMembershipForInvoice(invoice, { paymentReceived: Number(invoice.amount_paid || 0) > 0 });
+    return;
+  }
 
   if (Number(invoice.total || invoice.amount_paid || 0) <= 0) {
     await updateSupabaseRows(
@@ -167,6 +172,7 @@ async function handleInvoicePaid(invoice) {
     }
   );
   await syncRelatedBillingState(rows);
+  await syncMembershipForInvoice(invoice, { paymentReceived: Number(invoice.amount_paid || 0) > 0 });
 }
 
 async function handleInvoiceVoided(invoice) {
@@ -191,6 +197,7 @@ async function handleInvoiceVoided(invoice) {
 
 async function handleInvoicePaymentFailed(invoice) {
   if (!invoice?.id) return;
+  await syncMembershipForInvoice(invoice);
   await updateSupabaseRows(
     `billing_line_items?stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}`,
     {
@@ -199,6 +206,35 @@ async function handleInvoicePaymentFailed(invoice) {
       stripe_invoice_status: invoice.status || null
     }
   ).catch(() => {});
+}
+
+async function syncMembershipForInvoice(invoice, { paymentReceived = false } = {}) {
+  const value = invoice.subscription || invoice.parent?.subscription_details?.subscription;
+  const subscriptionId = typeof value === "string" ? value : value?.id;
+  if (!subscriptionId) return;
+  const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+  await handleSubscriptionChanged(subscription, { syncPlan: true, paymentReceived });
+}
+
+async function canceledMembershipHasDebt(accountId, subscription, paymentReceived) {
+  const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer?.id;
+  if (!customerId) throw new Error("Cannot verify canceled membership balance without a Stripe customer.");
+  // Cancellation stops billing, but does not settle an outstanding invoice.
+  for await (const invoice of stripe.invoices.list({ customer: customerId, limit: 100 })) {
+    if (["open", "uncollectible"].includes(invoice.status) && Number(invoice.amount_remaining || 0) > 0) return true;
+  }
+  const members = await supabaseRest(`account_members?select=id&account_id=eq.${encodeURIComponent(accountId)}`);
+  if (members.length) {
+    const charges = await supabaseRest(`billing_line_items?select=amount_cents,payment_recorded_at,posted_to_stripe_at,stripe_invoice_id,stripe_invoice_status&account_member_id=in.(${members.map(m => m.id).join(",")})`);
+    if (charges.some(row => Number(row.amount_cents) > 0 && (row.stripe_invoice_id
+      ? ["open", "uncollectible"].includes(row.stripe_invoice_status)
+      : !row.payment_recorded_at && !row.posted_to_stripe_at))) return true;
+  }
+  const billing = await supabaseRest(`account_billing?select=billing_status&account_id=eq.${encodeURIComponent(accountId)}&limit=1`);
+  // Keep the past-due hold through cancellation and void events. Only an actual
+  // payment can release it after all remaining balances have been checked.
+  return !paymentReceived && (billing[0]?.billing_status === "past_due"
+    || subscription.cancellation_details?.reason === "payment_failed");
 }
 
 async function syncRelatedBillingState(rows) {
@@ -255,7 +291,6 @@ function uniqueIds(values) {
 
 async function resolveAccountIdForSubscription(subscription) {
   const metadata = subscription.metadata || {};
-  if (metadata.rorc_account_id) return metadata.rorc_account_id;
 
   if (subscription.id) {
     const subscriptionMatches = await supabaseRest(
@@ -266,6 +301,10 @@ async function resolveAccountIdForSubscription(subscription) {
       return subscriptionMatches[0].account_id;
     }
   }
+
+  // The app may have corrected a signup account link since Stripe metadata
+  // was written. The exact subscription link is authoritative.
+  if (metadata.rorc_account_id) return metadata.rorc_account_id;
 
   const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer?.id || "";
   if (customerId) {
@@ -281,12 +320,12 @@ async function resolveAccountIdForSubscription(subscription) {
   return "";
 }
 
-async function upsertAccountBilling({ accountId, customerId, subscriptionId, billingStatus, currentPeriodEnd }) {
+async function upsertAccountBilling({ accountId, customerId, subscriptionId, billingStatus, stripeStatus = billingStatus, currentPeriodEnd }) {
   const existing = await supabaseRest(`account_billing?select=account_id&account_id=eq.${encodeURIComponent(accountId)}&limit=1`);
   const payload = {
     stripe_customer_id: customerId || null,
     stripe_subscription_id: subscriptionId || null,
-    stripe_status: billingStatus,
+    stripe_status: stripeStatus,
     billing_status: billingStatus,
     current_period_end: currentPeriodEnd,
     last_sync: new Date().toISOString()

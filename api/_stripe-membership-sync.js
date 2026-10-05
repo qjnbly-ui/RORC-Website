@@ -24,7 +24,8 @@ const MEMBERSHIP_PRICE_PLANS = [
 const MEMBERSHIP_MANAGED_ACCOUNT_TYPES = new Set([
   "Active Membership",
   "Weight Room Only",
-  "Open Gym Only"
+  "Open Gym Only",
+  "Account Past Due NO ACCESS ALLOWED"
 ]);
 
 function planFromSubscription(subscription) {
@@ -42,8 +43,14 @@ function planFromSubscription(subscription) {
     .find((plan) => plan.priceId && subscriptionPriceIds.has(plan.priceId)) || null;
 }
 
-async function syncAccountMembershipPlan({ accountId, subscription, supabaseRest, updateSupabaseRows }) {
-  const plan = planFromSubscription(subscription);
+async function syncAccountMembershipPlan({ accountId, subscription, hasUnpaidBalance = false, supabaseRest, updateSupabaseRows }) {
+  const paidPlan = planFromSubscription(subscription);
+  const status = String(subscription?.status || "");
+  const plan = status === "canceled" && paidPlan && !hasUnpaidBalance
+    ? { ...paidPlan, label: "Open Gym", accountType: "Open Gym Only" }
+    : (hasUnpaidBalance || ["past_due", "unpaid", "paused", "incomplete", "incomplete_expired"].includes(status)) && paidPlan
+      ? { ...paidPlan, accountType: "Account Past Due NO ACCESS ALLOWED" }
+      : paidPlan;
 
   if (!accountId || !plan) {
     return {

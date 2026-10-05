@@ -55,6 +55,23 @@ module.exports = async (req, res) => {
 
     let targetAccount = await getAccountByNumber(targetAccountNumber);
 
+    const sourceMembers = await supabaseRest(`account_members?select=id&account_id=eq.${encodeURIComponent(member.account_id)}`);
+    const sourceBilling = await supabaseRest(`account_billing?select=stripe_customer_id,stripe_subscription_id&account_id=eq.${encodeURIComponent(member.account_id)}&limit=1`);
+    const hasStripeBilling = Boolean(sourceBilling[0]?.stripe_customer_id || sourceBilling[0]?.stripe_subscription_id);
+    if (hasStripeBilling && sourceMembers.length === 1 && !targetAccount) {
+      // Renumber the account itself so billing, contracts and member history
+      // remain attached to the same account ID.
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/accounts?id=eq.${encodeURIComponent(member.account_id)}`, {
+        method: "PATCH", headers: { apikey: SERVICE_ROLE_KEY, Authorization: `Bearer ${SERVICE_ROLE_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ account_number: targetAccountNumber })
+      });
+      if (!response.ok) throw new Error("Could not change the account number.");
+      return res.status(200).json({ success: true, targetAccountId: member.account_id, targetAccountNumber });
+    }
+    if (hasStripeBilling && (member.is_billing_owner || sourceMembers.length === 1) && targetAccount?.id !== member.account_id) {
+      return res.status(409).json({ success: false, error: "This member has Stripe billing attached. Choose an unused account number to rename the account. Merging into another account requires transferring billing first." });
+    }
+
     if (!targetAccount) {
       targetAccount = await createAccount(targetAccountNumber);
     }

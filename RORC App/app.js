@@ -202,6 +202,7 @@ const statusOrder = [
   "Weight Room Only",
   "Open Gym Only",
   "Rental Account",
+  "Account Past Due NO ACCESS ALLOWED",
   "RESTRICTED ACCOUNT"
 ];
 
@@ -213,6 +214,7 @@ const accountTypeOptions = [
   "Work Exchange Membership Program",
   "Weight Room Only",
   "Open Gym Only",
+  "Account Past Due NO ACCESS ALLOWED",
   "RESTRICTED ACCOUNT"
 ];
 
@@ -330,7 +332,7 @@ function canonicalAccountType(accountType) {
   if (normalized === "rental account") return "Rental Account";
   if (normalized === "restricted account") return "RESTRICTED ACCOUNT";
   if (normalized === "billed monthly") return "Special Access Account";
-  if (normalized === "account past due no access allowed") return "RESTRICTED ACCOUNT";
+  if (normalized === "account past due no access allowed") return "Account Past Due NO ACCESS ALLOWED";
 
   return String(accountType || "").trim() || "Active Membership";
 }
@@ -15252,7 +15254,7 @@ function accountTypeTone(accountType) {
   if (normalizedType === "Open Gym Only") return "blue";
   if (normalizedType === "Work Exchange Membership Program") return "green";
   if (normalizedType === "Weight Room Only") return "green";
-  if (normalizedType === "RESTRICTED ACCOUNT") return "red";
+  if (["RESTRICTED ACCOUNT", "Account Past Due NO ACCESS ALLOWED"].includes(normalizedType)) return "red";
   if (normalizedType === "Special Access Account") return "purple";
   return "green";
 }
@@ -17397,11 +17399,13 @@ async function updateMemberContact(member, updates) {
           const body = await response.json().catch(() => ({}));
 
           if (!response.ok || body.success === false) {
+            if (response.status === 409) throw Object.assign(new Error(body.error || "Account move conflict."), { accountMoveConflict: true });
             apiErrorMessage = body.error || `Move endpoint failed (${response.status}).`;
           } else {
             moved = true;
           }
         } catch (error) {
+          if (error.accountMoveConflict) throw error;
           apiErrorMessage = error.message || "Move endpoint request failed.";
         }
       }
@@ -17584,6 +17588,13 @@ async function moveMemberToAccountClientFallback(member, targetAccountNumber) {
 
   if (!client) {
     throw new Error("App data is not available.");
+  }
+
+  const sourceBilling = await client.from("account_billing")
+    .select("stripe_customer_id,stripe_subscription_id").eq("account_id", member.accountId).maybeSingle();
+  if (sourceBilling.error) throw sourceBilling.error;
+  if (sourceBilling.data?.stripe_customer_id || sourceBilling.data?.stripe_subscription_id) {
+    throw new Error("This account has Stripe billing attached. Its number must be changed through the account service to keep billing connected.");
   }
 
   let targetAccountId = "";
