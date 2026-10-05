@@ -13870,7 +13870,7 @@ async function loadCalendarResource() {
   facilityHours = normalizeFacilityHours(sharedHours);
   facilityHourOverrides = normalizeFacilityHourOverrides(sharedHours.overrides || {});
   calendarFacilityBlocks = Array.isArray(body.facilityBlocks) ? body.facilityBlocks : [];
-  calendarEvents = body.events || [];
+  calendarEvents = (body.events || []).filter((event) => !["cancelled", "canceled"].includes(event.status));
   calendarEventRequests = requestsResult.requests || [];
   if (canViewOwnedCalendarEvents(appUserSession) && calendarEventRequests.length) {
     updateOwnedCalendarEventAvailability([], calendarEventRequests);
@@ -13881,7 +13881,7 @@ async function loadCalendarResource() {
 async function loadMyEventsResource() {
   const body = await fetchCalendarEventRequests({ includeEvents: true, mineOnly: true });
   calendarEventRequests = body.requests || [];
-  calendarEvents = body.events || [];
+  calendarEvents = (body.events || []).filter((event) => !["cancelled", "canceled"].includes(event.status));
   updateOwnedCalendarEventAvailability(calendarEvents, calendarEventRequests);
   return { events: calendarEvents, requests: calendarEventRequests };
 }

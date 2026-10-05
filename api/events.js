@@ -48,7 +48,7 @@ module.exports = async (req, res) => {
       }
 
       if (isAdmin) {
-        path = "events?select=*,rental_requests(event_date,event_start_time,event_end_time,rental_type,is_private_event)&order=start_at.asc&limit=500";
+        path = "events?select=*,rental_requests(event_date,event_start_time,event_end_time,rental_type,is_private_event)&status=eq.confirmed&order=start_at.asc&limit=500";
       } else {
         path = "events?select=*,rental_requests(event_date,event_start_time,event_end_time,rental_type,is_private_event)&is_public=eq.true&status=eq.confirmed&order=start_at.asc&limit=200";
       }

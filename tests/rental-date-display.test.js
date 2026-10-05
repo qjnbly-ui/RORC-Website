@@ -32,3 +32,10 @@ test('pending cancellation and change requests appear in Needs Action even on co
   for (const requestType of ['cancel', 'change']) assert.equal(needsAction({rentalStatus:'confirmed',changeRequests:[{requestType,status:'pending'}]}),true);
   assert.equal(needsAction({rentalStatus:'confirmed',changeRequests:[{status:'approved'}]}),false);
 });
+
+test('both calendar loaders exclude canceled events while retaining confirmed and pending events', () => {
+  const expression = app.match(/calendarEvents = (\(body.events \|\| \[\]\)\.filter\([\s\S]*?\));/)[1];
+  const result = vm.runInNewContext(expression, {body:{events:[{id:'active',status:'confirmed'},{id:'pending',status:'pending'},{id:'cancelled',status:'cancelled'},{id:'canceled',status:'canceled'}]}});
+  assert.deepEqual(Array.from(result,e=>e.id), ['active','pending']);
+  assert.equal(app.split(`calendarEvents = ${expression};`).length-1,2);
+});
