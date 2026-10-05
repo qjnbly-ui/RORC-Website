@@ -7933,6 +7933,7 @@ textarea:focus-visible,
 
 .calendar-admin-page,
 .feedback-page:has(.cal-toolbar) {
+  align-content: start;
   padding-top: 12px;
 }
 
@@ -8004,6 +8005,12 @@ textarea:focus-visible,
 }
 
 .cal-toolbar {
+  align-self: start;
+  box-sizing: border-box;
+  height: 62px;
+  min-height: 62px;
+  max-height: 62px;
+  flex-wrap: nowrap;
   background: var(--panel-bg);
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -8493,12 +8500,26 @@ textarea:focus-visible,
   }
 
   .cal-toolbar {
-    display: grid;
+    display: flex;
+    gap: 6px;
+    padding: 10px 8px;
   }
 
   .cal-month-label {
-    order: -1;
-    grid-column: 1 / -1;
+    min-width: 0;
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+
+  .cal-toolbar .cal-nav {
+    min-width: 32px;
+    padding: 0 8px;
+  }
+
+  .cal-toolbar .cal-new-btn {
+    flex-shrink: 0;
+    font-size: 0.8rem;
+    padding: 0 8px;
   }
 
   .cal-new-btn {
