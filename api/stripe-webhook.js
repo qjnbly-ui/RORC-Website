@@ -1,5 +1,5 @@
 const Stripe = require("stripe");
-const { syncAccountMembershipPlan } = require("./_stripe-membership-sync");
+const { syncAccountMembershipPlan, canceledMembershipHasDebt } = require("./_stripe-membership-sync");
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -57,20 +57,27 @@ async function handleCheckoutCompleted(session) {
   if (!accountId) return;
 
   let billingStatus = "active";
+  let stripeStatus = "active";
   let currentPeriodEnd = null;
 
   if (subscriptionId) {
     const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-    billingStatus = normalizeBillingStatus(subscription.status);
-    currentPeriodEnd = subscription.current_period_end
-      ? new Date(subscription.current_period_end * 1000).toISOString()
+    stripeStatus = normalizeBillingStatus(subscription.status);
+    const hasUnpaidBalance = subscription.status === "canceled"
+      ? await canceledMembershipHasDebt({ accountId, subscription, stripe, supabaseRest }) : false;
+    const periodEnd = subscription.current_period_end || subscription.items?.data?.[0]?.current_period_end;
+    currentPeriodEnd = periodEnd
+      ? new Date(periodEnd * 1000).toISOString()
       : null;
-    await syncAccountMembershipPlan({
+    const planSync = await syncAccountMembershipPlan({
       accountId,
       subscription,
+      hasUnpaidBalance,
       supabaseRest,
       updateSupabaseRows
     });
+    billingStatus = subscription.status === "canceled" && planSync.synced
+      ? (hasUnpaidBalance ? "past_due" : "none") : stripeStatus;
   }
 
   await upsertAccountBilling({
@@ -78,6 +85,7 @@ async function handleCheckoutCompleted(session) {
     customerId,
     subscriptionId,
     billingStatus,
+    stripeStatus,
     currentPeriodEnd
   });
 
@@ -94,7 +102,7 @@ async function handleSubscriptionChanged(subscription, { syncPlan, paymentReceiv
   if (!accountId) return;
 
   const hasUnpaidBalance = subscription.status === "canceled"
-    ? await canceledMembershipHasDebt(accountId, subscription, paymentReceived)
+    ? await canceledMembershipHasDebt({ accountId, subscription, paymentReceived, stripe, supabaseRest })
     : false;
   const planSync = syncPlan ? await syncAccountMembershipPlan({
     accountId, subscription, hasUnpaidBalance, supabaseRest, updateSupabaseRows
@@ -216,26 +224,6 @@ async function syncMembershipForInvoice(invoice, { paymentReceived = false } = {
   await handleSubscriptionChanged(subscription, { syncPlan: true, paymentReceived });
 }
 
-async function canceledMembershipHasDebt(accountId, subscription, paymentReceived) {
-  const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer?.id;
-  if (!customerId) throw new Error("Cannot verify canceled membership balance without a Stripe customer.");
-  // Cancellation stops billing, but does not settle an outstanding invoice.
-  for await (const invoice of stripe.invoices.list({ customer: customerId, limit: 100 })) {
-    if (["open", "uncollectible"].includes(invoice.status) && Number(invoice.amount_remaining || 0) > 0) return true;
-  }
-  const members = await supabaseRest(`account_members?select=id&account_id=eq.${encodeURIComponent(accountId)}`);
-  if (members.length) {
-    const charges = await supabaseRest(`billing_line_items?select=amount_cents,payment_recorded_at,posted_to_stripe_at,stripe_invoice_id,stripe_invoice_status&account_member_id=in.(${members.map(m => m.id).join(",")})`);
-    if (charges.some(row => Number(row.amount_cents) > 0 && (row.stripe_invoice_id
-      ? ["open", "uncollectible"].includes(row.stripe_invoice_status)
-      : !row.payment_recorded_at && !row.posted_to_stripe_at))) return true;
-  }
-  const billing = await supabaseRest(`account_billing?select=billing_status&account_id=eq.${encodeURIComponent(accountId)}&limit=1`);
-  // Keep the past-due hold through cancellation and void events. Only an actual
-  // payment can release it after all remaining balances have been checked.
-  return !paymentReceived && (billing[0]?.billing_status === "past_due"
-    || subscription.cancellation_details?.reason === "payment_failed");
-}
 
 async function syncRelatedBillingState(rows) {
   const rentalIds = uniqueIds((rows || []).map((row) => row.rental_request_id).filter(Boolean));

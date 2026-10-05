@@ -1,6 +1,6 @@
 const { accountMemberFilter } = require("./_account-scope");
 const Stripe = require("stripe");
-const { syncAccountMembershipPlan } = require("./_stripe-membership-sync");
+const { syncAccountMembershipPlan, canceledMembershipHasDebt } = require("./_stripe-membership-sync");
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -44,25 +44,21 @@ module.exports = async (req, res) => {
       return res.status(404).json({ success: false, error: "No Stripe subscription found for this account." });
     }
 
-    const billingStatus = normalizeBillingStatus(subscription.status);
+    const stripeStatus = normalizeBillingStatus(subscription.status);
+    const hasUnpaidBalance = subscription.status === "canceled"
+      ? await canceledMembershipHasDebt({ accountId: targetAccountId, subscription, stripe, supabaseRest }) : false;
+    const planSync = await syncAccountMembershipPlan({
+      accountId: targetAccountId, subscription, hasUnpaidBalance, supabaseRest, updateSupabaseRows
+    });
+    const billingStatus = subscription.status === "canceled" && planSync.synced
+      ? (hasUnpaidBalance ? "past_due" : "none") : stripeStatus;
+    const periodEnd = subscription.current_period_end || subscription.items?.data?.[0]?.current_period_end;
     await upsertAccountBilling({
       accountId: targetAccountId,
       customerId: typeof subscription.customer === "string" ? subscription.customer : subscription.customer?.id || billing?.stripe_customer_id || "",
-      subscriptionId: subscription.id,
-      billingStatus,
-      currentPeriodEnd: subscription.current_period_end
-        ? new Date(subscription.current_period_end * 1000).toISOString()
-        : null
+      subscriptionId: subscription.id, billingStatus, stripeStatus,
+      currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000).toISOString() : null
     });
-
-    const planSync = billingStatus === "canceled"
-      ? { synced: false, plan: null, updatedMemberCount: 0 }
-      : await syncAccountMembershipPlan({
-        accountId: targetAccountId,
-        subscription,
-        supabaseRest,
-        updateSupabaseRows
-      });
 
     return res.status(200).json({
       success: true,
@@ -129,12 +125,12 @@ async function resolveSubscription(billing) {
   )) || subscriptions.data?.[0] || null;
 }
 
-async function upsertAccountBilling({ accountId, customerId, subscriptionId, billingStatus, currentPeriodEnd }) {
+async function upsertAccountBilling({ accountId, customerId, subscriptionId, billingStatus, stripeStatus = billingStatus, currentPeriodEnd }) {
   const existing = await supabaseRest(`account_billing?select=account_id&account_id=eq.${encodeURIComponent(accountId)}&limit=1`);
   const payload = {
     stripe_customer_id: customerId || null,
     stripe_subscription_id: subscriptionId || null,
-    stripe_status: billingStatus,
+    stripe_status: stripeStatus,
     billing_status: billingStatus,
     current_period_end: currentPeriodEnd,
     last_sync: new Date().toISOString()

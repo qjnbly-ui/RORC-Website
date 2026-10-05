@@ -17681,7 +17681,7 @@ async function deleteSupabaseUserAccount(member) {
   }
 }
 
-function openMemberEditDialog(member) {
+async function openMemberEditDialog(member) {
   if (!canEditMember(member)) {
     showDetailActionMessage("You can view this account, but you cannot edit it.");
     return;
@@ -17690,7 +17690,26 @@ function openMemberEditDialog(member) {
   const canUseAdminTools = canUseAccountAdminTools();
   const canEditName = canUseAdminTools;
   const canDeleteUserAccount = Boolean(member.id) && canUseAdminTools && member.id !== appUserSession.memberId;
-  const account = accountForMember(member);
+  let account = accountForMember(member);
+  try {
+    const client = await createSupabaseClient();
+    if (!client) throw new Error("App data is not available.");
+    const [accountResult, billingResult] = await Promise.all([
+      client.from("accounts").select("*").eq("id", member.accountId).single(),
+      client.from("account_billing").select("stripe_customer_id").eq("account_id", member.accountId).maybeSingle()
+    ]);
+    if (accountResult.error) throw accountResult.error;
+    if (billingResult.error) throw billingResult.error;
+    const row = accountResult.data;
+    account = { ...account, id: member.accountId, accountNumber: row.account_number,
+      heaterPin: row.heater_pin || "", stripeCustomerId: billingResult.data?.stripe_customer_id || "" };
+    const index = accounts.findIndex(item => item.id === member.accountId);
+    if (index >= 0) accounts[index] = account;
+    else accounts.push(account);
+  } catch (error) {
+    window.alert(error.message || "Could not load account details. Please try again.");
+    return;
+  }
   const guardianOptions = accountMembers
     .filter((candidate) => candidate.accountId === member.accountId && candidate.id !== member.id)
     .sort(sortMembers)
