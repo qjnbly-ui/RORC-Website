@@ -2142,22 +2142,13 @@ function renderSponsorSubmissionList() {
       </div>
       <div data-sponsor-workspace-panel="requests" ${appState.sponsorWorkspaceView !== "requests" ? "hidden" : ""}>
       <p id="sponsorSubmissionResult" class="auth-message" aria-live="polite"></p>
-      <div class="detail-card sponsor-review-summary">
-        <span><strong>${submittedCount}</strong> submitted</span>
-        <span><strong>${openCount}</strong> in progress</span>
-        <span><strong>${formatCurrency(totalCents)}</strong> shown</span>
+      <div class="sponsor-directory-head"><h3>Banner requests <span>${sponsorSubmissions.length}</span></h3></div>
+      <div class="sponsor-directory-controls sponsor-request-controls">
+        <label>Request status<select data-sponsor-request-filter>
+          ${["active", "submitted", "in_review", "invoiced", "paid", "complete", "canceled", "all"].map((filter) => `<option value="${escapeAttribute(filter)}" ${statusFilter === filter ? "selected" : ""}>${escapeHtml(sponsorStatusLabel(filter))}</option>`).join("")}
+        </select></label>
       </div>
-      <div class="detail-card">
-        <div class="master-logs-filter-row" role="tablist" aria-label="Sponsor submission status">
-          ${["active", "submitted", "in_review", "invoiced", "paid", "complete", "canceled", "all"].map((filter) => `
-            <button
-              class="master-logs-filter-chip ${statusFilter === filter ? "is-active" : ""}"
-              data-sponsor-submission-filter="${escapeAttribute(filter)}"
-              type="button"
-            >${escapeHtml(sponsorStatusLabel(filter))}</button>
-          `).join("")}
-        </div>
-      </div>
+      <p class="sponsor-directory-count">${filtered.length} shown · ${submittedCount} submitted · ${openCount} in progress · ${formatCurrency(totalCents)}</p>
       ${filtered.length ? `
         <div>
           <ul class="sponsor-submission-list">
@@ -2187,6 +2178,9 @@ function renderSponsorSubmissionCard(submission) {
         <h3>${escapeHtml(submission.businessName || "Unnamed sponsor")}</h3></div>
         <span class="sponsor-status-badge is-${escapeAttribute(sponsorStatusClass(submission.status))}">${escapeHtml(sponsorStatusLabel(submission.status))}</span>
       </header>
+      <p class="sponsor-request-overview">${escapeHtml(submission.contactName || "No contact name")}</p>
+      <strong class="sponsor-request-amount">${escapeHtml(formatCurrency(submission.amountCents || 0))} · ${submission.sponsorshipType === "renewal" ? "Renewal" : "First year"}</strong>
+      <details class="sponsor-request-details"><summary>Artwork, contact &amp; payment</summary>
       <div class="sponsor-workspace-body">
         <div class="sponsor-creative">
           <section class="sponsor-artwork-section" aria-label="Submitted artwork">
@@ -2226,6 +2220,7 @@ function renderSponsorSubmissionCard(submission) {
           <details class="sponsor-more-actions"><summary>More actions</summary><button class="sponsor-text-button sponsor-delete-button" data-sponsor-delete="${id}" type="button">Delete submission</button></details>
         </aside>
       </div>
+      </details>
     </li>`;
 }
 
@@ -2328,11 +2323,9 @@ function bindSponsorSubmissionActions() {
   document.querySelectorAll("[data-sponsor-invoice]").forEach((button) => {
     button.addEventListener("click", () => createSponsorBannerInvoice(button.dataset.sponsorInvoice, button));
   });
-  document.querySelectorAll("[data-sponsor-submission-filter]").forEach((button) => {
-    button.addEventListener("click", () => {
-      appState.sponsorSubmissionsFilter = button.dataset.sponsorSubmissionFilter || "active";
-      renderSponsorSubmissionList();
-    });
+  document.querySelector("[data-sponsor-request-filter]")?.addEventListener("change", (event) => {
+    appState.sponsorSubmissionsFilter = event.target.value || "active";
+    renderSponsorSubmissionList();
   });
 
   document.querySelectorAll("[data-sponsor-status]").forEach((select) => {

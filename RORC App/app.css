@@ -10122,3 +10122,25 @@ textarea:focus-visible,
 .sponsor-review-page #sponsorDirectory {background:transparent;}
 .sponsor-review-page #sponsorSubmissionResult:empty {display:none;}
 @media(max-width:540px){.sponsor-workspace-tabs button {padding:12px 8px;font-size:14px;}}
+
+/* Request cards follow the banner directory's compact presentation. */
+.sponsor-request-controls label {flex:0 1 240px;}
+.sponsor-review-page .sponsor-submission-list {display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;align-items:start;}
+.sponsor-review-page .sponsor-workspace {padding:12px;background:#1d1d1d;border-radius:8px;min-width:0;}
+.sponsor-review-page .sponsor-workspace-heading {padding:0;border:0;gap:12px;flex-direction:column;}
+.sponsor-review-page .sponsor-workspace-heading h3 {font-size:1rem;margin:6px 0 0;}
+.sponsor-review-page .sponsor-status-badge {font-size:12px;text-transform:none;font-weight:400;padding:0;border:0;color:var(--muted);}
+.sponsor-request-overview {margin:10px 0;overflow-wrap:anywhere;}
+.sponsor-request-amount {display:block;margin-bottom:12px;}
+.sponsor-request-details {border-top:1px solid #333;padding-top:12px;}
+.sponsor-request-details > summary {cursor:pointer;}
+.sponsor-review-page .sponsor-workspace-body {display:block;margin-top:12px;}
+.sponsor-review-page .sponsor-creative,.sponsor-review-page .sponsor-management {padding:0;background:transparent;border:0;}
+.sponsor-review-page .sponsor-management {border-top:1px solid #333;margin-top:16px;padding-top:16px;}
+.sponsor-review-page .sponsor-image-stage {height:160px;background:#111;padding:8px;}
+.sponsor-review-page .sponsor-image-error {color:var(--muted);}
+.sponsor-review-page .sponsor-design-brief {margin-top:16px;padding-top:16px;}
+.sponsor-review-page .sponsor-status-control select {background:#111;border:1px solid #444;border-radius:6px;padding:10px;}
+.sponsor-review-page .sponsor-text-button {background:#242424;border:1px solid #444;border-radius:6px;padding:10px 14px;text-decoration:none;}
+.sponsor-review-page .empty-state {min-height:0;padding:24px 12px;background:transparent;border:1px solid #383838;border-radius:8px;}
+@media(max-width:540px){.sponsor-review-page .sponsor-submission-list {grid-template-columns:minmax(0,1fr);}.sponsor-request-controls label {flex-basis:100%;}}
