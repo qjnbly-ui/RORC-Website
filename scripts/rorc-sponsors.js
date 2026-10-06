@@ -2,15 +2,19 @@
  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const labels={active:'Active',ordered:'Ordered',taken_down:'Taken down',unknown:'Unknown',unpaid:'Unpaid',paid:'Paid',complimentary:'Complimentary'};
  const options=(values,selected)=>values.map(v=>'<option value="'+v+'" '+(v===selected?'selected':'')+'>'+labels[v]+'</option>').join('');
- const field=(label,name,value,type='text')=>'<label>'+label+'<input name="'+name+'" type="'+type+'" value="'+esc(value)+'"></label>';
+ const ownerKey=value=>String(value||'').trim().toLowerCase();
+ const field=(label,name,value,type='text')=>'<label>'+label+'<input name="'+name+'" type="'+type+'" value="'+esc(value)+'"'+(name==='owner'?' list="sponsorOwnerNames"':'')+'></label>';
  function render(data,state){
  const year=Number(state.year),payments=data.years||[];
- const filtered=data.banners.filter(b=>(state.status==='all'||b.status===state.status)&&(state.payment==='all'||(payments.find(p=>p.banner_id===b.id&&p.year===year)?.payment_status||'unknown')===state.payment)&&[b.name,b.owner,b.email,b.phone].join(' ').toLowerCase().includes(state.search.toLowerCase()));
+ const owners=new Map();for(const b of data.banners){const key=ownerKey(b.owner);if(!owners.has(key))owners.set(key,{key,name:String(b.owner||'').trim()||'No owner recorded',count:0});owners.get(key).count++;}
+ const ownerList=[...owners.values()].sort((a,b)=>a.name.localeCompare(b.name)),selectedOwner=state.owner?owners.get(state.owner==='unassigned'?'':state.owner.slice(6)):null;
+ const filtered=data.banners.filter(b=>(!state.owner||(state.owner==='unassigned'?ownerKey(b.owner)==='':'owner:'+ownerKey(b.owner)===state.owner))&&(state.status==='all'||b.status===state.status)&&(state.payment==='all'||(payments.find(p=>p.banner_id===b.id&&p.year===year)?.payment_status||'unknown')===state.payment)&&[b.name,b.owner,b.email,b.phone].join(' ').toLowerCase().includes(state.search.toLowerCase()));
  const years=[...new Set([new Date().getFullYear()+1,new Date().getFullYear(),year,...payments.map(p=>p.year)])].sort((a,b)=>b-a);
  return '<div class="sponsor-directory-head"><h3>Sponsor directory <span>'+data.banners.length+'</span></h3><button type="button" data-new-banner>Add banner</button></div>'+
- '<div class="sponsor-directory-controls"><label>Search<input data-directory-search value="'+esc(state.search)+'" placeholder="Banner or owner"></label><label>Year<select data-directory-year>'+years.map(y=>'<option '+(y===year?'selected':'')+'>'+y+'</option>').join('')+'</select></label><label>Banner status<select data-directory-status><option value="all">All banners</option>'+options(['active','ordered','taken_down'],state.status)+'</select></label><label>Payment<select data-directory-payment><option value="all">All payments</option>'+options(['unknown','unpaid','paid','complimentary'],state.payment)+'</select></label></div>'+
+ '<datalist id="sponsorOwnerNames">'+ownerList.filter(o=>o.key).map(o=>'<option value="'+esc(o.name)+'"></option>').join('')+'</datalist>'+
+ '<div class="sponsor-directory-controls"><label>Banner owner<select data-directory-owner><option value="">All owners</option>'+ownerList.map(o=>'<option value="'+esc(o.key?'owner:'+o.key:'unassigned')+'" '+((o.key?'owner:'+o.key:'unassigned')===state.owner?'selected':'')+'>'+esc(o.name)+' ('+o.count+')</option>').join('')+'</select></label><label>Search<input data-directory-search value="'+esc(state.search)+'" placeholder="Banner or owner"></label><label>Year<select data-directory-year>'+years.map(y=>'<option '+(y===year?'selected':'')+'>'+y+'</option>').join('')+'</select></label><label>Banner status<select data-directory-status><option value="all">All banners</option>'+options(['active','ordered','taken_down'],state.status)+'</select></label><label>Payment<select data-directory-payment><option value="all">All payments</option>'+options(['unknown','unpaid','paid','complimentary'],state.payment)+'</select></label></div>'+
  (state.newBanner?'<form data-directory-create class="sponsor-directory-form">'+field('Banner name','name','')+field('Owner','owner','')+field('Phone','phone','')+field('Email','email','','email')+'<label>Banner image<input name="image" type="file" accept="image/jpeg,image/png,image/webp"></label>'+'<label>Status<select name="status">'+options(['active','ordered','taken_down'],'ordered')+'</select></label><label>Notes<textarea name="notes"></textarea></label><p data-image-feedback role="status"></p><button>Create banner</button></form>':'')+
- '<p class="sponsor-directory-count">'+filtered.length+' banners · '+year+'</p><p data-directory-result role="status"></p><div class="sponsor-existing-artwork-list">'+filtered.map(b=>{
+ '<p class="sponsor-directory-count">'+(selectedOwner?esc(selectedOwner.name)+' · '+selectedOwner.count+' banners total · ':'')+filtered.length+' shown · '+year+'</p><p data-directory-result role="status"></p><div class="sponsor-existing-artwork-list">'+filtered.map(b=>{
  const p=payments.find(p=>p.banner_id===b.id&&p.year===year)||{},raw=b.source_data?.row||{},legacyPaid=raw.Paid||'',legacyDate=raw['Date Paid']||'';
  return '<article class="sponsor-existing-artwork-card">'+(b.artwork_url?'<img loading="lazy" src="'+esc(b.artwork_url)+'" alt="'+esc(b.name)+' banner">':'')+'<header><h4>'+esc(b.name)+'</h4><span>'+labels[b.status]+'</span></header><p>'+esc(b.owner||'No owner recorded')+'</p><strong>'+year+' · '+labels[p.payment_status||'unknown']+'</strong>'+
  '<details><summary>Contacts and banner</summary><form data-directory-profile="'+b.id+'" class="sponsor-directory-form">'+field('Banner name','name',b.name)+field('Owner','owner',b.owner)+field('Phone','phone',b.phone)+field('Email','email',b.email,'email')+
@@ -49,7 +53,7 @@
  }
  async function mount(host,token){
  if(!host||!token)return;
- let data,state={year:new Date().getFullYear(),status:'active',payment:'all',search:'',newBanner:false};
+ let data,state={year:new Date().getFullYear(),status:'active',payment:'all',search:'',owner:'',newBanner:false};
  async function request(body){
  const r=await fetch('/api/sponsor-catalog',{method:body?'POST':'GET',headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),cache:'no-store'});
  const d=await r.json();if(!r.ok||!d.success)throw new Error(d.error||'Could not load sponsors.');return d;
@@ -57,7 +61,7 @@
  function draw(){if(!host.isConnected)return;host.innerHTML=render(data,state);host.querySelectorAll('input[name="amount"]').forEach(x=>{x.step='0.01';x.min='0'});}
  async function load(){data=await request();draw();}
  host.innerHTML='<p>Loading sponsor directory…</p>';
- host.addEventListener('change',e=>{const t=e.target;if(t.matches('input[name="image"]')){t.form.querySelector('[data-image-feedback]').textContent=t.files?.[0]?t.files[0].name+' selected. Large images are resized automatically.':'';return;}if(t.matches('[data-directory-year]'))state.year=Number(t.value);else if(t.matches('[data-directory-status]'))state.status=t.value;else if(t.matches('[data-directory-payment]'))state.payment=t.value;else return;draw();});
+ host.addEventListener('change',e=>{const t=e.target;if(t.matches('input[name="image"]')){t.form.querySelector('[data-image-feedback]').textContent=t.files?.[0]?t.files[0].name+' selected. Large images are resized automatically.':'';return;}if(t.matches('[data-directory-owner]')){state.owner=t.value;state.search='';state.status='all';state.payment='all';}else if(t.matches('[data-directory-year]'))state.year=Number(t.value);else if(t.matches('[data-directory-status]'))state.status=t.value;else if(t.matches('[data-directory-payment]'))state.payment=t.value;else return;draw();});
  host.addEventListener('input',e=>{if(!e.target.matches('[data-directory-search]'))return;state.search=e.target.value;const pos=e.target.selectionStart;draw();const input=host.querySelector('[data-directory-search]');input.focus();input.setSelectionRange(pos,pos);});
  host.addEventListener('click',e=>{if(e.target.closest('[data-new-banner]')){state.newBanner=!state.newBanner;draw();}});
  host.addEventListener('submit',async e=>{

@@ -45,3 +45,9 @@ test('small artwork stays unchanged and decode failures remain visible errors',a
  await assert.rejects(prepareImage({size:10,type:'image/tiff'}),/Choose a JPG/);
  await assert.rejects(prepareImage(file,{decode:async()=>{throw new Error('Unreadable image')}}),/Unreadable image/);
 });
+test('selecting an owner counts and shows their banners across statuses',()=>{
+ const {render}=require('../scripts/rorc-sponsors');
+ const banners=[{id:'a',name:'First banner',owner:'Margaret Millen',status:'active'},{id:'b',name:'Archived banner',owner:' margaret millen ',status:'taken_down'},{id:'c',name:'Other banner',owner:'Other Owner',status:'active'}];
+ const html=render({banners,years:[]},{year:2026,status:'all',payment:'all',search:'',owner:'owner:margaret millen'});
+ assert.match(html,/Margaret Millen \(2\)/);assert.match(html,/2 banners total · 2 shown/);assert.match(html,/<h4>First banner<\/h4>/);assert.match(html,/<h4>Archived banner<\/h4>/);assert.doesNotMatch(html,/<h4>Other banner<\/h4>/);assert.match(html,/list="sponsorOwnerNames"/);
+});
