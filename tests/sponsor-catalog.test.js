@@ -32,3 +32,16 @@ test('completed orders reconcile the actual Stripe payment year without replacin
  writes.length=0;await linkCompletedSponsor(row,async()=>[{id:'a',year:2027}],async()=>writes.push({}),{id:'in_1',status:'paid',status_transitions:{paid_at:Date.parse('2027-01-02')/1000}});assert.equal(writes.length,0);
 });
 
+test('large 9000 by 5400 artwork is resized with its proportions preserved before upload',async()=>{
+ const {prepareImage}=require('../scripts/rorc-sponsors');let closed=false,drawn;
+ const image={width:9000,height:5400,close(){closed=true}};
+ const canvas={getContext(){return {drawImage(...args){drawn=args}}},toBlob(done,type){done({size:900000,type})}};
+ const result=await prepareImage({size:12000000,type:'image/png'},{decode:async()=>image,createCanvas:()=>canvas,toBase64:async blob=>{assert.ok(blob.size<2000000);return 'encoded'}});
+ assert.equal(canvas.width,3200);assert.equal(canvas.height,1920);assert.equal(drawn[3],3200);assert.equal(result.content_type,'image/webp');assert.equal(result.base64,'encoded');assert.equal(closed,true);
+});
+test('small artwork stays unchanged and decode failures remain visible errors',async()=>{
+ const {prepareImage}=require('../scripts/rorc-sponsors');const file={size:90000,type:'image/png'};
+ await prepareImage(file,{decode:async()=>({width:300,height:180}),toBase64:async blob=>{assert.equal(blob,file);return 'unchanged'}});
+ await assert.rejects(prepareImage({size:10,type:'image/tiff'}),/Choose a JPG/);
+ await assert.rejects(prepareImage(file,{decode:async()=>{throw new Error('Unreadable image')}}),/Unreadable image/);
+});

@@ -1,10 +1,10 @@
-const CACHE_VERSION = "rorc-app-v103";
+const CACHE_VERSION = "rorc-app-v104";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const NAVIGATION_CACHE = `${CACHE_VERSION}-navigation`;
 const OFFLINE_PAGE = "./index.html";
 const APP_SHELL = [
   OFFLINE_PAGE,
-  "/scripts/rorc-sponsors.js?v=20261005-uploads",
+  "/scripts/rorc-sponsors.js?v=20261005-image-resize",
   "/scripts/rorc-linked-accounts.js?v=20261005",
   "/scripts/rorc-linked-accounts.css?v=20261005",
   "./app.css?v=20261005-sponsor-artwork",
