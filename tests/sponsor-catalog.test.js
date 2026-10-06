@@ -57,3 +57,13 @@ test('public contact details require an explicit manager opt-in',async()=>{
  assert.equal(r.body.banners[0].owner,'Owner');assert.equal(r.body.banners[0].phone,'5551234567');assert.equal(r.body.banners[0].email,'public@example.test');assert.equal(r.body.banners[0].notes,undefined);assert.equal(r.body.banners[0].source_data,undefined);
  assert.equal(handler.profile({name:'Banner',public_contact:'false'}).public_contact,false);
 });
+
+test('owner autofill matches full names and refuses conflicting contacts',()=>{
+ const {ownerContact}=require('../scripts/rorc-sponsors');
+ const records=[{owner:'Jane Smith',phone:'541-555-1234',email:'Jane@example.test'},{owner:' jane smith ',phone:'(541) 555-1234',email:'jane@example.test'},{owner:'Other person',email:'other@example.test'}];
+ assert.deepEqual(ownerContact(records,' JANE SMITH '),{matched:true,conflicts:[],phone:'541-555-1234',email:'Jane@example.test'});
+ assert.equal(ownerContact(records,'Jane').matched,false);
+ assert.equal(ownerContact(records,'').matched,false);
+ const conflicting=ownerContact([...records,{owner:'Jane Smith',email:'different@example.test'}],'Jane Smith');
+ assert.deepEqual(conflicting.conflicts,['email']);assert.equal(conflicting.email,undefined);assert.equal(conflicting.phone,'541-555-1234');
+});

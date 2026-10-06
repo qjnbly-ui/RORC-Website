@@ -4,6 +4,16 @@
  const options=(values,selected)=>values.map(v=>'<option value="'+v+'" '+(v===selected?'selected':'')+'>'+labels[v]+'</option>').join('');
  const ownerKey=value=>String(value||'').trim().toLowerCase();
  const field=(label,name,value,type='text')=>'<label>'+label+'<input name="'+name+'" type="'+type+'" value="'+esc(value)+'"'+(name==='owner'?' list="sponsorOwnerNames"':'')+'></label>';
+ function ownerContact(banners,name){
+  const matches=banners.filter(b=>ownerKey(name)&&ownerKey(b.owner)===ownerKey(name));
+  const result={matched:matches.length>0,conflicts:[]};
+  for(const key of ['phone','email']){
+   const values=new Map();
+   for(const b of matches){const value=String(b[key]||'').trim();const normalized=key==='phone'?value.replace(/[^0-9]/g,''):value.toLowerCase();if(normalized&&!values.has(normalized))values.set(normalized,value);}
+   if(values.size===1)result[key]=[...values.values()][0];else if(values.size>1)result.conflicts.push(key);
+  }
+  return result;
+ }
  function render(data,state){
  const year=Number(state.year),payments=data.years||[];
  const owners=new Map();for(const b of data.banners){const key=ownerKey(b.owner);if(!owners.has(key))owners.set(key,{key,name:String(b.owner||'').trim()||'No owner recorded',count:0});owners.get(key).count++;}
@@ -59,10 +69,19 @@
  const d=await r.json();if(!r.ok||!d.success)throw new Error(d.error||'Could not load sponsors.');return d;
  }
  function draw(){if(!host.isConnected)return;host.innerHTML=render(data,state);host.querySelectorAll('input[name="amount"]').forEach(x=>{x.step='0.01';x.min='0'});}
+ function fillOwnerContact(input){
+  if(!input.matches('input[name="owner"]')||!input.form)return;
+  const contact=ownerContact(data.banners,input.value),form=input.form;
+  let note=form.querySelector('[data-owner-autofill]');
+  if(!note){note=document.createElement('p');note.dataset.ownerAutofill='';note.setAttribute('role','status');input.closest('label').after(note);}
+  const filled=[];
+  for(const key of ['phone','email']){const field=form.elements.namedItem(key);if(field&&!contact[key]&&field.dataset.ownerAutofilled===field.value){field.value='';delete field.dataset.ownerAutofilled;}if(field&&contact[key]&&(!field.value.trim()||field.dataset.ownerAutofilled===field.value)){field.value=contact[key];field.dataset.ownerAutofilled=field.value;filled.push(key);}}
+  note.textContent=contact.conflicts.length?'Saved '+contact.conflicts.join(' and ')+' details differ between banners. Please check them.':filled.length?'Saved '+filled.join(' and ')+' filled in. You can edit them before saving.':contact.matched?'Owner found. Existing contact details kept.':'';
+ }
  async function load(){data=await request();draw();}
  host.innerHTML='<p>Loading sponsor directory…</p>';
- host.addEventListener('change',e=>{const t=e.target;if(t.matches('input[name="image"]')){t.form.querySelector('[data-image-feedback]').textContent=t.files?.[0]?t.files[0].name+' selected. Large images are resized automatically.':'';return;}if(t.matches('[data-directory-owner]')){state.owner=t.value;state.search='';state.status='all';state.payment='all';}else if(t.matches('[data-directory-year]'))state.year=Number(t.value);else if(t.matches('[data-directory-status]'))state.status=t.value;else if(t.matches('[data-directory-payment]'))state.payment=t.value;else return;draw();});
- host.addEventListener('input',e=>{if(!e.target.matches('[data-directory-search]'))return;state.search=e.target.value;const pos=e.target.selectionStart;draw();const input=host.querySelector('[data-directory-search]');input.focus();input.setSelectionRange(pos,pos);});
+ host.addEventListener('change',e=>{const t=e.target;if(t.matches('input[name="owner"]')){fillOwnerContact(t);return;}if(t.matches('input[name="image"]')){t.form.querySelector('[data-image-feedback]').textContent=t.files?.[0]?t.files[0].name+' selected. Large images are resized automatically.':'';return;}if(t.matches('[data-directory-owner]')){state.owner=t.value;state.search='';state.status='all';state.payment='all';}else if(t.matches('[data-directory-year]'))state.year=Number(t.value);else if(t.matches('[data-directory-status]'))state.status=t.value;else if(t.matches('[data-directory-payment]'))state.payment=t.value;else return;draw();});
+ host.addEventListener('input',e=>{if(e.target.matches('input[name="owner"]')){fillOwnerContact(e.target);return;}if(!e.target.matches('[data-directory-search]'))return;state.search=e.target.value;const pos=e.target.selectionStart;draw();const input=host.querySelector('[data-directory-search]');input.focus();input.setSelectionRange(pos,pos);});
  host.addEventListener('click',e=>{if(e.target.closest('[data-new-banner]')){state.newBanner=!state.newBanner;draw();}});
  host.addEventListener('submit',async e=>{
  const form=e.target;if(!form.matches('[data-directory-profile],[data-directory-payment-form],[data-directory-create],[data-directory-artwork]'))return;e.preventDefault();
@@ -91,6 +110,6 @@
  try{await load();}catch(err){host.innerHTML='<p role="alert">'+esc(err.message)+'</p><button data-directory-retry>Retry</button>';host.querySelector('[data-directory-retry]').onclick=()=>mount(host,token);}
  }
  root.RORC_SPONSORS={mount,render,prepareImage};
- if(typeof module==='object')module.exports={render,prepareImage};
+ if(typeof module==='object')module.exports={render,prepareImage,ownerContact};
 })(typeof window==='object'?window:globalThis);
 
