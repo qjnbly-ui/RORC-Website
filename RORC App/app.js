@@ -2178,9 +2178,6 @@ function renderSponsorSubmissionCard(submission) {
         <h3>${escapeHtml(submission.businessName || "Unnamed sponsor")}</h3></div>
         <span class="sponsor-status-badge is-${escapeAttribute(sponsorStatusClass(submission.status))}">${escapeHtml(sponsorStatusLabel(submission.status))}</span>
       </header>
-      <p class="sponsor-request-overview">${escapeHtml(submission.contactName || "No contact name")}</p>
-      <strong class="sponsor-request-amount">${escapeHtml(formatCurrency(submission.amountCents || 0))} · ${submission.sponsorshipType === "renewal" ? "Renewal" : "First year"}</strong>
-      <details class="sponsor-request-details"><summary>Artwork, contact &amp; payment</summary>
       <div class="sponsor-workspace-body">
         <div class="sponsor-creative">
           <section class="sponsor-artwork-section" aria-label="Submitted artwork">
@@ -2220,7 +2217,6 @@ function renderSponsorSubmissionCard(submission) {
           <details class="sponsor-more-actions"><summary>More actions</summary><button class="sponsor-text-button sponsor-delete-button" data-sponsor-delete="${id}" type="button">Delete submission</button></details>
         </aside>
       </div>
-      </details>
     </li>`;
 }
 
