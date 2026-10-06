@@ -113,7 +113,7 @@
       </div>
       <div class="sponsors-grid" id="sponsorGallery"></div>
     </section>
-    <script src="/scripts/sponsor-gallery.js?v=20261005" defer></script>
+    <script src="/scripts/sponsor-gallery.js?v=20261005-owner-panel" defer></script>
   </main>
 
   <footer class="site-footer">
@@ -131,7 +131,14 @@
   <div class="banner-lightbox" aria-hidden="true">
     <button class="banner-lightbox-close" type="button" aria-label="Close banner view">×</button>
     <button class="banner-lightbox-nav banner-lightbox-prev" type="button" aria-label="Previous banner">‹</button>
-    <img class="banner-lightbox-image" alt="" />
+    <div class="banner-lightbox-content">
+      <img class="banner-lightbox-image" alt="" />
+      <section class="banner-owner-panel" aria-label="Banner owner">
+        <p class="banner-owner-label">Banner owner</p>
+        <h3 id="bannerOwnerName"></h3>
+        <div id="bannerOwnerContacts" class="banner-owner-contacts"></div>
+      </section>
+    </div>
     <button class="banner-lightbox-nav banner-lightbox-next" type="button" aria-label="Next banner">›</button>
   </div>
   <script>
@@ -150,6 +157,17 @@
         const banner = banners[currentIndex];
         lightboxImage.src = banner.src;
         lightboxImage.alt = banner.alt || "Banner image";
+        const ownerPanel=lightbox.querySelector('.banner-owner-panel');
+        const ownerName=lightbox.querySelector('#bannerOwnerName');
+        const contacts=lightbox.querySelector('#bannerOwnerContacts');
+        ownerName.textContent=banner.dataset.owner||'';
+        contacts.replaceChildren();
+        for(const [label,value,scheme] of [['Phone',banner.dataset.phone,'tel:'],['Email',banner.dataset.email,'mailto:']]){
+          if(!value)continue;
+          const link=document.createElement('a');link.textContent=value;link.setAttribute('aria-label',label+': '+value);
+          link.href=scheme+(scheme==='tel:'?value.replace(/[^+0-9]/g,''):encodeURIComponent(value));contacts.append(link);
+        }
+        ownerPanel.hidden=!ownerName.textContent&&!contacts.childElementCount;
         lightbox.classList.add("is-open");
         lightbox.setAttribute("aria-hidden", "false");
         document.body.classList.add("banner-lightbox-open");

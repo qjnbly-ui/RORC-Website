@@ -8,8 +8,8 @@
  status.textContent=banners.length+' sponsor banners';
  for(const banner of banners){
  const figure=document.createElement('figure');figure.className='sponsors-figure';
- if(banner.artwork_url){const img=document.createElement('img');img.src=banner.artwork_url;img.alt=banner.name+' banner';img.loading='lazy';figure.append(img);}
- const caption=document.createElement('figcaption');caption.textContent=banner.name+(banner.status==='ordered'?' · On order':'');figure.append(caption);host.append(figure);
+ if(banner.artwork_url){const img=document.createElement('img');img.src=banner.artwork_url;img.alt=banner.name+' banner';img.loading='lazy';img.dataset.owner=banner.owner||'';img.dataset.phone=banner.phone||'';img.dataset.email=banner.email||'';figure.append(img);}
+ if(!banner.artwork_url){const caption=document.createElement('figcaption');caption.textContent=banner.name;figure.append(caption);}host.append(figure);
  }
  document.dispatchEvent(new Event('sponsors-loaded'));
  }catch{status.textContent='The sponsor gallery could not load. Please refresh to try again.';}

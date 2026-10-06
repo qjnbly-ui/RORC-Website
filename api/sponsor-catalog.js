@@ -20,7 +20,7 @@ function artwork(value){
 function profile(b){
  const status=clean(b.status)||"active";if(!statuses.has(status))throw Object.assign(new Error("Invalid banner status."),{status:400});
  const name=clean(b.name,250);if(!name)throw Object.assign(new Error("Banner name is required."),{status:400});
- return {name,status,owner:clean(b.owner,250),phone:clean(b.phone,100),email:clean(b.email,320),notes:clean(b.notes,10000),artwork_url:artwork(b.artwork_url),updated_at:new Date().toISOString()};
+ return {name,status,public_contact:b.public_contact===true,owner:clean(b.owner,250),phone:clean(b.phone,100),email:clean(b.email,320),notes:clean(b.notes,10000),artwork_url:artwork(b.artwork_url),updated_at:new Date().toISOString()};
 }
 function annual(b){
  const year=Number(b.year);if(!Number.isInteger(year)||year<1900||year>2200)throw Object.assign(new Error("Invalid year."),{status:400});
@@ -34,9 +34,9 @@ module.exports=async(req,res)=>{
  try{
  if(!KEY)return res.status(500).json({success:false,error:"Sponsor records are unavailable."});
  if(req.method==="GET"&&req.query?.public==="1"){
-   const banners=await rest("sponsor_banners?select=id,name,status,artwork_url&status=in.(active,ordered)&order=name.asc&limit=1000");
+   const banners=await rest("sponsor_banners?select=id,name,status,artwork_url,owner,phone,email,public_contact&status=in.(active,ordered)&order=name.asc&limit=1000");
    res.setHeader("Cache-Control","public, max-age=60, s-maxage=60");
-   return res.status(200).json({success:true,banners:banners.map(b=>({id:b.id,name:b.name,status:b.status,artwork_url:b.artwork_url}))});
+   return res.status(200).json({success:true,banners:banners.map(b=>({id:b.id,name:b.name,status:b.status,artwork_url:b.artwork_url,owner:b.owner||"",phone:b.public_contact===true?b.phone||"":"",email:b.public_contact===true?b.email||"":""}))});
  }
  const token=String(req.headers.authorization||"").match(/^Bearer\s+(.+)$/i)?.[1];
  if(!token)return res.status(401).json({success:false,error:"Log in to manage sponsors."});

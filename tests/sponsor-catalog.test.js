@@ -5,7 +5,7 @@ const ok=data=>({ok:true,status:200,json:async()=>data});
 test('public sponsor catalog projects only public fields',async()=>{
  const requests=[];const handler=api(async url=>{requests.push(url);return ok([{id:'1',name:'Sponsor',status:'active',artwork_url:'/image.jpg',owner:'Private',email:'private@test',source_data:{Paid:'Yes'}}])});
  const r=response();await handler({method:'GET',query:{public:'1'},headers:{}},r);
- assert.equal(r.code,200);assert.deepEqual(Object.keys(r.body.banners[0]).sort(),['artwork_url','id','name','status']);assert.match(requests[0],/select=id,name,status,artwork_url/);
+ assert.equal(r.code,200);assert.deepEqual(Object.keys(r.body.banners[0]).sort(),['artwork_url','email','id','name','owner','phone','status']);assert.match(requests[0],/select=id,name,status,artwork_url/);assert.equal(r.body.banners[0].email,'');assert.equal(r.body.banners[0].phone,'');
 });
 test('private sponsor access rejects missing sessions and ordinary members',async()=>{
  const calls=[];const handler=api(async url=>{calls.push(url);return url.includes('/auth/')?ok({id:'user'}):ok([])});
@@ -50,4 +50,10 @@ test('selecting an owner counts and shows their banners across statuses',()=>{
  const banners=[{id:'a',name:'First banner',owner:'Margaret Millen',status:'active'},{id:'b',name:'Archived banner',owner:' margaret millen ',status:'taken_down'},{id:'c',name:'Other banner',owner:'Other Owner',status:'active'}];
  const html=render({banners,years:[]},{year:2026,status:'all',payment:'all',search:'',owner:'owner:margaret millen'});
  assert.match(html,/Margaret Millen \(2\)/);assert.match(html,/2 banners total · 2 shown/);assert.match(html,/<h4>First banner<\/h4>/);assert.match(html,/<h4>Archived banner<\/h4>/);assert.doesNotMatch(html,/<h4>Other banner<\/h4>/);assert.match(html,/list="sponsorOwnerNames"/);
+});
+test('public contact details require an explicit manager opt-in',async()=>{
+ const handler=api(async()=>ok([{id:'a',name:'Banner',owner:'Owner',status:'active',artwork_url:'/image.jpg',phone:'5551234567',email:'public@example.test',public_contact:true,notes:'private',source_data:{}}]));
+ const r=response();await handler({method:'GET',query:{public:'1'},headers:{}},r);
+ assert.equal(r.body.banners[0].owner,'Owner');assert.equal(r.body.banners[0].phone,'5551234567');assert.equal(r.body.banners[0].email,'public@example.test');assert.equal(r.body.banners[0].notes,undefined);assert.equal(r.body.banners[0].source_data,undefined);
+ assert.equal(handler.profile({name:'Banner',public_contact:'false'}).public_contact,false);
 });
