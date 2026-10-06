@@ -10110,3 +10110,15 @@ textarea:focus-visible,
 .sponsor-existing-artwork-card details p {margin:12px 0;}
 
 .sponsor-directory-form .sponsor-public-contact {display:flex;align-items:flex-start;gap:10px;line-height:1.5;}.sponsor-directory-form .sponsor-public-contact input {width:auto;flex-shrink:0;margin-top:4px;}
+
+/* One sponsor workspace; directory and review share its top navigation. */
+.sponsor-review-page {gap:16px;}
+.sponsor-workspace-tabs {display:flex;gap:8px;padding:8px;border:1px solid var(--line);border-radius:8px;background:#181818;}
+.sponsor-workspace-tabs button {flex:1;min-width:0;padding:12px 16px;border:0;border-radius:6px;background:transparent;color:var(--muted);font:inherit;cursor:pointer;}
+.sponsor-workspace-tabs button[aria-pressed="true"] {background:var(--accent,#f3322e);color:#fff;}
+.sponsor-workspace-tabs button span {margin-left:8px;}
+.sponsor-review-page [data-sponsor-workspace-panel][hidden] {display:none;}
+.sponsor-review-page [data-sponsor-workspace-panel] {min-width:0;}
+.sponsor-review-page #sponsorDirectory {background:transparent;}
+.sponsor-review-page #sponsorSubmissionResult:empty {display:none;}
+@media(max-width:540px){.sponsor-workspace-tabs button {padding:12px 8px;font-size:14px;}}

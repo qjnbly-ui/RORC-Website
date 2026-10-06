@@ -347,6 +347,7 @@ const appState = {
   masterLogsBillingMonth: "",
   notificationsHistoryFilter: "all",
   sponsorSubmissionsFilter: "active",
+  sponsorWorkspaceView: "banners",
   dataStatus: "loading",
   dataError: "",
   syncStatus: "syncing",
@@ -2112,7 +2113,7 @@ async function fetchSponsorSubmissions() {
 }
 
 function renderExistingSponsorBanners() {
-  return '<section id="sponsorDirectory" class="detail-card"></section>';
+  return '<div id="sponsorDirectory"></div>';
 }
 
 function renderSponsorSubmissionList() {
@@ -2132,14 +2133,14 @@ function renderSponsorSubmissionList() {
 
   root.innerHTML = `
     <section class="live-record-page sponsor-review-page">
-      <header class="account-page-heading">
-        <div>
-          <p class="eyebrow">Banner workspace</p>
-          <h2>Sponsor Banners</h2>
-          <p>Everything you need to design a banner and manage its sponsorship.</p>
-        </div>
-      </header>
-      <h3>Banner requests</h3>
+      <div class="sponsor-workspace-tabs" role="group" aria-label="Sponsor workspace">
+        <button type="button" data-sponsor-workspace="banners" aria-pressed="${appState.sponsorWorkspaceView !== "requests"}">Banners &amp; owners</button>
+        <button type="button" data-sponsor-workspace="requests" aria-pressed="${appState.sponsorWorkspaceView === "requests"}">Requests &amp; review <span>${openCount}</span></button>
+      </div>
+      <div data-sponsor-workspace-panel="banners" ${appState.sponsorWorkspaceView === "requests" ? "hidden" : ""}>
+        ${renderExistingSponsorBanners()}
+      </div>
+      <div data-sponsor-workspace-panel="requests" ${appState.sponsorWorkspaceView !== "requests" ? "hidden" : ""}>
       <p id="sponsorSubmissionResult" class="auth-message" aria-live="polite"></p>
       <div class="detail-card sponsor-review-summary">
         <span><strong>${submittedCount}</strong> submitted</span>
@@ -2168,7 +2169,7 @@ function renderSponsorSubmissionList() {
           <p>No sponsor submissions for this filter.</p>
         </section>
       `}
-      ${renderExistingSponsorBanners()}
+      </div>
     </section>
   `;
 
@@ -2281,6 +2282,17 @@ async function createSponsorBannerInvoice(id, button, mode = "create") {
 }
 
 function bindSponsorSubmissionActions() {
+  document.querySelectorAll("[data-sponsor-workspace]").forEach((button) => {
+    button.addEventListener("click", () => {
+      appState.sponsorWorkspaceView = button.dataset.sponsorWorkspace;
+      document.querySelectorAll("[data-sponsor-workspace]").forEach((tab) => {
+        tab.setAttribute("aria-pressed", String(tab.dataset.sponsorWorkspace === appState.sponsorWorkspaceView));
+      });
+      document.querySelectorAll("[data-sponsor-workspace-panel]").forEach((panel) => {
+        panel.hidden = panel.dataset.sponsorWorkspacePanel !== appState.sponsorWorkspaceView;
+      });
+    });
+  });
   window.RORC_SPONSORS?.mount(document.getElementById("sponsorDirectory"), currentAuthSession?.access_token);
 
   document.querySelectorAll("[data-sponsor-image]").forEach((image) => {
