@@ -2111,6 +2111,10 @@ async function fetchSponsorSubmissions() {
   return Array.isArray(body.submissions) ? body.submissions : [];
 }
 
+function renderExistingSponsorBanners() {
+  return '<section id="sponsorDirectory" class="detail-card"></section>';
+}
+
 function renderSponsorSubmissionList() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
@@ -2135,6 +2139,7 @@ function renderSponsorSubmissionList() {
           <p>Everything you need to design a banner and manage its sponsorship.</p>
         </div>
       </header>
+      ${renderExistingSponsorBanners()}
       <p id="sponsorSubmissionResult" class="auth-message" aria-live="polite"></p>
       <div class="detail-card sponsor-review-summary">
         <span><strong>${submittedCount}</strong> submitted</span>
@@ -2275,6 +2280,8 @@ async function createSponsorBannerInvoice(id, button, mode = "create") {
 }
 
 function bindSponsorSubmissionActions() {
+  window.RORC_SPONSORS?.mount(document.getElementById("sponsorDirectory"), currentAuthSession?.access_token);
+
   document.querySelectorAll("[data-sponsor-image]").forEach((image) => {
     const showFallback = () => {
       image.hidden = true;

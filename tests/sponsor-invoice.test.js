@@ -77,13 +77,12 @@ test('paid webhook updates only the matching sponsor invoice without changing co
     capture: async (path, payload) => updates.push({ path, payload })
   });
   vm.runInContext(fs.readFileSync(require.resolve('../api/stripe-webhook'), 'utf8') +
-    '\nupdateSupabaseRows = capture;', context);
+    '\nupdateSupabaseRows = capture; supabaseRest = async () => [{ id: \"sponsor-1\", status: \"invoiced\" }];', context);
   await vm.runInContext(`handleInvoicePaid({ id: 'in_test', total: 12500,
     hosted_invoice_url: 'https://invoice.stripe.com/test',
     metadata: { rorc_sponsor_submission_id: 'sponsor-1' } })`, context);
   assert.equal(updates.length, 1);
-  assert.match(updates[0].path, /stripe_invoice_id=eq.in_test/);
-  assert.match(updates[0].path, /status=not.in.\(complete,canceled\)/);
+  assert.match(updates[0].path, /id=eq.sponsor-1/);
   assert.equal(updates[0].payload.status, 'paid');
 });
 

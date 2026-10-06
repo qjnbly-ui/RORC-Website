@@ -1,3 +1,4 @@
+const { linkCompletedSponsor } = require("./_sponsor-catalog");
 const { createSponsorInvoice } = require("./_sponsor-invoice");
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -52,6 +53,7 @@ module.exports = async (req, res) => {
           "PATCH",
           { status }
         );
+        if (rows[0]) await linkCompletedSponsor(rows[0], supabaseRest, supabaseWrite);
         return res.status(200).json({ success: true, submission: mapSponsorSubmission(rows[0] || {}) });
       }
 

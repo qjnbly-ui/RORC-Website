@@ -1,3 +1,4 @@
+const { linkCompletedSponsor } = require("./_sponsor-catalog");
 const Stripe = require("stripe");
 const { syncAccountMembershipPlan, canceledMembershipHasDebt } = require("./_stripe-membership-sync");
 
@@ -126,10 +127,15 @@ async function handleSubscriptionChanged(subscription, { syncPlan, paymentReceiv
 async function handleInvoicePaid(invoice) {
   if (!invoice?.id) return;
   if (invoice.metadata?.rorc_sponsor_submission_id && invoice.total === 12500) {
-    await updateSupabaseRows(
-      `sponsor_banner_submissions?id=eq.${encodeURIComponent(invoice.metadata.rorc_sponsor_submission_id)}&stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}&status=not.in.(complete,canceled)`,
-      { status: "paid", stripe_invoice_status: "paid", stripe_invoice_url: invoice.hosted_invoice_url || null }
-    );
+    const sponsorRows=await supabaseRest(`sponsor_banner_submissions?select=*&id=eq.${encodeURIComponent(invoice.metadata.rorc_sponsor_submission_id)}&stripe_invoice_id=eq.${encodeURIComponent(invoice.id)}&limit=1`);
+    const sponsor=sponsorRows[0];
+    if(sponsor && sponsor.status!=="canceled"){
+      await updateSupabaseRows(`sponsor_banner_submissions?id=eq.${encodeURIComponent(sponsor.id)}`,{status:sponsor.status==="complete"?"complete":"paid",stripe_invoice_status:"paid",stripe_invoice_url:invoice.hosted_invoice_url||null});
+      if(sponsor.status==="complete")await linkCompletedSponsor(sponsor,supabaseRest,async(path,method,body)=>{
+        const response=await fetch(`${SUPABASE_URL}/rest/v1/${path}`,{method,headers:{apikey:SERVICE_ROLE_KEY,Authorization:`Bearer ${SERVICE_ROLE_KEY}`,"Content-Type":"application/json",Prefer:"return=representation"},body:JSON.stringify(body)});
+        if(!response.ok)throw new Error("Could not update sponsor catalog.");return response.json();
+      },invoice);
+    }
     return;
   }
   const rows = await supabaseRest(

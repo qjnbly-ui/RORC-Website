@@ -108,64 +108,12 @@
 
     <section class="sponsors-section">
       <div class="sponsors-section-head">
-        <h2>Banners On Order</h2>
-        <p class="sponsors-note">These are the banners currently being produced.</p>
+        <h2>Our Sponsors</h2>
+        <p class="sponsors-note" id="sponsorGalleryStatus">Loading our banner gallery…</p>
       </div>
-      <div class="sponsors-grid">
-        <figure class="sponsors-figure">
-          <img src="../Images/Banners/On%20Order/CraterLakeRealty.jpg" alt="Crater Lake Realty banner" />
-        </figure>
-        <figure class="sponsors-figure">
-          <img src="../Images/Banners/On%20Order/HeartTHogs.jpg" alt="Heart T Hogs banner" />
-        </figure>
-        <figure class="sponsors-figure">
-          <img src="../Images/Banners/On%20Order/HolgatePlumbing.jpg" alt="Holgate Plumbing banner" />
-        </figure>
-        <figure class="sponsors-figure">
-          <img src="../Images/Banners/On%20Order/JIMGLORIA.jpg" alt="Jim and Gloria banner" />
-        </figure>
-        <figure class="sponsors-figure">
-          <img src="../Images/Banners/On%20Order/JerryPatzke.jpg" alt="Jerry Patzke banner" />
-        </figure>
-        <figure class="sponsors-figure">
-          <img src="../Images/Banners/On%20Order/SMITHFAMILIES.jpg" alt="Smith Families banner" />
-        </figure>
-        <figure class="sponsors-figure">
-          <img src="../Images/Banners/On%20Order/FullerInsurance.jpg" alt="Fuller Insurance banner" />
-        </figure>
-        <figure class="sponsors-figure">
-          <img src="../Images/Banners/On%20Order/InMemoryofLansdowne.Nichols.jpg" alt="In memory of Lansdowne Nichols banner" />
-        </figure>
-        <figure class="sponsors-figure">
-          <img src="../Images/Banners/On%20Order/WellsRediMix%2010.31.21%E2%80%AFAM.jpg" alt="Wells RediMix banner" />
-        </figure>
-        <figure class="sponsors-figure">
-          <img src="../Images/Banners/On%20Order/Denise.jpg" alt="Denise banner" />
-        </figure>
-        <figure class="sponsors-figure">
-          <img src="../Images/Banners/On%20Order/MillenConstruction.jpg" alt="Millen Construction banner" />
-        </figure>
-        <figure class="sponsors-figure">
-          <img src="../Images/Banners/On%20Order/KBYD.jpg" alt="KBYD banner" />
-        </figure>
-        <figure class="sponsors-figure">
-          <img src="../Images/Banners/On%20Order/AbidingPlaceMinistries.jpg" alt="Abiding Place Ministries banner" />
-        </figure>
-        <figure class="sponsors-figure">
-          <img src="../Images/Banners/On%20Order/TheBarnMarvinGarden.jpg" alt="The Barn Marvin Garden banner" />
-        </figure>
-        <figure class="sponsors-figure">
-          <img src="../Images/Banners/On%20Order/SpitsbergenBanner-SummerSpitsbergen.jpg" alt="Spitsbergen banner" />
-        </figure>
-      </div>
+      <div class="sponsors-grid" id="sponsorGallery"></div>
     </section>
-
-    <section class="sponsors-section">
-      <div class="sponsors-section-head">
-        <h2>Current Advertisement Banners</h2>
-        <p class="sponsors-note">Full sponsor list and banner gallery coming soon.</p>
-      </div>
-    </section>
+    <script src="/scripts/sponsor-gallery.js?v=20261005" defer></script>
   </main>
 
   <footer class="site-footer">
@@ -187,7 +135,7 @@
     <button class="banner-lightbox-nav banner-lightbox-next" type="button" aria-label="Next banner">›</button>
   </div>
   <script>
-    (() => {
+    document.addEventListener("sponsors-loaded", () => {
       const lightbox = document.querySelector(".banner-lightbox");
       const lightboxImage = lightbox.querySelector(".banner-lightbox-image");
       const closeButton = lightbox.querySelector(".banner-lightbox-close");
@@ -243,7 +191,7 @@
         if (event.key === "ArrowRight") showNext();
         if (event.key === "ArrowLeft") showPrev();
       });
-    })();
+    });
   </script>
 </body>
 </html>
