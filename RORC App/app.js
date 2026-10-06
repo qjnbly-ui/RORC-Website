@@ -2139,11 +2139,11 @@ function renderSponsorSubmissionList() {
           <p>Everything you need to design a banner and manage its sponsorship.</p>
         </div>
       </header>
-      ${renderExistingSponsorBanners()}
+      <h3>Banner requests</h3>
       <p id="sponsorSubmissionResult" class="auth-message" aria-live="polite"></p>
       <div class="detail-card sponsor-review-summary">
         <span><strong>${submittedCount}</strong> submitted</span>
-        <span><strong>${openCount}</strong> active</span>
+        <span><strong>${openCount}</strong> in progress</span>
         <span><strong>${formatCurrency(totalCents)}</strong> shown</span>
       </div>
       <div class="detail-card">
@@ -2168,6 +2168,7 @@ function renderSponsorSubmissionList() {
           <p>No sponsor submissions for this filter.</p>
         </section>
       `}
+      ${renderExistingSponsorBanners()}
     </section>
   `;
 
