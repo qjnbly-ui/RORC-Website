@@ -1,10 +1,10 @@
-const CACHE_VERSION = "rorc-app-v111";
+const CACHE_VERSION = "rorc-app-v112";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const NAVIGATION_CACHE = `${CACHE_VERSION}-navigation`;
 const OFFLINE_PAGE = "./index.html";
 const APP_SHELL = [
   OFFLINE_PAGE,
-  "/scripts/rorc-sponsors.js?v=20261006-sponsor-spacious",
+  "/scripts/rorc-sponsors.js?v=20261007-billing-address",
   "/scripts/rorc-linked-accounts.js?v=20261005",
   "/scripts/rorc-linked-accounts.css?v=20261005",
   "./app.css?v=20261006-sponsor-spacious",
@@ -13,7 +13,7 @@ const APP_SHELL = [
   "./closure-credits.js?v=20260921-closure-credits",
   "/scripts/rorc-recurring-dates.js?v=20261001",
   "/scripts/rorc-account-form-draft.js?v=20261003-related-form-accounts",
-  "./app.js?v=20261006-sponsor-spacious",
+  "./app.js?v=20261007-billing-address",
   "./vendor/supabase.min.js?v=2.112.2",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",

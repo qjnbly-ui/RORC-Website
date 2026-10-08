@@ -9,10 +9,11 @@ async function linkCompletedSponsor(row, rest, write, invoice = null) {
  }
  if(!banners.length)banners=await write("sponsor_banners","POST",{
   source_key:"submission:"+row.id,name:row.business_name,status:"active",owner:row.contact_name||"",
-  phone:row.phone_number||"",email:row.email_address||"",notes:row.design_requests||"",
+  billing_address:row.billing_address||{},phone:row.phone_number||"",email:row.email_address||"",notes:row.design_requests||"",
   source_data:{submission_id:row.id},artwork_url:""
  });
  const banner=banners[0];
+ if(row.billing_address?.line1)await write("sponsor_banners?id=eq."+banner.id,"PATCH",{billing_address:row.billing_address,updated_at:new Date().toISOString()});
  if(row.stripe_invoice_id && !invoice && process.env.STRIPE_SECRET_KEY){
   const stripe=require("stripe")(process.env.STRIPE_SECRET_KEY,{apiVersion:"2026-02-25.clover"});
   invoice=await stripe.invoices.retrieve(row.stripe_invoice_id);

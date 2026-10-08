@@ -37,7 +37,8 @@ async function createSponsorInvoice({ id, supabaseRest, supabaseWrite, stripe = 
       throw fail(409, "An earlier invoice attempt needs review in Stripe before retrying. No new invoice was created.");
     }
     const customer = await stripe.customers.create({
-      email: row.email_address, name: row.business_name, metadata
+      email: row.email_address, name: row.business_name, metadata,
+      ...(row.billing_address?.line1 ? {address:row.billing_address} : {})
     }, { idempotencyKey: `${key}-customer` });
     invoice = await stripe.invoices.create({
       customer: customer.id, collection_method: "send_invoice", days_until_due: 30,

@@ -1,3 +1,4 @@
+const { billingAddress } = require("./_sponsor-address");
 const { linkCompletedSponsor } = require("./_sponsor-catalog");
 const { createSponsorInvoice } = require("./_sponsor-invoice");
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
@@ -38,6 +39,12 @@ module.exports = async (req, res) => {
       const action = str(req.body?.action).toLowerCase();
       if (!id) return res.status(400).json({ success: false, error: "Missing submission ID." });
 
+      if (action === "billing_address") {
+        const rows = await supabaseWrite(`sponsor_banner_submissions?id=eq.${encodeURIComponent(id)}`, "PATCH", {billing_address:billingAddress(req.body.billingAddress, true)});
+        if (!rows[0]) return res.status(404).json({success:false,error:"Sponsor submission was not found."});
+        await linkCompletedSponsor(rows[0], supabaseRest, supabaseWrite, {});
+        return res.status(200).json({success:true,submission:mapSponsorSubmission(rows[0])});
+      }
       if (action === "invoice") {
         const invoice = await createSponsorInvoice({ id, supabaseRest, supabaseWrite, mode: req.body?.mode === "send" ? "send" : "create" });
         return res.status(200).json({ success: true, invoice });
@@ -105,6 +112,7 @@ function mapSponsorSubmission(row) {
     contactName: row.contact_name || "",
     emailAddress: row.email_address || "",
     phoneNumber: row.phone_number || "",
+    billingAddress: row.billing_address || {},
     bannerText: row.banner_text || "",
     designRequests: row.design_requests || "",
     paymentMethod: row.payment_method || "",

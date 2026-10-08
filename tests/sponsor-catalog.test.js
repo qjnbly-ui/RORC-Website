@@ -1,9 +1,9 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
-function api(fetcher){const context={require,URL,Buffer,process:{env:{SUPABASE_SERVICE_ROLE_KEY:'server-only'}},fetch:fetcher,module:{exports:{}}};vm.runInNewContext(fs.readFileSync(require.resolve('../api/sponsor-catalog'),'utf8'),context);return context.module.exports;}
+function api(fetcher){const context={require:require("node:module").createRequire(require.resolve("../api/sponsor-catalog")),URL,Buffer,process:{env:{SUPABASE_SERVICE_ROLE_KEY:'server-only'}},fetch:fetcher,module:{exports:{}}};vm.runInNewContext(fs.readFileSync(require.resolve('../api/sponsor-catalog'),'utf8'),context);return context.module.exports;}
 function response(){return {headers:{},setHeader(k,v){this.headers[k]=v},status(s){this.code=s;return this},json(b){this.body=b;return this}}}
 const ok=data=>({ok:true,status:200,json:async()=>data});
 test('public sponsor catalog projects only public fields',async()=>{
- const requests=[];const handler=api(async url=>{requests.push(url);return ok([{id:'1',name:'Sponsor',status:'active',artwork_url:'/image.jpg',owner:'Private',email:'private@test',source_data:{Paid:'Yes'}}])});
+ const requests=[];const handler=api(async url=>{requests.push(url);return ok([{id:'1',name:'Sponsor',status:'active',artwork_url:'/image.jpg',owner:'Private',email:'private@test',billing_address:{line1:'PRIVATE ADDRESS'},source_data:{Paid:'Yes'}}])});
  const r=response();await handler({method:'GET',query:{public:'1'},headers:{}},r);
  assert.equal(r.code,200);assert.deepEqual(Object.keys(r.body.banners[0]).sort(),['artwork_url','email','id','name','owner','phone','status']);assert.match(requests[0],/select=id,name,status,artwork_url/);assert.equal(r.body.banners[0].email,'');assert.equal(r.body.banners[0].phone,'');
 });

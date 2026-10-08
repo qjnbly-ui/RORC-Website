@@ -2214,6 +2214,7 @@ function renderSponsorSubmissionCard(submission) {
               ${invoiceEligible ? `<button class="sponsor-text-button" data-sponsor-invoice="${id}" type="button">${submission.stripeInvoiceId ? "Refresh payment status" : "Create without sending"}</button>` : ""}
             </div>
           </section>
+          <section><h4>Billing address</h4><form data-sponsor-address="${id}" class="sponsor-directory-form"><label>Street address<input name="line1" value="${escapeAttribute(submission.billingAddress?.line1 || "")}" maxlength="250" required></label><label>Unit / suite (optional)<input name="line2" value="${escapeAttribute(submission.billingAddress?.line2 || "")}" maxlength="250"></label><label>City<input name="city" value="${escapeAttribute(submission.billingAddress?.city || "")}" maxlength="250" required></label><label>State / region<input name="state" value="${escapeAttribute(submission.billingAddress?.state || "")}" maxlength="250" required></label><label>ZIP / postal code<input name="postal_code" value="${escapeAttribute(submission.billingAddress?.postal_code || "")}" maxlength="250" required></label><label>Country code<input name="country" value="${escapeAttribute(submission.billingAddress?.country || "US")}" maxlength="250" required></label><button type="submit">Save billing address</button><p role="status"></p></form></section>
           <details class="sponsor-more-actions"><summary>More actions</summary><button class="sponsor-text-button sponsor-delete-button" data-sponsor-delete="${id}" type="button">Delete submission</button></details>
         </aside>
       </div>
@@ -2282,6 +2283,19 @@ function bindSponsorSubmissionActions() {
       document.querySelectorAll("[data-sponsor-workspace-panel]").forEach((panel) => {
         panel.hidden = panel.dataset.sponsorWorkspacePanel !== appState.sponsorWorkspaceView;
       });
+    });
+  });
+  document.querySelectorAll('[data-sponsor-address]').forEach(form => {
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = form.querySelector('button'), result = form.querySelector('[role="status"]');
+      button.disabled = true;
+      try {
+        const body = await postSponsorSubmissionAction({id:form.dataset.sponsorAddress,action:'billing_address',billingAddress:Object.fromEntries(new FormData(form))});
+        sponsorSubmissions = sponsorSubmissions.map(item => item.id === body.submission.id ? body.submission : item);
+        result.textContent = 'Billing address saved.';
+      } catch(error) { result.textContent = error.message; }
+      finally { button.disabled = false; }
     });
   });
   window.RORC_SPONSORS?.mount(document.getElementById("sponsorDirectory"), currentAuthSession?.access_token);

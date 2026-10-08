@@ -1,3 +1,4 @@
+const { billingAddress } = require("./_sponsor-address");
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -41,6 +42,7 @@ module.exports = async (req, res) => {
       contact_name: str(body.contactName),
       email_address: str(body.emailAddress).toLowerCase(),
       phone_number: str(body.phoneNumber) || null,
+      billing_address: billingAddress(body.billingAddress, true),
       banner_text: str(body.bannerText) || null,
       design_requests: str(body.designRequests) || null,
       payment_method: normalizePaymentMethod(body.paymentMethod),
@@ -81,6 +83,7 @@ module.exports = async (req, res) => {
 
 function validateSponsorSubmission(body) {
   const errors = [];
+  try { billingAddress(body.billingAddress, true); } catch (error) { errors.push(error.message); }
   if (!["new", "renewal"].includes(normalizeSponsorshipType(body.sponsorshipType))) {
     errors.push("Select new sponsorship or renewal.");
   }

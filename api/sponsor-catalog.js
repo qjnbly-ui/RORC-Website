@@ -1,3 +1,4 @@
+const { billingAddress } = require("./_sponsor-address");
 const URL_BASE=(process.env.SUPABASE_URL||"https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/,"");
 const KEY=process.env.SUPABASE_SERVICE_ROLE_KEY;
 const statuses=new Set(["active","ordered","taken_down"]);
@@ -20,7 +21,7 @@ function artwork(value){
 function profile(b){
  const status=clean(b.status)||"active";if(!statuses.has(status))throw Object.assign(new Error("Invalid banner status."),{status:400});
  const name=clean(b.name,250);if(!name)throw Object.assign(new Error("Banner name is required."),{status:400});
- return {name,status,public_contact:b.public_contact===true,owner:clean(b.owner,250),phone:clean(b.phone,100),email:clean(b.email,320),notes:clean(b.notes,10000),artwork_url:artwork(b.artwork_url),updated_at:new Date().toISOString()};
+ return {...(b.billing_address !== undefined ? {billing_address:billingAddress(b.billing_address)} : {}),name,status,public_contact:b.public_contact===true,owner:clean(b.owner,250),phone:clean(b.phone,100),email:clean(b.email,320),notes:clean(b.notes,10000),artwork_url:artwork(b.artwork_url),updated_at:new Date().toISOString()};
 }
 function annual(b){
  const year=Number(b.year);if(!Number.isInteger(year)||year<1900||year>2200)throw Object.assign(new Error("Invalid year."),{status:400});
