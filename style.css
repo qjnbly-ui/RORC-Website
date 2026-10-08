@@ -2393,6 +2393,7 @@ body.interior-page {
 .sponsors-form input[type="email"],
 .sponsors-form input[type="tel"],
 .sponsors-form input[type="file"],
+.sponsors-form select,
 .sponsors-form textarea {
   width: 100%;
   border: 1px solid rgba(255, 255, 255, 0.15);
@@ -2406,8 +2407,12 @@ body.interior-page {
 .sponsors-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 14px;
-  row-gap: 2px;
+  gap: 14px;
+  align-items: start;
+}
+
+.sponsors-form-grid label {
+  margin: 0;
 }
 
 .sponsors-form textarea {
@@ -2415,6 +2420,7 @@ body.interior-page {
 }
 
 .sponsors-form input:focus,
+.sponsors-form select:focus,
 .sponsors-form textarea:focus {
   outline: 2px solid rgba(231, 210, 160, 0.45);
   outline-offset: 2px;
@@ -3354,3 +3360,14 @@ body.interior-page {
 .banner-owner-contacts:empty {display:none;}
 .banner-owner-contacts a {color:#f0ece3;overflow-wrap:anywhere;}
 @media(max-width:600px){.banner-lightbox {padding:64px 12px 18px;gap:6px;}.banner-lightbox-content {max-width:calc(100vw - 100px);max-height:calc(100dvh - 82px);}.banner-lightbox-content .banner-lightbox-image {max-height:58dvh;}.banner-owner-panel {padding:14px;}.banner-owner-panel h3 {font-size:18px;}.banner-owner-contacts {flex-direction:column;font-size:14px;}.banner-lightbox-nav {width:32px;height:40px;flex-shrink:0;}}
+
+/* Billing addresses share the existing form controls and responsive layout. */
+.billing-address-fields {display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.4fr) minmax(0,1fr);gap:14px;min-width:0;align-items:start;}
+.billing-address-fields .billing-address-street {grid-column:1 / -1;}
+.billing-address-fields label {margin:0;min-width:0;display:flex;flex-direction:column;gap:6px;}
+.billing-address-fields input,.billing-address-fields select {box-sizing:border-box;min-width:0;font:inherit;height:44px;margin:0;line-height:20px;}
+.billing-address-fields select {color-scheme:dark;}
+.billing-address-fieldset {min-width:0;border:1px solid #333;border-radius:8px;padding:14px;}
+.billing-address-unit {grid-column:span 2;min-width:0;align-self:start;}
+.billing-address-country {min-width:0;}
+@media(max-width:600px){.billing-address-fields{grid-template-columns:minmax(0,1fr) minmax(0,1fr);}.billing-address-fields .billing-address-unit,.billing-address-fields .billing-address-country,.billing-address-fields label:nth-child(4){grid-column:1 / -1;}.billing-address-fields .billing-address-country{width:min(100%,320px);}}

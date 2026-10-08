@@ -13,7 +13,7 @@
   <meta name="twitter:title" content="RORC Sponsor Information" />
   <meta name="twitter:description" content="Submit a new banner sponsorship or renew an existing RORC banner." />
   <meta name="twitter:image" content="https://www.ruthobenchainrc.com/Images/Banners/ExtraImages/banneradd.jpg" />
-  <link rel="stylesheet" href="../../style.css" />
+  <link rel="stylesheet" href="../../style.css?v=20261007-address-ui" />
   <script src="/scripts/rorc-auth-nav.js" defer></script>
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-EGC30XZVXV"></script>
   <script>
@@ -89,7 +89,7 @@
           </div>
         </fieldset>
 
-<fieldset><legend>Billing Address</legend><div class="sponsors-form-grid"><label><span>Street address *</span><input name="billing_line1" autocomplete="billing address-line1" maxlength="250" required /></label><label><span>Unit / suite (optional)</span><input name="billing_line2" autocomplete="billing address-line2" maxlength="250" /></label><label><span>City *</span><input name="billing_city" autocomplete="billing address-level2" maxlength="250" required /></label><label><span>State / region *</span><input name="billing_state" autocomplete="billing address-level1" maxlength="250" required /></label><label><span>ZIP / postal code *</span><input name="billing_postal_code" autocomplete="billing postal-code" maxlength="250" required /></label><label><span>Country code *</span><input name="billing_country" autocomplete="billing country" maxlength="250" value="US" minlength="2" required /></label></div></fieldset>
+        <fieldset><legend>Billing Address</legend><div id="sponsorBillingAddress"></div></fieldset>
 
         <fieldset>
           <legend>Sponsorship Type</legend>
@@ -164,8 +164,10 @@
     </div>
   </footer>
 
+  <script src="/scripts/rorc-sponsors.js?v=20261007-address-ui"></script>
   <script>
     (() => {
+      document.getElementById("sponsorBillingAddress").innerHTML = window.RORC_SPONSORS.addressFields({}, "billing_", false);
       const form = document.getElementById("sponsorBannerForm");
       const status = document.getElementById("sponsorBannerFormStatus");
       const detailsSection = document.getElementById("sponsorBannerDetailsSection");

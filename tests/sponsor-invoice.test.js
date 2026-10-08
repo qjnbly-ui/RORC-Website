@@ -191,6 +191,7 @@ test('the banner card offers invoice actions for the original check preference',
   const vm = require('node:vm');
   const source = fs.readFileSync(require.resolve('../RORC App/app.js'), 'utf8');
   const context = vm.createContext({
+    window: {RORC_SPONSORS: require("../scripts/rorc-sponsors")},
     escapeHtml: String, escapeAttribute: String, formatShortDateTime: () => 'Today',
     sponsorStatusClass: () => 'pending', sponsorStatusLabel: String,
     formatCurrency: () => '$125.00', emailHref: () => 'mailto:test@example.test'

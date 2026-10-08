@@ -4,7 +4,30 @@
  const options=(values,selected)=>values.map(v=>'<option value="'+v+'" '+(v===selected?'selected':'')+'>'+labels[v]+'</option>').join('');
  const ownerKey=value=>String(value||'').trim().toLowerCase();
  const field=(label,name,value,type='text')=>'<label>'+label+'<input name="'+name+'" type="'+type+'" value="'+esc(value)+'"'+(name==='owner'?' list="sponsorOwnerNames"':'')+'></label>';
- const addressFields=(address={})=>'<fieldset><legend>Billing address (private)</legend>'+field('Street address','billing_line1',address.line1)+field('Unit / suite (optional)','billing_line2',address.line2)+field('City','billing_city',address.city)+field('State / region','billing_state',address.state)+field('ZIP / postal code','billing_postal_code',address.postal_code)+field('Country code','billing_country',address.country||'US')+'</fieldset>';
+ const states='AL:Alabama|AK:Alaska|AZ:Arizona|AR:Arkansas|CA:California|CO:Colorado|CT:Connecticut|DE:Delaware|DC:District of Columbia|FL:Florida|GA:Georgia|HI:Hawaii|ID:Idaho|IL:Illinois|IN:Indiana|IA:Iowa|KS:Kansas|KY:Kentucky|LA:Louisiana|ME:Maine|MD:Maryland|MA:Massachusetts|MI:Michigan|MN:Minnesota|MS:Mississippi|MO:Missouri|MT:Montana|NE:Nebraska|NV:Nevada|NH:New Hampshire|NJ:New Jersey|NM:New Mexico|NY:New York|NC:North Carolina|ND:North Dakota|OH:Ohio|OK:Oklahoma|OR:Oregon|PA:Pennsylvania|RI:Rhode Island|SC:South Carolina|SD:South Dakota|TN:Tennessee|TX:Texas|UT:Utah|VT:Vermont|VA:Virginia|WA:Washington|WV:West Virginia|WI:Wisconsin|WY:Wyoming|AS:American Samoa|GU:Guam|MP:Northern Mariana Islands|PR:Puerto Rico|VI:U.S. Virgin Islands'.split('|').map(v=>v.split(':'));
+ const countryCodes='AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW'.split(' ');
+ const regionNames=typeof Intl.DisplayNames==='function'?new Intl.DisplayNames(['en'],{type:'region'}):null;
+ const countries=countryCodes.map(code=>[code,regionNames?.of(code)||code]).sort((a,b)=>a[1].localeCompare(b[1]));
+ function selectAddress(name,values,value,prompt,autocomplete){
+  const extra=value&&!values.some(([code])=>code===value)?[[value,value]]:[];
+  return '<select name="'+esc(name)+'" autocomplete="billing '+autocomplete+'" required>'+ (prompt?'<option value="">'+esc(prompt)+'</option>':'')+[...extra,...values].map(([code,label])=>'<option value="'+esc(code)+'"'+(code===value?' selected':'')+'>'+esc(label)+'</option>').join('')+'</select>';
+ }
+ function stateControl(address,prefix){
+  const value=String(address.state||'');
+  return address.country==='US'?selectAddress(prefix+'state',states,states.find(([code,label])=>code===value.toUpperCase()||label.toLowerCase()===value.toLowerCase())?.[0]||value,'Select state','address-level1'):'<input type="text" name="'+prefix+'state" value="'+esc(value)+'" autocomplete="billing address-level1" maxlength="250" required>';
+ }
+ function addressFields(address={},prefix='billing_',legend=true){
+  address={...address,country:address.country||'US'};
+  const input=(label,key,auto,wide=false)=>'<label'+(wide?' class="billing-address-street"':'')+'><span>'+label+(key==='line2'?'':' *')+'</span><input type="text" name="'+prefix+key+'" value="'+esc(address[key]||'')+'" autocomplete="billing '+auto+'" maxlength="250"'+(key!=='line2'?' required':'')+'></label>';
+  const unit='<div class="billing-address-unit">'+input('Unit / suite (optional)','line2','address-line2')+'</div>';
+  const country='<label class="billing-address-country"><span>Country *</span>'+selectAddress(prefix+'country',countries,address.country,'','country')+'</label>';
+  return (legend?'<fieldset class="billing-address-fieldset"><legend>Billing address (private)</legend>':'')+'<div class="billing-address-fields" data-billing-address data-address-prefix="'+prefix+'">'+input('Street address','line1','address-line1',true)+unit+country+input('City','city','address-level2')+'<label data-address-state><span>'+ (address.country==='US'?'State':'State / region')+' *</span>'+stateControl(address,prefix)+'</label>'+input(address.country==='US'?'ZIP code':'Postal code','postal_code','postal-code')+'</div>'+(legend?'</fieldset>':'');
+ }
+ if(typeof document==='object')document.addEventListener('change',event=>{
+  const group=event.target.closest('[data-billing-address]');if(!group)return;
+  const prefix=group.dataset.addressPrefix||'';if(event.target.name!==prefix+'country')return;
+  const label=group.querySelector('[data-address-state]');label.innerHTML='<span>'+(event.target.value==='US'?'State':'State / region')+' *</span>'+stateControl({country:event.target.value,state:''},prefix);
+ });
  function ownerContact(banners,name){
   const matches=banners.filter(b=>ownerKey(name)&&ownerKey(b.owner)===ownerKey(name));
   const result={matched:matches.length>0,conflicts:[]};
@@ -110,7 +133,7 @@
  });
  try{await load();}catch(err){host.innerHTML='<p role="alert">'+esc(err.message)+'</p><button data-directory-retry>Retry</button>';host.querySelector('[data-directory-retry]').onclick=()=>mount(host,token);}
  }
- root.RORC_SPONSORS={mount,render,prepareImage};
- if(typeof module==='object')module.exports={render,prepareImage,ownerContact};
+ root.RORC_SPONSORS={mount,render,prepareImage,addressFields};
+ if(typeof module==='object')module.exports={render,prepareImage,ownerContact,addressFields};
 })(typeof window==='object'?window:globalThis);
 
