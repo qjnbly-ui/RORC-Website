@@ -78,3 +78,18 @@ test('a heater linked to a rental still uses its runtime date and is not mistake
   const group=buildPreview('2026-10',data).accounts.find(a=>a.name==='APCA');
   assert.equal(group.items.length,0);assert.equal(group.unbilledRentals.length,1);
 });
+test('the billing section is reachable through real menu buttons and remains manager-only',()=>{
+  const fs=require('node:fs');
+  const vm=require('node:vm');
+  const app=fs.readFileSync(require.resolve('../RORC App/app.js'),'utf8');
+  const html=fs.readFileSync(require.resolve('../RORC App/index.html'),'utf8');
+  const layouts=vm.runInNewContext('('+app.match(/const drawerLayouts = (\{[\s\S]*?\n\});/)[1]+')');
+  const section=layouts.manager.find(s=>s.title==='Billing');
+  assert.ok(section);
+  for(const route of section.routes){
+    assert.ok(html.includes(`class="drawer-item" data-route="${route}"`),`${route} must have a real drawer button`);
+    assert.match(app,new RegExp(`  ${route}: \\{`));
+  }
+  const managers=vm.runInNewContext(app.match(/const accountManagerOnlyRoutes = new Set\([\s\S]*?\n\]\);/)[0]+'; [...accountManagerOnlyRoutes]');
+  for(const route of ['billing','billingRecords'])assert.ok(managers.includes(route));
+});
