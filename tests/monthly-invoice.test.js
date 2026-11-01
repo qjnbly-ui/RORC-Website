@@ -7,7 +7,7 @@ async function setup(run) {
   const originalFetch=global.fetch, originalLoad=Module._load;
   const savedEnv={SUPABASE_SERVICE_ROLE_KEY:process.env.SUPABASE_SERVICE_ROLE_KEY,STRIPE_SECRET_KEY:process.env.STRIPE_SECRET_KEY};
   const rows=[{id:'item-1',account_member_id:'member',amount_cents:1200,reason:'October event',created_at:'2026-10-14T12:00:00Z'}, {id:'item-2',account_member_id:'member',amount_cents:1647,reason:'October heat',created_at:'2026-10-30T12:00:00Z'}];
-  const data={billing:rows,members:[{id:'member',account_id:'account',member_name:'APCA',email_address:'apca@example.test',is_billing_owner:true}],rentals:[],heaters:[],attendance:[],changes:[]};
+  const data={links:[],billing:rows,members:[{id:'member',account_id:'account',member_name:'APCA',email_address:'apca@example.test',is_billing_owner:true}],rentals:[],heaters:[],attendance:[],changes:[]};
   let invoice=null, failLine=false, failSend=false, creates=0, sends=0;
   const lines=[];
   const clone=x=>JSON.parse(JSON.stringify(x));
@@ -19,7 +19,7 @@ async function setup(run) {
     invoiceItems:{create:async(payload,options)=>{
       assert.ok(options.idempotencyKey);
       if(failLine){failLine=false;throw new Error('Interrupted line creation');}
-      lines.push({metadata:payload.metadata,amount:rows.find(r=>r.id===payload.metadata.rorc_billing_line_item_id).amount_cents});return{id:'ii_1'};
+      lines.push({description:payload.description,metadata:payload.metadata,amount:rows.find(r=>r.id===payload.metadata.rorc_billing_line_item_id).amount_cents});return{id:'ii_1'};
     }},
     invoices:{
       list:()=>asyncList(invoice?[clone(invoice)]:[]),
@@ -40,6 +40,10 @@ async function setup(run) {
     const json=x=>({ok:true,status:200,json:async()=>x});
     if(p.includes('account_billing?select=account_id,stripe_customer_id'))return json([{account_id:'account',stripe_customer_id:'cus_account'}]);
     if(p.includes('account_members?select=id,account_id,member_name'))return json([{...data.members[0],accounts:{account_number:'29'}}]);
+    if(p.includes('rental_requests?select=*'))return json(data.rentals);
+    if(p.includes('heater_use_entries?select=id'))return json(data.heaters);
+    if(p.includes('billing_line_items?select=id,heater_use_entry_id'))return json(rows);
+    if(options.method==='PATCH'&&p.includes('heater_use_entries?id=in.'))return{ok:true,status:204};
     if(options.method==='PATCH'&&p.includes('billing_line_items?id=in.')){rows.forEach(row=>Object.assign(row,JSON.parse(options.body)));return{ok:true,status:204};}
     throw new Error(`Unexpected request ${p}`);
   };
@@ -66,4 +70,13 @@ test('new charges after a monthly invoice was sent cannot create a second invoic
 test('charges already on an unrelated invoice are blocked',()=>setup(async({send,rows,stats})=>{
   rows[0].stripe_invoice_id='in_other';rows[0].stripe_invoice_status='open';
   await assert.rejects(send,/another invoice/);assert.equal(stats().creates,0);
+}));
+test('heater invoice lines carry the attached event name, date, and rental reference without adding a duplicate charge',()=>setup(async({send,data,rows,lines,stats})=>{
+  data.rentals.push({id:'event',claimed_member_id:'member',event_name:'Lunch recess',event_date:'2026-10-30',rental_status:'confirmed'});
+  data.heaters.push({id:'heat',used_on:'2026-10-30',system_type:'heat',start_at:'2026-10-30T19:30:00Z',end_at:'2026-10-30T19:45:00Z'});
+  data.links.push({rental_request_id:'event',heater_use_entry_id:'heat',ignored_at:null});
+  rows[1].heater_use_entry_id='heat';
+  await send();
+  const line=lines.find(l=>l.metadata.rorc_billing_line_item_id==='item-2');
+  assert.equal(line.metadata.rorc_rental_request_id,'event');assert.match(line.description,/2026-10-30.*Lunch recess/);assert.equal(lines.length,2);assert.equal(stats().invoice.total,2847);
 }));

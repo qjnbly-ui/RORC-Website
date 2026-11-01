@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const { heaterMatchesForAccount } = require('./_heater-rental-matching');
 const ZONE = 'America/Los_Angeles';
 function fail(statusCode, message) { return Object.assign(new Error(message), { statusCode }); }
 function previousMonth(now = new Date()) {
@@ -23,6 +24,7 @@ function fingerprint(group) {
     accountId: group.accountId, name: group.name, email: group.email,
     items: group.items.map(i => [i.id, i.amountCents, i.date, i.status, i.reason, i.invoiceId, i.deliveryPending]).sort(),
     rentals: group.unbilledRentals.map(r => [r.id, r.amountCents, r.memberId]).sort(),
+    heaterMatches: group.heaterMatches || [],
     issues: group.issues.slice().sort()
   })).digest('hex');
 }
@@ -52,7 +54,7 @@ function buildPreview(month, data) {
     const group = groupFor(item.account_member_id);
     if (!group) { issues.push(`Unassigned charge: ${item.reason || item.id}`); continue; }
     const status = paid(item) ? 'paid' : active(item) ? 'invoiced' : 'ready';
-    group.items.push({ id: item.id, date, amountCents: Number(item.amount_cents || 0), reason: item.reason || 'Charge', source: item.heater_use_entry_id ? 'Heater / AC' : item.rental_request_id ? 'Rental' : item.timesheet_entry_id ? 'Guest' : 'Other', status, invoiceId: item.stripe_invoice_id || '', invoiceStatus: item.stripe_invoice_status || '', deliveryPending: item.payment_note === 'Monthly invoice delivery pending', invoiceUrl: item.stripe_invoice_url || '', memberId: item.account_member_id });
+    group.items.push({ id: item.id, heaterId: item.heater_use_entry_id || '', date, amountCents: Number(item.amount_cents || 0), reason: item.reason || 'Charge', source: item.heater_use_entry_id ? 'Heater / AC' : item.rental_request_id ? 'Rental' : item.timesheet_entry_id ? 'Guest' : 'Other', status, invoiceId: item.stripe_invoice_id || '', invoiceStatus: item.stripe_invoice_status || '', deliveryPending: item.payment_note === 'Monthly invoice delivery pending', invoiceUrl: item.stripe_invoice_url || '', memberId: item.account_member_id });
     if (item.rental_request_id && !rental) group.issues.push('A rental charge is missing its source event.');
     if (rental && ['canceled', 'rejected'].includes(rental.rental_status) && status === 'ready') group.issues.push(`Review charge for canceled or rejected event: ${rental.event_name || rental.id}`);
     if (item.heater_use_entry_id && !heater) group.issues.push('A heater charge is missing its runtime record.');
@@ -87,6 +89,10 @@ function buildPreview(month, data) {
   const accounts = [...groups.values()].map(group => {
     group.items.sort((a,b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
     group.unbilledRentals.sort((a,b) => a.date.localeCompare(b.date));
+    group.heaterMatches = heaterMatchesForAccount(group.accountId, group.items, data);
+    for (const match of group.heaterMatches) {
+      if (match.status === 'attached') group.items.filter(i=>i.heaterId===match.heaterId).forEach(i=>{ i.eventLabel = `${match.rental.name} (${match.rental.date})`; });
+    }
     group.readyCents = group.items.filter(i => i.status === 'ready').reduce((n,i) => n+i.amountCents,0);
     group.rentalCents = group.unbilledRentals.reduce((n,r) => n+r.amountCents,0);
     group.invoiceIds = [...new Set(group.items.filter(i => i.status !== 'ready').map(i => i.invoiceId).filter(Boolean))];

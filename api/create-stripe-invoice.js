@@ -433,7 +433,8 @@ async function createProductBackedInvoiceItem({ customer, invoice, item, account
   const metadata = {
     rorc_billing_line_item_id: item.billing_line_item_id,
     rorc_invoice_component: item.component_key,
-    rorc_account_id: accountId
+    rorc_account_id: accountId,
+    ...(item.rental_request_id ? { rorc_rental_request_id: item.rental_request_id } : {})
   };
   const payload = {
     customer,
@@ -585,7 +586,7 @@ function thermostatInvoiceDescription(item, heaterRecord = null) {
   return details.length ? `${reason} - ${details.join(" · ")}` : `Thermostat: ${reason}`;
 }
 
-async function buildInvoiceComponents(billingItems) {
+async function buildInvoiceComponents(billingItems, associationData = null) {
   const rentalIds = uniqueIds(billingItems.map((item) => item.rental_request_id).filter(Boolean));
   const heaterIds = uniqueIds(billingItems.map((item) => item.heater_use_entry_id).filter(Boolean));
   const rentalById = new Map();
@@ -605,11 +606,21 @@ async function buildInvoiceComponents(billingItems) {
     if (item.rental_request_id && !item.heater_use_entry_id && rentalById.has(item.rental_request_id)) {
       return rentalInvoiceComponents(item, rentalById.get(item.rental_request_id));
     }
+    const accountId = associationData?.members.find(m=>m.id===item.account_member_id)?.account_id;
+    const linkedRentals = item.heater_use_entry_id && associationData
+      ? (associationData.links || []).filter(l=>l.heater_use_entry_id===item.heater_use_entry_id && !l.ignored_at)
+        .map(l=>associationData.rentals.find(r=>r.id===l.rental_request_id))
+        .filter(r=>r && associationData.members.some(m=>m.id===r.claimed_member_id && m.account_id===accountId))
+      : [];
+    if (linkedRentals.length > 1) throw httpError(409, 'Heater use has conflicting event attachments. Review Billing before sending.');
+    const linkedRental = linkedRentals[0];
+    const eventLabel = linkedRental ? `${linkedRental.event_date} · ${linkedRental.event_name || linkedRental.booking_number || 'Rental'} · ` : '';
     return [{
       billing_line_item_id: item.id,
+      rental_request_id: linkedRental?.id || '',
       component_key: billingComponentKey(item, heaterById.get(item.heater_use_entry_id)),
       description: item.heater_use_entry_id
-        ? thermostatInvoiceDescription(item, heaterById.get(item.heater_use_entry_id))
+        ? eventLabel + thermostatInvoiceDescription(item, heaterById.get(item.heater_use_entry_id))
         : invoiceItemDescription(item),
       amount_cents: Number(item.amount_cents || 0)
     }];
@@ -1069,7 +1080,7 @@ module.exports.sendMonthlyInvoice = async ({ month, group, data, managerId }) =>
   }
   const items = expectedItems.filter(item => !item.posted_to_stripe_at && (!item.stripe_invoice_id || item.stripe_invoice_status === 'void' || item.stripe_invoice_id === invoice?.id));
   if (!items.length) throw httpError(409, 'No unpaid charges are ready for this invoice.');
-  const components = (await buildInvoiceComponents(items)).filter(item => item.amount_cents !== 0);
+  const components = (await buildInvoiceComponents(items, data)).filter(item => item.amount_cents !== 0);
   const total = items.reduce((n,item) => n+Number(item.amount_cents || 0),0);
   if (total <= 0 || components.reduce((n,item) => n+item.amount_cents,0) !== total) throw httpError(409, 'Invoice lines do not match the reviewed total.');
   const crypto = require('node:crypto');
