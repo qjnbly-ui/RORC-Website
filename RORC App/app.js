@@ -40,6 +40,8 @@ const NAVIGATION_ICON_MARKUP = Object.freeze({
   calendar: `<rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M8 3v4"></path><path d="M16 3v4"></path><path d="M3 10h18"></path><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path>`,
   myEvents: `<rect x="3" y="5" width="18" height="16" rx="2"></rect><path d="M8 3v4"></path><path d="M16 3v4"></path><path d="M3 10h18"></path><path d="m8 16 2 2 5-5"></path>`,
   masterLogs: `<path d="M4 19V10"></path><path d="M10 19V5"></path><path d="M16 19v-7"></path><path d="M22 19V8"></path><path d="M2 21h22"></path>`,
+  billing: `<rect x="5" y="3" width="14" height="18" rx="1"></rect><path d="M8 7h8M8 11h8M8 15h4M8 18h8"></path>`,
+  billingRecords: `<rect x="3" y="5" width="18" height="14" rx="1"></rect><path d="M3 10h18M7 15h5"></path>`,
   billingPrices: `<path d="M20.5 13.5 13.5 20.5a2 2 0 0 1-2.8 0L3.5 13.3V4h9.3l7.7 6.7a2 2 0 0 1 0 2.8Z"></path><circle cx="8" cy="8.5" r="1.5"></circle><path d="M13 10v6"></path><path d="M15 11h-3a1.5 1.5 0 0 0 0 3h2a1.5 1.5 0 0 1 0 3h-3"></path>`,
   about: `<circle cx="12" cy="12" r="9"></circle><path d="M12 11v6"></path><path d="M12 7h.01"></path>`,
   share: `<circle cx="18" cy="5" r="2.5"></circle><circle cx="6" cy="12" r="2.5"></circle><circle cx="18" cy="19" r="2.5"></circle><path d="m8.2 10.8 7.5-4.5"></path><path d="m8.2 13.2 7.5 4.5"></path>`,
@@ -365,6 +367,8 @@ const accountManagerOnlyRoutes = new Set([
   "communications",
   "notificationsEmail",
   "masterLogs",
+  "billing",
+  "billingRecords",
   "billingPrices",
   "closureCredits",
   "messageCompose",
@@ -412,7 +416,8 @@ const drawerLayouts = {
     // Before building another admin reminder/task feature, review the existing adminNotes route,
     // /api/admin-notes endpoint, and public.admin_notes table so the same feature is not duplicated.
     { title: "Facility & Scheduling", routes: ["rentalReviews", "calendar"] },
-    { title: "Reports & Billing", routes: ["masterLogs", "billingPrices", "closureCredits"] },
+    { title: "Billing", routes: ["billing", "billingRecords", "billingPrices", "closureCredits"] },
+    { title: "Reports & Logs", routes: ["masterLogs"] },
     { title: "App & Automation", routes: ["message", "advertisementBanners"] },
     { title: "Help", routes: ["feedback", "about", "share"] }
   ],
@@ -551,6 +556,31 @@ const routes = {
       confirm: openLinkedDeleteDialog
     })
   },
+  billing: {
+    title: "Billing",
+    template: "feedbackTemplate",
+    afterRender: () => window.RORC_MONTHLY_BILLING.mount({
+      root: document.getElementById("feedbackContent"),
+      token: () => currentAuthSession?.access_token || "",
+      confirm: openLinkedDeleteDialog,
+      openPayments: (month) => {
+        appState.masterLogsBillingMonth = month;
+        appState.masterLogsBillingFilter = "all";
+        navigateTo("billingRecords");
+      },
+      isActive: () => appState.currentRoute === "billing",
+      openRentals: () => navigateTo("rentalReviews")
+    })
+  },
+  billingRecords: {
+    title: "Payments & Invoices",
+    template: "feedbackTemplate",
+    afterRender: async () => {
+      appState.masterLogsTab = "billing";
+      await fetchRentalRequestsForAdmin();
+      if (appState.currentRoute === "billingRecords") await renderMasterLogsRoute();
+    }
+  },
   billingPrices: {
     title: "Pricing",
     template: "feedbackTemplate",
@@ -676,7 +706,7 @@ function canUseAccountAdminTools() {
 
 function canUseRecordAdminTools() {
   return Boolean(isAccountManager(appUserSession) && (
-    appState.currentRoute === "masterLogs"
+    ["masterLogs", "billingRecords"].includes(appState.currentRoute)
     || appState.currentRoute === "heaterRecords"
     || isAccountAdministrationContext()
   ));
@@ -4122,11 +4152,12 @@ function formatNotificationHistoryMeta(record) {
 }
 
 async function renderMasterLogsRoute() {
+  if (appState.currentRoute === "masterLogs" && appState.masterLogsTab === "billing") appState.masterLogsTab = "timesheet";
   renderMasterLogsPage();
   const resourceName = masterLogsResourceName();
   try {
     await ensureResource(resourceName);
-    if (appState.currentRoute === "masterLogs" && resourceName === masterLogsResourceName()) {
+    if (["masterLogs", "billingRecords"].includes(appState.currentRoute) && resourceName === masterLogsResourceName()) {
       renderMasterLogsPage();
     }
   } catch (error) {
@@ -4140,13 +4171,13 @@ function renderMasterLogsPage() {
   const root = document.getElementById("feedbackContent");
   if (!root) return;
 
-  const activeTab = appState.masterLogsTab || "timesheet";
+  const activeTab = appState.currentRoute === "billingRecords" ? "billing" : appState.masterLogsTab || "timesheet";
   const isThermostatTab = activeTab === "thermostat";
   const isBillingTab = activeTab === "billing";
   const isDoorAccessTab = activeTab === "doorAccess";
   const billingFilter = String(appState.masterLogsBillingFilter || "all");
   const billingView = String(appState.masterLogsBillingView || "accounts");
-  const billingMonth = normalizedBillingMonth(appState.masterLogsBillingMonth || currentFacilityMonthKey());
+  const billingMonth = normalizedBillingMonth(appState.masterLogsBillingMonth || previousFacilityMonthKey());
   appState.masterLogsBillingMonth = billingMonth;
   const timesheetRecords = [...timesheetEntries]
     .sort((a, b) => new Date(b.signedInAt) - new Date(a.signedInAt))
@@ -4171,26 +4202,23 @@ function renderMasterLogsPage() {
       <header class="account-page-heading">
         <div>
           <p class="eyebrow">${isBillingTab ? "Admin Billing" : "Admin Logs"}</p>
-          <h2>${isBillingTab ? "Billing Center" : "Reports & Logs"}</h2>
-          ${isBillingTab ? "<p>Finalize charges in their source area, then send invoices and record payments here.</p>" : ""}
+          <h2>${isBillingTab ? "Payments & Invoices" : "Reports & Logs"}</h2>
+          ${isBillingTab ? "<p>Review invoices, refresh payment status, and record offline payments.</p><button class=\"app-admin-btn\" data-open-monthly-billing type=\"button\">Monthly billing</button>" : ""}
           ${dataSourceNotice()}
         </div>
       </header>
 
-      <div class="master-logs-tabs" role="tablist" aria-label="Master logs views">
+      ${isBillingTab ? "" : `<div class="master-logs-tabs" role="tablist" aria-label="Master logs views">
         <button class="master-logs-tab ${activeTab === "timesheet" ? "is-active" : ""}" data-master-logs-tab="timesheet" type="button" role="tab" aria-selected="${activeTab === "timesheet"}">
           Timesheet
         </button>
         <button class="master-logs-tab ${activeTab === "thermostat" ? "is-active" : ""}" data-master-logs-tab="thermostat" type="button" role="tab" aria-selected="${activeTab === "thermostat"}">
           Thermostat
         </button>
-        <button class="master-logs-tab ${activeTab === "billing" ? "is-active" : ""}" data-master-logs-tab="billing" type="button" role="tab" aria-selected="${activeTab === "billing"}">
-          Billing
-        </button>
         <button class="master-logs-tab ${activeTab === "doorAccess" ? "is-active" : ""}" data-master-logs-tab="doorAccess" type="button" role="tab" aria-selected="${activeTab === "doorAccess"}">
           Door Access
         </button>
-      </div>
+      </div>`}
       ${isBillingTab ? `
       <div class="detail-card">
         <div class="monthly-billing-toolbar">
@@ -4319,6 +4347,7 @@ function renderMasterLogsPage() {
 }
 
 function bindMasterLogsActions() {
+  document.querySelector("[data-open-monthly-billing]")?.addEventListener("click", () => navigateTo("billing"));
   document.querySelectorAll("[data-master-logs-tab]").forEach((button) => {
     button.addEventListener("click", async () => {
       const tab = String(button.dataset.masterLogsTab || "").trim();
@@ -4393,8 +4422,18 @@ function currentFacilityMonthKey() {
   return parts ? `${parts.year}-${parts.month}` : new Date().toISOString().slice(0, 7);
 }
 
+function previousFacilityMonthKey() {
+  const [year, month] = currentFacilityMonthKey().split("-").map(Number);
+  return new Date(Date.UTC(year, month - 2, 1)).toISOString().slice(0, 7);
+}
+
 function billingItemFacilityMonth(item) {
-  const dateKey = facilityDateKey(item?.createdAt);
+  const heater = heaterUseEntries.find(entry => entry.id === item?.heaterUseEntryId);
+  const rental = rentalAllRequests.find(entry => entry.id === item?.rentalRequestId);
+  const attendance = timesheetEntries.find(entry => entry.id === item?.timesheetEntryId);
+  const serviceDate = heater?.usedOn || rental?.eventDate;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(serviceDate || "")) return serviceDate.slice(0, 7);
+  const dateKey = facilityDateKey(attendance?.signedInAt || item?.createdAt);
   return dateKey ? dateKey.slice(0, 7) : "";
 }
 
@@ -4759,7 +4798,7 @@ function buildStripeInvoiceConfirmationDetailHtml(ids) {
         </span>
       </div>
       ${rows.length ? `
-        <ol class="stripe-invoice-confirm-lines">
+        <ul class="stripe-invoice-confirm-lines">
           ${rows.map((row) => `
             <li>
               <span>
@@ -4769,7 +4808,7 @@ function buildStripeInvoiceConfirmationDetailHtml(ids) {
               <b>${formatCurrency(row.cents || 0)}</b>
             </li>
           `).join("")}
-        </ol>
+        </ul>
       ` : `
         <div class="stripe-invoice-preview-empty">No invoice lines found.</div>
       `}
@@ -4994,7 +5033,7 @@ function renderMonthlyBillingAccountCard(summary, monthKey) {
             RORC was marked paid while Stripe is still outstanding. Record the offline payment below to close the existing Stripe invoice.
           </p>
         ` : ""}
-        <ol class="record-list monthly-billing-items">
+        <ul class="record-list monthly-billing-items">
           ${summary.items.map((item) => {
             const member = findMember(item.accountMemberId);
             return `
@@ -5007,7 +5046,7 @@ function renderMonthlyBillingAccountCard(summary, monthKey) {
               </li>
             `;
           }).join("")}
-        </ol>
+        </ul>
         <footer class="monthly-billing-actions">
           <button
             class="app-admin-btn"
@@ -5247,7 +5286,7 @@ function fromFacilityDatetimeLocalValue(localValue) {
 }
 
 function refreshAfterRecordMutation() {
-  if (appState.currentRoute === "masterLogs") {
+  if (["masterLogs", "billingRecords"].includes(appState.currentRoute)) {
     renderMasterLogsPage();
     return;
   }
@@ -5688,8 +5727,7 @@ function openBillingLogEditor(recordId, options = {}) {
           : "Manual billing item";
   const amountValue = ((item.amountCents || 0) / 100).toFixed(2);
   const paymentControls = adminControls
-    && appState.currentRoute === "masterLogs"
-    && appState.masterLogsTab === "billing";
+    && appState.currentRoute === "billingRecords";
   const financialFieldsLocked = !paymentControls || Boolean(item.stripeInvoiceId) || isBillingItemPaid(item);
   const financialReadonlyAttribute = financialFieldsLocked ? "disabled" : "";
   const canDeleteItem = paymentControls && !item.stripeInvoiceId && !item.postedToStripeAt;
@@ -5800,7 +5838,7 @@ function openBillingLogEditor(recordId, options = {}) {
           : "manual";
     appState.masterLogsBillingMonth = billingItemFacilityMonth(item) || currentFacilityMonthKey();
     close();
-    navigateTo("masterLogs");
+    navigateTo("billingRecords");
   });
 
   saveButton?.addEventListener("click", async () => {
@@ -9396,7 +9434,7 @@ function openBillingCenterForRental(rentalId) {
   appState.masterLogsBillingMonth = linkedItem
     ? (billingItemFacilityMonth(linkedItem) || currentFacilityMonthKey())
     : currentFacilityMonthKey();
-  navigateTo("masterLogs");
+  navigateTo("billingRecords");
 }
 
 function showRentalBillForm(rentalId, root) {
@@ -14019,6 +14057,7 @@ function routeResourceNames(routeName = appState.currentRoute) {
   if (routeName === "myEvents") return ["myEvents"];
   if (routeName === "notifications") return ["notifications"];
   if (routeName === "notificationsEmail") return ["messageHistory"];
+  if (routeName === "billingRecords") return ["billing", "heater", "directory"];
   if (routeName === "masterLogs") return [masterLogsResourceName()];
   if (routeName === "access") return ["doorAccess"];
   if (routeName === "message") return ["directory"];

@@ -1,0 +1,23 @@
+.monthly-billing-page { max-width: 1160px; margin: 0 auto; padding: 12px 0 40px; }
+.monthly-billing-page .account-page-heading p { max-width: 78ch; }
+.monthly-billing-batch { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 0; border-top: 1px solid var(--line, #383838); border-bottom: 1px solid var(--line, #383838); margin: 20px 0; }
+.monthly-billing-account { padding: 24px 0; border-bottom: 1px solid var(--line, #383838); }
+.monthly-billing-account header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.monthly-billing-account header label { display: flex; align-items: center; gap: 12px; font-size: 1.15rem; }
+.monthly-billing-account input[type="checkbox"] { width: 20px; height: 20px; accent-color: #f33434; }
+.monthly-billing-account > p { color: var(--muted, #aaa); margin: 10px 0 16px; overflow-wrap: anywhere; }
+.monthly-billing-account details > summary { cursor: pointer; padding: 8px 0 16px; }
+.monthly-billing-table-wrap { overflow-x: auto; }
+.monthly-billing-table { width: 100%; border-collapse: collapse; text-align: left; }
+.monthly-billing-table th { font-size: .8rem; text-transform: uppercase; color: var(--muted, #aaa); letter-spacing: .04em; }
+.monthly-billing-table th, .monthly-billing-table td { padding: 12px 14px 12px 0; border-bottom: 1px solid var(--line, #383838); vertical-align: top; }
+.monthly-billing-table th:last-child, .monthly-billing-table td:last-child { text-align: right; padding-right: 0; white-space: nowrap; }
+.monthly-billing-table td:first-child { white-space: nowrap; }
+.monthly-billing-table td small { display: block; color: var(--muted, #aaa); margin-top: 4px; }
+.monthly-billing-status { white-space: pre-line; overflow-wrap: anywhere; }
+.monthly-billing-confirm > li { margin-bottom: 18px; }
+.monthly-billing-confirm span { display: block; overflow-wrap: anywhere; }
+.monthly-billing-page button:disabled { opacity: .5; cursor: default; }
+@media (max-width: 640px) { .monthly-billing-account header { align-items: flex-start; flex-direction: column; gap: 8px; } .monthly-billing-table { font-size: .85rem; } .monthly-billing-actions { flex-wrap: wrap; } }
+
+.monthly-billing-page .monthly-billing-note { color: var(--muted, #aaa); font-weight: 400; }

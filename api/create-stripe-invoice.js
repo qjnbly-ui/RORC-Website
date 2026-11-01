@@ -428,7 +428,7 @@ async function createStripeInvoice({
   return stripe.invoices.sendInvoice(finalized.id);
 }
 
-async function createProductBackedInvoiceItem({ customer, invoice, item, accountId }) {
+async function createProductBackedInvoiceItem({ customer, invoice, item, accountId, idempotencyKey }) {
   const amountCents = Number(item.amount_cents || 0);
   const metadata = {
     rorc_billing_line_item_id: item.billing_line_item_id,
@@ -452,7 +452,7 @@ async function createProductBackedInvoiceItem({ customer, invoice, item, account
     payload.discountable = false;
   }
 
-  return stripe.invoiceItems.create(payload);
+  return stripe.invoiceItems.create(payload, idempotencyKey ? { idempotencyKey } : undefined);
 }
 
 async function ensureStripePriceForComponent(componentKey, amountCents) {
@@ -602,7 +602,7 @@ async function buildInvoiceComponents(billingItems) {
   }
 
   return billingItems.flatMap((item) => {
-    if (item.rental_request_id && rentalById.has(item.rental_request_id)) {
+    if (item.rental_request_id && !item.heater_use_entry_id && rentalById.has(item.rental_request_id)) {
       return rentalInvoiceComponents(item, rentalById.get(item.rental_request_id));
     }
     return [{
@@ -623,7 +623,7 @@ function rentalInvoiceComponents(item, rental) {
     .map((row) => ({
       billing_line_item_id: item.id,
       component_key: row.key,
-      description: row.note ? `${row.label} - ${row.note}` : row.label,
+      description: `${rental.event_date || ""} · ${rental.event_name || rental.booking_number || "Rental"} · ${row.note ? `${row.label} - ${row.note}` : row.label}`,
       amount_cents: Number(row.cents || 0)
     }));
 }
@@ -855,7 +855,7 @@ async function ensureStripeCustomerForAccount(accountId) {
       rorc_account_id: accountId,
       rorc_account_number: billingOwner.account_number || ""
     }
-  });
+  }, { idempotencyKey: `rorc-account-${accountId}-customer` });
 
   await upsertAccountBilling(accountId, { stripe_customer_id: customer.id });
   return { customerId: customer.id, billingOwner };
@@ -887,14 +887,14 @@ async function upsertAccountBilling(accountId, patch) {
   });
 }
 
-async function updateBillingItemsForInvoice({ itemIds, invoice, invoiceUrl, mode, paidAt, managerId }) {
+async function updateBillingItemsForInvoice({ itemIds, invoice, invoiceUrl, mode, paidAt, managerId, deliveryPending = false }) {
   const ids = itemIds.map((id) => `"${String(id).replaceAll("\"", "")}"`).join(",");
   const payload = {
     payment_method: "stripe_invoice",
     stripe_invoice_id: invoice.id,
     stripe_invoice_url: invoiceUrl || null,
     stripe_invoice_status: invoice.status || null,
-    payment_note: mode === "paid" ? "Stripe invoice marked paid out of band." : null,
+    payment_note: mode === "paid" ? "Stripe invoice marked paid out of band." : deliveryPending ? "Monthly invoice delivery pending" : null,
     posted_to_stripe_at: paidAt,
     payment_recorded_at: paidAt,
     payment_recorded_by_member_id: paidAt ? managerId : null
@@ -1040,3 +1040,70 @@ function httpError(statusCode, message) {
   error.statusCode = statusCode;
   return error;
 }
+
+// Month-end invoices share the existing product catalog and payment reconciliation.
+module.exports.sendMonthlyInvoice = async ({ month, group, data, managerId }) => {
+  if (!stripe) throw httpError(503, 'Stripe invoice service is not configured.');
+  const { customerId } = await ensureStripeCustomerForAccount(group.accountId);
+  const customer = await stripe.customers.retrieve(customerId);
+  if (customer.deleted || String(customer.email || '').trim().toLowerCase() !== String(group.email || '').trim().toLowerCase()) {
+    throw httpError(409, 'The Stripe customer email differs from the reviewed billing email. Update the billing contact before sending.');
+  }
+  const expectedItems = data.billing.filter(row => group.items.some(item => item.id === row.id));
+  let invoice;
+  const matching = [];
+  for await (const candidate of stripe.invoices.list({ customer: customerId, limit: 100 })) {
+    if (candidate.metadata?.rorc_billing_month === month && candidate.metadata?.rorc_account_id === group.accountId && candidate.status !== 'void') matching.push(candidate);
+  }
+  if (matching.length > 1) throw httpError(409, 'Multiple monthly invoices exist. Review them in Stripe before continuing.');
+  invoice = matching[0];
+  if (group.invoiceIds.some(id => id !== invoice?.id)) throw httpError(409, 'Some charges already belong to another invoice. Review the existing invoice before sending a monthly invoice.');
+  if (invoice && invoice.status !== 'draft') {
+    if (group.items.some(item => item.status === 'ready')) throw httpError(409, 'This month already has an invoice and additional charges need review. No second invoice was created.');
+    if (invoice.status === 'open' && invoice.metadata?.rorc_monthly_sent !== 'true') {
+      invoice = await stripe.invoices.sendInvoice(invoice.id, {}, { idempotencyKey: `monthly-${group.accountId}-${month}-send` });
+      invoice = await stripe.invoices.update(invoice.id, { metadata: { rorc_monthly_sent: 'true' } });
+    }
+    await syncBillingItemsFromStripeInvoice({ items: expectedItems, invoice, managerId });
+    return stripeInvoiceResponse(invoice);
+  }
+  const items = expectedItems.filter(item => !item.posted_to_stripe_at && (!item.stripe_invoice_id || item.stripe_invoice_status === 'void' || item.stripe_invoice_id === invoice?.id));
+  if (!items.length) throw httpError(409, 'No unpaid charges are ready for this invoice.');
+  const components = (await buildInvoiceComponents(items)).filter(item => item.amount_cents !== 0);
+  const total = items.reduce((n,item) => n+Number(item.amount_cents || 0),0);
+  if (total <= 0 || components.reduce((n,item) => n+item.amount_cents,0) !== total) throw httpError(409, 'Invoice lines do not match the reviewed total.');
+  const crypto = require('node:crypto');
+  const digest = crypto.createHash('sha256').update(JSON.stringify(components.map(c => [c.billing_line_item_id,c.component_key,c.amount_cents,c.description]).sort())).digest('hex');
+  const key = `monthly-${group.accountId}-${month}`;
+  if (invoice && invoice.metadata?.rorc_monthly_digest !== digest) throw httpError(409, 'The draft invoice differs from the current charges. Review it in Stripe before continuing.');
+  if (!invoice) {
+    invoice = await stripe.invoices.create({
+      customer: customerId, collection_method: 'send_invoice', days_until_due: 30,
+      auto_advance: false, pending_invoice_items_behavior: 'exclude',
+      description: `Ruth Obenchain Recreation Center: ${month} rentals and usage`,
+      metadata: { rorc_account_id: group.accountId, rorc_billing_month: month, rorc_monthly_digest: digest }
+    }, { idempotencyKey: `${key}-invoice` });
+  }
+  // Store the draft before adding lines or sending. Interrupted runs resume this invoice.
+  await updateBillingItemsForInvoice({ itemIds: items.map(item => item.id), invoice, invoiceUrl: invoice.hosted_invoice_url || '', mode: 'send', managerId, deliveryPending: true });
+  const existingLines = [];
+  for await (const line of stripe.invoices.listLineItems(invoice.id, { limit: 100 })) existingLines.push(line);
+  const lineKey = item => `${item.rorc_billing_line_item_id}:${item.rorc_invoice_component}`;
+  const existingKeys = new Set(existingLines.map(line => lineKey(line.metadata || {})));
+  if (existingKeys.size !== existingLines.length || existingLines.some(line => !components.some(c => `${c.billing_line_item_id}:${c.component_key}` === lineKey(line.metadata || {})))) throw httpError(409, 'The draft contains unexpected or duplicate lines. Review it in Stripe.');
+  for (const component of components) {
+    if (existingKeys.has(`${component.billing_line_item_id}:${component.component_key}`)) continue;
+    await createProductBackedInvoiceItem({ customer: customerId, invoice: invoice.id, accountId: group.accountId, item: component,
+      idempotencyKey: `${key}-${component.billing_line_item_id}-${component.component_key}` });
+  }
+  invoice = await stripe.invoices.retrieve(invoice.id);
+  if (Number(invoice.total) !== total) throw httpError(409, 'Stripe total differs from the reviewed total. The draft was saved for review.');
+  if (invoice.status === 'draft') invoice = await stripe.invoices.finalizeInvoice(invoice.id, {}, { idempotencyKey: `${key}-finalize` });
+  await updateBillingItemsForInvoice({ itemIds: items.map(item => item.id), invoice, invoiceUrl: invoice.hosted_invoice_url || '', mode: 'send', managerId, deliveryPending: true });
+  if (invoice.status === 'open') {
+    invoice = await stripe.invoices.sendInvoice(invoice.id, {}, { idempotencyKey: `${key}-send` });
+    invoice = await stripe.invoices.update(invoice.id, { metadata: { rorc_monthly_sent: 'true' } });
+  }
+  await syncBillingItemsFromStripeInvoice({ items, invoice, managerId });
+  return stripeInvoiceResponse(invoice);
+};

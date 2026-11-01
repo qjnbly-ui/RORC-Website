@@ -91,6 +91,9 @@
   "functions": {
     "api/closure-credits.js": {
       "maxDuration": 60
+    },
+    "api/monthly-billing.js": {
+      "maxDuration": 60
     }
   }
 }
