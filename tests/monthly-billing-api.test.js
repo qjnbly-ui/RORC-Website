@@ -5,9 +5,9 @@ const month=previousMonth();
 async function fixture(run) {
   const savedFetch=global.fetch, savedKey=process.env.SUPABASE_SERVICE_ROLE_KEY;
   process.env.SUPABASE_SERVICE_ROLE_KEY='test-service';
-  const data={members:[{id:'member',account_id:'account',member_name:'APCA',email_address:'apca@example.test',is_billing_owner:true}],billing:[],rentals:[],heaters:[],attendance:[],changes:[],links:[]};
+  const data={members:[{id:'member',account_id:'account',member_name:'APCA',email_address:'apca@example.test',is_billing_owner:true}],billing:[],rentals:[],heaters:[],attendance:[],changes:[],links:[],heaterGroupMembers:[]};
   let role='Account Manager',broken='',reads=0;
-  const tableKeys={account_members:'members',billing_line_items:'billing',rental_requests:'rentals',heater_use_entries:'heaters',timesheet_entries:'attendance',rental_change_requests:'changes',rental_thermostat_links:'links'};
+  const tableKeys={account_members:'members',billing_line_items:'billing',rental_requests:'rentals',heater_use_entries:'heaters',timesheet_entries:'attendance',rental_change_requests:'changes',rental_thermostat_links:'links',heater_use_group_members:'heaterGroupMembers'};
   global.fetch=async(url,options={})=>{
     const path=new URL(url); const json=x=>({ok:true,status:200,json:async()=>x});
     if(path.pathname==='/auth/v1/user')return json({id:'auth-user'});
@@ -101,4 +101,10 @@ test('pending event changes prevent automatic attachment',()=>fixture(async({dat
   heaterFixture(data);data.changes=[{id:'change',rental_request_id:'event',status:'pending'}];
   const account=buildPreview(month,data).accounts[0];assert.equal(account.heaterMatches[0].status,'review');
   const result=await request('POST',{action:'attach',accountId:'account',heaterId:'heat',rentalId:'event',fingerprint:account.fingerprint});assert.equal(result.statusCode,409);assert.equal(data.links.length,0);
+}));
+test('preparing monthly invoices also saves unique Rentals heater suggestions without a separate matching step',()=>fixture(async({data,request})=>{
+  heaterFixture(data);const before=JSON.stringify(data.billing);
+  const account=buildPreview(month,data).accounts[0];
+  const result=await request('POST',{action:'prepare',accountId:'account',fingerprint:account.fingerprint});
+  assert.equal(result.statusCode,200);assert.equal(result.body.matched,1);assert.equal(result.body.prepared,0);assert.equal(result.body.accounts[0].heaterMatches[0].status,'attached');assert.equal(JSON.stringify(data.billing),before);
 }));

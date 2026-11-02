@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const { rentalThermostatAddonSystemTypes, isThermostatCandidateForRental } = require("./_rental-thermostat-candidates");
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -1389,25 +1390,6 @@ async function loadRentalThermostatReviewMap(rentals = []) {
   });
 
   return reviewMap;
-}
-
-function rentalThermostatAddonSystemTypes(rental) {
-  const systems = [];
-  if (rental?.addon_heater) systems.push("heat");
-  if (rental?.addon_ac) systems.push("ac");
-  return systems;
-}
-
-function isThermostatCandidateForRental(heater, rental, groupMemberIds = []) {
-  if (!heater?.id || !rental?.id) return false;
-  if (String(heater.used_on || "") !== String(rental.event_date || "")) return false;
-  const systemType = normalizeThermostatSystemType(heater.system_type);
-  const addonSystemTypes = rentalThermostatAddonSystemTypes(rental);
-  if (addonSystemTypes.includes(systemType)) return true;
-  const claimedMemberId = String(rental.claimed_member_id || "");
-  if (!claimedMemberId) return false;
-  return String(heater.responsible_member_id || "") === claimedMemberId
-    || groupMemberIds.map(String).includes(claimedMemberId);
 }
 
 function mapThermostatReviewRecord(heater, groupMemberIds = [], rental = {}, billingRows = []) {

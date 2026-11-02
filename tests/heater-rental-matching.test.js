@@ -12,9 +12,9 @@ const group=data=>buildPreview('2026-10',data).accounts[0];
 test('one same-account overlapping event is suggested in facility time',()=>{
   const match=group(fixture()).heaterMatches[0];assert.equal(match.status,'suggested');assert.equal(match.rental.id,'lunch');assert.equal(match.needsReview,true);
 });
-test('sessions outside event hours and overlapping multiple events require review',()=>{
+test('uses Rentals suggestions outside event hours and requires review when several events match',()=>{
   const data=fixture();data.heaters[0].start_at='2026-10-27T22:00:00Z';data.heaters[0].end_at='2026-10-27T22:30:00Z';
-  assert.equal(group(data).heaterMatches[0].status,'review');
+  assert.equal(group(data).heaterMatches[0].status,'suggested');
   data.heaters=fixture().heaters;data.rentals.push({...data.rentals[0],id:'other'});
   assert.equal(group(data).heaterMatches[0].status,'review');
 });
@@ -40,4 +40,19 @@ test('an invoiced heater charge is locked against event reassignment',()=>{
 });
 test('event changes invalidate the monthly review fingerprint',()=>{
   const data=fixture(), before=group(data).fingerprint;data.rentals[0].event_start_time='15:00';assert.notEqual(group(data).fingerprint,before);
+});
+test('shared heater participants and requested heater add-ons follow the same Rentals candidate rules',()=>{
+  const data=fixture();data.heaters[0].responsible_member_id='someone-else';
+  assert.equal(group(data).heaterMatches[0].status,'review');
+  data.heaterGroupMembers=[{heater_use_entry_id:'heat',account_member_id:'member'}];
+  assert.equal(group(data).heaterMatches[0].status,'suggested');
+  data.heaterGroupMembers=[];data.rentals[0].addon_heater=true;
+  assert.equal(group(data).heaterMatches[0].status,'suggested');
+  data.heaters[0].system_type='ac';
+  assert.equal(group(data).heaterMatches[0].status,'review');
+});
+test('event summary combines heater charges with their single recognized rental without inflating account totals',()=>{
+  const data=fixture();const result=group(data);
+  assert.equal(result.events[0].rentalCents,200);assert.equal(result.events[0].heaterCents,329);assert.equal(result.events[0].totalCents,529);assert.equal(result.events[0].pendingAttachment,true);
+  assert.equal(result.readyCents+result.rentalCents,529);
 });

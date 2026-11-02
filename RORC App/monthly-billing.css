@@ -29,3 +29,4 @@
 .monthly-heater-controls { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
 .monthly-heater-controls label { display: flex; flex-direction: column; gap: 6px; max-width: 100%; }
 .monthly-heater-controls select { max-width: 100%; padding: 10px; color: var(--text); background: var(--field-bg); border: 1px solid var(--line); border-radius: 4px; }
+.monthly-billing-table caption { text-align: left; font-weight: 700; padding: 14px 0; }
