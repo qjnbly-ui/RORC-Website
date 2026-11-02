@@ -12,7 +12,7 @@
   let savedMonth = "";
   window.RORC_MONTHLY_BILLING = { mount };
   async function mount({ root, token, confirm, openPayments, openRentals, isActive = () => true, readOnly = false }) {
-    let month = savedMonth || previousMonth(), preview = null, busy = false, selected = new Set(), message = '', initialized = false, loadId = 0;
+    let month = savedMonth || previousMonth(), preview = null, busy = false, selected = new Set(), message = '', initialized = false, loadId = 0, activeAction = '';
     const alive = () => root.isConnected && isActive() && root.dataset.billingMount === mountId;
     const mountId = `${Date.now()}-${Math.random()}`;
     root.dataset.billingMount = mountId;
@@ -51,7 +51,7 @@
         <div class="monthly-billing-toolbar"><label class="monthly-billing-month"><span>Service month</span><input type="month" id="monthlyServiceMonth" value="${escape(month)}" max="${previousMonth()}" ${busy?'disabled':''}></label><button class="app-admin-btn" data-monthly-refresh ${busy?'disabled':''}>Refresh charges</button><button class="app-admin-btn" data-monthly-payments ${busy?'disabled':''}>Payments & invoices</button></div>
         <p class="monthly-billing-note">Rentals use the event date; heater use uses the runtime date. Other charges use their service date when available, otherwise the charge date. Preparing charges does not send invoices.</p>
         <p role="status" aria-live="polite" class="monthly-billing-status">${escape(busy ? message || 'Loading the complete month…' : message)}</p>
-        ${preview ? `<div class="monthly-billing-batch"><strong>${chosen.length} selected · ${money(total)} to bill</strong><div class="monthly-billing-actions"><button class="app-admin-btn" data-monthly-prepare ${busy||readOnly||!unprepared?'disabled':''}>Prepare monthly charges${unprepared?` (${unprepared})`:''}</button><button class="app-admin-btn app-admin-btn-primary" data-monthly-send ${busy||readOnly||!chosen.some(sendable)||unprepared||chosen.some(a=>a.issues.length)?'disabled':''}>Review & send selected invoices</button></div></div>
+        ${preview ? `<div class="monthly-billing-batch"><strong>${chosen.length} selected · ${money(total)} to bill</strong><div class="monthly-billing-actions"><button class="app-admin-btn" data-monthly-prepare ${busy||readOnly||!unprepared?'disabled':''}>${activeAction==='prepare'?'Preparing…':`Prepare monthly charges${unprepared?` (${unprepared})`:''}`}</button><button class="app-admin-btn app-admin-btn-primary" data-monthly-send ${busy||readOnly||!chosen.some(sendable)||unprepared||chosen.some(a=>a.issues.length)?'disabled':''}>Review & send selected invoices</button></div></div>
         ${preview.issues.length?`<div class="billing-reconciliation-alert"><strong>Needs review</strong><ul>${preview.issues.map(i=>`<li>${escape(i)}</li>`).join('')}</ul><button class="app-admin-btn" data-monthly-rentals>Review rentals</button></div>`:''}
         <div class="monthly-billing-list">${preview.accounts.map(a=>`<section class="monthly-billing-account"><header><label><input type="checkbox" data-monthly-select="${escape(a.accountId)}" ${selected.has(a.accountId)?'checked':''} ${busy?'disabled':''}><strong>${escape(a.name)}</strong></label><strong>${money(deliveryTotal(a)+a.unbilledEstimateCents)} to bill</strong></header><p>${escape(a.email || 'Billing email missing')} · ${a.unbilledRentals.length} rentals to prepare · ${a.items.filter(i=>i.status==='invoiced').length} charges already invoiced · ${a.items.filter(i=>i.status==='paid').length} paid</p>
         ${a.issues.length?`<ul class="billing-reconciliation-alert">${a.issues.map(i=>`<li>${escape(i)}</li>`).join('')}</ul>`:''}
@@ -73,7 +73,7 @@
         const confirmed = await confirm({title:`Send ${month} invoices?`,message:'Each account receives one itemized invoice for this service month. Already invoiced charges will not be billed again.',detailHtml:`<ul class="monthly-billing-confirm">${accounts.map(a=>`<li><strong>${escape(a.name)} · ${money(deliveryTotal(a))}</strong><span>${escape(a.email)}</span><ul>${deliveryItems(a).map(i=>`<li>${escape(i.date)} · ${escape(i.reason)} · ${money(i.amountCents)}</li>`).join('')}</ul></li>`).join('')}</ul>`,confirmLabel:'Send invoices',cancelLabel:'Keep reviewing'});
         if (!confirmed || !alive()) return;
       }
-      busy=true;
+      busy=true; activeAction=action;
       const results=[];
       try {
         for (const account of accounts) {
@@ -83,7 +83,7 @@
             results.push(`${account.name}: ${action==='prepare'?`${result.prepared} rental charges prepared`:'invoice ready in Stripe'}.`);
           } catch (error) { results.push(`${account.name}: ${error.message}`); }
         }
-      } finally { message=results.join(' '); await load(); }
+      } finally { message=results.join(' '); try { await load(); } finally { activeAction=''; if(alive()) render(); } }
     }
     await load();
   }
