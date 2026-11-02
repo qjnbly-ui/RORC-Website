@@ -1,4 +1,5 @@
 const Stripe = require("stripe");
+const {groupEventInvoiceComponents}=require("./_event-invoice-groups");
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -434,7 +435,8 @@ async function createProductBackedInvoiceItem({ customer, invoice, item, account
     rorc_billing_line_item_id: item.billing_line_item_id,
     rorc_invoice_component: item.component_key,
     rorc_account_id: accountId,
-    ...(item.rental_request_id ? { rorc_rental_request_id: item.rental_request_id } : {})
+    ...(item.rental_request_id ? { rorc_rental_request_id: item.rental_request_id } : {}),
+    ...(item.event_id ? { rorc_event_id:item.event_id, rorc_event_label:item.event_label } : {})
   };
   const payload = {
     customer,
@@ -1080,11 +1082,11 @@ module.exports.sendMonthlyInvoice = async ({ month, group, data, managerId }) =>
   }
   const items = expectedItems.filter(item => !item.posted_to_stripe_at && (!item.stripe_invoice_id || item.stripe_invoice_status === 'void' || item.stripe_invoice_id === invoice?.id));
   if (!items.length) throw httpError(409, 'No unpaid charges are ready for this invoice.');
-  const components = (await buildInvoiceComponents(items, data)).filter(item => item.amount_cents !== 0);
+  const components = groupEventInvoiceComponents((await buildInvoiceComponents(items, data)).filter(item => item.amount_cents !== 0), data);
   const total = items.reduce((n,item) => n+Number(item.amount_cents || 0),0);
   if (total <= 0 || components.reduce((n,item) => n+item.amount_cents,0) !== total) throw httpError(409, 'Invoice lines do not match the reviewed total.');
   const crypto = require('node:crypto');
-  const digest = crypto.createHash('sha256').update(JSON.stringify(components.map(c => [c.billing_line_item_id,c.component_key,c.amount_cents,c.description]).sort())).digest('hex');
+  const digest = crypto.createHash('sha256').update(JSON.stringify(components.map(c => [c.billing_line_item_id,c.component_key,c.amount_cents,c.description,c.event_id,c.event_label]).sort())).digest('hex');
   const key = `monthly-${group.accountId}-${month}`;
   if (invoice && invoice.metadata?.rorc_monthly_digest !== digest) throw httpError(409, 'The draft invoice differs from the current charges. Review it in Stripe before continuing.');
   if (!invoice) {
@@ -1092,6 +1094,7 @@ module.exports.sendMonthlyInvoice = async ({ month, group, data, managerId }) =>
       customer: customerId, collection_method: 'send_invoice', days_until_due: 30,
       auto_advance: false, pending_invoice_items_behavior: 'exclude',
       description: `Ruth Obenchain Recreation Center: ${month} rentals and usage`,
+      ...(process.env.RORC_MONTHLY_INVOICE_TEMPLATE_ID ? {rendering:{template:process.env.RORC_MONTHLY_INVOICE_TEMPLATE_ID}} : {}),
       metadata: { rorc_account_id: group.accountId, rorc_billing_month: month, rorc_monthly_digest: digest }
     }, { idempotencyKey: `${key}-invoice` });
   }

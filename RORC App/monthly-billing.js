@@ -13,7 +13,7 @@
   const eventName = rental => rental ? `${rental.name} · ${rental.date} · ${rental.start.slice(0,5)}–${rental.end.slice(0,5)}` : 'Choose an event';
   let savedMonth = "";
   window.RORC_MONTHLY_BILLING = { mount };
-  async function mount({ root, token, confirm, openPayments, openRentals, isActive = () => true }) {
+  async function mount({ root, token, confirm, openPayments, openRentals, isActive = () => true, readOnly = false }) {
     let month = savedMonth || previousMonth(), preview = null, busy = false, selected = new Set(), message = '', initialized = false, loadId = 0;
     const alive = () => root.isConnected && isActive() && root.dataset.billingMount === mountId;
     const mountId = `${Date.now()}-${Math.random()}`;
@@ -62,6 +62,7 @@
         ${renderHeaterReview(a)}
         <details><summary>All ${a.items.length+a.unbilledRentals.length} charge details</summary><div class="monthly-billing-table-wrap"><table class="monthly-billing-table"><thead><tr><th>Date</th><th>Charge</th><th>Status</th><th>Amount</th></tr></thead><tbody>${[...a.items,...a.unbilledRentals.map(r=>({...r,status:'Prepare rental',source:'Rental'}))].sort((a,b)=>a.date.localeCompare(b.date)).map(i=>`<tr><td>${escape(i.date)}</td><td><strong>${escape(i.reason)}</strong><small>${escape(i.source)}${i.eventLabel?` · Event: ${escape(i.eventLabel)}`:''}</small>${invoiceLink(i)}</td><td>${escape(pending(i)?'Awaiting invoice delivery':({ready:'Ready to invoice',invoiced:'Already invoiced',paid:'Paid'})[i.status]||i.status)}</td><td>${money(i.amountCents)}</td></tr>`).join('')}</tbody></table></div></details></section>`).join('')||'<p>No charges or unbilled rentals were found for this month.</p>'}</div>`:''}
       </section>`;
+      if(readOnly) root.querySelectorAll('[data-monthly-prepare],[data-monthly-send],[data-heater-attach],[data-heater-separate]').forEach(button=>{button.disabled=true;});
       root.querySelector('#monthlyServiceMonth')?.addEventListener('change', event=>{ if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(event.target.value)) { event.target.value=month; return; } month=event.target.value; savedMonth=month; preview=null; message=''; initialized=false; selected.clear(); load(); });
       root.querySelector('[data-monthly-refresh]')?.addEventListener('click', ()=>{message='';load();});
       root.querySelector('[data-monthly-payments]')?.addEventListener('click', ()=>openPayments(month));
@@ -76,7 +77,7 @@
       const records=account.heaterMatches || [];
       const uncertain=records.filter(r=>['review','conflict'].includes(r.status) && !r.locked);
       const separate=records.filter(r=>['standalone','separate'].includes(r.status) || (r.locked&&r.status!=='attached'));
-      return `${events.length?`<div class="monthly-billing-table-wrap"><table class="monthly-billing-table"><caption>Events and heater use</caption><thead><tr><th>Date / event</th><th>Rental</th><th>Heater use</th><th>Total</th></tr></thead><tbody>${events.map(event=>`<tr><td><strong>${escape(event.name)}</strong><small>${escape(event.date)}</small></td><td>${money(event.rentalCents)}</td><td>${money(event.heaterCents)}<small>${event.heaterSessions} session${event.heaterSessions===1?'':'s'}${event.pendingAttachment?' · attaches when prepared':''}</small></td><td>${money(event.totalCents)}</td></tr>`).join('')}</tbody></table></div>`:''}
+      return `${events.length?`<div class="monthly-events">${events.map(event=>`<details class="monthly-event"><summary><span><strong>${escape(event.name)}</strong><small>${escape(event.date)}${event.attachments.length?` · ${event.attachments.length} attached item${event.attachments.length===1?'':'s'}`:''}${event.suggestions?.length?` · ${event.suggestions.length} possible attachment${event.suggestions.length===1?'':'s'}`:''}</small></span><span class="monthly-event-amount"><strong>${money(event.totalCents)}</strong><small>View charges</small></span></summary><div class="monthly-event-body"><div class="monthly-event-charge"><span>Rental charge</span><strong>${money(event.rentalCents)}</strong></div>${event.attachments.length?`<section class="monthly-event-attached"><h4>Attached items</h4><ul>${event.attachments.map(item=>`<li><span><strong>${escape(item.label)}</strong>${item.start?`<small>${escape(time(item.start))}–${escape(time(item.end))}${item.pendingAttachment?' · not yet attached':''}</small>`:''}${item.includedInRental?'<small>Included in rental charge</small>':''}</span>${item.includedInRental?'':`<b>${money(item.amountCents)}</b>`}</li>`).join('')}</ul></section>`:''}${event.suggestions?.length?`<section class="monthly-event-attached"><h4>Possible attachments from Rentals</h4><ul>${event.suggestions.map(item=>`<li><span><strong>${escape(item.label)}</strong><small>${escape(time(item.start))}–${escape(time(item.end))} · ${money(item.amountCents)}</small><small>Not attached to this event yet</small></span><span><button class="app-admin-btn" data-heater-attach data-account="${escape(account.accountId)}" data-heater="${escape(item.id)}" data-rental="${escape(event.id)}" ${busy||readOnly?'disabled':''}>Attach</button><button class="app-admin-btn" data-heater-separate data-account="${escape(account.accountId)}" data-heater="${escape(item.id)}" ${busy||readOnly?'disabled':''}>Ignore</button></span></li>`).join('')}</ul></section>`:''}<div class="monthly-event-charge monthly-event-subtotal"><span>Event subtotal</span><strong>${money(event.totalCents)}</strong></div></div></details>`).join('')}</div>`:''}
         ${separate.length?`<details class="monthly-heater-review"><summary>Heater use billed separately (${separate.length})</summary>${separate.map(r=>`<p>${escape(r.date)} · ${escape(time(r.start))}–${escape(time(r.end))} · ${money(r.amountCents)}<br><small>${r.locked?'Already invoiced without a saved event attachment.':r.status==='standalone'?'No rental for this account on this date.':'Reviewed as separate from the rental.'}</small></p>`).join('')}</details>`:''}
         ${uncertain.length?`<section class="monthly-heater-review"><h3>Heater use to review (${uncertain.length})</h3><p>Rentals found more than one possible event, or an existing attachment needs attention.</p>${uncertain.map(record=>`<div class="monthly-heater-session"><p><strong>${escape(record.system)} · ${escape(record.date)} · ${escape(time(record.start))}–${escape(time(record.end))} · ${money(record.amountCents)}</strong></p>${record.foreignConflict?'<p>Review the billing account in Rentals.</p>':`<div class="monthly-heater-controls"><label>Event rental<select data-heater-choice="${escape(account.accountId)}:${escape(record.heaterId)}"><option value="">Choose event</option>${record.candidates.map(r=>`<option value="${escape(r.id)}">${escape(eventName(r))}</option>`).join('')}</select></label><button class="app-admin-btn" data-heater-attach data-account="${escape(account.accountId)}" data-heater="${escape(record.heaterId)}">Attach</button><button class="app-admin-btn" data-heater-separate data-account="${escape(account.accountId)}" data-heater="${escape(record.heaterId)}">Bill separately</button></div>`}</div>`).join('')}</section>`:''}`;
     }
@@ -86,20 +87,33 @@
       const heaterId=button.dataset.heater;
       const action=button.hasAttribute('data-heater-attach')?'attach':'separate';
       const select=[...root.querySelectorAll('[data-heater-choice]')].find(el=>el.dataset.heaterChoice===`${account.accountId}:${heaterId}`);
-      if(action==='attach'&&!select?.value){message='Choose an event rental first.';render();return;}
+      if(action==='attach'&&!(button.dataset.rental || select?.value)){message='Choose an event rental first.';render();return;}
       busy=true;message='Saving heater-to-event review…';
-      const rentalId=select?.value;
+      const rentalId=button.dataset.rental || select?.value;
       render();
       try { await request({action,month,accountId:account.accountId,heaterId,rentalId,fingerprint:account.fingerprint});message=action==='attach'?'Heater session attached. The existing charge and payment status were preserved.':'Heater session will be billed separately from the rental.'; }
       catch(error){message=error.message;}
       finally{await load();}
+    }
+    function invoiceReview(account) {
+      const items=deliveryItems(account);
+      const used=new Set();
+      const events=(account.events || []).map(event=>{
+        const heaterIds=new Set(event.attachments.map(a=>a.id));
+        const lines=items.filter(i=>i.rentalId===event.id || heaterIds.has(i.heaterId));
+        lines.forEach(i=>used.add(i.id));
+        if(!lines.length)return '';
+        return `<section class="monthly-invoice-event"><h4>${escape(event.name)} · ${escape(event.date)}</h4><ul>${lines.map(i=>`<li>${escape(i.reason)} · ${money(i.amountCents)}</li>`).join('')}</ul><strong>Event subtotal ${money(lines.reduce((n,i)=>n+i.amountCents,0))}</strong></section>`;
+      }).join('');
+      const other=items.filter(i=>!used.has(i.id));
+      return events+(other.length?`<section class="monthly-invoice-event"><h4>Other monthly charges</h4><ul>${other.map(i=>`<li>${escape(i.date)} · ${escape(i.reason)} · ${money(i.amountCents)}</li>`).join('')}</ul></section>`:'');
     }
     async function run(action) {
       if (busy || !preview) return;
       const accounts = preview.accounts.filter(a=>selected.has(a.accountId) && (action==='match' ? (a.heaterMatches || []).some(m=>m.status==='suggested'&&!m.locked) : action==='prepare' ? (a.unbilledRentals.length || (a.heaterMatches || []).some(m=>m.status==='suggested'&&!m.locked)) && !a.issues.length : sendable(a) && !a.issues.length && !(a.heaterMatches || []).some(m=>m.needsReview)));
       if (!accounts.length) { message='No eligible accounts selected. Resolve the review items first.'; render(); return; }
       if (action==='send') {
-        const confirmed = await confirm({title:`Send ${month} invoices?`,message:'Each account receives one itemized invoice for this service month. Already invoiced charges will not be billed again.',detailHtml:`<ul class="monthly-billing-confirm">${accounts.map(a=>`<li><strong>${escape(a.name)} · ${money(deliveryTotal(a))}</strong><span>${escape(a.email)}</span><ul>${deliveryItems(a).map(i=>`<li>${escape(i.date)} · ${escape(i.reason)}${i.eventLabel?` · Event: ${escape(i.eventLabel)}`:''} · ${money(i.amountCents)}</li>`).join('')}</ul></li>`).join('')}</ul>`,confirmLabel:'Send invoices',cancelLabel:'Keep reviewing'});
+        const confirmed = await confirm({title:`Send ${month} invoices?`,message:'Each account receives one itemized invoice for this service month. Already invoiced charges will not be billed again.',detailHtml:`<ul class="monthly-billing-confirm">${accounts.map(a=>`<li><strong>${escape(a.name)} · ${money(deliveryTotal(a))}</strong><span>${escape(a.email)}</span>${invoiceReview(a)}</li>`).join('')}</ul>`,confirmLabel:'Send invoices',cancelLabel:'Keep reviewing'});
         if (!confirmed || !alive()) return;
       }
       busy=true;

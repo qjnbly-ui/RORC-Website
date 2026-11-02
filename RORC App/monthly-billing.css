@@ -30,3 +30,21 @@
 .monthly-heater-controls label { display: flex; flex-direction: column; gap: 6px; max-width: 100%; }
 .monthly-heater-controls select { max-width: 100%; padding: 10px; color: var(--text); background: var(--field-bg); border: 1px solid var(--line); border-radius: 4px; }
 .monthly-billing-table caption { text-align: left; font-weight: 700; padding: 14px 0; }
+.monthly-events { margin: 16px 0; }
+.monthly-event { border-top: 1px solid var(--line); }
+.monthly-event:last-child { border-bottom: 1px solid var(--line); }
+.monthly-event > summary { display: flex; justify-content: space-between; align-items: center; gap: 16px; cursor: pointer; padding: 16px 0; }
+.monthly-event > summary small { display: block; color: var(--muted); margin-top: 5px; }
+.monthly-event > summary > span { border-left: 3px solid var(--line); padding-left: 12px; }
+.monthly-event[open] > summary > span { border-left-color: var(--accent); }
+.monthly-event-body { margin: 0 0 20px 16px; padding: 12px 16px; border-left: 1px solid var(--line); background: var(--panel-bg); }
+.monthly-event-charge,.monthly-event-attached li { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; }
+.monthly-event-attached { padding-left: 16px; }
+.monthly-event-attached h4 { margin: 14px 0 4px; color: var(--muted); font-size: .85rem; }
+.monthly-event-attached ul { list-style: none; padding: 0; margin: 0; }
+.monthly-event-attached small { display: block; margin-top: 5px; color: var(--muted); }
+.monthly-event-subtotal { border-top: 1px solid var(--line); margin-top: 12px; }
+.monthly-invoice-event { border-bottom: 1px solid var(--line); padding: 12px 0; }
+.monthly-event-amount { text-align: right; }
+.monthly-event > summary > .monthly-event-amount { border-left: 0; padding-left: 0; }
+.monthly-event-amount small { font-size: .75rem; }

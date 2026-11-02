@@ -53,6 +53,17 @@ test('shared heater participants and requested heater add-ons follow the same Re
 });
 test('event summary combines heater charges with their single recognized rental without inflating account totals',()=>{
   const data=fixture();const result=group(data);
-  assert.equal(result.events[0].rentalCents,200);assert.equal(result.events[0].heaterCents,329);assert.equal(result.events[0].totalCents,529);assert.equal(result.events[0].pendingAttachment,true);
+  assert.equal(result.events[0].rentalCents,200);assert.equal(result.events[0].heaterCents,0);assert.equal(result.events[0].totalCents,200);assert.equal(result.events[0].suggestions[0].amountCents,329);assert.equal(result.events[0].pendingAttachment,true);
   assert.equal(result.readyCents+result.rentalCents,529);
+});
+test('only actually selected rental options appear as included attached items',()=>{
+  const data=fixture();data.rentals[0].addon_tables=true;data.rentals[0].addon_chairs=false;
+  const event=group(data).events[0];
+  assert.ok(event.attachments.some(a=>a.label==='Tables'&&a.includedInRental));
+  assert.ok(!event.attachments.some(a=>a.label==='Chairs'));
+  assert.equal(event.totalCents,200);
+});
+test('a free event without any charges or attachments does not add a blank billing row',()=>{
+  const data=fixture();data.rentals.push({...data.rentals[0],id:'free',event_date:'2026-10-14',estimated_total_cents:0});
+  assert.ok(!group(data).events.some(e=>e.id==='free'));
 });

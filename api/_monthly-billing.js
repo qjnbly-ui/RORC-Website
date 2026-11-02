@@ -94,11 +94,16 @@ function buildPreview(month, data) {
       if (match.status === 'attached') group.items.filter(i=>i.heaterId===match.heaterId).forEach(i=>{ i.eventLabel = `${match.rental.name} (${match.rental.date})`; });
     }
     group.events=data.rentals.filter(r=>r.rental_status==='confirmed' && r.event_date?.startsWith(month) && members.get(r.claimed_member_id)?.account_id===group.accountId).map(r=>{
-      const sessions=group.heaterMatches.filter(m=>m.rental?.id===r.id && (m.status==='attached' || (m.status==='suggested'&&!m.locked)));
+      const sessions=group.heaterMatches.filter(m=>m.rental?.id===r.id && m.status==='attached');
+      const pendingSessions=group.heaterMatches.filter(m=>m.rental?.id===r.id && m.status==='suggested'&&!m.locked);
       const rentalCents=group.items.filter(i=>i.rentalId===r.id&&!i.heaterId).reduce((sum,i)=>sum+i.amountCents,0)+(group.unbilledRentals.find(u=>u.id===r.id)?.amountCents || 0);
       const heaterCents=sessions.reduce((sum,m)=>sum+m.amountCents,0);
-      return {id:r.id,date:r.event_date,name:r.event_name || r.booking_number || 'Rental',rentalCents,heaterCents,totalCents:rentalCents+heaterCents,heaterSessions:sessions.length,pendingAttachment:sessions.some(m=>m.status==='suggested')};
-    }).sort((a,b)=>a.date.localeCompare(b.date)||a.name.localeCompare(b.name));
+      const options=[['addon_cleaning_maintenance','Cleaning and maintenance'],['addon_tables','Tables'],['addon_chairs','Chairs'],['addon_tarp','Tarp'],['addon_early_setup','Early setup'],['addon_early_day_rental','Early day rental'],['addon_late_cleanup','Late cleanup'],['addon_late_day_rental','Late day rental']].filter(([key])=>r[key]).map(([,label])=>({id:label,label,includedInRental:true}));
+      const describe=m=>({id:m.heaterId,label:m.system==='AC'?'AC use':'Heater use',date:m.date,start:m.start,end:m.end,amountCents:m.amountCents});
+      const attachments=[...options,...sessions.map(describe)];
+      const suggestions=pendingSessions.map(describe);
+      return {attachments,suggestions,id:r.id,date:r.event_date,name:r.event_name || r.booking_number || 'Rental',rentalCents,heaterCents,totalCents:rentalCents+heaterCents,heaterSessions:sessions.length,pendingAttachment:suggestions.length>0};
+    }).filter(event=>event.rentalCents!==0 || event.attachments.length>0 || event.suggestions.length>0).sort((a,b)=>a.date.localeCompare(b.date)||a.name.localeCompare(b.name));
     group.readyCents = group.items.filter(i => i.status === 'ready').reduce((n,i) => n+i.amountCents,0);
     group.rentalCents = group.unbilledRentals.reduce((n,r) => n+r.amountCents,0);
     group.invoiceIds = [...new Set(group.items.filter(i => i.status !== 'ready').map(i => i.invoiceId).filter(Boolean))];
