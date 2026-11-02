@@ -1,5 +1,4 @@
 const Stripe = require("stripe");
-const {groupEventInvoiceComponents}=require("./_event-invoice-groups");
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://aedvuofiodtsgijcxyqx.supabase.co").replace(/\/+$/, "");
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -1082,7 +1081,7 @@ module.exports.sendMonthlyInvoice = async ({ month, group, data, managerId }) =>
   }
   const items = expectedItems.filter(item => !item.posted_to_stripe_at && (!item.stripe_invoice_id || item.stripe_invoice_status === 'void' || item.stripe_invoice_id === invoice?.id));
   if (!items.length) throw httpError(409, 'No unpaid charges are ready for this invoice.');
-  const components = groupEventInvoiceComponents((await buildInvoiceComponents(items, data)).filter(item => item.amount_cents !== 0), data);
+  const components = (await buildInvoiceComponents(items)).filter(item => item.amount_cents !== 0);
   const total = items.reduce((n,item) => n+Number(item.amount_cents || 0),0);
   if (total <= 0 || components.reduce((n,item) => n+item.amount_cents,0) !== total) throw httpError(409, 'Invoice lines do not match the reviewed total.');
   const crypto = require('node:crypto');
@@ -1094,7 +1093,6 @@ module.exports.sendMonthlyInvoice = async ({ month, group, data, managerId }) =>
       customer: customerId, collection_method: 'send_invoice', days_until_due: 30,
       auto_advance: false, pending_invoice_items_behavior: 'exclude',
       description: `Ruth Obenchain Recreation Center: ${month} rentals and usage`,
-      ...(process.env.RORC_MONTHLY_INVOICE_TEMPLATE_ID ? {rendering:{template:process.env.RORC_MONTHLY_INVOICE_TEMPLATE_ID}} : {}),
       metadata: { rorc_account_id: group.accountId, rorc_billing_month: month, rorc_monthly_digest: digest }
     }, { idempotencyKey: `${key}-invoice` });
   }

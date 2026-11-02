@@ -9,22 +9,20 @@ async function rest(path, options = {}) {
 async function all(table, select = '*') {
   const rows = [];
   for (let offset = 0; ; offset += 500) {
-    const page = await rest(`${table}?select=${select}&order=${table === 'rental_thermostat_links' ? 'rental_request_id.asc,heater_use_entry_id.asc' : table === 'heater_use_group_members' ? 'heater_use_entry_id.asc,account_member_id.asc' : 'id.asc'}&limit=500&offset=${offset}`);
+    const page = await rest(`${table}?select=${select}&order=id.asc&limit=500&offset=${offset}`);
     rows.push(...page);
     if (page.length < 500) return rows;
   }
 }
 async function loadData() {
-  const [members, billing, rentals, heaters, attendance, changes, links, heaterGroupMembers] = await Promise.all([
+  const [members, billing, rentals, heaters, attendance, changes] = await Promise.all([
     all('account_members', 'id,account_id,member_name,email_address,is_billing_owner'),
     all('billing_line_items'), all('rental_requests'),
     all('heater_use_entries', 'id,used_on,start_at,end_at,paid,responsible_member_id,system_type'),
     all('timesheet_entries', 'id,signed_in_at'),
-    all('rental_change_requests', 'id,rental_request_id,status'),
-    all('rental_thermostat_links', 'rental_request_id,heater_use_entry_id,ignored_at,created_at'),
-    all('heater_use_group_members', 'heater_use_entry_id,account_member_id')
+    all('rental_change_requests', 'id,rental_request_id,status')
   ]);
-  return { members, billing, rentals, heaters, attendance, changes, links, heaterGroupMembers };
+  return { members, billing, rentals, heaters, attendance, changes };
 }
 module.exports = async function monthlyBilling(req, res) {
   res.setHeader?.('Cache-Control', 'no-store');
@@ -44,13 +42,26 @@ module.exports = async function monthlyBilling(req, res) {
     let preview = buildPreview(month, data);
     if (req.method === 'GET') return res.status(200).json({ success: true, ...preview });
     const action = req.body?.action;
-    if (action !== 'send') throw fail(400, 'Manage event bills and attachments in Rentals. Billing only sends saved charges.');
+    if (!['prepare', 'send'].includes(action)) throw fail(400, 'Choose prepare or send.');
     const group = preview.accounts.find(a => a.accountId === req.body?.accountId);
     if (!group) throw fail(404, 'No charges found for this account and month.');
     if (req.body?.fingerprint !== group.fingerprint) throw fail(409, 'Charges changed. Refresh and review this month before continuing.');
     if (group.issues.length) throw fail(409, group.issues.join(' '));
-    if (group.unbilledRentals.length) throw fail(409, 'Finish the rental bills in Rentals before sending this invoice.');
-    if (group.heaterMatches.some(m=>m.needsReview)) throw fail(409, 'Finish the heater attachment review in Rentals before sending this invoice.');
+    if (action === 'prepare') {
+      const { finalizeMonthlyRental } = require('./rental-reviews');
+      const errors = [];
+      let prepared = 0;
+      for (const rental of group.unbilledRentals) {
+        try {
+          await finalizeMonthlyRental({ rental: data.rentals.find(r => r.id === rental.id), manager });
+          prepared++;
+        } catch (error) { errors.push(`${rental.reason} (${rental.date}): ${error.message}`); }
+      }
+      data = await loadData();
+      preview = buildPreview(month, data);
+      return res.status(200).json({ success: !errors.length, prepared, errors, ...preview });
+    }
+    if (group.unbilledRentals.length) throw fail(409, 'Prepare the rental charges before sending this invoice.');
     // One invoice per account/month; an existing invoice must be resumed or reviewed, never supplemented silently.
     const { sendMonthlyInvoice } = require('./create-stripe-invoice');
     const result = await sendMonthlyInvoice({ month, group, data, managerId: manager.id });

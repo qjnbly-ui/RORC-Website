@@ -784,9 +784,11 @@ async function finalizeRentalBill({ rental, body, manager }) {
     || rentalBillReason(rental);
   const paymentMethod = normalizePaymentMethod(body.payment_method || body.paymentMethod);
   const existingRows = await supabaseRest(
-    `billing_line_items?select=*&rental_request_id=eq.${encodeURIComponent(rental.id)}&limit=1`
-  ).catch(() => []);
+    `billing_line_items?select=*&rental_request_id=eq.${encodeURIComponent(rental.id)}&heater_use_entry_id=is.null&limit=1`
+  );
   const existingId = existingRows?.[0]?.id || "";
+
+  if (existingId && body.monthlyPreparation) return;
 
   if (existingId && (existingRows[0].stripe_invoice_id || existingRows[0].posted_to_stripe_at)) {
     throw httpError(409, "This rental already has an invoice or payment. Review it in Billing.");
@@ -819,7 +821,7 @@ async function finalizeRentalBill({ rental, body, manager }) {
     );
   }
 
-  await syncAttachedThermostatBillingToRental({
+  if (!body.monthlyPreparation) await syncAttachedThermostatBillingToRental({
     rentalId: rental.id,
     accountMemberId,
     postedToStripeAt: null,
@@ -837,6 +839,7 @@ async function finalizeRentalBill({ rental, body, manager }) {
       reviewed_at: new Date().toISOString()
     }
   );
+  if (body.monthlyPreparation) return rows[0];
   return buildRentalBillingResponse(rows[0] || { ...rental, payment_status: "unpaid", estimated_total_cents: amountCents });
 }
 
@@ -1654,3 +1657,16 @@ function httpError(statusCode, message) {
 module.exports.buildRentalRecord = buildRentalRecord;
 
 module.exports.calculateRentalTotalCents = calculateRentalTotalCents;
+
+// Monthly preparation creates missing rental fees without reopening or moving heater charges.
+module.exports.finalizeMonthlyRental = async ({ rental, manager }) => {
+  const current = await loadRentalRequestById(rental.id);
+  if (!current || current.event_date !== rental.event_date || current.claimed_member_id !== rental.claimed_member_id || Number(current.estimated_total_cents) !== Number(rental.estimated_total_cents)) {
+    throw httpError(409, 'Rental changed. Refresh the month before preparing charges.');
+  }
+  rental = current;
+  const existing = await supabaseRest(`billing_line_items?select=id&rental_request_id=eq.${encodeURIComponent(rental.id)}&heater_use_entry_id=is.null&limit=1`);
+  if (existing.length) return;
+  if (rental.rental_status !== 'confirmed' || rental.payment_status === 'paid') throw httpError(409, 'Rental is not eligible for billing.');
+  return finalizeRentalBill({ rental, manager, body: { monthlyPreparation: true } });
+};

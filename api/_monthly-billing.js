@@ -1,5 +1,4 @@
 const crypto = require('node:crypto');
-const { heaterMatchesForAccount } = require('./_heater-rental-matching');
 const ZONE = 'America/Los_Angeles';
 function fail(statusCode, message) { return Object.assign(new Error(message), { statusCode }); }
 function previousMonth(now = new Date()) {
@@ -24,7 +23,6 @@ function fingerprint(group) {
     accountId: group.accountId, name: group.name, email: group.email,
     items: group.items.map(i => [i.id, i.amountCents, i.date, i.status, i.reason, i.invoiceId, i.deliveryPending]).sort(),
     rentals: group.unbilledRentals.map(r => [r.id, r.amountCents, r.memberId]).sort(),
-    heaterMatches: group.heaterMatches || [],
     issues: group.issues.slice().sort()
   })).digest('hex');
 }
@@ -89,21 +87,6 @@ function buildPreview(month, data) {
   const accounts = [...groups.values()].map(group => {
     group.items.sort((a,b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
     group.unbilledRentals.sort((a,b) => a.date.localeCompare(b.date));
-    group.heaterMatches = heaterMatchesForAccount(group.accountId, group.items, data);
-    for (const match of group.heaterMatches) {
-      if (match.status === 'attached') group.items.filter(i=>i.heaterId===match.heaterId).forEach(i=>{ i.eventLabel = `${match.rental.name} (${match.rental.date})`; });
-    }
-    group.events=data.rentals.filter(r=>r.rental_status==='confirmed' && r.event_date?.startsWith(month) && members.get(r.claimed_member_id)?.account_id===group.accountId).map(r=>{
-      const sessions=group.heaterMatches.filter(m=>m.rental?.id===r.id && m.status==='attached');
-      const rentalItems=group.items.filter(i=>i.rentalId===r.id&&!i.heaterId);
-      const rentalCents=rentalItems.reduce((sum,i)=>sum+i.amountCents,0);
-      const needsRentalBill=group.unbilledRentals.some(u=>u.id===r.id);
-      const heaterCents=sessions.reduce((sum,m)=>sum+m.amountCents,0);
-      const options=rentalItems.length ? [['addon_cleaning_maintenance','Cleaning and maintenance'],['addon_tables','Tables'],['addon_chairs','Chairs'],['addon_tarp','Tarp'],['addon_early_setup','Early setup'],['addon_early_day_rental','Early day rental'],['addon_late_cleanup','Late cleanup'],['addon_late_day_rental','Late day rental']].filter(([key])=>r[key]).map(([,label])=>({id:label,label,includedInRental:true})) : [];
-      const describe=m=>({id:m.heaterId,label:m.system==='AC'?'AC use':'Heater use',date:m.date,start:m.start,end:m.end,amountCents:m.amountCents});
-      const attachments=[...options,...sessions.map(describe)];
-      return {attachments,needsRentalBill,hasRentalBill:rentalItems.length>0,id:r.id,date:r.event_date,name:r.event_name || r.booking_number || 'Rental',rentalCents,heaterCents,totalCents:rentalCents+heaterCents,heaterSessions:sessions.length};
-    }).filter(event=>event.hasRentalBill || event.attachments.length>0).sort((a,b)=>a.date.localeCompare(b.date)||a.name.localeCompare(b.name));
     group.readyCents = group.items.filter(i => i.status === 'ready').reduce((n,i) => n+i.amountCents,0);
     group.unbilledEstimateCents = group.unbilledRentals.reduce((n,r) => n+r.amountCents,0);
     group.invoiceIds = [...new Set(group.items.filter(i => i.status !== 'ready').map(i => i.invoiceId).filter(Boolean))];

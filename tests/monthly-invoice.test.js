@@ -71,12 +71,12 @@ test('charges already on an unrelated invoice are blocked',()=>setup(async({send
   rows[0].stripe_invoice_id='in_other';rows[0].stripe_invoice_status='open';
   await assert.rejects(send,/another invoice/);assert.equal(stats().creates,0);
 }));
-test('heater invoice lines carry the attached event name, date, and rental reference without adding a duplicate charge',()=>setup(async({send,data,rows,lines,stats})=>{
+test('heater usage stays a separate dated invoice line even when an event attachment exists',()=>setup(async({send,data,rows,lines,stats})=>{
   data.rentals.push({id:'event',claimed_member_id:'member',event_name:'Lunch recess',event_date:'2026-10-30',rental_status:'confirmed'});
   data.heaters.push({id:'heat',used_on:'2026-10-30',system_type:'heat',start_at:'2026-10-30T19:30:00Z',end_at:'2026-10-30T19:45:00Z'});
   data.links.push({rental_request_id:'event',heater_use_entry_id:'heat',ignored_at:null});
   rows[1].heater_use_entry_id='heat';
   await send();
   const line=lines.find(l=>l.metadata.rorc_billing_line_item_id==='item-2');
-  assert.equal(line.metadata.rorc_rental_request_id,'event');assert.match(line.description,/2026-10-30.*Lunch recess/);assert.equal(lines.length,2);assert.equal(stats().invoice.total,2847);
+  assert.equal(line.metadata.rorc_rental_request_id,undefined);assert.match(line.description,/Oct 30/);assert.ok(!line.description.includes('Lunch recess'));assert.equal(lines.length,2);assert.equal(stats().invoice.total,2847);
 }));

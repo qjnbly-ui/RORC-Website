@@ -1,4 +1,4 @@
-// Shared by Rentals and monthly Billing so both identify the same possible sessions.
+// Optional event association used by the individual rental workflow.
 function rentalThermostatAddonSystemTypes(rental) {
   const systems=[];
   if(rental?.addon_heater) systems.push('heat');

@@ -54,7 +54,7 @@ test('changed charges require a fresh review before sending',()=>fixture(async({
 test('unprepared rentals cannot be sent',()=>fixture(async({data,request})=>{
   data.rentals=[{id:'rental',claimed_member_id:'member',rental_status:'confirmed',event_date:`${month}-15`,estimated_total_cents:200}];
   const fingerprint=buildPreview(month,data).accounts[0].fingerprint;
-  const result=await request('POST',{action:'send',accountId:'account',fingerprint});assert.equal(result.statusCode,409);assert.match(result.body.error,/Finish the rental/);
+  const result=await request('POST',{action:'send',accountId:'account',fingerprint});assert.equal(result.statusCode,409);assert.match(result.body.error,/Prepare the rental/);
 }));
 function heaterFixture(data) {
   data.rentals=[{id:'event',claimed_member_id:'member',rental_status:'confirmed',event_date:`${month}-15`,event_start_time:'12:00',event_end_time:'14:00',estimated_total_cents:0}];
@@ -62,26 +62,31 @@ function heaterFixture(data) {
   data.heaters=[{id:'heat',used_on:`${month}-15`,start_at:`${month}-15T13:00:00-07:00`,end_at:`${month}-15T13:15:00-07:00`,responsible_member_id:'member'}];
   data.billing=[{id:'heat-fee',account_member_id:'member',heater_use_entry_id:'heat',amount_cents:329,created_at:`${month}-15T20:00:00Z`}];
 }
-test('Billing rejects preparation and attachment mutations without changing source records',()=>fixture(async({data,request})=>{
+test('Billing rejects attachment mutations without changing source records',()=>fixture(async({data,request})=>{
   heaterFixture(data);const before=JSON.stringify(data);
   const fingerprint=buildPreview(month,data).accounts[0].fingerprint;
-  for(const action of ['prepare','match','attach','separate']){
+  for(const action of ['match','attach','separate']){
     const result=await request('POST',{action,accountId:'account',heaterId:'heat',rentalId:'event',fingerprint});
-    assert.equal(result.statusCode,400);assert.match(result.body.error,/Manage event bills and attachments in Rentals/);
+    assert.equal(result.statusCode,400);assert.match(result.body.error,/Choose prepare or send/);
   }
   assert.equal(JSON.stringify(data),before);
 }));
-test('unresolved heater sessions direct invoice review back to Rentals',()=>fixture(async({data,request})=>{
-  heaterFixture(data);const fingerprint=buildPreview(month,data).accounts[0].fingerprint;
-  const result=await request('POST',{action:'send',accountId:'account',fingerprint});assert.equal(result.statusCode,409);assert.match(result.body.error,/heater attachment review in Rentals/);
-}));
-test('refresh reflects attachments saved in Rentals without creating charges or links',()=>fixture(async({data,request})=>{
-  heaterFixture(data);let result=await request();assert.equal(result.body.accounts[0].events.length,0);
+test('monthly charges do not depend on heater attachment reviews or saved event links',()=>fixture(async({data,request,breakTable})=>{
+  heaterFixture(data);const before=JSON.stringify(data);const first=await request();
+  const account=first.body.accounts[0];assert.equal(account.readyCents,329);assert.equal(account.heaterMatches,undefined);
   data.links=[{rental_request_id:'event',heater_use_entry_id:'heat',ignored_at:null}];
-  const before=JSON.stringify(data);
-  result=await request();assert.equal(result.body.accounts[0].events[0].attachments.length,1);assert.equal(result.body.accounts[0].events[0].totalCents,329);assert.equal(JSON.stringify(data),before);
+  breakTable('rental_thermostat_links');const next=await request();assert.equal(next.statusCode,200);
+  assert.equal(next.body.accounts[0].fingerprint,account.fingerprint);
+  assert.equal(next.body.accounts[0].items.length,1);
 }));
-test('Billing UI has no attachment editor or charge preparation controls',()=>{
+test('preparation is supported in Billing without writing heater or attachment records',()=>fixture(async({data,request})=>{
+  heaterFixture(data);const before=JSON.stringify(data);
+  const fingerprint=buildPreview(month,data).accounts[0].fingerprint;
+  const result=await request('POST',{action:'prepare',accountId:'account',fingerprint});
+  assert.equal(result.statusCode,200);assert.equal(result.body.prepared,0);assert.equal(JSON.stringify(data),before);
+}));
+test('Billing UI offers monthly preparation with flat charge lines',()=>{
   const fs=require('node:fs');const source=fs.readFileSync(require.resolve('../RORC App/monthly-billing.js'),'utf8');
-  assert.ok(!source.includes('data-heater-attach'));assert.ok(!source.includes('data-heater-separate'));assert.ok(!source.includes('data-monthly-prepare'));assert.match(source,/Finish in Rentals/);
+  assert.ok(!source.includes('data-heater-attach'));assert.ok(!source.includes('data-heater-separate'));
+  assert.ok(source.includes('data-monthly-prepare'));assert.ok(!source.includes('Finish in Rentals'));
 });
