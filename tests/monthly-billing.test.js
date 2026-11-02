@@ -25,8 +25,8 @@ test('combines same-account contacts, separates APCA and KBYD, and includes late
   const preview=buildPreview('2026-10',fixture());
   assert.equal(preview.accounts.length,2);
   assert.equal(preview.accounts[0].name,'APCA');
-  assert.equal(preview.accounts[0].readyCents+preview.accounts[0].rentalCents,1847);
-  assert.equal(preview.accounts[1].readyCents+preview.accounts[1].rentalCents,2000);
+  assert.equal(preview.accounts[0].readyCents+preview.accounts[0].unbilledEstimateCents,1847);
+  assert.equal(preview.accounts[1].readyCents+preview.accounts[1].unbilledEstimateCents,2000);
   assert.equal(preview.accounts[0].items[0].date,'2026-10-30');
   assert.equal(preview.accounts[0].issues.length,0);
 });

@@ -569,7 +569,11 @@ const routes = {
         navigateTo("billingRecords");
       },
       isActive: () => appState.currentRoute === "billing",
-      openRentals: () => navigateTo("rentalReviews")
+      openRentals: (id) => {
+        highlightRentalId = id || null;
+        rentalActiveFilter = "all";
+        navigateTo("rentalReviews");
+      }
     })
   },
   billingRecords: {

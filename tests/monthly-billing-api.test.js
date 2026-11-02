@@ -46,7 +46,7 @@ test('monthly endpoint refuses unauthenticated and non-manager access before rea
 test('source fetch failures prevent presenting an incomplete monthly total',()=>fixture(async({request,breakTable})=>{
   breakTable('heater_use_entries');assert.equal((await request()).statusCode,502);
 }));
-test('changed charges require a fresh review before preparation or sending',()=>fixture(async({data,request})=>{
+test('changed charges require a fresh review before sending',()=>fixture(async({data,request})=>{
   data.billing=[{id:'item',account_member_id:'member',amount_cents:100,created_at:`${month}-15T12:00:00Z`}];
   const fingerprint=buildPreview(month,data).accounts[0].fingerprint;data.billing[0].amount_cents=200;
   const result=await request('POST',{action:'send',accountId:'account',fingerprint});assert.equal(result.statusCode,409);assert.match(result.body.error,/Charges changed/);
@@ -54,7 +54,7 @@ test('changed charges require a fresh review before preparation or sending',()=>
 test('unprepared rentals cannot be sent',()=>fixture(async({data,request})=>{
   data.rentals=[{id:'rental',claimed_member_id:'member',rental_status:'confirmed',event_date:`${month}-15`,estimated_total_cents:200}];
   const fingerprint=buildPreview(month,data).accounts[0].fingerprint;
-  const result=await request('POST',{action:'send',accountId:'account',fingerprint});assert.equal(result.statusCode,409);assert.match(result.body.error,/Prepare the rental/);
+  const result=await request('POST',{action:'send',accountId:'account',fingerprint});assert.equal(result.statusCode,409);assert.match(result.body.error,/Finish the rental/);
 }));
 function heaterFixture(data) {
   data.rentals=[{id:'event',claimed_member_id:'member',rental_status:'confirmed',event_date:`${month}-15`,event_start_time:'12:00',event_end_time:'14:00',estimated_total_cents:0}];
@@ -62,49 +62,26 @@ function heaterFixture(data) {
   data.heaters=[{id:'heat',used_on:`${month}-15`,start_at:`${month}-15T13:00:00-07:00`,end_at:`${month}-15T13:15:00-07:00`,responsible_member_id:'member'}];
   data.billing=[{id:'heat-fee',account_member_id:'member',heater_use_entry_id:'heat',amount_cents:329,created_at:`${month}-15T20:00:00Z`}];
 }
-test('batch matching writes shared rental links without creating or moving billing charges',()=>fixture(async({data,request})=>{
-  heaterFixture(data);const before=JSON.stringify(data.billing);
+test('Billing rejects preparation and attachment mutations without changing source records',()=>fixture(async({data,request})=>{
+  heaterFixture(data);const before=JSON.stringify(data);
   const fingerprint=buildPreview(month,data).accounts[0].fingerprint;
-  const result=await request('POST',{action:'match',accountId:'account',fingerprint});
-  assert.equal(result.statusCode,200);assert.equal(result.body.matched,1);assert.equal(data.links[0].rental_request_id,'event');assert.equal(data.links[0].ignored_at,null);assert.equal(JSON.stringify(data.billing),before);
-  assert.equal(result.body.accounts[0].heaterMatches[0].status,'attached');
-}));
-test('manual matching cannot attach a session to a foreign account or date',()=>fixture(async({data,request})=>{
-  heaterFixture(data);const fingerprint=buildPreview(month,data).accounts[0].fingerprint;
-  const result=await request('POST',{action:'attach',accountId:'account',heaterId:'heat',rentalId:'foreign-event',fingerprint});assert.equal(result.statusCode,409);assert.equal(data.links.length,0);
-}));
-test('reviewed separate usage stays separate and is safe to retry',()=>fixture(async({data,request})=>{
-  heaterFixture(data);
-  for(let n=0;n<2;n++){
-    const fingerprint=buildPreview(month,data).accounts[0].fingerprint;
-    const result=await request('POST',{action:'separate',accountId:'account',heaterId:'heat',fingerprint});assert.equal(result.statusCode,200);assert.equal(result.body.accounts[0].heaterMatches[0].status,'separate');
+  for(const action of ['prepare','match','attach','separate']){
+    const result=await request('POST',{action,accountId:'account',heaterId:'heat',rentalId:'event',fingerprint});
+    assert.equal(result.statusCode,400);assert.match(result.body.error,/Manage event bills and attachments in Rentals/);
   }
-  assert.equal(data.links.length,1);assert.equal(data.billing.length,1);
+  assert.equal(JSON.stringify(data),before);
 }));
-test('unresolved heater matches block invoice delivery',()=>fixture(async({data,request})=>{
+test('unresolved heater sessions direct invoice review back to Rentals',()=>fixture(async({data,request})=>{
   heaterFixture(data);const fingerprint=buildPreview(month,data).accounts[0].fingerprint;
-  const result=await request('POST',{action:'send',accountId:'account',fingerprint});assert.equal(result.statusCode,409);assert.match(result.body.error,/Match or review/);
+  const result=await request('POST',{action:'send',accountId:'account',fingerprint});assert.equal(result.statusCode,409);assert.match(result.body.error,/heater attachment review in Rentals/);
 }));
-test('existing invoices prevent attachment changes',()=>fixture(async({data,request})=>{
-  heaterFixture(data);Object.assign(data.billing[0],{stripe_invoice_id:'in_existing',stripe_invoice_status:'open'});
-  const fingerprint=buildPreview(month,data).accounts[0].fingerprint;
-  const result=await request('POST',{action:'attach',accountId:'account',heaterId:'heat',rentalId:'event',fingerprint});assert.equal(result.statusCode,409);assert.equal(data.links.length,0);
+test('refresh reflects attachments saved in Rentals without creating charges or links',()=>fixture(async({data,request})=>{
+  heaterFixture(data);let result=await request();assert.equal(result.body.accounts[0].events.length,0);
+  data.links=[{rental_request_id:'event',heater_use_entry_id:'heat',ignored_at:null}];
+  const before=JSON.stringify(data);
+  result=await request();assert.equal(result.body.accounts[0].events[0].attachments.length,1);assert.equal(result.body.accounts[0].events[0].totalCents,329);assert.equal(JSON.stringify(data),before);
 }));
-test('manual review resolves duplicate links to one event without touching charges',()=>fixture(async({data,request})=>{
-  heaterFixture(data);data.rentals.push({...data.rentals[0],id:'second'});
-  data.links=data.rentals.map(r=>({rental_request_id:r.id,heater_use_entry_id:'heat',ignored_at:null}));
-  const fingerprint=buildPreview(month,data).accounts[0].fingerprint;
-  const result=await request('POST',{action:'attach',accountId:'account',heaterId:'heat',rentalId:'event',fingerprint});assert.equal(result.statusCode,200);
-  assert.equal(data.links.filter(l=>!l.ignored_at).length,1);assert.equal(result.body.accounts[0].heaterMatches[0].rental.id,'event');assert.equal(data.billing.length,1);
-}));
-test('pending event changes prevent automatic attachment',()=>fixture(async({data,request})=>{
-  heaterFixture(data);data.changes=[{id:'change',rental_request_id:'event',status:'pending'}];
-  const account=buildPreview(month,data).accounts[0];assert.equal(account.heaterMatches[0].status,'review');
-  const result=await request('POST',{action:'attach',accountId:'account',heaterId:'heat',rentalId:'event',fingerprint:account.fingerprint});assert.equal(result.statusCode,409);assert.equal(data.links.length,0);
-}));
-test('preparing monthly invoices also saves unique Rentals heater suggestions without a separate matching step',()=>fixture(async({data,request})=>{
-  heaterFixture(data);const before=JSON.stringify(data.billing);
-  const account=buildPreview(month,data).accounts[0];
-  const result=await request('POST',{action:'prepare',accountId:'account',fingerprint:account.fingerprint});
-  assert.equal(result.statusCode,200);assert.equal(result.body.matched,1);assert.equal(result.body.prepared,0);assert.equal(result.body.accounts[0].heaterMatches[0].status,'attached');assert.equal(JSON.stringify(data.billing),before);
-}));
+test('Billing UI has no attachment editor or charge preparation controls',()=>{
+  const fs=require('node:fs');const source=fs.readFileSync(require.resolve('../RORC App/monthly-billing.js'),'utf8');
+  assert.ok(!source.includes('data-heater-attach'));assert.ok(!source.includes('data-heater-separate'));assert.ok(!source.includes('data-monthly-prepare'));assert.match(source,/Finish in Rentals/);
+});

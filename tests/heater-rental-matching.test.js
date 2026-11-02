@@ -51,13 +51,15 @@ test('shared heater participants and requested heater add-ons follow the same Re
   data.heaters[0].system_type='ac';
   assert.equal(group(data).heaterMatches[0].status,'review');
 });
-test('event summary combines heater charges with their single recognized rental without inflating account totals',()=>{
-  const data=fixture();const result=group(data);
-  assert.equal(result.events[0].rentalCents,200);assert.equal(result.events[0].heaterCents,0);assert.equal(result.events[0].totalCents,200);assert.equal(result.events[0].suggestions[0].amountCents,329);assert.equal(result.events[0].pendingAttachment,true);
-  assert.equal(result.readyCents+result.rentalCents,529);
+test('Billing shows saved event charges only and never includes an unbilled estimate',()=>{
+  const data=fixture();let result=group(data);
+  assert.equal(result.events.length,0);assert.equal(result.readyCents,329);assert.equal(result.unbilledEstimateCents,200);
+  data.billing.push({id:'fee',account_member_id:'member',rental_request_id:'lunch',amount_cents:200});
+  data.links=[{rental_request_id:'lunch',heater_use_entry_id:'heat',ignored_at:null}];
+  result=group(data);assert.equal(result.events[0].rentalCents,200);assert.equal(result.events[0].heaterCents,329);assert.equal(result.events[0].totalCents,529);assert.ok(!('suggestions' in result.events[0]));
 });
 test('only actually selected rental options appear as included attached items',()=>{
-  const data=fixture();data.rentals[0].addon_tables=true;data.rentals[0].addon_chairs=false;
+  const data=fixture();data.billing.push({id:'fee',account_member_id:'member',rental_request_id:'lunch',amount_cents:200});data.rentals[0].addon_tables=true;data.rentals[0].addon_chairs=false;
   const event=group(data).events[0];
   assert.ok(event.attachments.some(a=>a.label==='Tables'&&a.includedInRental));
   assert.ok(!event.attachments.some(a=>a.label==='Chairs'));
