@@ -1,13 +1,13 @@
-const CACHE_VERSION = "rorc-app-v122";
+const CACHE_VERSION = "rorc-app-v123";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const NAVIGATION_CACHE = `${CACHE_VERSION}-navigation`;
 const OFFLINE_PAGE = "./index.html";
 const APP_SHELL = [
   OFFLINE_PAGE,
-  "/scripts/rorc-sponsors.js?v=20261007-address-ui",
+  "/scripts/rorc-sponsors.js?v=20261101-invoice-dialog-scroll",
   "/scripts/rorc-linked-accounts.js?v=20261005",
   "/scripts/rorc-linked-accounts.css?v=20261005",
-  "./app.css?v=20261007-address-ui",
+  "./app.css?v=20261101-invoice-dialog-scroll",
   "./resource-coordinator.js?v=20260808-reliable-sync",
   "./closure-credits.css?v=20260921-closure-credits",
   "./closure-credits.js?v=20260921-closure-credits",

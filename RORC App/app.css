@@ -2671,6 +2671,11 @@ h1 {
   max-width: 360px;
   padding: 20px;
   width: 100%;
+  box-sizing: border-box;
+  max-height: calc(100vh - 36px);
+  max-height: calc(100dvh - 36px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .member-delete-confirm-dialog-wide {
