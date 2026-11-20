@@ -186,8 +186,10 @@ async function getEcobeeThermostatSummary({ thermostatId }) {
     requestErrorLabel: "Ecobee summary request failed",
     retryErrorLabel: "Ecobee summary retry failed"
   });
-  ecobeeSummaryCache.set(cacheKey, { cachedAt: Date.now(), summary: result.summary });
-  return result.summary;
+  const cachedAt = Date.now();
+  const summary = { ...result.summary, checkedAt: new Date(cachedAt).toISOString() };
+  ecobeeSummaryCache.set(cacheKey, { cachedAt, summary });
+  return summary;
 }
 
 async function getEcobeeRuntimeReport({
@@ -412,16 +414,17 @@ function parseThermostatSummary(body, thermostatId) {
   const statusRow = findCsvRowForThermostat(statusRows, thermostatId);
   const revisionParts = revisionRow ? String(revisionRow).split(":") : [];
   const statusParts = statusRow ? String(statusRow).split(":") : [];
+  const connection = String(revisionParts[2] || "").trim().toLowerCase();
 
   return {
     id: revisionParts[0] || thermostatId,
     name: revisionParts[1] || "",
-    connected: String(revisionParts[2] || "").toLowerCase() === "true",
+    connected: ["true", "false"].includes(connection) ? connection === "true" : null,
     thermostatRevision: revisionParts[3] || "",
     alertsRevision: revisionParts[4] || "",
     runtimeRevision: revisionParts[5] || "",
     intervalRevision: revisionParts[6] || "",
-    equipmentStatus: statusParts.slice(1).join(":").trim(),
+    equipmentStatus: statusRow ? statusParts.slice(1).join(":").trim() : null,
     rawRevision: revisionRow || "",
     rawStatus: statusRow || ""
   };
@@ -429,7 +432,7 @@ function parseThermostatSummary(body, thermostatId) {
 
 function findCsvRowForThermostat(rows, thermostatId) {
   const prefix = `${thermostatId}:`;
-  return rows.find((row) => String(row || "").startsWith(prefix)) || rows[0] || "";
+  return rows.find((row) => String(row || "").startsWith(prefix)) || "";
 }
 
 function isExpiredEcobeeResponse(result) {

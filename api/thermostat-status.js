@@ -69,14 +69,31 @@ async function loadThermostatStatus(systemType, thermostatId) {
   }
 
   const previous = cachedStatus?.thermostats?.[systemType] || null;
+  let summary;
 
   try {
-    const summary = await getEcobeeThermostatSummary({ thermostatId });
+    summary = await getEcobeeThermostatSummary({ thermostatId });
+    if (summary.connected === false) {
+      return {
+        systemType,
+        configured: true,
+        id: thermostatId,
+        name: summary.name,
+        connected: false,
+        connectionCheckedAt: summary.checkedAt,
+        stale: true
+      };
+    }
     const nextSummaryKey = thermostatSummaryKey(summary);
     const previousSummaryKey = String(previous?.summaryRevisionKey || "");
     const previousFetchedAt = Date.parse(previous?.fetchedAt || "");
     const previousFullStatusIsFresh = previous
+      && previous.connected === true
+      && !previous.stale
       && !previous.error
+      && summary.connected === true
+      && summary.equipmentStatus != null
+      && summary.thermostatRevision
       && Number.isFinite(previousFetchedAt)
       && Date.now() - previousFetchedAt < FULL_STATUS_MAX_AGE_MS;
 
@@ -90,6 +107,8 @@ async function loadThermostatStatus(systemType, thermostatId) {
     if (previous && !previous.error) {
       return {
         ...previous,
+        connected: summary?.connected ?? null,
+        connectionCheckedAt: summary?.checkedAt || null,
         stale: true,
         staleReason: error.message || "Ecobee status request failed.",
         statusCheckedAt: new Date().toISOString()
@@ -100,6 +119,8 @@ async function loadThermostatStatus(systemType, thermostatId) {
       systemType,
       configured: true,
       id: thermostatId,
+      connected: summary?.connected ?? null,
+      connectionCheckedAt: summary?.checkedAt || null,
       error: error.message || "Ecobee status request failed."
     };
   }
@@ -108,19 +129,23 @@ async function loadThermostatStatus(systemType, thermostatId) {
 function thermostatToStatus(systemType, thermostatId, thermostat, summary = null) {
   const runtime = thermostat?.runtime || {};
   const settings = thermostat?.settings || {};
-  const equipmentStatus = String(thermostat?.equipmentStatus ?? summary?.equipmentStatus ?? "").trim();
+  const reportedEquipment = thermostat?.equipmentStatus ?? summary?.equipmentStatus;
+  const equipmentStatus = String(reportedEquipment ?? "").trim();
   const hvacMode = String(settings.hvacMode || "").trim();
   const desiredFanMode = String(runtime.desiredFanMode || "").trim();
   const remoteSensors = normalizeRemoteSensors(thermostat?.remoteSensors);
   const weather = normalizeWeather(thermostat?.weather);
   const airQuality = normalizeAirQuality(thermostat, remoteSensors);
+  const connected = runtime.connected === false ? false
+    : summary?.connected ?? (typeof runtime.connected === "boolean" ? runtime.connected : null);
 
   return {
     systemType,
     configured: true,
     id: thermostatId,
     name: thermostat?.name || summary?.name || "",
-    connected: summary?.connected ?? (thermostat?.isRegistered !== false),
+    connected,
+    connectionCheckedAt: summary?.connected == null ? new Date().toISOString() : summary.checkedAt,
     hvacMode,
     equipmentStatus,
     currentActivity: describeEquipmentStatus(equipmentStatus, hvacMode, desiredFanMode),
@@ -140,7 +165,7 @@ function thermostatToStatus(systemType, thermostatId, thermostat, summary = null
     lastModified: thermostat?.lastModified || "",
     summaryRevisionKey: thermostatSummaryKey(summary),
     fetchedAt: new Date().toISOString(),
-    stale: false
+    stale: connected !== true || typeof reportedEquipment !== "string" || !hvacMode
   };
 }
 
@@ -152,6 +177,7 @@ function applySummaryToStatus(item, summary) {
   return {
     ...item,
     connected: summary?.connected ?? item.connected,
+    connectionCheckedAt: summary?.checkedAt ?? item.connectionCheckedAt,
     equipmentStatus,
     currentActivity: describeEquipmentStatus(equipmentStatus, hvacMode, desiredFanMode),
     isCooling: isCoolingEquipmentActive(equipmentStatus, hvacMode),

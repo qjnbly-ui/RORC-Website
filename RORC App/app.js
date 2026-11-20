@@ -208,7 +208,7 @@ const GUEST_DAY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const pendingHeaterAutoOffIds = new Set();
 let thermostatActionFeedback = null;
 let thermostatShutdownPollTimer = null;
-let thermostatShutdownPollSystem = "";
+const unconfirmedThermostatShutdowns = new Map();
 let notifiedIds = new Set();
 let notificationUnreadCount = 0;
 let contractReviewPendingCount = 0;
@@ -7025,6 +7025,12 @@ async function fetchThermostatStatus({ force = false } = {}) {
   }
 
   thermostatStatus = body;
+  for (const [system, requestedAt] of unconfirmedThermostatShutdowns) {
+    const nextRunAt = Date.parse(activeHeaterEntry(system)?.startAt || "");
+    if (nextRunAt > requestedAt || isThermostatShutdownComplete(system, body.thermostats?.[system], requestedAt)) {
+      unconfirmedThermostatShutdowns.delete(system);
+    }
+  }
   thermostatStatusFetchedAt = Date.now();
   return thermostatStatus;
 }
@@ -15552,14 +15558,14 @@ function thermostatSystemActivityLabel(systemType, item) {
 }
 
 function isLiveThermostatActive(systemType, item) {
-  if (!item?.configured || item.error || item.stale) return false;
+  if (!isLiveThermostatStateKnown(item)) return false;
   if (systemType === "ac") return Boolean(item?.isCooling);
   if (systemType === "heat") return Boolean(item?.isHeating);
   return false;
 }
 
 function isLiveThermostatStateKnown(item) {
-  return Boolean(thermostatStatus && item?.configured && !item.error && !item.stale);
+  return Boolean(thermostatStatus && item?.configured && item.connected === true && !item.error && !item.stale);
 }
 
 function thermostatEquipmentParts(item) {
@@ -15569,8 +15575,10 @@ function thermostatEquipmentParts(item) {
     .filter(Boolean);
 }
 
-function isThermostatShutdownComplete(systemType, item) {
+function isThermostatShutdownComplete(systemType, item, requestedAt = 0) {
   if (!isLiveThermostatStateKnown(item)) return false;
+  const checkedAt = Date.parse(item.connectionCheckedAt || "");
+  if (!Number.isFinite(checkedAt) || checkedAt <= requestedAt) return false;
   if (String(item?.hvacMode || "").trim().toLowerCase() !== "off") return false;
   if (systemType === "ac" && item?.isCooling) return false;
   if (systemType === "heat" && item?.isHeating) return false;
@@ -15608,15 +15616,18 @@ function isThermostatShutdownPending(systemType, item, activeEntry = null) {
   );
   if (shutdownEquipmentRunning) return true;
 
+  const acceptedAt = unconfirmedThermostatShutdowns.get(normalizedSystemType);
+  if (acceptedAt && (!isLiveThermostatStateKnown(item) || !(Date.parse(item.connectionCheckedAt) > acceptedAt))) return true;
+
   const pendingAction = thermostatPendingActionFor(normalizedSystemType);
   const completedEntry = latestCompletedThermostatEntry(normalizedSystemType);
   const transitionStartedAt = pendingAction?.action === "off"
     ? Number(pendingAction.startedAt || 0)
-    : Date.parse(completedEntry?.endAt || "");
+    : acceptedAt || Date.parse(completedEntry?.endAt || "");
   if (!Number.isFinite(transitionStartedAt) || transitionStartedAt <= 0) return false;
   if (Date.now() - transitionStartedAt > THERMOSTAT_SHUTDOWN_LOCK_MAX_MS) return false;
 
-  return !isThermostatShutdownComplete(normalizedSystemType, item);
+  return !isThermostatShutdownComplete(normalizedSystemType, item, transitionStartedAt);
 }
 
 function stopThermostatShutdownMonitor() {
@@ -15624,45 +15635,30 @@ function stopThermostatShutdownMonitor() {
     window.clearTimeout(thermostatShutdownPollTimer);
     thermostatShutdownPollTimer = null;
   }
-  thermostatShutdownPollSystem = "";
 }
 
-function monitorThermostatShutdown(systemType, { immediate = false } = {}) {
-  const normalizedSystemType = normalizeThermostatSystemType(systemType);
-  if (!normalizedSystemType) return;
-  if (thermostatShutdownPollTimer && thermostatShutdownPollSystem === normalizedSystemType) return;
-
-  stopThermostatShutdownMonitor();
-  thermostatShutdownPollSystem = normalizedSystemType;
+function monitorThermostatShutdown() {
+  if (thermostatShutdownPollTimer || appState.currentRoute !== "heaterRecords") return;
   thermostatShutdownPollTimer = window.setTimeout(async () => {
-    thermostatShutdownPollTimer = null;
+    if (appState.currentRoute !== "heaterRecords") {
+      thermostatShutdownPollTimer = null;
+      return;
+    }
     try {
       await fetchThermostatStatus({ force: true });
     } catch (error) {
-      console.warn("Could not confirm thermostat shutdown yet.", error);
-    }
-
-    const item = thermostatStatus?.thermostats?.[normalizedSystemType] || null;
-    const activeEntry = activeHeaterEntry(normalizedSystemType);
-    if (!isThermostatShutdownPending(normalizedSystemType, item, activeEntry)) {
-      if (thermostatPendingActionFor(normalizedSystemType)?.action === "off") {
-        clearThermostatActionFeedback();
+      console.warn("Could not confirm thermostat status.", error);
+      // Preserve the last readings, but do not present them as current after a failed check.
+      for (const item of Object.values(thermostatStatus?.thermostats || {})) {
+        item.connected = null;
+        item.stale = true;
       }
-      stopThermostatShutdownMonitor();
+      thermostatStatusFetchedAt = Date.now();
+    } finally {
+      thermostatShutdownPollTimer = null;
       if (appState.currentRoute === "heaterRecords") render("heaterRecords");
-      return;
     }
-
-    if (thermostatPendingActionFor(normalizedSystemType)?.action === "off") {
-      const systemLabel = thermostatSystemLabel(normalizedSystemType);
-      const modeIsOff = String(item?.hvacMode || "").trim().toLowerCase() === "off";
-      thermostatActionFeedback.message = modeIsOff && item?.isFanRunning
-        ? `${systemLabel} is off. Waiting for the shutdown fan cycle to finish.`
-        : `Waiting for Ecobee to confirm ${systemLabel} is fully off.`;
-    }
-    if (appState.currentRoute === "heaterRecords") render("heaterRecords");
-    monitorThermostatShutdown(normalizedSystemType);
-  }, immediate ? 0 : THERMOSTAT_SHUTDOWN_POLL_MS);
+  }, THERMOSTAT_SHUTDOWN_POLL_MS);
 }
 
 function patchThermostatStatus(systemType, updates = {}) {
@@ -15694,21 +15690,17 @@ function patchThermostatStatus(systemType, updates = {}) {
   thermostatStatusFetchedAt = Date.now();
 }
 
-function markThermostatSystemOff(systemType) {
-  patchThermostatStatus(systemType, {
-    hvacMode: "off",
-    equipmentStatus: "",
-    currentActivity: "Off",
-    isCooling: false,
-    isHeating: false,
-    isFanRunning: false
-  });
+function markThermostatSystemOff(systemType, endAt) {
+  const system = normalizeThermostatSystemType(systemType);
+  unconfirmedThermostatShutdowns.set(system, Date.parse(endAt) || Date.now());
+  if (thermostatPendingActionFor(system)?.action === "off") clearThermostatActionFeedback();
 }
 
 function markThermostatSystemOn(systemType, targetTemperatureF = null) {
   const normalizedSystemType = normalizeThermostatSystemType(systemType);
   if (!normalizedSystemType) return;
 
+  unconfirmedThermostatShutdowns.delete(normalizedSystemType);
   const roundedTarget = Number.isFinite(Number(targetTemperatureF))
     ? Math.round(Number(targetTemperatureF))
     : null;
@@ -15805,7 +15797,7 @@ function thermostatSensorLabel(item) {
 }
 
 function firstConfiguredThermostat(...items) {
-  return items.find((item) => item?.configured && !item.error) || null;
+  return items.find(isLiveThermostatStateKnown) || null;
 }
 
 function renderThermostatSystemStatus(label, item, activeEntry = null) {
@@ -15815,8 +15807,29 @@ function renderThermostatSystemStatus(label, item, activeEntry = null) {
   const isLiveActive = isLiveThermostatActive(systemType, item);
   const shutdownPending = isThermostatShutdownPending(systemType, item, activeEntry);
 
+  const pendingAction = thermostatPendingActionFor(systemType);
+  const acceptedAt = unconfirmedThermostatShutdowns.get(systemType);
+  const retryShutdown = Boolean(acceptedAt && !shutdownPending && !isRecordActive);
+  if (item?.configured && !isLiveThermostatStateKnown(item)) {
+    let statusLabel = "Connection unknown";
+    if (item.connected === false) statusLabel = "Ecobee offline";
+    else if (item.stale) statusLabel = "Status stale";
+    else if (item.error) statusLabel = "Status unavailable";
+    const shutdownRequested = acceptedAt || shutdownPending || pendingAction?.action === "off";
+    const timerText = heaterAutoShutoffText(activeEntry);
+    return `
+      <article class="${isRecordActive ? "is-active" : "is-disabled"}">
+        <span>${escapeHtml(label)}</span>
+        <strong>${statusLabel}</strong>
+        <small>${shutdownRequested ? "Shutdown unconfirmed" : "Equipment status unavailable"}</small>
+        ${timerText ? `<small class="thermostat-timer-chip">${escapeHtml(timerText)}</small>` : ""}
+        ${isRecordActive ? `<button class="thermostat-card-off-button" data-turn-thermostat-off="${systemType}" data-turn-thermostat-entry-id="${escapeAttribute(activeEntry.id)}" type="button"${pendingAction ? " disabled" : ""}>${pendingAction?.action === "off" ? "Requesting shutdown…" : "Turn Off"}</button>` : ""}
+      </article>
+    `;
+  }
+
   if (shutdownPending) {
-    const fanFinishing = Boolean(item?.isFanRunning)
+    const fanFinishing = isLiveThermostatStateKnown(item) && item.hvacMode === "off" && Boolean(item?.isFanRunning)
       && String(item?.desiredFanMode || "").trim().toLowerCase() !== "on";
     return `
       <article class="is-active is-shutting-down" aria-label="${escapeAttribute(label)} thermostat shutting down" aria-busy="true">
@@ -15832,7 +15845,6 @@ function renderThermostatSystemStatus(label, item, activeEntry = null) {
     const activity = isLiveActive && item?.configured && !item.error
       ? thermostatSystemActivityLabel(systemType, item)
       : "Currently On";
-    const pendingAction = thermostatPendingActionFor(systemType);
     const statusLabel = thermostatPendingStatusLabel(pendingAction?.action)
       || (activity && activity !== "Idle" && activity !== "Off" ? activity : "Currently On");
     const setPoint = thermostatSetPointForSystem(systemType, item, activeEntry);
@@ -15849,6 +15861,17 @@ function renderThermostatSystemStatus(label, item, activeEntry = null) {
         </button>
         ${timerText ? `<small class="thermostat-timer-chip">${escapeHtml(timerText)}</small>` : ""}
         <button class="thermostat-card-off-button" data-turn-thermostat-off="${escapeAttribute(systemType)}" data-turn-thermostat-entry-id="${escapeAttribute(activeEntry?.id || "")}" type="button"${disabledAttr}>${pendingAction?.action === "off" ? "Turning Off..." : "Turn Off"}</button>
+      </article>
+    `;
+  }
+
+  if (retryShutdown && isLiveThermostatStateKnown(item)) {
+    return `
+      <article class="is-active">
+        <span>${escapeHtml(label)}</span>
+        <strong>Shutdown unconfirmed</strong>
+        <small>Ecobee reports ${escapeHtml(thermostatModeLabel(item.hvacMode))} mode</small>
+        <button class="thermostat-card-off-button" data-turn-thermostat-off="${systemType}" type="button"${pendingAction ? " disabled" : ""}>Turn Off</button>
       </article>
     `;
   }
@@ -15873,26 +15896,6 @@ function renderThermostatSystemStatus(label, item, activeEntry = null) {
     `;
   }
 
-  if (item.error) {
-    return `
-      <article data-open-thermostat-system="${escapeAttribute(systemType)}" class="${systemEnabled ? "" : "is-disabled"}" role="button" tabindex="${systemEnabled ? "0" : "-1"}" aria-disabled="${systemEnabled ? "false" : "true"}">
-        <span>${escapeHtml(label)}</span>
-        <strong>Status unavailable</strong>
-        <small>${systemEnabled ? "Tap to turn on" : "Disabled by admin"}</small>
-      </article>
-    `;
-  }
-
-  if (item.stale) {
-    return `
-      <article data-open-thermostat-system="${escapeAttribute(systemType)}" class="${systemEnabled ? "" : "is-disabled"}" role="button" tabindex="${systemEnabled ? "0" : "-1"}" aria-disabled="${systemEnabled ? "false" : "true"}">
-        <span>${escapeHtml(label)}</span>
-        <strong>Status stale</strong>
-        <small>${systemEnabled ? "Tap to turn on" : "Disabled by admin"}</small>
-      </article>
-    `;
-  }
-
   const activity = thermostatSystemActivityLabel(systemType, item);
 
   return `
@@ -15910,7 +15913,7 @@ function renderThermostatStatusPanel() {
   const activeAcEntry = activeHeaterEntry("ac");
   const room = firstConfiguredThermostat(status.heat, status.ac) || status.heat || status.ac || {};
   const isLoading = !thermostatStatus;
-  const hasRoomData = Boolean(!isLoading && room?.configured && !room.error && !room.stale);
+  const hasRoomData = isLiveThermostatStateKnown(room);
   const roomTitle = isLoading ? "Checking..." : (hasRoomData ? thermostatTempLabel(room.temperatureF) : "Status unavailable");
   const roomSubtitle = isLoading
     ? "Waiting for live status"
@@ -16400,15 +16403,14 @@ function renderHeaterRecords() {
 
   bindHeaterRecordsActions();
 
-  const shutdownSystem = ["heat", "ac"].find((systemType) => {
-    const statusItem = thermostatStatus?.thermostats?.[systemType] || null;
-    return isThermostatShutdownPending(systemType, statusItem, activeHeaterEntry(systemType));
+  const needsStatusCheck = ["heat", "ac"].some((system) => {
+    const item = thermostatStatus?.thermostats?.[system];
+    return (item?.configured && !isLiveThermostatStateKnown(item))
+      || unconfirmedThermostatShutdowns.has(system)
+      || isThermostatShutdownPending(system, item, activeHeaterEntry(system));
   });
-  if (shutdownSystem) {
-    monitorThermostatShutdown(shutdownSystem);
-  } else if (thermostatShutdownPollTimer) {
-    stopThermostatShutdownMonitor();
-  }
+  if (needsStatusCheck) monitorThermostatShutdown();
+  else stopThermostatShutdownMonitor();
 
   if (heaterCountdownTimer) {
     window.clearTimeout(heaterCountdownTimer);
@@ -16449,16 +16451,20 @@ function findActiveEntryByIdAndSystem(entryId, systemType = "") {
 
 async function turnHeaterOffActiveEntry(systemType = "", preferredEntryId = "") {
   const normalizedSystemType = systemType ? normalizeThermostatSystemType(systemType) : "";
-  let activeEntry = findActiveEntryByIdAndSystem(preferredEntryId, normalizedSystemType)
-    || activeHeaterEntry(normalizedSystemType);
-
+  const selectedRun = () => preferredEntryId
+    ? findActiveEntryByIdAndSystem(preferredEntryId, normalizedSystemType)
+    : activeHeaterEntry(normalizedSystemType);
+  let activeEntry = selectedRun();
   if (!activeEntry) {
     await refreshHeaterResources({ rerender: false });
-    activeEntry = findActiveEntryByIdAndSystem(preferredEntryId, normalizedSystemType)
-      || activeHeaterEntry(normalizedSystemType);
+    activeEntry = selectedRun();
   }
 
   if (!activeEntry) {
+    if (preferredEntryId) {
+      if (appState.currentRoute === "heaterRecords") render("heaterRecords");
+      return;
+    }
     if (normalizedSystemType) {
       const systemLabel = thermostatSystemLabel(normalizedSystemType);
       setThermostatActionFeedback("off", normalizedSystemType, `Turning ${systemLabel} off. This can take a moment.`);
@@ -16473,7 +16479,6 @@ async function turnHeaterOffActiveEntry(systemType = "", preferredEntryId = "") 
 
     await refreshHeaterResources({ rerender: false });
     if (appState.currentRoute === "heaterRecords") render("heaterRecords");
-    monitorThermostatShutdown(normalizedSystemType, { immediate: true });
     return;
   }
 
@@ -16496,10 +16501,9 @@ async function turnHeaterOffActiveEntry(systemType = "", preferredEntryId = "") 
   heaterUseEntries = heaterUseEntries.map((entry) => (
     entry.id === activeEntry.id ? { ...entry, endAt: endAtIso, turnHeaterOn: "Off" } : entry
   ));
-  markThermostatSystemOff(activeSystemType);
+  markThermostatSystemOff(activeSystemType, endAtIso);
   await refreshHeaterResources({ rerender: false });
   render("heaterRecords");
-  monitorThermostatShutdown(activeSystemType, { immediate: true });
 }
 
 async function turnHeaterOffEntry(entry, { timerTriggered = false } = {}) {
@@ -16508,14 +16512,14 @@ async function turnHeaterOffEntry(entry, { timerTriggered = false } = {}) {
 
   try {
     const offRecipients = entry.groupPay ? entry.groupMemberIds : [entry.responsibleMemberId];
-    await triggerHeaterOffSequence(offRecipients, {
+    const result = await triggerHeaterOffSequence(offRecipients, {
       systemType: normalizeThermostatSystemType(entry.systemType),
       heaterUseEntryId: entry.id,
       timerTriggered,
       timerMinutes: timerTriggered ? configuredTimerMinutes(entry) : null
     });
 
-    markThermostatSystemOff(entry.systemType);
+    markThermostatSystemOff(entry.systemType, result?.endAt);
     await refreshHeaterResources({ rerender: false });
     if (appState.currentRoute === "heaterRecords") {
       render("heaterRecords");
@@ -19251,6 +19255,9 @@ async function saveHeaterUse() {
       throw thermostatRuntimeConflictError(systemType, existingRuntime.systemType);
     }
     const statusItem = thermostatStatus?.thermostats?.[systemType] || null;
+    if (statusItem?.connected === false) {
+      throw new Error(`Ecobee reports the ${thermostatSystemLabel(systemType)} thermostat is offline. Wait for it to reconnect before starting a timer.`);
+    }
     if (isThermostatShutdownPending(systemType, statusItem)) {
       throw new Error(`${thermostatSystemLabel(systemType)} is still finishing shutdown. Wait for Ecobee to confirm it is fully off before turning it on again.`);
     }
