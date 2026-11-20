@@ -33,7 +33,7 @@ test("app shell self-hosts Supabase, loads its coordinator first, and lazy-loads
   const html = read("RORC App/index.html");
   const appSource = read("RORC App/app.js");
   const supabaseSdk = html.indexOf("./vendor/supabase.min.js?v=2.112.2");
-  const supabaseWrapper = html.indexOf("/scripts/rorc-supabase-client.js?v=20261003-related-form-accounts");
+  const supabaseWrapper = html.indexOf("/scripts/rorc-supabase-client.js?v=");
   const coordinator = html.indexOf("./resource-coordinator.js?v=20260808-reliable-sync");
   const app = html.indexOf("./app.js?v=");
 
@@ -233,6 +233,9 @@ test("refreshing the app session keeps the attendance subscription in place", as
     }
   });
   await vm.runInContext(start + "\nstartRealtimeSyncController()", context);
+  handler("INITIAL_SESSION", null);
+  assert.equal(context.currentAuthSession, oldSession);
+  assert.equal(reloads, 0);
   handler("TOKEN_REFRESHED", freshSession);
   assert.equal(context.currentAuthSession, freshSession);
   assert.equal(starts, 1);
@@ -268,4 +271,35 @@ test("a Save started during session renewal waits and sends the original body on
   context.currentAuthSession = { user: { id: "different-member" } };
   await assert.rejects(save(), /sign-in changed/);
   assert.equal(calls.length, 1);
+});
+
+test("a pending scoped Save cannot be sent to a newly selected linked account", async () => {
+  const source = read("RORC App/app.js");
+  const shared = read("scripts/rorc-supabase-client.js");
+  const calls = [];
+  const session = { user: { id: "user" }, access_token: "fresh" };
+  let finishRefresh;
+  const pending = new Promise(resolve => { finishRefresh = resolve; });
+  const context = vm.createContext({
+    Headers, URL, Request, currentAuthSession: session, appState: { authMemberId: "first" },
+    createSupabaseClient: async () => ({ auth: { getSession: () => pending } }),
+    window: { location: new URL("https://example.org/app/"), fetch: (...args) => calls.push(args) }
+  });
+  vm.runInContext('let activeMemberId = "first";' +
+    shared.slice(shared.indexOf("function scopedFetch"), shared.indexOf("function chooseAccount")) +
+    'window.RORC_SUPABASE = { scopedFetch };' +
+    source.slice(source.indexOf("async function freshAppToken"), source.indexOf("const supabaseSettings")), context);
+  const save = () => context.accountScopedFetch("/api/calendar-event-requests", {
+    method: "POST", headers: { Authorization: "Bearer expired" }, body: "original form"
+  });
+  const result = save();
+  vm.runInContext('activeMemberId = "second"', context);
+  finishRefresh({ data: { session } });
+  await assert.rejects(result, /selected account changed/);
+  assert.equal(calls.length, 0);
+  context.appState.authMemberId = "second";
+  await save();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][1].headers.get("x-rorc-account-member"), "second");
+  assert.equal(calls[0][1].headers.get("Authorization"), "Bearer fresh");
 });

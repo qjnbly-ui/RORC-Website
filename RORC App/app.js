@@ -44,7 +44,10 @@ async function appApiFetch(input, options = {}, send = window.fetch.bind(window)
 }
 
 function accountScopedFetch(input, options) {
-  return appApiFetch(input, options, window.RORC_SUPABASE?.scopedFetch);
+  const scopedFetch = window.RORC_SUPABASE?.scopedFetch;
+  if (!scopedFetch) return appApiFetch(input, options);
+  const memberId = appState.authMemberId;
+  return appApiFetch(input, options, (url, init) => scopedFetch(url, init, memberId));
 }
 const supabaseSettings = window.RORC_SUPABASE_CONFIG || {};
 const NAVIGATION_ICON_MARKUP = Object.freeze({
@@ -14357,9 +14360,11 @@ async function startRealtimeSyncController() {
   stopRealtimeSyncController();
   const client = await createSupabaseClient();
   if (!client || !currentAuthSession) return;
-  const authListener = client.auth.onAuthStateChange((_event, session) => {
+  const authListener = client.auth.onAuthStateChange((event, session) => {
     if (!currentAuthSession) return;
-    if (!session || session.user.id !== currentAuthSession.user.id) {
+    // INITIAL_SESSION can be null after a temporary network failure.
+    if (!session && event !== "SIGNED_OUT") return;
+    if (event === "SIGNED_OUT" || session.user.id !== currentAuthSession.user.id) {
       // Rebuild account-scoped state when this browser signs out or changes users.
       currentAuthSession = null;
       window.location.reload();
