@@ -10165,3 +10165,35 @@ textarea:focus-visible,
 .sponsor-management .billing-address-fields .billing-address-unit,.sponsor-management .billing-address-fields .billing-address-country,.sponsor-management .billing-address-fields label:nth-child(4) {grid-column:1 / -1;}
 .sponsor-management .billing-address-fields .billing-address-country {width:min(100%,320px);}
 .sponsor-management .billing-address-fields .billing-address-unit {border:0;padding:0;}
+
+.ask-rorc {
+  display: grid;
+  gap: 1rem;
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1rem 1rem calc(5rem + env(safe-area-inset-bottom));
+}
+
+.ask-rorc-log {
+  display: grid;
+  gap: 0.75rem;
+  max-height: 45dvh;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+.ask-rorc-log p,
+.ask-rorc-form p {
+  margin: 0;
+}
+
+.ask-rorc-form {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.ask-rorc-form textarea,
+.ask-rorc-form button {
+  font: inherit;
+  padding: 0.65rem;
+}

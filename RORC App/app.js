@@ -391,6 +391,7 @@ const kioskAllowedRoutes = new Set([
 ]);
 
 const rentalAccountAllowedRoutes = new Set([
+  "askRorc",
   "myAccount",
   "notifications",
   "feedback",
@@ -401,6 +402,7 @@ const rentalAccountAllowedRoutes = new Set([
 ]);
 
 const restrictedAccountAllowedRoutes = new Set([
+  "askRorc",
   "myAccount",
   "notifications",
   "feedback",
@@ -419,12 +421,12 @@ const drawerLayouts = {
     { title: "Billing", routes: ["billing", "billingRecords", "billingPrices", "closureCredits"] },
     { title: "Reports & Logs", routes: ["masterLogs"] },
     { title: "App & Automation", routes: ["message", "advertisementBanners"] },
-    { title: "Help", routes: ["feedback", "about", "share"] }
+    { title: "Help", routes: ["askRorc", "feedback", "about", "share"] }
   ],
   member: [
     { title: "Account", routes: ["notifications", "myAccount", "otherUsers"] },
     { title: "Schedule", routes: ["calendar", "myEvents"] },
-    { title: "Help", routes: ["feedback", "about", "share"] }
+    { title: "Help", routes: ["askRorc", "feedback", "about", "share"] }
   ],
   kiosk: [
     { title: "Facility Information", routes: ["calendar", "notifications"] },
@@ -433,11 +435,11 @@ const drawerLayouts = {
   rental: [
     { title: "Account", routes: ["notifications", "myAccount"] },
     { title: "Rentals", routes: ["calendar", "myEvents"] },
-    { title: "Help", routes: ["feedback", "about", "share"] }
+    { title: "Help", routes: ["askRorc", "feedback", "about", "share"] }
   ],
   restricted: [
     { title: "Account Status", routes: ["notifications", "myAccount"] },
-    { title: "Help", routes: ["feedback", "about"] }
+    { title: "Help", routes: ["askRorc", "feedback", "about"] }
   ]
 };
 
@@ -521,6 +523,11 @@ const routes = {
     title: "Bot Settings",
     template: "feedbackTemplate",
     afterRender: renderAutomationSettingsPage
+  },
+  askRorc: {
+    title: "Ask RORC",
+    template: "askRorcTemplate",
+    afterRender: bindAskRorc
   },
   receptionistAnalytics: {
     title: "AI Receptionist",
@@ -2917,6 +2924,59 @@ function communicationRecipientValue(phone = communicationsState.draftPhone) {
 
 function communicationThreadName(thread) {
   return thread?.contact?.name || communicationContactForPhone(thread?.phone)?.name || formatCommunicationsPhone(thread?.phone) || "New conversation";
+}
+
+function bindAskRorc() {
+  const form = document.querySelector(".ask-rorc-form");
+  const log = document.querySelector(".ask-rorc-log");
+  const questionInput = form.querySelector("textarea");
+  const send = form.querySelector("button");
+  const status = form.querySelector('[role="status"]');
+  const history = [];
+
+  function showMessage(role, content) {
+    const message = document.createElement("p");
+    const label = document.createElement("strong");
+    label.textContent = role === "user" ? "You: " : "Ask RORC: ";
+    message.append(label, document.createTextNode(content));
+    log.append(message);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const question = questionInput.value.trim();
+    if (!question || send.disabled) return;
+
+    send.disabled = true;
+    questionInput.readOnly = true;
+    status.textContent = "Getting an answer…";
+    try {
+      const response = await fetch("/api/ask-rorc", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${currentAuthSession?.access_token || ""}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ question, history: history.slice(-8) })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.reply) {
+        throw new Error(result.error || "Could not get an answer. Try again.");
+      }
+      history.push({ role: "user", content: question }, { role: "assistant", content: result.reply });
+      showMessage("user", question);
+      showMessage("assistant", result.reply);
+      questionInput.value = "";
+      status.textContent = "";
+    } catch (error) {
+      status.textContent = error.message;
+    } finally {
+      questionInput.readOnly = false;
+      send.disabled = false;
+      if (form.isConnected) questionInput.focus();
+    }
+  });
 }
 
 function communicationsAuthHeaders(json = false) {
