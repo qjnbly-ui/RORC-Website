@@ -19,7 +19,7 @@
     async function request(body) {
       const response = await fetch(body ? '/api/monthly-billing' : `/api/monthly-billing?month=${encodeURIComponent(month)}`, {
         method: body ? 'POST' : 'GET', cache:'no-store',
-        headers: { Authorization:`Bearer ${token()}`, ...(body ? {'Content-Type':'application/json'} : {}) },
+        headers: { Authorization:`Bearer ${await token()}`, ...(body ? {'Content-Type':'application/json'} : {}) },
         ...(body ? {body:JSON.stringify(body)} : {})
       });
       const result = await response.json();

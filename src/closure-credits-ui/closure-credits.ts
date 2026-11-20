@@ -2,7 +2,7 @@
   type Closure = { id: string; starts_on: string; reopens_on: string; reason: string; status: string };
   type Detail = { invoice: string; plan: string; periodStart: string; periodEnd: string; chargedCents: number; closedDays: number; periodDays: number; creditCents: number };
   type Row = { id: string; account_label: string; customer_id: string | null; state: string; amount_cents: number; fingerprint: string | null; note?: string; applied_at?: string; stripe_transaction_id?: string; preview?: { details: Detail[]; warnings: string[] } };
-  type Dependencies = { root: HTMLElement; token: () => string; confirm: (options: { title: string; message: string; confirmLabel: string; cancelLabel: string }) => Promise<boolean> };
+  type Dependencies = { root: HTMLElement; token: () => string | Promise<string>; confirm: (options: { title: string; message: string; confirmLabel: string; cancelLabel: string }) => Promise<boolean> };
   const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
   const money = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
   const date = (value: string) => new Date(`${value}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
@@ -19,7 +19,7 @@
     let form = { starts_on: '', reopens_on: '', reason: 'Extended maintenance closure' };
     root.className = 'closure-credits-page';
     async function api(action: string, data: Record<string, unknown> = {}): Promise<any> {
-      const session = token();
+      const session = await token();
       if (!session) throw new Error('Please sign in again.');
       const response = await fetch('/api/closure-credits', {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session}` },

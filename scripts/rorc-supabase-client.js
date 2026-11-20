@@ -12,7 +12,10 @@
   let activeUserId = "";
   let accountChoices = [];
 
-  function scopedFetch(input, options = {}) {
+  function scopedFetch(input, options = {}, expectedMemberId = activeMemberId) {
+    if (activeMemberId !== expectedMemberId) {
+      throw new Error("Your selected account changed. Reopen this screen before continuing.");
+    }
     const headers = new Headers(options.headers || (input instanceof Request ? input.headers : undefined));
     const destination = new URL(input instanceof Request ? input.url : input, window.location.origin);
     if (activeMemberId && (destination.origin === window.location.origin || destination.origin === SUPABASE_URL)) headers.set("x-rorc-account-member", activeMemberId);

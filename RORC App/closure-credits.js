@@ -15,7 +15,7 @@
         let form = { starts_on: '', reopens_on: '', reason: 'Extended maintenance closure' };
         root.className = 'closure-credits-page';
         async function api(action, data = {}) {
-            const session = token();
+            const session = await token();
             if (!session)
                 throw new Error('Please sign in again.');
             const response = await fetch('/api/closure-credits', {

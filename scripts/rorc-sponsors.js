@@ -85,11 +85,11 @@
    return {content_type:blob.type,base64:await encode(blob)};
   }finally{image.close?.();}
  }
- async function mount(host,token){
+ async function mount(host,token,send = fetch){
  if(!host||!token)return;
  let data,state={year:new Date().getFullYear(),status:'active',payment:'all',search:'',owner:'',newBanner:false};
  async function request(body){
- const r=await fetch('/api/sponsor-catalog',{method:body?'POST':'GET',headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),cache:'no-store'});
+ const r=await send('/api/sponsor-catalog',{method:body?'POST':'GET',headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{}),cache:'no-store'});
  const d=await r.json();if(!r.ok||!d.success)throw new Error(d.error||'Could not load sponsors.');return d;
  }
  function draw(){if(!host.isConnected)return;host.innerHTML=render(data,state);host.querySelectorAll('input[name="amount"]').forEach(x=>{x.step='0.01';x.min='0'});}
@@ -131,7 +131,7 @@
   else {feedback.textContent=err.message;btn.disabled=false;}
  }
  });
- try{await load();}catch(err){host.innerHTML='<p role="alert">'+esc(err.message)+'</p><button data-directory-retry>Retry</button>';host.querySelector('[data-directory-retry]').onclick=()=>mount(host,token);}
+ try{await load();}catch(err){host.innerHTML='<p role="alert">'+esc(err.message)+'</p><button data-directory-retry>Retry</button>';host.querySelector('[data-directory-retry]').onclick=()=>mount(host,token,send);}
  }
  root.RORC_SPONSORS={mount,render,prepareImage,addressFields};
  if(typeof module==='object')module.exports={render,prepareImage,ownerContact,addressFields};
