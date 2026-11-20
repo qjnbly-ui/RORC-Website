@@ -244,3 +244,31 @@ test("refreshing a member session updates API and Realtime credentials in place"
   assert.equal(context.currentAuthSession, null);
   assert.equal(reloads, 1);
 });
+
+test("a Save started during session renewal waits and sends the original body once", async () => {
+  const source = read("RORC App/app.js");
+  const session = { user: { id: "member" }, access_token: "fresh" };
+  let finishRefresh;
+  const pending = new Promise(resolve => { finishRefresh = resolve; });
+  const context = vm.createContext({
+    Headers, URL, currentAuthSession: { ...session, access_token: "expired" },
+    appState: { authMemberId: "member" },
+    createSupabaseClient: async () => ({ auth: { getSession: () => pending } }),
+    window: { location: new URL("https://example.org/app/") }
+  });
+  vm.runInContext(source.slice(source.indexOf("async function freshAppToken"), source.indexOf("function accountScopedFetch")), context);
+  const calls = [];
+  const save = () => context.appApiFetch("/api/monthly-billing", {
+    method: "POST", headers: { Authorization: "Bearer expired" }, body: "original form"
+  }, (...args) => calls.push(args));
+  const result = save();
+  assert.equal(calls.length, 0);
+  finishRefresh({ data: { session } });
+  await result;
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][1].body, "original form");
+  assert.equal(calls[0][1].headers.get("Authorization"), "Bearer fresh");
+  context.currentAuthSession = { user: { id: "different-member" } };
+  await assert.rejects(save(), /sign-in changed/);
+  assert.equal(calls.length, 1);
+});

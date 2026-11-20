@@ -78,14 +78,14 @@ test("kiosk Currently Signed In startup is bounded to five browser data requests
   assert.match(registrations, /register\("attendanceOpen",\s*\{[^}]*loader:\s*\(\) => loadAttendanceResource\("open"\)/);
   assert.match(registrations, /register\("directory",\s*\{[^}]*loader:\s*loadGlobalMemberDirectory/);
   assert.match(attendance, /if \(canUsePrivilegedTimesheetApi\(\)\)\s*\{\s*rows = await fetchPrivilegedTimesheetEntries\(viewName === "history" \? "" : viewName\)/);
-  assert.equal(occurrences(privilegedAttendance, /\bfetch\s*\(/g), 1);
+  assert.equal(occurrences(privilegedAttendance, /\b(?:fetch|appApiFetch)\s*\(/g), 1);
   assert.match(privilegedAttendance, /query\.set\("view",\s*viewName\)/);
-  assert.equal(occurrences(directory, /\bfetch\s*\(/g), 1);
-  assert.match(directory, /fetch\("\/api\/member-directory"/);
+  assert.equal(occurrences(directory, /\b(?:fetch|appApiFetch)\s*\(/g), 1);
+  assert.match(directory, /appApiFetch\("\/api\/member-directory"/);
 
   const browserDataRequestCount = 2 + occurrences(identity, /\.from\(/g)
-    + occurrences(privilegedAttendance, /\bfetch\s*\(/g)
-    + occurrences(directory, /\bfetch\s*\(/g);
+    + occurrences(privilegedAttendance, /\b(?:fetch|appApiFetch)\s*\(/g)
+    + occurrences(directory, /\b(?:fetch|appApiFetch)\s*\(/g);
   assert.equal(browserDataRequestCount, 5);
 });
 

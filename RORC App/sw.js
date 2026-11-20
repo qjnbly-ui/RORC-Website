@@ -1,4 +1,4 @@
-const CACHE_VERSION = "rorc-app-v126";
+const CACHE_VERSION = "rorc-app-v127";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const NAVIGATION_CACHE = `${CACHE_VERSION}-navigation`;
 const OFFLINE_PAGE = "./index.html";
@@ -10,11 +10,11 @@ const APP_SHELL = [
   "./app.css?v=20261120-session-nav",
   "./resource-coordinator.js?v=20260808-reliable-sync",
   "./closure-credits.css?v=20260921-closure-credits",
-  "./closure-credits.js?v=20260921-closure-credits",
+  "./closure-credits.js?v=20261120-save-session",
   "/scripts/rorc-recurring-dates.js?v=20261001",
   "/scripts/rorc-account-form-draft.js?v=20261003-related-form-accounts",
-  "./app.js?v=20261120-session-nav",
-  "./monthly-billing.js?v=20261101-billing-preparing-button",
+  "./app.js?v=20261120-save-session",
+  "./monthly-billing.js?v=20261120-save-session",
   "./monthly-billing.css?v=20261101-billing-preparing-button",
   "./vendor/supabase.min.js?v=2.112.2",
   "./manifest.webmanifest",

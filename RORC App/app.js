@@ -19,8 +19,32 @@ const drawerAvatar = document.getElementById("drawerAvatar");
 const drawerUserEmail = document.getElementById("drawerUserEmail");
 let linkedAccountChoices = [];
 let selectedAccountIsPrimary = true;
+async function freshAppToken() {
+  const userId = currentAuthSession?.user?.id;
+  const memberId = appState.authMemberId;
+  if (!userId) throw new Error("Sign in to continue.");
+  const client = await createSupabaseClient();
+  // getSession waits for the SDK's refresh lock and renews an expiring token.
+  const { data, error } = await client.auth.getSession();
+  if (error) throw new Error("Could not renew your session. Check your connection and try again.");
+  if (!data.session || data.session.user.id !== userId || currentAuthSession?.user?.id !== userId || appState.authMemberId !== memberId) {
+    throw new Error("Your sign-in changed. Reopen this screen before continuing.");
+  }
+  return data.session.access_token;
+}
+
+async function appApiFetch(input, options = {}, send = window.fetch.bind(window)) {
+  const url = new URL(input, window.location.href);
+  const headers = new Headers(options.headers);
+  if (url.origin === window.location.origin && url.pathname.startsWith("/api/") && headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${await freshAppToken()}`);
+    return send(input, { ...options, headers });
+  }
+  return send(input, options);
+}
+
 function accountScopedFetch(input, options) {
-  return window.RORC_SUPABASE?.scopedFetch ? window.RORC_SUPABASE.scopedFetch(input, options) : window.fetch(input, options);
+  return appApiFetch(input, options, window.RORC_SUPABASE?.scopedFetch);
 }
 const supabaseSettings = window.RORC_SUPABASE_CONFIG || {};
 const NAVIGATION_ICON_MARKUP = Object.freeze({
@@ -559,7 +583,7 @@ const routes = {
     template: "feedbackTemplate",
     afterRender: () => window.RORC_CLOSURE_CREDITS.mount({
       root: document.getElementById("feedbackContent"),
-      token: () => currentAuthSession?.access_token || "",
+      token: freshAppToken,
       confirm: openLinkedDeleteDialog
     })
   },
@@ -568,7 +592,7 @@ const routes = {
     template: "feedbackTemplate",
     afterRender: () => window.RORC_MONTHLY_BILLING.mount({
       root: document.getElementById("feedbackContent"),
-      token: () => currentAuthSession?.access_token || "",
+      token: freshAppToken,
       confirm: openLinkedDeleteDialog,
       openPayments: (month) => {
         appState.masterLogsBillingMonth = month;
@@ -807,7 +831,7 @@ async function downloadMemberContact(member, button = null) {
     button.textContent = "Opening Contact...";
   }
   try {
-    const response = await fetch("/api/member-contact", {
+    const response = await appApiFetch("/api/member-contact", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -1495,7 +1519,7 @@ async function submitFeedback(event) {
   setFeedbackResult("Sending feedback...");
 
   try {
-    const response = await fetch("/api/app-feedback", {
+    const response = await appApiFetch("/api/app-feedback", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1539,7 +1563,7 @@ function bindFeedbackActions() {
 
 async function loadAutomationSettings() {
   const token = currentAuthSession?.access_token || "";
-  const response = await fetch("/api/automation-settings", {
+  const response = await appApiFetch("/api/automation-settings", {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`
@@ -1556,7 +1580,7 @@ async function loadAutomationSettings() {
 
 async function saveAutomationSettings(settings) {
   const token = currentAuthSession?.access_token || "";
-  const response = await fetch("/api/automation-settings", {
+  const response = await appApiFetch("/api/automation-settings", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1574,7 +1598,7 @@ async function saveAutomationSettings(settings) {
 async function loadThermostatSystemAccess() {
   const token = currentAuthSession?.access_token || "";
   if (!token) return defaultThermostatSystemAccess();
-  const response = await fetch("/api/thermostat-system-access", {
+  const response = await appApiFetch("/api/thermostat-system-access", {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`
@@ -1798,7 +1822,7 @@ async function renderContractReviewsPage() {
     const token = currentAuthSession?.access_token || "";
     if (!token) throw new Error("Log in again before loading reviews.");
 
-    const response = await fetch("/api/signup-reviews", {
+    const response = await appApiFetch("/api/signup-reviews", {
       headers: {
         Authorization: `Bearer ${token}`
       }
@@ -2086,7 +2110,7 @@ async function submitContractReview(contractId, action, notes = "", reviewRow = 
     const token = currentAuthSession?.access_token || "";
     if (!token) throw new Error("Log in again before reviewing accounts.");
 
-    const response = await fetch("/api/signup-reviews", {
+    const response = await appApiFetch("/api/signup-reviews", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
@@ -2141,7 +2165,7 @@ async function fetchSponsorSubmissions() {
   const token = currentAuthSession?.access_token || "";
   if (!token) throw new Error("Log in again before loading sponsor submissions.");
 
-  const response = await fetch("/api/sponsor-submissions", {
+  const response = await appApiFetch("/api/sponsor-submissions", {
     headers: {
       Authorization: `Bearer ${token}`
     }
@@ -2462,7 +2486,7 @@ async function postSponsorSubmissionAction(payload) {
   const token = currentAuthSession?.access_token || "";
   if (!token) throw new Error("Log in again before updating sponsor submissions.");
 
-  const response = await fetch("/api/sponsor-submissions", {
+  const response = await appApiFetch("/api/sponsor-submissions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -2643,7 +2667,7 @@ function receptionistCountRows(values, emptyLabel) {
 
 async function fetchReceptionistAnalytics(range = "30d") {
   const token = currentAuthSession?.access_token || "";
-  const response = await fetch(`/api/receptionist-analytics?range=${encodeURIComponent(range)}`, {
+  const response = await appApiFetch(`/api/receptionist-analytics?range=${encodeURIComponent(range)}`, {
     headers: { Authorization: `Bearer ${token}` }
   });
   const body = await response.json().catch(() => ({}));
@@ -2653,7 +2677,7 @@ async function fetchReceptionistAnalytics(range = "30d") {
 
 async function fetchReceptionistReviews() {
   const token = currentAuthSession?.access_token || "";
-  const response = await fetch("/api/receptionist-reviews", {
+  const response = await appApiFetch("/api/receptionist-reviews", {
     headers: { Authorization: `Bearer ${token}` }
   });
   const body = await response.json().catch(() => ({}));
@@ -2759,7 +2783,7 @@ async function saveReceptionistReview(form, markCorrect = false) {
   submitButtons.forEach((button) => { button.disabled = true; });
   try {
     const token = currentAuthSession?.access_token || "";
-    const response = await fetch("/api/receptionist-reviews", {
+    const response = await appApiFetch("/api/receptionist-reviews", {
       method: "PATCH",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -2952,7 +2976,7 @@ function bindAskRorc() {
     questionInput.readOnly = true;
     status.textContent = "Getting an answer…";
     try {
-      const response = await fetch("/api/ask-rorc", {
+      const response = await appApiFetch("/api/ask-rorc", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${currentAuthSession?.access_token || ""}`,
@@ -2986,7 +3010,7 @@ function communicationsAuthHeaders(json = false) {
 }
 
 async function communicationsRequest(path = "", options = {}) {
-  const response = await fetch(`/api/communications${path}`, {
+  const response = await appApiFetch(`/api/communications${path}`, {
     ...options,
     headers: { ...communicationsAuthHeaders(Boolean(options.body)), ...(options.headers || {}) }
   });
@@ -3005,7 +3029,7 @@ async function loadSmsPreferences({ force = false } = {}) {
 
   communicationsState.preferencesLoading = true;
   try {
-    const response = await fetch("/api/sms-preferences", {
+    const response = await appApiFetch("/api/sms-preferences", {
       headers: communicationsAuthHeaders()
     });
     const body = await response.json().catch(() => ({}));
@@ -3151,7 +3175,7 @@ async function saveSmsBookingAiSetting(event) {
   toggle.disabled = true;
   if (status) status.textContent = "Saving…";
   try {
-    const response = await fetch("/api/sms-preferences", { method: "PATCH", headers: { ...communicationsAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ action: "set_booking_ai", enabled }) });
+    const response = await appApiFetch("/api/sms-preferences", { method: "PATCH", headers: { ...communicationsAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify({ action: "set_booking_ai", enabled }) });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || !body.success) throw new Error(body.error || "Could not save AI text assistant.");
     communicationsState.bookingAi = body.bookingAi;
@@ -3665,7 +3689,7 @@ function completeCommunicationCall(status = "Call ended") {
 }
 
 async function fetchCommunicationsVoiceToken() {
-  const response = await fetch("/api/communications-voice-token", {
+  const response = await appApiFetch("/api/communications-voice-token", {
     headers: communicationsAuthHeaders()
   });
   const body = await response.json().catch(() => ({}));
@@ -3911,7 +3935,7 @@ async function fetchAdminNotes({ includeArchived = false } = {}) {
   if (!token || !isAccountManager(appUserSession)) return [];
 
   const query = includeArchived ? "?includeArchived=1" : "";
-  const response = await fetch(`/api/admin-notes${query}`, {
+  const response = await appApiFetch(`/api/admin-notes${query}`, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`
@@ -3932,7 +3956,7 @@ async function createAdminNote(noteText) {
     throw new Error("Missing session token.");
   }
 
-  const response = await fetch("/api/admin-notes", {
+  const response = await appApiFetch("/api/admin-notes", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -3955,7 +3979,7 @@ async function updateAdminNote(id, patch) {
     throw new Error("Missing session token.");
   }
 
-  const response = await fetch("/api/admin-notes", {
+  const response = await appApiFetch("/api/admin-notes", {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -4727,7 +4751,7 @@ async function createStripeInvoiceForBillingItems({
   if (setMessage) setMessage(mode === "paid" ? "Creating paid Stripe invoice..." : "Creating and sending Stripe invoice...");
 
   try {
-    const response = await fetch("/api/create-stripe-invoice", {
+    const response = await appApiFetch("/api/create-stripe-invoice", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -4779,7 +4803,7 @@ async function syncStripeInvoiceStatusesForBillingItems({
   if (setMessage) setMessage("Refreshing Stripe status...");
 
   try {
-    const response = await fetch("/api/create-stripe-invoice", {
+    const response = await appApiFetch("/api/create-stripe-invoice", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -6168,7 +6192,7 @@ async function mutateScheduledMemberMessage(id, action) {
   if (!token) throw new Error("Please sign in again before updating the scheduled message.");
 
   const method = action === "delete" ? "DELETE" : "PATCH";
-  const response = await fetch(`/api/message-history?id=${encodeURIComponent(id)}`, {
+  const response = await appApiFetch(`/api/message-history?id=${encodeURIComponent(id)}`, {
     method,
     headers: {
       "Content-Type": "application/json",
@@ -6472,7 +6496,7 @@ function setMessageRecipientSummary({ includeText = false } = {}) {
 
 async function sendMemberMessage(payload) {
   const token = currentAuthSession?.access_token || "";
-  const response = await fetch("/api/send-member-message", {
+  const response = await appApiFetch("/api/send-member-message", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -6987,7 +7011,7 @@ async function fetchThermostatStatus({ force = false } = {}) {
   if (!token) return thermostatStatus;
 
   const statusUrl = force ? "/api/thermostat-status?refresh=1" : "/api/thermostat-status";
-  const response = await fetch(statusUrl, {
+  const response = await appApiFetch(statusUrl, {
     headers: {
       Authorization: `Bearer ${token}`
     }
@@ -7044,7 +7068,7 @@ async function verifyThermostatRuntimeForRecord({ systemType, startAt, endAt }) 
     throw new Error("You must be signed in to verify runtime.");
   }
 
-  const response = await fetch("/api/verify-heater-runtime", {
+  const response = await appApiFetch("/api/verify-heater-runtime", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -8116,7 +8140,7 @@ async function refreshContractReviewBadge() {
   const token = currentAuthSession?.access_token || "";
   if (!token) return;
 
-  const response = await fetch("/api/signup-reviews", {
+  const response = await appApiFetch("/api/signup-reviews", {
     headers: {
       Authorization: `Bearer ${token}`
     }
@@ -8142,7 +8166,7 @@ async function refreshSponsorSubmissionsBadge() {
   const token = currentAuthSession?.access_token || "";
   if (!token) return;
 
-  const response = await fetch("/api/sponsor-submissions?summary=1", {
+  const response = await appApiFetch("/api/sponsor-submissions?summary=1", {
     headers: {
       Authorization: `Bearer ${token}`
     }
@@ -8174,7 +8198,7 @@ async function refreshRentalReviewsBadge() {
   const token = currentAuthSession?.access_token || "";
   if (!token) return;
 
-  const response = await fetch("/api/rental-reviews", {
+  const response = await appApiFetch("/api/rental-reviews", {
     headers: { Authorization: `Bearer ${token}` }
   });
   const body = await response.json().catch(() => ({}));
@@ -8468,7 +8492,7 @@ function openLinkedDeleteDialog({
 async function fetchLinkedCalendarEventIdForRental(rentalRequestId) {
   const token = currentAuthSession?.access_token || "";
   if (!token || !rentalRequestId) return "";
-  const res = await fetch("/api/events", {
+  const res = await appApiFetch("/api/events", {
     headers: { Authorization: `Bearer ${token}` }
   });
   const body = await res.json().catch(() => ({}));
@@ -8592,7 +8616,7 @@ async function renderRentalReviewsPage() {
     const token = currentAuthSession?.access_token || "";
     if (!token) throw new Error("Sign in to view rental requests.");
 
-    const res  = await fetch("/api/rental-reviews", { headers: { Authorization: `Bearer ${token}` } });
+    const res  = await appApiFetch("/api/rental-reviews", { headers: { Authorization: `Bearer ${token}` } });
     const body = await res.json().catch(() => ({}));
     if (!res.ok || body.success === false) throw new Error(body.error || "Could not load rental requests.");
 
@@ -8612,7 +8636,7 @@ async function fetchRentalRequestsForAdmin() {
   const token = currentAuthSession?.access_token || "";
   if (!token) throw new Error("Sign in to view rental requests.");
 
-  const res = await fetch("/api/rental-reviews", { headers: { Authorization: `Bearer ${token}` } });
+  const res = await appApiFetch("/api/rental-reviews", { headers: { Authorization: `Bearer ${token}` } });
   const body = await res.json().catch(() => ({}));
   if (!res.ok || body.success === false) throw new Error(body.error || "Could not load rental requests.");
 
@@ -8969,7 +8993,7 @@ async function unattachRentalFromAccount(rentalId, root, button) {
 async function sendRentalAccountClaimPatch(payload) {
   const token = currentAuthSession?.access_token || "";
   if (!token) throw new Error("Please sign in again before updating rental accounts.");
-  const res = await fetch("/api/rental-reviews", {
+  const res = await appApiFetch("/api/rental-reviews", {
     method: "PATCH",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload)
@@ -9612,7 +9636,7 @@ async function submitRentalBill(rentalId, button, root) {
 async function sendRentalBillingAction(payload) {
   const token = currentAuthSession?.access_token || "";
   if (!token) throw new Error("Please sign in again before updating billing.");
-  const res = await fetch("/api/rental-reviews", {
+  const res = await appApiFetch("/api/rental-reviews", {
     method: "PATCH",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify(payload)
@@ -9700,7 +9724,7 @@ async function submitRentalThermostatAction(button, root) {
   try {
     const token = currentAuthSession?.access_token || "";
     if (!token) throw new Error("Please sign in again before updating thermostat review.");
-    const res = await fetch("/api/rental-reviews", {
+    const res = await appApiFetch("/api/rental-reviews", {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({
@@ -9822,7 +9846,7 @@ async function reviewRentalChangeRequest(button, root) {
   try {
     const token = currentAuthSession?.access_token || "";
     if (!token) throw new Error("Please sign in again before reviewing.");
-    const res = await fetch("/api/rental-reviews", {
+    const res = await appApiFetch("/api/rental-reviews", {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ changeRequestId, action, reviewNotes })
@@ -10698,7 +10722,7 @@ async function submitRentalEdit(id, root) {
     if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "Saving..."; }
 
     const token = currentAuthSession?.access_token || "";
-    const res = await fetch("/api/rental-reviews", {
+    const res = await appApiFetch("/api/rental-reviews", {
       method: "PATCH",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ id, ...payload })
@@ -10803,7 +10827,7 @@ async function deleteRentalRequest(id, root) {
     const token = currentAuthSession?.access_token || "";
     if (!token) throw new Error("Please sign in again before deleting.");
 
-    const res = await fetch("/api/rental-reviews", {
+    const res = await appApiFetch("/api/rental-reviews", {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ id, deleteLinkedEvent: deleteCalendarToo })
@@ -10851,7 +10875,7 @@ async function submitRentalStatusChange(id, status, notes, root) {
     const payload = { id, status };
     if (typeof notes === "string") payload.adminNotes = notes;
 
-    const res   = await fetch("/api/rental-reviews", {
+    const res   = await appApiFetch("/api/rental-reviews", {
       method: "PATCH",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify(payload)
@@ -11198,7 +11222,7 @@ async function fetchCalendarEventRequests({ includeEvents = false, mineOnly = fa
   if (mineOnly) params.set("scope", "mine");
   const query = params.toString();
   const url = `/api/calendar-event-requests${query ? `?${query}` : ""}`;
-  const response = await fetch(url, {
+  const response = await appApiFetch(url, {
     headers: { Authorization: `Bearer ${token}` }
   });
   const body = await response.json().catch(() => ({}));
@@ -12937,7 +12961,7 @@ async function loadCalRentalInfo(root, rentalRequestId) {
   try {
     const token = currentAuthSession?.access_token || "";
     if (!token) return;
-    const res = await fetch("/api/rental-reviews", {
+    const res = await appApiFetch("/api/rental-reviews", {
       headers: { Authorization: `Bearer ${token}` }
     });
     const body = await res.json();
@@ -13213,7 +13237,7 @@ async function saveCalendarEvent(root) {
       const rentalPayload = existingRentalId && modal.dataset.rentalLoaded !== "true"
         ? collectCalendarRentalSchedulePayload(rentalDefaults)
         : collectCalendarRentalPayload(root, rentalDefaults);
-      const rrRes = await fetch("/api/rental-reviews", {
+      const rrRes = await appApiFetch("/api/rental-reviews", {
         method: existingRentalId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(existingRentalId ? { id: existingRentalId, ...rentalPayload } : rentalPayload)
@@ -13265,7 +13289,7 @@ async function saveCalendarEvent(root) {
               rentalAccessStart: "",
               rentalAccessEnd: ""
             });
-            const rrRes = await fetch("/api/rental-reviews", {
+            const rrRes = await appApiFetch("/api/rental-reviews", {
               method: "POST",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
               body: JSON.stringify(rentalPayload)
@@ -13276,14 +13300,14 @@ async function saveCalendarEvent(root) {
             }
             itemPayload.rental_request_id = rrBody.id;
           }
-          const res = await fetch("/api/events", {
+          const res = await appApiFetch("/api/events", {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
             body: JSON.stringify(itemPayload)
           });
           const body = await res.json().catch(() => ({}));
           if ((!res.ok || body.success === false) && isRentalEvent && itemPayload.rental_request_id) {
-            await fetch("/api/rental-reviews", {
+            await appApiFetch("/api/rental-reviews", {
               method: "DELETE",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
               body: JSON.stringify({ id: itemPayload.rental_request_id, deleteLinkedEvent: false })
@@ -13295,7 +13319,7 @@ async function saveCalendarEvent(root) {
         if (failed) throw new Error(failed.body?.error || "Save failed");
       }
     } else {
-      const res  = await fetch("/api/events", {
+      const res  = await appApiFetch("/api/events", {
         method,
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload)
@@ -13421,7 +13445,7 @@ async function deleteCalendarEvent(root) {
       : [];
 
     for (const id of deleteIds) {
-      const res   = await fetch("/api/events", {
+      const res   = await appApiFetch("/api/events", {
         method: "DELETE",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ id })
@@ -13431,7 +13455,7 @@ async function deleteCalendarEvent(root) {
     }
 
     for (const linkedRentalId of deleteRentalIds) {
-      const rentalRes = await fetch("/api/rental-reviews", {
+      const rentalRes = await appApiFetch("/api/rental-reviews", {
         method: "DELETE",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ id: linkedRentalId, deleteLinkedEvent: false })
@@ -13600,7 +13624,7 @@ async function fetchPrivilegedTimesheetEntries(viewName = "") {
   if (viewName) query.set("view", viewName);
   const endpoint = `/api/timesheet-entries${query.size ? `?${query.toString()}` : ""}`;
 
-  const response = await fetch(endpoint, {
+  const response = await appApiFetch(endpoint, {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`
@@ -13621,7 +13645,7 @@ async function insertPrivilegedTimesheetEntries(entries) {
     throw new Error("Missing session token.");
   }
 
-  const response = await fetch("/api/timesheet-entries", {
+  const response = await appApiFetch("/api/timesheet-entries", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -13644,7 +13668,7 @@ async function signOutPrivilegedTimesheetEntry(entryId, signOutGuestsForMemberId
     throw new Error("Missing session token.");
   }
 
-  const response = await fetch("/api/timesheet-entries", {
+  const response = await appApiFetch("/api/timesheet-entries", {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -13668,7 +13692,7 @@ async function requestImmediateFacilityAutomation() {
   if (!token) return;
 
   try {
-    const response = await fetch("/api/request-facility-automation-dispatch", {
+    const response = await appApiFetch("/api/request-facility-automation-dispatch", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` }
     });
@@ -13723,7 +13747,7 @@ async function fetchMessageHistory() {
   const token = currentAuthSession?.access_token || "";
   if (!token || !isAccountManager(appUserSession)) return [];
 
-  const response = await fetch("/api/message-history", {
+  const response = await appApiFetch("/api/message-history", {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`
@@ -13982,7 +14006,7 @@ async function loadCalendarResource() {
   const token = currentAuthSession?.access_token || "";
   if (!token) throw new Error("Please sign in again.");
   const [eventsResult, requestsResult] = await Promise.all([
-    fetch("/api/events", { headers: { Authorization: `Bearer ${token}` } }),
+    appApiFetch("/api/events", { headers: { Authorization: `Bearer ${token}` } }),
     (isAccountManager(appUserSession) || canRequestCalendarEventChanges(appUserSession))
       ? fetchCalendarEventRequests()
       : Promise.resolve({ requests: [] })
@@ -14465,7 +14489,7 @@ async function loadGlobalMemberDirectory() {
   const token = currentAuthSession?.access_token || "";
   if (!canLoadFullDirectory || !token) return globalMemberDirectory;
 
-  const response = await fetch("/api/member-directory", {
+  const response = await appApiFetch("/api/member-directory", {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`
@@ -17212,7 +17236,7 @@ async function fetchAutomatedMessagePreview(payload) {
   const token = currentAuthSession?.access_token || "";
   if (!token) throw new Error("Log in again before confirming this automation.");
 
-  const response = await fetch("/api/communication-preview", {
+  const response = await appApiFetch("/api/communication-preview", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
@@ -17532,7 +17556,7 @@ async function updateMemberContact(member, updates) {
 
       if (token) {
         try {
-          const response = await fetch("/api/move-member-account", {
+          const response = await appApiFetch("/api/move-member-account", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -17686,7 +17710,7 @@ async function updateAccountStripeCustomerId(accountId, stripeCustomerId) {
     throw new Error("Missing session token.");
   }
 
-  const response = await fetch("/api/update-account-billing", {
+  const response = await appApiFetch("/api/update-account-billing", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -17811,7 +17835,7 @@ async function deleteSupabaseUserAccount(member) {
     throw new Error("Missing session token.");
   }
 
-  const response = await fetch("/api/delete-user-account", {
+  const response = await appApiFetch("/api/delete-user-account", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -18836,7 +18860,7 @@ function canMemberSignInNow(member, signedInAt) {
 async function loadGymLightsMode() {
   const token = currentAuthSession?.access_token || "";
   if (!token) return { mode: "full" };
-  const response = await fetch("/api/gym-lights-mode", {
+  const response = await appApiFetch("/api/gym-lights-mode", {
     method: "GET",
     headers: {
       Authorization: `Bearer ${token}`
@@ -18851,7 +18875,7 @@ async function loadGymLightsMode() {
 
 async function saveGymLightsMode(mode) {
   const token = currentAuthSession?.access_token || "";
-  const response = await fetch("/api/gym-lights-mode", {
+  const response = await appApiFetch("/api/gym-lights-mode", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
