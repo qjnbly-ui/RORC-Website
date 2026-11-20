@@ -2960,6 +2960,9 @@ function bindAskRorc() {
   const send = form.querySelector("button");
   const status = form.querySelector('[role="status"]');
   const history = [];
+  const memberId = appState.authMemberId;
+  const userId = currentAuthSession?.user?.id;
+  const sameAccount = () => memberId === appState.authMemberId && userId === currentAuthSession?.user?.id;
 
   function showMessage(role, content) {
     const message = document.createElement("p");
@@ -2972,6 +2975,10 @@ function bindAskRorc() {
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!sameAccount()) {
+      render("askRorc");
+      return;
+    }
     const question = questionInput.value.trim();
     if (!question || send.disabled) return;
 
@@ -2979,7 +2986,7 @@ function bindAskRorc() {
     questionInput.readOnly = true;
     status.textContent = "Getting an answer…";
     try {
-      const response = await appApiFetch("/api/ask-rorc", {
+      const response = await accountScopedFetch("/api/ask-rorc", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${currentAuthSession?.access_token || ""}`,
@@ -2991,6 +2998,7 @@ function bindAskRorc() {
       if (!response.ok || !result.reply) {
         throw new Error(result.error || "Could not get an answer. Try again.");
       }
+      if (!form.isConnected || !sameAccount()) return;
       history.push({ role: "user", content: question }, { role: "assistant", content: result.reply });
       showMessage("user", question);
       showMessage("assistant", result.reply);
@@ -3001,7 +3009,6 @@ function bindAskRorc() {
     } finally {
       questionInput.readOnly = false;
       send.disabled = false;
-      if (form.isConnected) questionInput.focus();
     }
   });
 }

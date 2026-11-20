@@ -10170,32 +10170,55 @@ textarea:focus-visible,
 
 .ask-rorc {
   display: grid;
-  gap: 1rem;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  width: 100%;
   max-width: 44rem;
+  height: max(16rem, calc(var(--app-viewport-height) - var(--app-bar-height) - var(--bottom-nav-height) - var(--safe-bottom)));
   margin: 0 auto;
-  padding: 1rem 1rem calc(5rem + env(safe-area-inset-bottom));
+  padding: 0.75rem;
 }
 
 .ask-rorc-log {
   display: grid;
+  align-content: start;
   gap: 0.75rem;
-  max-height: 45dvh;
+  min-width: 0;
   overflow-y: auto;
   overflow-wrap: anywhere;
+  overscroll-behavior-y: contain;
 }
 
-.ask-rorc-log p,
-.ask-rorc-form p {
+.ask-rorc p {
   margin: 0;
 }
 
 .ask-rorc-form {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
   gap: 0.5rem;
+}
+
+.ask-rorc-form label,
+.ask-rorc-form [role="status"] {
+  grid-column: 1 / -1;
+}
+
+.ask-rorc-form [role="status"]:empty {
+  display: none;
 }
 
 .ask-rorc-form textarea,
 .ask-rorc-form button {
   font: inherit;
+  font-size: max(1rem, 16px);
+  min-height: 44px;
   padding: 0.65rem;
+}
+
+.ask-rorc-form textarea {
+  width: 100%;
+  min-width: 0;
+  resize: none;
 }
