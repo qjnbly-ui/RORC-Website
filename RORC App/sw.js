@@ -1,4 +1,4 @@
-const CACHE_VERSION = "rorc-app-v123";
+const CACHE_VERSION = "rorc-app-v124";
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const NAVIGATION_CACHE = `${CACHE_VERSION}-navigation`;
 const OFFLINE_PAGE = "./index.html";
@@ -13,7 +13,7 @@ const APP_SHELL = [
   "./closure-credits.js?v=20260921-closure-credits",
   "/scripts/rorc-recurring-dates.js?v=20261001",
   "/scripts/rorc-account-form-draft.js?v=20261003-related-form-accounts",
-  "./app.js?v=20261101-billing-preparing-button",
+  "./app.js?v=20261120-heater-default",
   "./monthly-billing.js?v=20261101-billing-preparing-button",
   "./monthly-billing.css?v=20261101-billing-preparing-button",
   "./vendor/supabase.min.js?v=2.112.2",
