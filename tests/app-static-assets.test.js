@@ -211,17 +211,15 @@ test("Vercel builds all generated assets and applies explicit static cache heade
   assert.equal(workerHeader.headers[0].value, "public, max-age=0, must-revalidate");
 });
 
-test("refreshing a member session updates API and Realtime credentials in place", async () => {
+test("refreshing the app session keeps the attendance subscription in place", async () => {
   const source = read("RORC App/app.js");
   const start = source.match(/async function startRealtimeSyncController\(\) \{[\s\S]*?\n\}/)[0];
   const oldSession = { user: { id: "member" }, access_token: "old" };
   const freshSession = { user: { id: "member" }, access_token: "fresh" };
-  const tokens = [];
   let handler;
   let starts = 0;
   let reloads = 0;
   const client = {
-    realtime: { setAuth: token => tokens.push(token) },
     auth: { onAuthStateChange(callback) { handler = callback; return { data: { subscription: {} } }; } }
   };
   const context = vm.createContext({
@@ -237,7 +235,6 @@ test("refreshing a member session updates API and Realtime credentials in place"
   await vm.runInContext(start + "\nstartRealtimeSyncController()", context);
   handler("TOKEN_REFRESHED", freshSession);
   assert.equal(context.currentAuthSession, freshSession);
-  assert.deepEqual(tokens, ["old", "fresh"]);
   assert.equal(starts, 1);
   assert.equal(reloads, 0);
   handler("SIGNED_OUT", null);

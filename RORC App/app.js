@@ -2363,7 +2363,7 @@ function bindSponsorSubmissionActions() {
       finally { button.disabled = false; }
     });
   });
-  window.RORC_SPONSORS?.mount(document.getElementById("sponsorDirectory"), currentAuthSession?.access_token);
+  window.RORC_SPONSORS?.mount(document.getElementById("sponsorDirectory"), currentAuthSession?.access_token, appApiFetch);
 
   document.querySelectorAll("[data-sponsor-image]").forEach((image) => {
     const showFallback = () => {
@@ -14357,7 +14357,6 @@ async function startRealtimeSyncController() {
   stopRealtimeSyncController();
   const client = await createSupabaseClient();
   if (!client || !currentAuthSession) return;
-  await client.realtime.setAuth(currentAuthSession.access_token);
   const authListener = client.auth.onAuthStateChange((_event, session) => {
     if (!currentAuthSession) return;
     if (!session || session.user.id !== currentAuthSession.user.id) {
@@ -14367,7 +14366,6 @@ async function startRealtimeSyncController() {
       return;
     }
     currentAuthSession = session;
-    client.realtime.setAuth(session.access_token);
   });
   realtimeAuthSubscription = authListener.data.subscription;
 
