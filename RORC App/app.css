@@ -6408,6 +6408,8 @@ textarea:focus-visible,
   }
 
   .nav-item svg {
+    flex: none;
+    padding: 0;
     height: 24px;
     width: 24px;
   }

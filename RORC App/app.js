@@ -14335,7 +14335,15 @@ async function startRealtimeSyncController() {
   if (!client || !currentAuthSession) return;
   await client.realtime.setAuth(currentAuthSession.access_token);
   const authListener = client.auth.onAuthStateChange((_event, session) => {
-    if (session?.access_token) client.realtime.setAuth(session.access_token);
+    if (!currentAuthSession) return;
+    if (!session || session.user.id !== currentAuthSession.user.id) {
+      // Rebuild account-scoped state when this browser signs out or changes users.
+      currentAuthSession = null;
+      window.location.reload();
+      return;
+    }
+    currentAuthSession = session;
+    client.realtime.setAuth(session.access_token);
   });
   realtimeAuthSubscription = authListener.data.subscription;
 
