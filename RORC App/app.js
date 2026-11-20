@@ -18646,7 +18646,7 @@ function updateThermostatSystemFields(selectedButton) {
   const allowedRange = thermostatTemperatureRange(systemType);
 
   if (targetTemp) {
-    const previousValue = Number(targetTemp.value);
+    const previousValue = selectedButton ? Number(targetTemp.value) : NaN;
     targetTemp.replaceChildren(...thermostatTemperatureChoices(systemType).map((value) => {
       const option = document.createElement("option");
       option.value = String(value);
@@ -18655,7 +18655,7 @@ function updateThermostatSystemFields(selectedButton) {
     }));
     targetTemp.value = Number.isFinite(previousValue) && previousValue >= allowedRange.min && previousValue <= allowedRange.max
       ? String(previousValue)
-      : (isAc ? "66" : "74");
+      : (isAc ? "66" : "72");
   }
 
   if (costCopy) {
