@@ -1,13 +1,16 @@
 const twilio = require("twilio");
 const { getSmsBookingSettings } = require("../_sms-booking-settings");
 const { validateTwilioWebhook, sendTwiML } = require("../_twilio-webhook");
-const { consent } = require("../_rorc-sms");
-const { handleBookingSms, cancelPhoneDrafts } = require("../_sms-booking-store");
-const { recordIncomingMessage } = require("../_staff-communications");
+const { consent, normalizePhone } = require("../_rorc-sms");
+const { handleBookingSms, cancelPhoneDrafts, hasFacilityConversation } = require("../_sms-booking-store");
+const { recordIncomingMessage, RORC_PHONE } = require("../_staff-communications");
 
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).send("Method not allowed.");
   if (!validateTwilioWebhook(req)) return res.status(403).send("Invalid Twilio signature.");
+  const destination = normalizePhone(req.body?.To);
+  if (!destination || ![RORC_PHONE, normalizePhone(process.env.RORC_RECEPTIONIST_NUMBER)].includes(destination))
+    return res.status(403).send("Unknown RORC SMS destination.");
   const from = String(req.body?.From || "").trim();
   const body = String(req.body?.Body || "").trim().toLowerCase();
   const response = new twilio.twiml.MessagingResponse();
@@ -15,7 +18,8 @@ module.exports = async function handler(req, res) {
     console.error("Incoming staff message could not be saved.", error);
     return false;
   });
-  if (/^(start|unstop|yes|subscribe)$/i.test(body)) {
+  const inConversation = body === "yes" && await hasFacilityConversation(from, req.body?.MessageSid || req.body?.SmsMessageSid).catch(() => true);
+  if (/^(start|unstop|yes|subscribe)$/i.test(body) && !inConversation) {
     await consent(from, "opt_in", "inbound_sms");
     response.message("RORC texts are now enabled for requested information. Message frequency varies. Reply STOP to opt out or HELP for help.");
   } else if (/^(stop|stopall|unsubscribe|cancel|end|quit)$/i.test(body)) {

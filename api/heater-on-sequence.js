@@ -84,65 +84,66 @@ async function handler(req, res) {
       await startThermostatRuntime({ entry, targetTemperatureF });
     }
 
-    if (silent || settings.enabled === false) {
-      return res.status(200).json({
-        success: true,
-        sentCount: 0,
-        silent: true,
-        heaterUseEntryId: entry.id,
-        targetTemperatureF
-      });
-    }
-
-    const requestedIds = Array.isArray(req.body?.memberIds)
-      ? req.body.memberIds.map((v) => String(v || "").trim()).filter(Boolean)
-      : [];
-
-    const targetIds = [...new Set(requestedIds)];
-    let sentCount = 0;
-    const errors = [];
-
-    if (targetIds.length) {
-      const members = await loadMembersByIds(targetIds);
-      const openBillingByMember = await loadOpenBillingTotalsByMember(targetIds);
-
-      if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
-        errors.push("Twilio credentials are not configured.");
-      } else {
-        for (const member of members) {
-          const to = normalizePhone(member.phone_number);
-          if (!to) {
-            errors.push(`${member.member_name || member.id}: no valid phone number`);
-            continue;
-          }
-
-          const openBillingCents = openBillingByMember.get(member.id) || 0;
-          const message = buildThermostatOnMessage({
-            systemType,
-            targetTemperatureF,
-            openBillingCents
-          });
-
-          try {
-            await sendTwilioText(to, message);
-            sentCount += 1;
-          } catch (error) {
-            errors.push(`${member.member_name || member.id}: ${error.message}`);
-          }
-        }
-      }
-    }
-
-    return res.status(200).json({
-      success: true,
-      sentCount,
-      warnings: errors,
-      heaterUseEntryId: entry.id,
-      targetTemperatureF
-    });
+    const result = await notifyThermostatOn({ settings, silent, entry, systemType, targetTemperatureF, memberIds: req.body?.memberIds });
+    return res.status(200).json(result);
   } catch (error) {
     return res.status(500).json({ success: false, error: error.message || "Server error" });
   }
+}
+
+async function notifyThermostatOn({ settings, silent, entry, systemType, targetTemperatureF, memberIds }) {
+  if (silent || settings.enabled === false) {
+    return {
+      success: true,
+      sentCount: 0,
+      silent: true,
+      heaterUseEntryId: entry.id,
+      targetTemperatureF
+    };
+  }
+
+  const targetIds = [...new Set((Array.isArray(memberIds) ? memberIds : []).map(id => String(id || "").trim()).filter(Boolean))];
+  let sentCount = 0;
+  const errors = [];
+
+  if (targetIds.length) {
+    const members = await loadMembersByIds(targetIds);
+    const openBillingByMember = await loadOpenBillingTotalsByMember(targetIds);
+
+    if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN) {
+      errors.push("Twilio credentials are not configured.");
+    } else {
+      for (const member of members) {
+        const to = normalizePhone(member.phone_number);
+        if (!to) {
+          errors.push(`${member.member_name || member.id}: no valid phone number`);
+          continue;
+        }
+
+        const openBillingCents = openBillingByMember.get(member.id) || 0;
+        const message = buildThermostatOnMessage({
+          systemType,
+          targetTemperatureF,
+          openBillingCents
+        });
+
+        try {
+          await sendTwilioText(to, message);
+          sentCount += 1;
+        } catch (error) {
+          errors.push(`${member.member_name || member.id}: ${error.message}`);
+        }
+      }
+    }
+  }
+
+  return {
+    success: true,
+    sentCount,
+    warnings: errors,
+    heaterUseEntryId: entry.id,
+    targetTemperatureF
+  };
 }
 
 async function startThermostatRuntime({ entry, targetTemperatureF }) {
@@ -469,3 +470,5 @@ async function supabaseRest(path) {
 module.exports = handler;
 module.exports.changeThermostatTemperature = changeThermostatTemperature;
 module.exports.startThermostatRuntime = startThermostatRuntime;
+module.exports.notifyThermostatOn = notifyThermostatOn;
+module.exports.getAutomationConfig = getAutomationConfig;
