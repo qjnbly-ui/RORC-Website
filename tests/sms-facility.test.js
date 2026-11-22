@@ -24,6 +24,10 @@ const confirmed=async (text,deps,last)=>{
 };
 
 for (const [text,temp,minutes,until] of [
+ ['Sign me in and warm the gym to 68 for an hour.',68,60,null],
+ ['Could you warm the room up to 68 for half an hour?',68,30,null],
+ ['Please check me in and please heat the building to sixty-seven for 45 minutes.',67,45,null],
+ ['Preheat the gym to 70 for one hour',70,60,null],
  ['Sign me in and set the gym to 68 for an hour',68,60,null],
  ['Could you check me in and warm up the gym to sixty-eight for half an hour?',68,30,null],
  ['check me in and turn the heater on at 70 for ninety minutes',70,90,null],
@@ -147,4 +151,19 @@ test('interrupted starts are recovered at zero runtime; failed shutdown stays el
   };
   await recoverUnconfirmedSmsStarts(rest,async args=>stops.push(args));
   assert.equal(stops[0].endAt,date);assert.equal(stops[0].heaterUseEntryId,'session');assert.equal(writes.length,1);
+});
+
+test('an unparsed control request stays out of public temperature lookup even if the interpreter is unavailable or misclassifies it',async()=>{
+  for(const interpret of [async()=>null,async()=>({kind:'other'}),async()=>{throw Error('timeout');},async()=>({kind:'plan',changes:{heat:'none',attendance:'none'}})]) {
+    const deps=fixture({interpret});
+    for(const text of ['Can you crank the heat a bit?', 'Sign me in and take the chill off the place', 'Please kick the heater on for a while']) {
+      const result=await turn(text,deps);
+      assert.equal(result.action,'clarify');
+      assert.match(result.reply,/check-in or the gym heater/);
+      assert.deepEqual(result.assistantState,{});
+    }
+    for(const text of ['What temperature is the gym?', 'How do I turn on the heater?', 'Can you tell me how warm the gym is?', 'Is the gym warm enough to check in?'])
+      assert.equal(await turn(text,deps),null);
+    assert.deepEqual(deps.calls,[]);
+  }
 });

@@ -9,6 +9,21 @@ function numeric(text) {
   return text.replace(/\b(forty|fifty|sixty|seventy|eighty)[ -](one|two|three|four|five|six|seven|eight|nine)\b/g, (_, tens, units) => numbers[tens]+numbers[units])
     .replace(/\b(one|two|three|four|five|six|seven|eight|nine|ten|fifteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\b/g, word => numbers[word]);
 }
+// Share the same clause boundaries for literal parsing and fallback routing.
+function requestClauses(text) {
+  return text.split(/\s+(?:and(?: then)?|then)\s+/).map(part => part
+    .replace(/^(?:(?:hey[, ]*|please |(?:could|can|would) you |i(?:'d like| want| need) (?:you )?to )+)/,'')
+    .replace(/\s+please$/, '').trim());
+}
+function requestsFacilityAction(input) {
+  const text=normalize(input).replace(/[,!]/g,' ').replace(/\s+/g,' ').trim();
+  // Informational and hypothetical questions still belong to the receptionist.
+  if (/^(?:(?:can|could|would) you (?:tell|explain|check (?:whether|if))|(?:what|how|when|why|where|if|is|are|am|can i|could i)\b)/.test(text)) return false;
+  return requestClauses(text).some(part =>
+    /^(?:check|sign|clock) (?:me|us) (?:in|out)\b/.test(part) ||
+    /^(?:warm|heat|preheat|heat up|warm up) (?:up |the |our |this )*(?:gym|room|building|place|center|facility)\b/.test(part) ||
+    /^(?:turn|switch|shut|set|adjust|raise|lower|start|stop|run|kick|bring|bump|crank)\b.*\b(?:heat|heater|thermostat|temp|temperature)\b/.test(part));
+}
 function literalPlan(input, pending) {
   let text = numeric(normalize(input)).replace(/[?,!]/g, ' ').replace(/\s+/g, ' ').trim();
   if (/\b(?:if|unless|later|tomorrow|except|instead of|not|never|don't|without|maybe|or|could i|how|what if|can i|fahrenheit or|celsius)\b/.test(text)) return null;
@@ -23,16 +38,17 @@ function literalPlan(input, pending) {
     minutes = duration === 'half an hour' ? 30 : (parseFloat(duration) || (/^an? /.test(duration) ? 1 : 0)) * (/h(?:ou)?r|hour/.test(duration) ? 60 : 1);
     return '';
   });
-  text = text.replace(/^(?:(?:hey[, ]*|please |could you |can you |would you |i(?:'d like| want| need) (?:you )?to )+)/,'').replace(/\s+please$/, '').trim();
-  if (pending && /^(?:actually )?(?:make (?:it|that) |set it (?:to )?|let'?s do )?\d+(?:\s*(?:°?f|degrees?))?$/.test(text))
-    return { temperature:Number(text.match(/\d+/)[0]), ...(minutes !== null ? {minutes} : {}) };
+  const clauses = requestClauses(text.trim());
+  const detail = clauses.length === 1 ? clauses[0] : '';
+  if (pending && /^(?:actually )?(?:make (?:it|that) |set it (?:to )?|let'?s do )?\d+(?:\s*(?:°?f|degrees?))?$/.test(detail))
+    return { temperature:Number(detail.match(/\d+/)[0]), ...(minutes !== null ? {minutes} : {}) };
   const changes = {};
-  for (const part of text.split(/\s+(?:and(?: then)?|then)\s+/)) {
+  for (const part of clauses) {
     if (/^(?:check|sign|clock) me in$|^(?:check|sign) in(?: please)?$/.test(part)) changes.attendance='in';
     else if (/^(?:check|sign|clock) me out$|^(?:check|sign) out$/.test(part)) changes.attendance='out';
     else if (/^(?:turn|shut|switch) (?:off (?:the )?(?:gym )?heat(?:er)?|(?:the )?(?:gym )?(?:heat(?:er)?|thermostat|it) off)$/.test(part)) changes.heat='off';
     else {
-      const match = part.match(/^(turn on (?:the )?(?:gym )?heat(?:er)?|(?:turn|switch) (?:the )?(?:gym )?heat(?:er)? on|start (?:the )?(?:gym )?heat(?:er)?|warm (?:up (?:the )?gym|(?:the )?gym up)|heat (?:up )?(?:the )?gym|set (?:the )?(?:gym|heat(?:er)?|thermostat)|turn it (?:up|down)|(?:raise|lower|adjust) (?:the )?(?:heat|thermostat))(?:\s+(?:to|at) (\d+)(?:\s*(?:degrees?|°f|f))?)?$/);
+      const match = part.match(/^(turn on (?:the )?(?:gym )?heat(?:er)?|(?:turn|switch) (?:the )?(?:gym )?heat(?:er)? on|start (?:the )?(?:gym )?heat(?:er)?|(?:warm|heat|preheat) (?:up )?(?:the )?(?:gym|room|building|center|facility)(?: up)?|set (?:the )?(?:gym|heat(?:er)?|thermostat)|turn it (?:up|down)|(?:raise|lower|adjust) (?:the )?(?:heat|thermostat))(?:\s+(?:to|at) (\d+)(?:\s*(?:degrees?|°f|f))?)?$/);
       if (!match) return null;
       changes.heat = /^(?:turn it|raise|lower|adjust)/.test(match[1]) ? 'adjust' : 'set';
       if (match[2]) changes.temperature = Number(match[2]);
@@ -68,4 +84,4 @@ async function semanticPlan(text, pending, fetcher=fetch) {
   for(const key of ['minutes','temperature','until']) if(parsed[key]!=null) changes[key]=parsed[key];
   return Object.keys(changes).length ? {kind:'plan', changes} : {kind:'clarify'};
 }
-module.exports={empty,normalize,acceptance,decline,literalPlan,semanticPlan};
+module.exports={empty,normalize,acceptance,decline,literalPlan,semanticPlan,requestsFacilityAction};
