@@ -58,7 +58,7 @@ test('signed Twilio thread selects an account, accepts plain yes, ignores redeli
   }
   assert.equal((await inbound('sign me in',900,false)).code,403);assert.equal(stored,0);
   assert.match((await inbound('Sign me in and warm the gym to 68 for an hour.')).xml,/Which account/);
-  const quoted=await inbound('the second one');assert.match(quoted.xml,/check you in and start the heater at 68°F for 60 minutes/);assert.match(quoted.xml,/\$34\.56 charged, \$4\.56 outstanding/);
+  const quoted=await inbound('the second one');assert.match(quoted.xml,/check you in under Member \(account #24\) and set the heater to 68°F for 60 minutes/);assert.match(quoted.xml,/\$34\.56 in heat this month and have \$4\.56 left to pay/);
   const yes=await inbound('yes',777);assert.match(yes.xml,/checked in.*offline/);assert.equal(accepted,1);
   await inbound('yes',777);assert.equal(accepted,1);
   const another=await inbound('set the heat to 70');assert.match(another.xml,/Which account/);

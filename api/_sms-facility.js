@@ -3,6 +3,9 @@ const {startThermostatRuntime, changeThermostatTemperature, notifyThermostatOn, 
 const {executeHeaterOff} = require('./heater-off-sequence');
 const {loadThermostatStatus} = require('./thermostat-status');
 const money = cents => '$' + (cents / 100).toFixed(2);
+const heatDollarsPerHour = 13;
+const cleanLabel = label => label.replace(/ · #+\s*/g, ' · #');
+const accountOptions = rows => rows.map((row,i)=>(i+1)+'. '+cleanLabel(row.label)).join('\n');
 const say = (reply, facility) => ({action:'clarify', reply, assistantState:facility ? {facility} : {}});
 const clarify = 'What would you like me to do with your check-in or the gym heater?';
 const rpc = (rest, name, args) => rest('rpc/'+name, {method:'POST', body:JSON.stringify(args)});
@@ -21,12 +24,12 @@ function selection(text, rows) {
   }));
   return matches.length===1 ? matches[0] : null;
 }
-function describe(plan) {
+function describe(plan, memberName) {
   const actions=[];
-  if(plan.attendance==='in') actions.push('check you in');
+  if(plan.attendance==='in') actions.push('check you in under '+memberName);
   if(plan.heat==='start' || plan.heat==='adjust') {
-    let setting=(plan.heat==='start'?'start the heater':'change the heater')+' at '+plan.temperature+'°F';
-    if(plan.minutes) setting+=' for '+plan.minutes+' minutes';
+    let setting='set the heater to '+plan.temperature+'°F';
+    if(plan.minutes) setting+=' for '+plan.minutes+(plan.minutes===1?' minute':' minutes');
     else if(plan.until) setting+=' until '+plan.until+' Pacific';
     else if(plan.heat==='start') setting+=' without a timer';
     actions.push(setting);
@@ -47,7 +50,7 @@ async function prepareFacility(text, context, deps) {
   if(switchAccount || chosen) {
     const rows=await deps.members(context.phone);
     if(switchAccount && !selection(text,rows))
-      return say('Which account should I use? '+rows.map((r,i)=>(i+1)+'. '+r.label).join('; '),
+      return say('Which account should I use?\n'+accountOptions(rows),
         {...pending,member:null,stage:'account',choices:rows.map(({member_id,label})=>({member_id,label}))});
     chosen=chosen || selection(text,rows);
   }
@@ -60,7 +63,7 @@ async function prepareFacility(text, context, deps) {
     if(interpreted?.kind==='decline' && pending) return say('Okay, I canceled that request.');
     if(interpreted?.kind==='plan') changes=interpreted.changes;
     else if(interpreted?.kind==='clarify' || pending) return say(
-      pending?.stage==='account' ? 'Which account do you mean? '+pending.choices.map((r,i)=>(i+1)+'. '+r.label).join('; ') :
+      pending?.stage==='account' ? 'Which account do you mean?\n'+accountOptions(pending.choices) :
       pending?.stage==='confirm' ? 'I have not applied that request. Would you like to go ahead as quoted, change a detail, or cancel?' : clarify,
       // Never leave a previous quote executable after an ambiguous edit.
       pending?.stage==='confirm' ? {...pending,stage:'details'} : pending);
@@ -80,7 +83,7 @@ async function prepareFacility(text, context, deps) {
   if(!member && rows.length===1 && !selectedId) member=rows[0];
   if(!member) {
     const choices=rows.map(({member_id,label})=>({member_id,label}));
-    return say('Which account should I use? '+choices.map((row,i)=>(i+1)+'. '+row.label).join('; '),
+    return say('Which account should I use?\n'+accountOptions(choices),
       {...plan,stage:'account',member:null,choices});
   }
   delete plan.choices;
@@ -102,8 +105,22 @@ async function prepareFacility(text, context, deps) {
   if(plan.heat==='none' && plan.attendance==='none') return say(clarify);
   Object.assign(plan,{stage:'confirm',revision:context.revision,account:snapshot.account,runtime:snapshot.runtime,month:snapshot.month,monthly:snapshot.monthly,owed:snapshot.owed});
   if(plan.heat==='start' && ![plan.monthly,plan.owed].every(Number.isSafeInteger)) return say('I couldn’t retrieve the monthly heat balance. Please try again.');
-  const statement=plan.heat==='start' ? ' Heat this month: '+money(plan.monthly)+' charged, '+money(plan.owed)+' outstanding. Heat costs $13/hour.' : '';
-  return say(member.label+'.'+statement+' Shall I '+describe(plan)+'?',plan);
+  const [fullName, , number] = cleanLabel(member.label).split(' · ');
+  const accountName = rows.length > 1 && number ? fullName+' (account '+number+')' : fullName;
+  const greeting = 'Hey '+fullName.trim().split(/\s+/)[0]+', ';
+  const action = describe(plan, accountName);
+  const accountSuffix = plan.attendance==='in' ? '' : ' for '+accountName;
+  if(plan.heat!=='start') return say(greeting+'should I '+action+accountSuffix+'?',plan);
+
+  const balance = plan.monthly===plan.owed
+    ? 'your heat balance for this month is '+money(plan.owed)+'.'
+    : 'you’ve used '+money(plan.monthly)+' in heat this month and have '+money(plan.owed)+' left to pay.';
+  let rate = 'Heat is $'+heatDollarsPerHour+' an hour';
+  if(plan.minutes) {
+    const estimate = money(Math.ceil(plan.minutes * heatDollarsPerHour * 100 / 60));
+    rate += ', so '+plan.minutes+(plan.minutes===1?' minute':' minutes')+' would add about '+estimate;
+  }
+  return say(greeting+balance+' '+rate+'. Should I '+action+accountSuffix+'?',plan);
 }
 
 async function equipmentReady(heat, rest) {

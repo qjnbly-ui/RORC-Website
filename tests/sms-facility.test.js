@@ -37,8 +37,8 @@ for (const [text,temp,minutes,until] of [
 ]) test(text,async()=>{
   const deps=fixture(),result=await turn(text,deps),p=result.assistantState.facility;
   assert.deepEqual([p.heat,p.temperature,p.minutes,p.until],['start',temp,minutes,until]);
-  assert.match(result.reply,/\$28\.50 charged, \$12\.50 outstanding/);
-  assert.match(result.reply,/\$13\/hour/);assert.equal(deps.calls.length,0);
+  assert.match(result.reply,/\$28\.50 in heat this month and have \$12\.50 left to pay/);
+  assert.match(result.reply,/\$13 an hour/);assert.equal(deps.calls.length,0);
 });
 
 for (const text of ['yes','Sure!','Sounds good','go right ahead','yeah, please','Okay, thanks','please do','that works for me','yep','I agree','let’s do it','absolutely']) test('accepts '+text,async()=>{
@@ -132,7 +132,7 @@ test('structured interpretation can understand indirect requests and nonliteral 
   t.after(()=>{if(old===undefined)delete process.env.GROQ_API_KEY;else process.env.GROQ_API_KEY=old;});
   const deps=fixture({interpret:semanticPlan});
   const q=await turn('Mark me here and warm the place to 67 for three quarters of an hour',deps);
-  assert.match(q.reply,/check you in and start the heater at 67°F for 45 minutes/);
+  assert.match(q.reply,/check you in under Jane and set the heater to 67°F for 45 minutes/);
   deps.interpret=async()=>({kind:'accept',changes:{temperature:80}});
   const accepted=await turn('That arrangement suits me perfectly',deps,q);
   assert.equal(accepted.plan.temperature,67);
@@ -166,4 +166,22 @@ test('an unparsed control request stays out of public temperature lookup even if
       assert.equal(await turn(text,deps),null);
     assert.deepEqual(deps.calls,[]);
   }
+});
+
+test('single account quotes the name, equal balances once and the estimated timed charge',async()=>{
+  const deps=fixture({members:async()=>[{member_id:'member-a',label:'Quentin Nichols · Account Manager · ##1'}]});
+  Object.assign(deps.snapshot,{monthly:3650,owed:3650});
+  const q=await turn('sign me in and set the gym to 68 for 15 minutes',deps);
+  assert.equal(q.reply,'Hey Quentin, your heat balance for this month is $36.50. Heat is $13 an hour, so 15 minutes would add about $3.25. Should I check you in under Quentin Nichols and set the heater to 68°F for 15 minutes?');
+  const noTimer=await turn('set the gym to 68',deps);
+  assert.doesNotMatch(noTimer.reply,/would add/);
+  assert.match(noTimer.reply,/without a timer/);
+});
+test('shared account choices normalize stored account numbers',async()=>{
+  const deps=fixture({members:async()=>[member,{...other,label:'Jane · Special Access Account · ##205'}]});
+  const menu=await turn('check me in',deps);
+  assert.match(menu.reply,/\n2\. Jane · Special Access Account · #205/);
+  assert.doesNotMatch(menu.reply,/##/);
+  const quote=await turn('the second one',deps,menu);
+  assert.match(quote.reply,/under Jane \(account #205\)/);
 });
