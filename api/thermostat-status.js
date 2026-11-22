@@ -419,3 +419,5 @@ async function supabaseRest(path) {
 
   return response.json();
 }
+
+module.exports.loadThermostatStatus = loadThermostatStatus;

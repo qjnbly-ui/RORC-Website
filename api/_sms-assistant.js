@@ -1,5 +1,5 @@
 // SMS uses the same public knowledge and live answers as the voice receptionist.
-// Only the existing authenticated booking workflow may propose database changes.
+// Facility actions are handled by the account-scoped SMS facility workflow.
 const {answer,smsMessageFor}=require('../.build/receptionist/public-assistant');
 const {classifyIntent,fallbackIntent}=require('../.build/receptionist/router');
 const {normalizeFormAnswer}=require('../.build/receptionist/form-input');
@@ -51,7 +51,7 @@ async function interpretAssistant(text,history=[],context={},options={}) {
  if(state.handoff&&!/\b(?:ai|assistant)\b/i.test(text))return {action:'staff',reply:'',assistantState:state};
  if(state.handoff)state={};
  if(privateRequest(text))return conversational('For private account information, sign in to your RORC member dashboard: https://www.ruthobenchainrc.com/member-dashboard/ A texting number or shared PIN does not verify your account.',state);
- if(/^(?:hi|hello|hey|what can you do|help me)[!?.]*$/i.test(text))return conversational('I’m the RORC AI text assistant. I can answer questions about memberships, rentals, events and the facility, share links, help fill out applications, and prepare booking changes for your signed-in approval. What would you like help with?',state);
+ if(/^(?:hi|hello|hey|what can you do|help me)[!?.]*$/i.test(text))return conversational('I’m the RORC AI text assistant. I can check you in or out, help with the gym heater, answer questions about memberships, rentals, events and the facility, share links, help fill out applications, and prepare booking changes for your signed-in approval. What would you like help with?',state);
  const isQuestion=/^(?:how|what|when|where|why|is|are|do|does|can i|could i)\b/i.test(text);
  if(/^cancel (?:the )?form[.!]?$/i.test(text))return conversational('Form preparation canceled. Nothing has been submitted.');
  if(state.formSession&&!isQuestion)return formReply(state.formSession,text,context.phone,options);

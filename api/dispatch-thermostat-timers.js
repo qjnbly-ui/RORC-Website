@@ -146,6 +146,34 @@ async function dispatchDueTimers({
   };
 }
 
+// A webhook can terminate after reserving a billable runtime but before
+// recording Ecobee's acknowledgement. Never replay a start. End an
+// unconfirmed reservation at its start time so it accrues no usage charge.
+async function recoverUnconfirmedSmsStarts(rest, executeOff = executeHeaterOff, now = new Date()) {
+  const cutoff = new Date(now.getTime() - 3 * 60 * 1000).toISOString();
+  const params = new URLSearchParams({
+    select: "id,result",
+    status: "eq.confirmed",
+    "intent->assistantState->facility->>heat": "eq.start",
+    "result->>entry": "not.is.null",
+    "result->>startAt": "lt." + cutoff,
+    resolved_command: "is.null",
+    limit: "25"
+  });
+  const drafts = await rest("sms_booking_drafts?" + params);
+  for (const draft of drafts) {
+    try {
+      await executeOff({ requestedSystemType: "heat", heaterUseEntryId: draft.result.entry,
+        closeEntry: true, silent: true, endAt: draft.result.startAt });
+      await rest("sms_booking_drafts?id=eq." + encodeURIComponent(draft.id), {
+        method: "PATCH", body: JSON.stringify({resolved_command: {equipment: "reconciled"}})
+      });
+    } catch (error) {
+      console.error("Could not reconcile unconfirmed SMS heater start", draft.id, error.message);
+    }
+  }
+}
+
 async function handler(req, res) {
   if (req.method !== "GET") return res.status(405).json({ success: false, error: "Method not allowed" });
   if (!authorized(req)) return res.status(401).json({ success: false, error: "Unauthorized" });
@@ -154,6 +182,8 @@ async function handler(req, res) {
   }
 
   try {
+    const { rest } = require("./_sms-booking-store");
+    await recoverUnconfirmedSmsStarts(rest).catch(error => console.error("SMS heater recovery unavailable", error.message));
     const result = await dispatchDueTimers();
     return res.status(200).json({ success: true, ...result, completedAt: new Date().toISOString() });
   } catch (error) {
@@ -167,3 +197,4 @@ module.exports.authorized = authorized;
 module.exports.dispatchDueTimers = dispatchDueTimers;
 module.exports.isTimerDue = isTimerDue;
 module.exports.timerSchedule = timerSchedule;
+module.exports.recoverUnconfirmedSmsStarts = recoverUnconfirmedSmsStarts;
