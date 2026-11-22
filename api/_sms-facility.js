@@ -1,4 +1,4 @@
-const {empty, normalize, acceptance, decline, literalPlan, semanticPlan, requestsFacilityAction, checkoutTopic} = require('./_sms-facility-language');
+const {empty, normalize, acceptance, decline, literalPlan, semanticPlan, requestsFacilityAction, asksAboutCapability} = require('./_sms-facility-language');
 const {startThermostatRuntime, changeThermostatTemperature, notifyThermostatOn, getAutomationConfig} = require('./heater-on-sequence');
 const {executeHeaterOff} = require('./heater-off-sequence');
 const {loadThermostatStatus} = require('./thermostat-status');
@@ -38,15 +38,10 @@ function describe(plan, memberName) {
   if(plan.attendance==='out') actions.push('check you out');
   return actions.join(' and ');
 }
-const checkoutAnswers = {
-  other_checkout: 'By text, I can sign you out of your own visit. To sign out another member, an account manager can open Currently Signed In in the RORC app and tap Sign Out beside their name.',
-  self_checkout: 'Yes. Text me “sign me out” and I’ll confirm which visit to close.'
-};
 async function prepareFacility(text, context, deps) {
   const pending=context.assistantState?.facility;
   const clean=normalize(text);
-  const topic=checkoutTopic(clean);
-  if(topic) return say(checkoutAnswers[topic]);
+  if(asksAboutCapability(clean)) return null;
   if(pending && decline.test(clean)) return say('Okay, I canceled that request.');
   if(pending?.stage==='confirm' && acceptance.test(clean))
     return {action:'facility_accept', plan:pending};
@@ -63,8 +58,7 @@ async function prepareFacility(text, context, deps) {
   let changes=chosen || (pending?.stage==='details' && acceptance.test(clean)) ? {} : literalPlan(text, pending);
   if(!changes) {
     const interpreted=await (deps.interpret || semanticPlan)(text,pending).catch(()=>null);
-    if(interpreted?.kind==='other_checkout' || interpreted?.kind==='self_checkout')
-      return say(checkoutAnswers[interpreted.kind]);
+    if(interpreted?.kind==='capability') return null;
     if(interpreted?.kind==='accept' && pending?.stage==='confirm' && clean.length<=120 &&
         !/[?0-9]|\b(?:but|if|unless|instead|except|only|wait|no|not|don.t|later|change|actually|ignore|maybe|tomorrow|account)\b/i.test(clean))
       return {action:'facility_accept',plan:pending};

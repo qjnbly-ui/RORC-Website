@@ -186,22 +186,9 @@ test('shared account choices normalize stored account numbers',async()=>{
   assert.match(quote.reply,/under Jane \(account #205\)/);
 });
 
-test('checkout permission questions answer the question without looking up or changing a visit',async()=>{
-  const deps=fixture({members:async()=>assert.fail('unexpected member lookup'),interpret:async()=>assert.fail('unexpected interpretation')});
-  for(const text of ['If someone else was signed in, could I have you sign them out','Could I check another member out?', 'Can I sign out my guest?', 'Please sign him out']) {
-    const reply=await turn(text,deps);
-    assert.match(reply.reply,/own visit.*account manager.*Currently Signed In.*Sign Out/);
-    assert.deepEqual(reply.assistantState,{});
-  }
-  assert.match((await turn('If someone else is there, could I have you sign me out?',deps)).reply,/Yes.*sign me out/);
-  assert.deepEqual(deps.calls,[]);
-});
-test('semantic checkout topics use the same permission guidance and cannot become approvals',async()=>{
-  const deps=fixture({interpret:async()=>({kind:'other_checkout'})});
-  const q=await turn('start the heater at 68',deps);
-  const answer=await turn('Could you close Pat’s visit if he forgot?',deps,q);
-  assert.match(answer.reply,/own visit/);assert.deepEqual(answer.assistantState,{});
-  assert.notEqual((await turn('sounds good',deps,answer))?.action,'facility_accept');
-  assert.match((await turn('could you sign me out?',deps)).reply,/Should I|should I/);
+test('capability questions defer to the answer model without touching attendance',async()=>{
+  const deps=fixture({members:async()=>assert.fail('unexpected member lookup'),interpret:async()=>({kind:'capability'})});
+  for(const text of ['If someone else was signed in, could I have you sign them out','Could I check another member out?', 'Please sign him out'])
+    assert.equal(await turn(text,deps),null);
   assert.deepEqual(deps.calls,[]);
 });

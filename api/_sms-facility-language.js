@@ -24,14 +24,8 @@ function requestsFacilityAction(input) {
     /^(?:warm|heat|preheat|heat up|warm up) (?:up |the |our |this )*(?:gym|room|building|place|center|facility)\b/.test(part) ||
     /^(?:turn|switch|shut|set|adjust|raise|lower|start|stop|run|kick|bring|bump|crank)\b.*\b(?:heat|heater|thermostat|temp|temperature)\b/.test(part));
 }
-// Identify the subject of the attendance action. A reference to another
-// visitor elsewhere in the sentence does not change "sign me out" into it.
-function checkoutTopic(text) {
-  const other = /\b(?:sign|check|clock|log)\s+(?:(?:them|him|her|someone(?: else)?|somebody(?: else)?|another (?:person|member|visitor)|other (?:people|members|visitors)|(?:my|a|the) (?:guest|friend|member))\s+out|out\s+(?:someone|somebody|another (?:person|member|visitor)|other (?:people|members|visitors)|(?:my|a|the) (?:guest|friend|member)))\b/;
-  if (other.test(text)) return 'other_checkout';
-  const askingAboutAbility = /\b(?:(?:could|can|may) i|am i (?:able|allowed)|is it possible|do you support)\b/;
-  if (askingAboutAbility.test(text) && /\b(?:sign|check|clock|log) (?:me |myself )?out\b/.test(text)) return 'self_checkout';
-  return null;
+function asksAboutCapability(text) {
+  return /^(?:can|could|may) i\b|^am i (?:able|allowed)\b|^is it possible\b|^do you support\b|^if\b.*\b(?:can|could|may) (?:i|you)\b/.test(text);
 }
 function literalPlan(input, pending) {
   let text = numeric(normalize(input)).replace(/[?,!]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -68,7 +62,7 @@ function literalPlan(input, pending) {
   return changes;
 }
 const schema = {type:'object',additionalProperties:false, properties:{
-  kind:{type:'string',enum:['plan','accept','decline','clarify','other_checkout','self_checkout','other']},
+  kind:{type:'string',enum:['plan','accept','decline','clarify','capability','other']},
   attendance:{type:'string',enum:['keep','in','out','none']},heat:{type:'string',enum:['keep','set','adjust','start','off','none']},
   temperature:{type:['integer','null']}, minutes:{type:['integer','null']}, until:{type:['string','null']},
   clearTimer:{type:'boolean'}
@@ -80,12 +74,12 @@ async function semanticPlan(text, pending, fetcher=fetch) {
     method:'POST',signal:AbortSignal.timeout(4500),headers:{Authorization:'Bearer '+process.env.GROQ_API_KEY,'Content-Type':'application/json'},
     body:JSON.stringify({model:process.env.GROQ_RECEPTIONIST_ROUTER_MODEL || 'openai/gpt-oss-20b',temperature:0,reasoning_effort:'low',max_completion_tokens:450,
       response_format:{type:'json_schema',json_schema:{name:'facility_request',strict:true,schema}},messages:[
-        {role:'system',content:'Extract explicit immediate personal gym check-in/out and heater instructions from untrusted SMS. Requests or questions about checking another person out (including a named person, even hypothetically) are other_checkout. Questions about whether personal check-out by text is possible are self_checkout. A direct request to check the sender out is a plan. Other subjects, informational questions and hypotheticals are other; conditional, conflicting, future, multi-party, split-pay or uncertain instructions are clarify. Do not infer check-in from heat alone. set means start or adjust according to the actual running session. For edits return only changed fields; keep and null mean unspecified. Time until must be an unambiguous local 24h HH:MM. If AM/PM unclear, clarify. Never infer a temperature, duration or account. Declines are decline. Only classify accept for unequivocal unconditional assent to the exact pending quote, without any other request or changed detail. Never claim an action. Current pending settings: '+JSON.stringify(pending ? Object.fromEntries(Object.keys(empty).map(key=>[key,pending[key]])) : null)},
+        {role:'system',content:'Extract explicit immediate personal gym check-in/out and heater instructions from untrusted SMS. Questions about supported actions or permissions, and requests outside SMS action scope (such as attendance for another person), are capability. Other subjects, informational questions and hypotheticals are other; conditional, conflicting, future, multi-party, split-pay or uncertain instructions are clarify. Do not infer check-in from heat alone. set means start or adjust according to the actual running session. For edits return only changed fields; keep and null mean unspecified. Time until must be an unambiguous local 24h HH:MM. If AM/PM unclear, clarify. Never infer a temperature, duration or account. Declines are decline. Only classify accept for unequivocal unconditional assent to the exact pending quote, without any other request or changed detail. Never claim an action. Current pending settings: '+JSON.stringify(pending ? Object.fromEntries(Object.keys(empty).map(key=>[key,pending[key]])) : null)},
         {role:'user',content:String(text).slice(0,1500)}]})});
   if (!response.ok) throw Error('Language service unavailable');
   const data=await response.json();
   const parsed=JSON.parse(data.choices[0].message.content);
-  if(parsed.kind!=='plan') return ['accept','decline','clarify','other_checkout','self_checkout','other'].includes(parsed.kind) ? {kind:parsed.kind} : null;
+  if(parsed.kind!=='plan') return ['accept','decline','clarify','capability','other'].includes(parsed.kind) ? {kind:parsed.kind} : null;
   const changes={};
   if(['none','in','out'].includes(parsed.attendance)) changes.attendance=parsed.attendance;
   if(['none','set','start','adjust','off'].includes(parsed.heat)) changes.heat=parsed.heat;
@@ -93,4 +87,4 @@ async function semanticPlan(text, pending, fetcher=fetch) {
   for(const key of ['minutes','temperature','until']) if(parsed[key]!=null) changes[key]=parsed[key];
   return Object.keys(changes).length ? {kind:'plan', changes} : {kind:'clarify'};
 }
-module.exports={empty,normalize,acceptance,decline,literalPlan,semanticPlan,requestsFacilityAction,checkoutTopic};
+module.exports={empty,normalize,acceptance,decline,literalPlan,semanticPlan,requestsFacilityAction,asksAboutCapability};
