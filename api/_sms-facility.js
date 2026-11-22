@@ -1,4 +1,4 @@
-const {empty, normalize, acceptance, decline, literalPlan, semanticPlan} = require('./_sms-facility-language');
+const {empty, normalize, acceptance, decline, literalPlan, semanticPlan, requestsFacilityAction} = require('./_sms-facility-language');
 const {startThermostatRuntime, changeThermostatTemperature, notifyThermostatOn, getAutomationConfig} = require('./heater-on-sequence');
 const {executeHeaterOff} = require('./heater-off-sequence');
 const {loadThermostatStatus} = require('./thermostat-status');
@@ -64,10 +64,11 @@ async function prepareFacility(text, context, deps) {
       pending?.stage==='confirm' ? 'I have not applied that request. Would you like to go ahead as quoted, change a detail, or cancel?' : clarify,
       // Never leave a previous quote executable after an ambiguous edit.
       pending?.stage==='confirm' ? {...pending,stage:'details'} : pending);
+    else if(requestsFacilityAction(text)) return say(clarify);
     else return null;
   }
   const plan={...empty,...pending,...changes};
-  if(!pending && plan.heat==='none' && plan.attendance==='none') return null;
+  if(!pending && plan.heat==='none' && plan.attendance==='none') return requestsFacilityAction(text) ? say(clarify) : null;
   if(changes.minutes!=null) plan.until=null;
   if(changes.until!=null) plan.minutes=null;
   if(plan.heat==='off' || plan.heat==='none') Object.assign(plan,{temperature:null,minutes:null,until:null});
